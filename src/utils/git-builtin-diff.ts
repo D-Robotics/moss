@@ -18,9 +18,8 @@
  * `diff.<name>.command` at `false` instead of leaving the repo command in place.
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { envBeforeDotenv, isStartupEnvCaptured } from './startup-env.js';
+import { configLocationEnv, userConfigDir } from './config-location.js';
 
 /** Verified v3 script. Keep the text byte-for-byte. */
 export const GIT_BUILTIN_DIFF_SCRIPT = [
@@ -120,37 +119,6 @@ function errnoCode(err: unknown): string | undefined {
   if (!err || typeof err !== 'object' || !('code' in err)) return undefined;
   const code = err.code;
   return typeof code === 'string' ? code : undefined;
-}
-
-function configLocationEnv(): NodeJS.ProcessEnv {
-  if (!isStartupEnvCaptured()) return process.env;
-  const source: NodeJS.ProcessEnv = { ...envBeforeDotenv };
-  const live = process.env.MOSS_CONFIG_DIR;
-  if (live === undefined) delete source.MOSS_CONFIG_DIR;
-  else source.MOSS_CONFIG_DIR = live;
-  return source;
-}
-
-function homeFrom(env: NodeJS.ProcessEnv): string {
-  const named =
-    process.platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME || env.USERPROFILE;
-  if (typeof named === 'string' && named.trim()) return named.trim();
-  return os.homedir();
-}
-
-/** Same directory rules as workspace trust's user config dir. */
-function mossConfigDir(): string {
-  const env = configLocationEnv();
-  const explicit = env.MOSS_CONFIG_DIR;
-  if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
-  const home = homeFrom(env);
-  const base =
-    process.platform === 'win32'
-      ? (typeof env.APPDATA === 'string' && env.APPDATA.trim()) ||
-        path.join(home, 'AppData', 'Roaming')
-      : (typeof env.XDG_CONFIG_HOME === 'string' && env.XDG_CONFIG_HOME.trim()) ||
-        path.join(home, '.config');
-  return path.join(base, 'moss');
 }
 
 function ownedByCurrentUser(st: fs.Stats): boolean {
@@ -306,7 +274,7 @@ export function builtinExternalDiffCommand(): BuiltinExternalDiff {
   if (!shellAvailable()) {
     return { command: EXTERNAL_DIFF_DISABLED_COMMAND, disabled: true };
   }
-  const configDir = mossConfigDir();
+  const configDir = userConfigDir(configLocationEnv());
   if (!configDirIsSafe(configDir)) {
     return { command: EXTERNAL_DIFF_DISABLED_COMMAND, disabled: true };
   }

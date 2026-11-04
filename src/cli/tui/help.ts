@@ -67,9 +67,9 @@ export interface ShellCommand {
  *   - `SHELL_COMMAND_NAMES` is the guard that keeps the palette from offering
  *     anything else.
  *
- * Adding a command to the catalog advertises it everywhere at once, and
- * `test/tui-command-surface.spec.mjs` fails if any entry answers "unknown
- * command" or is missing from the palette for its own prefix.
+ * Adding a command to the catalog advertises it everywhere at once: it must
+ * answer in `moss help` and appear in the palette for its own prefix. There is
+ * no spec suite as of 2026-11-04; verify both surfaces by hand.
  */
 function toShellCommand(row: InteractiveCommandRow): ShellCommand {
   return {

@@ -475,7 +475,7 @@ export function buildCapabilityPromptLayer(match: TaskCapabilityMatch): string {
   const lines: string[] = ['## Task capability discovery'];
   if (match.deviceTask && match.deviceConfigured) {
     lines.push(
-      'This goal looks like a device/robotics task: use the device tools (device_info, device_exec, device_deploy, device_cameras…) and record device evidence.'
+      'This goal looks like a device/robotics task: use the device tools (device_probe with kind=info/processes/resources/temperature/network/cameras/robotics_status, device_exec, device_deploy…) and record device evidence.'
     );
   }
   if (skills.length > 0) {

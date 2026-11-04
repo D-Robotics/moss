@@ -74,11 +74,33 @@ function resolveChoice(
   return text || '(empty)';
 }
 
+/**
+ * `questions[]` is the declared shape. A single question arrives at the top
+ * level from models trained on the Cursor-style ask tool; accepting it costs
+ * nothing and saves the turn that `questions array is empty` used to burn.
+ * The alias stays undeclared on purpose: the tool payload has a byte budget
+ * and models that follow the schema never need it.
+ */
+function collectQuestions(input: Record<string, unknown>): unknown[] {
+  if (Array.isArray(input.questions)) return input.questions;
+  if (typeof input.question === 'string' && input.question.trim()) {
+    return [
+      {
+        question: input.question,
+        ...(Array.isArray(input.options) ? { options: input.options } : {}),
+        ...(input.multi_select !== undefined ? { multi_select: input.multi_select } : {}),
+      },
+    ];
+  }
+  return [];
+}
+
 export const askUserQuestionTool: Tool = {
   name: 'ask_user_question',
   description:
     "Ask 1–3 structured questions when the user's answer would change the approach. Do not ask permission to continue a plan you already chose. Put a recommended option first and mark it (Recommended).",
   metadata: {
+    classification: { discovery: true },
     sideEffectClass: 'runtime_state',
     planMode: 'allow',
     retainResult: true,
@@ -118,8 +140,13 @@ export const askUserQuestionTool: Tool = {
     required: ['questions'],
   },
   async execute(input, ctx) {
-    const raw = Array.isArray(input.questions) ? input.questions : [];
-    if (raw.length === 0) return 'Error: questions array is empty.';
+    const raw = collectQuestions(input as Record<string, unknown>);
+    if (raw.length === 0) {
+      return (
+        'Error: no questions to ask. Pass questions: [{question, options?: [{label}]}] ' +
+        '(a single top-level {question, options} also works).'
+      );
+    }
     if (raw.length > 5)
       return 'Error: too many questions (max 5). Ask the highest-priority ones first.';
 

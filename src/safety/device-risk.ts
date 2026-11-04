@@ -47,6 +47,12 @@ export interface DeviceOperationInput {
   remotePath?: string;
   startCommand?: string;
   healthCommand?: string;
+  /**
+   * SSH login user of the device session. `~`/`$HOME` expand against it:
+   * boards default to root, whose home is the protected `/root` tree. When
+   * absent, the legacy `/home/_user` placeholder keeps prior behavior.
+   */
+  remoteUser?: string;
 }
 
 const READONLY_DEVICE_TOOLS = new Set([
@@ -332,6 +338,26 @@ function expandHome(raw: string): string {
   if (path.startsWith('$HOME/')) return `/home/_user/${path.slice('$HOME/'.length)}`;
   if (path.startsWith('${HOME}/')) return `/home/_user/${path.slice('${HOME}/'.length)}`;
   return path;
+}
+
+const UNKNOWN_USER_HOME = '/home/_user';
+
+function homeDirForUser(remoteUser: string | undefined): string {
+  const user = remoteUser?.trim();
+  if (!user) return UNKNOWN_USER_HOME;
+  return user === 'root' ? '/root' : `/home/${user}`;
+}
+
+/**
+ * G4: boards default to root, where `~` is /root (a lockout tree). Expand the
+ * session's home references up front so `rm -rf ~/data` on a root session is
+ * judged by the path it actually touches. Unknown users keep the legacy
+ * placeholder (no expansion here; `expandHome` inside `isLockoutPath` still
+ * handles bare `~` for them).
+ */
+function expandHomeRefs(text: string, homeDir: string): string {
+  if (!text || homeDir === UNKNOWN_USER_HOME) return text;
+  return text.replace(/(^|[\s'"=])(?:~|\$HOME|\$\{HOME\})(?=[/\s|&;)]|$)/g, `$1${homeDir}`);
 }
 
 /** System, boot, account, or ssh paths. `/opt/<app>`, `/home/<user>/...`, `/tmp` are not. */
@@ -1353,8 +1379,13 @@ function withTrust(body: Omit<DeviceRiskClassification, 'trust'>): DeviceRiskCla
 export function classifyDeviceOperation(
   input: DeviceOperationInput
 ): DeviceRiskClassification | null {
+  const homeDir = homeDirForUser(input.remoteUser);
+  const command = expandHomeRefs(input.command ?? '', homeDir);
+  const path = expandHomeRefs(input.path ?? '', homeDir);
+  const remotePath = expandHomeRefs(input.remotePath ?? '', homeDir);
+  const startCommand = expandHomeRefs(input.startCommand ?? '', homeDir);
+  const healthCommand = expandHomeRefs(input.healthCommand ?? '', homeDir);
   if (input.toolName === 'device_file_read') {
-    const path = input.path ?? '';
     if (isSensitiveCredentialPath(path)) {
       return withTrust({
         tier: 'sensitive',
@@ -1369,23 +1400,21 @@ export function classifyDeviceOperation(
       tier: 'readonly',
       signal: 'device-readonly-tool',
       reason: `${input.toolName} is a read-only device probe`,
-      operand: input.path ?? '',
+      operand: path,
     });
   }
   if (input.toolName === 'device_exec') {
-    const judged = classifyCommand(input.command ?? '');
+    const judged = classifyCommand(command);
     return withTrust({ ...judged.judgement, operand: judged.operand });
   }
   if (input.toolName === 'device_file_write') {
-    const path = input.path ?? '';
     return withTrust({ ...classifyWritePath(path), operand: path });
   }
   if (input.toolName === 'device_deploy') {
-    const remote = input.remotePath ?? '';
-    let best = classifyWritePath(remote);
-    if (input.startCommand) best = higher(best, classifyCommand(input.startCommand).judgement);
-    if (input.healthCommand) best = higher(best, classifyCommand(input.healthCommand).judgement);
-    const operand = [remote, input.startCommand ?? ''].filter((part) => part !== '').join('\n');
+    let best = classifyWritePath(remotePath);
+    if (startCommand) best = higher(best, classifyCommand(startCommand).judgement);
+    if (healthCommand) best = higher(best, classifyCommand(healthCommand).judgement);
+    const operand = [remotePath, startCommand].filter((part) => part !== '').join('\n');
     return withTrust({ ...best, operand });
   }
   if (input.sideEffect === 'device_mutation') {
@@ -1393,7 +1422,7 @@ export function classifyDeviceOperation(
       tier: 'reversible',
       signal: 'device-mutation-unclassified',
       reason: 'device mutation with no recognized lockout pattern',
-      operand: input.command ?? input.path ?? input.remotePath ?? '',
+      operand: command || path || remotePath,
     });
   }
   return null;

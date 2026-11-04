@@ -1,6 +1,15 @@
 export { buildMossDefaultWorkflowPrompt } from './default-workflow.js';
 export { buildGitStatusSnapshot } from './git-status-snapshot.js';
 export {
+  buildTurnWatchNotice,
+  collectTouchedWorkspaceFiles,
+  sessionLastActivityMs,
+  turnWatchEnabled,
+  type TouchedFile,
+  type TurnWatchParams,
+  type TurnWatchResult,
+} from './turn-watch.js';
+export {
   buildRuntimeCapabilitiesPrompt,
   isCodeGraphToolName,
   type RuntimeCapabilitiesPromptOptions,
@@ -65,17 +74,14 @@ export {
   AUTOCOMPACT_BUFFER_TOKENS,
   SUMMARY_OUTPUT_CAP_TOKENS,
 } from './window-economics.js';
-export { compactSubagentSummaryForParent } from './subagent-summary-compact.js';
 export { truncateToolOutput, registerToolOutputLimits } from './tool-output-truncate.js';
 export {
-  hybridCompact,
   createRemoteCompactProviderFromEnv,
   HttpRemoteCompactProvider,
   resolveRemoteCompactUrls,
   type RemoteCompactProvider,
   type RemoteCompactRequest,
   type RemoteCompactResponse,
-  type HybridCompactionConfig,
 } from './remote-compaction.js';
 
 export {

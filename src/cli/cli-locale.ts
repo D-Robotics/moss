@@ -19,7 +19,6 @@ import {
   uiLanguageFromSystemLocale,
   uiLanguageResolution,
   type LanguageSetting,
-  type UiLanguage,
   type UiLanguageResolution,
   type UiLanguageSource,
 } from '../utils/ui-language.js';
@@ -31,15 +30,12 @@ export {
   effectiveUiLanguage,
   effectiveUiLanguageSource,
   hasSessionUiOverride,
-  parseExplicitUiLanguage,
   parseLanguageSetting,
   resolveUiLanguage,
   setSessionUiLanguage,
   systemLocale,
-  uiLanguageFromSystemLocale,
   uiLanguageResolution,
 };
-export type { LanguageSetting, UiLanguage, UiLanguageResolution, UiLanguageSource };
 
 /**
  * Locale the UI layer consults. After startup installation this is the
@@ -435,20 +431,6 @@ export function formatHeadlessBlockReason(toolName: string, mode: string): strin
     'This gate is inherited by sub-agents: delegating the same call via ' +
     'create_subagent or fan_out_subagents will be denied too, so do not retry it that way.'
   );
-}
-
-const SOURCE_ZH: Record<UiLanguageSource, string> = {
-  flag: '命令行',
-  env: '环境变量',
-  config: '用户配置',
-  locale: '系统区域',
-  session: '本会话',
-};
-
-export function uiLanguageSourceLabel(
-  source: UiLanguageSource = effectiveUiLanguageSource()
-): string {
-  return uiText(source, SOURCE_ZH[source]);
 }
 
 /** Persist `language` in the user config. A project config cannot store it. */

@@ -38,7 +38,7 @@ function credentialDirs(env: NodeJS.ProcessEnv): string[] {
 }
 
 /** Realpath of `abs`, or of the nearest existing ancestor with the missing tail rejoined. */
-function realpathOfNearestAncestor(abs: string): string | undefined {
+export function realpathOfNearestAncestor(abs: string): string | undefined {
   let current = abs;
   const rest: string[] = [];
   for (let i = 0; i < 64; i += 1) {

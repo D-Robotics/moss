@@ -222,6 +222,13 @@ export class ProcessError extends Error {
   /** O162: see RunProcessResult.stdoutOverflow / stderrOverflow. */
   stdoutOverflow = false;
   stderrOverflow = false;
+  /**
+   * How long before this failure the child last wrote to either stream.
+   * Lets a timeout message say whether the command went silent or was still
+   * printing when the clock ran out (Cursor `idle_timeout_seconds` informs
+   * the same decision without killing early).
+   */
+  lastOutputAgoMs?: number;
 
   constructor(
     exitCode: number | null,
@@ -280,6 +287,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
     let stderrDropped = false;
     let killed = false;
     let timedOut = false;
+    let lastOutputAt = Date.now();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const kill = (signal: NodeJS.Signals = 'SIGKILL') => {
@@ -325,6 +333,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
     };
 
     child.stdout?.on('data', (chunk: Buffer) => {
+      lastOutputAt = Date.now();
       const text = chunk.toString();
       if (stdout.length < maxBuffer) {
         stdout += text;
@@ -337,6 +346,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {
+      lastOutputAt = Date.now();
       if (stderr.length < maxBuffer) {
         stderr += chunk.toString();
       } else {
@@ -374,6 +384,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
         const err = new ProcessError(code, stdout, stderr, timedOut, opts.timeout, signal);
         err.stdoutOverflow = stdoutOverflow;
         err.stderrOverflow = stderrOverflow;
+        err.lastOutputAgoMs = Math.max(0, Date.now() - lastOutputAt);
         reject(err);
       }
     });

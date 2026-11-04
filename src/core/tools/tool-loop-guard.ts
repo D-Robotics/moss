@@ -1,80 +1,17 @@
 import { stableSerializeToolInput } from './tool-idempotent-replay.js';
+import {
+  isDiscoveryTool,
+  isFileMutationTool,
+  isShellCommandTool,
+  isSingleCallExemptTool,
+  isSurgicalEditTool,
+  isVerifyShellTool,
+} from './tool-classes.js';
 import { createHash } from 'node:crypto';
 import { readEnv } from '../../utils/env-compat.js';
 import { windowsMissingCommand } from '../../utils/windows-missing-command.js';
 import path from 'node:path';
 import { canonicalPath, findProtectedWrite } from '../../safety/shell-write-detect.js';
-
-const SINGLE_TOOL_LIMIT_EXEMPT_TOOLS = new Set([
-  'read_file',
-  'write_file',
-  'edit_file',
-  'move_file',
-  'apply_patch',
-  'list_directory',
-  'search_files',
-  'search_code',
-  'device_file_read',
-  'device_file_list',
-]);
-
-/** Discovery tools: repeated *failures* should stop sooner than generic tools. */
-const DISCOVERY_TOOLS = new Set([
-  'list_directory',
-  'search_files',
-  'search_code',
-  'read_file',
-  'device_file_list',
-  'device_file_read',
-  // CodeGraph navigation thrash (same failed hop / empty node spam).
-  'codegraph_search',
-  'codegraph_callers',
-  'codegraph_callees',
-  'codegraph_trace',
-  'codegraph_impact',
-  'codegraph_node',
-  'codegraph_context',
-  'codegraph_explore',
-  'codegraph_files',
-  'codegraph_status',
-  // Skill catalog / load / install thrash.
-  'skillhub_search',
-  'skillhub_install',
-  'install_skill',
-  'load_skill',
-  // Sub-agent spawn/status thrash (repeated failed fan-out / create / status).
-  'create_subagent',
-  'fan_out_subagents',
-  'subagent_status',
-  'subagent_stop',
-  // Long-term memory thrash.
-  'memory_read',
-  'memory_write',
-  'memory_delete',
-  // Structured user interview thrash.
-  'ask_user_question',
-  // Plan / eval / structured-output thrash.
-  'plan',
-  'plan_step',
-  'eval',
-  'generate_structured',
-  // Browser control thrash.
-  'web_browser_fetch',
-  'web_browser_control',
-  // Vision / screenshot thrash.
-  'vision_analyze',
-  'screenshot_capture',
-  // Device / fleet thrash (beyond file list/read already covered).
-  'device_exec',
-  'device_info',
-  'device_temperature',
-  'device_resources',
-  'device_processes',
-  'device_network',
-  'device_cameras',
-  'device_robotics_status',
-  'fleet_batch',
-]);
 
 const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
 // No matter how often an observation changes, bounded probes cannot extend a
@@ -93,18 +30,9 @@ const DEFAULT_DISCOVERY_FAILURE_LIMIT = 2;
 // via MOSS_WEB_SEARCH_VARIATION_LIMIT.
 const DEFAULT_WEB_SEARCH_VARIATION_LIMIT = 6;
 
-/** Surgical edit tools that thrash when old_string / patch body is stale. */
-const SURGICAL_EDIT_TOOLS = new Set(['edit_file', 'multi_edit', 'apply_patch']);
-
 /** Max failed surgical edits per path before forcing re-read (identical input limit still applies). */
 const DEFAULT_EDIT_PATH_FAILURE_LIMIT = 3;
 
-/**
- * O96: exec / run_tests that finish normally with a non-zero exit (lint/test fail)
- * must not burn the global byToolFailure budget. Same-command identical-output
- * thrash still hints to change approach via a separate counter.
- */
-const VERIFY_SHELL_TOOLS = new Set(['exec', 'run_tests']);
 /** Consecutive same-command failures with identical output before hinting to change approach. */
 const DEFAULT_SAME_COMMAND_FAILURE_LIMIT = 3;
 
@@ -238,17 +166,6 @@ export function collectSurgicalEditPathKeys(input?: Record<string, unknown>): st
   return keys;
 }
 
-/** Edit/write tools whose read-scope refusal locks the path for shell writes too. */
-const FILE_MUTATION_TOOLS = new Set([
-  'edit_file',
-  'multi_edit',
-  'apply_patch',
-  'write_file',
-  'move_file',
-]);
-
-const SHELL_TOOLS = new Set(['exec', 'exec_background', 'bash']);
-
 export function rawMutationPaths(toolName: string, input?: Record<string, unknown>): string[] {
   if (!input) return [];
   const out: string[] = [];
@@ -289,7 +206,7 @@ function trackReadScopeLocks(
     }
     return;
   }
-  if (!FILE_MUTATION_TOOLS.has(toolName)) return;
+  if (!isFileMutationTool(toolName)) return;
   const text = resultText ?? '';
   const refused = /You only read a partial window of /.test(text);
   for (const raw of rawMutationPaths(toolName, input)) {
@@ -582,14 +499,14 @@ export function recordToolLoopOutcome(
   if (!isError && !isSoftToolFailureResult(resultText)) {
     // O96: trust is_error only (set by execute-tool-call anchored
     // isStringToolFailureResult). Never text-scan successful output.
-    if (VERIFY_SHELL_TOOLS.has(toolName)) {
+    if (isVerifyShellTool(toolName)) {
       const sig = normalizeVerifyCommandSignature(toolName, input);
       if (sig) state.bySameCommandFailure.delete(sig.key);
     }
     return;
   }
   // O96: normal completed non-zero for exec/run_tests — independent streak only.
-  if (VERIFY_SHELL_TOOLS.has(toolName)) {
+  if (isVerifyShellTool(toolName)) {
     const kind = classifyShellToolFailure(resultText, platform);
     if (kind === 'normal_nonzero') {
       const sig = normalizeVerifyCommandSignature(toolName, input);
@@ -644,7 +561,7 @@ export function recordToolLoopOutcome(
   // multi_edit / apply_patch may touch several files — all must accumulate.
   // Do NOT also bump tool-level failure — that would block edits on other
   // files after three thrashing retries on one path.
-  if (SURGICAL_EDIT_TOOLS.has(toolName)) {
+  if (isSurgicalEditTool(toolName)) {
     const pathKeys = collectSurgicalEditPathKeys(input);
     if (pathKeys.length > 0) {
       for (const pathKey of pathKeys) {
@@ -668,7 +585,7 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
     ].join(' ');
   }
   // O96: real exec/run_tests faults — say 超时 / 未能启动, not "test failed".
-  if (VERIFY_SHELL_TOOLS.has(toolName)) {
+  if (isVerifyShellTool(toolName)) {
     if (/timed out \d+ time/i.test(reason)) {
       return [
         `已停止重试：${toolName} 连续超时（${reason}）。`,
@@ -1020,13 +937,13 @@ export function shouldShortCircuitToolCall(
   const sameToolCount = state.byTool.get(toolName) ?? 0;
   const failureCount = state.byToolFailure.get(toolName) ?? 0;
   const effectiveFailureLimit =
-    DISCOVERY_TOOLS.has(toolName) && discoveryFailureLimit !== undefined
+    isDiscoveryTool(toolName) && discoveryFailureLimit !== undefined
       ? discoveryFailureLimit
       : failureLimit;
 
   // Per-path edit thrash: block when ANY path in this call is already over the
   // limit (multi_edit/apply_patch can thrash a later path while the first is clean).
-  if (SURGICAL_EDIT_TOOLS.has(toolName) && editPathFailureLimit !== undefined) {
+  if (isSurgicalEditTool(toolName) && editPathFailureLimit !== undefined) {
     const pathKeys = collectSurgicalEditPathKeys(input);
     for (const pathKey of pathKeys) {
       const pathFails = state.byEditPathFailure.get(pathKey) ?? 0;
@@ -1038,7 +955,7 @@ export function shouldShortCircuitToolCall(
 
   // O97: once the edit tools refused a path (read scope, or edit thrash), an
   // exec must not write that same file behind their back.
-  if (SHELL_TOOLS.has(toolName) && typeof input.command === 'string') {
+  if (isShellCommandTool(toolName) && typeof input.command === 'string') {
     const locked = new Set(state.readScopeLockedPaths ?? []);
     const display = new Map<string, string>();
     if (editPathFailureLimit !== undefined) {
@@ -1077,7 +994,7 @@ export function shouldShortCircuitToolCall(
   }
 
   // O96: same-command identical-output streak (independent of byToolFailure).
-  if (VERIFY_SHELL_TOOLS.has(toolName)) {
+  if (isVerifyShellTool(toolName)) {
     const sameCmdLimit = resolveOptionalPositiveIntEnv(
       'MOSS_TOOL_LOOP_SAME_COMMAND_LIMIT',
       DEFAULT_SAME_COMMAND_FAILURE_LIMIT
@@ -1109,7 +1026,7 @@ export function shouldShortCircuitToolCall(
     // still bound it.
   } else if (effectiveFailureLimit !== undefined && failureCount >= effectiveFailureLimit) {
     // O96: encode fault kind so the message says 超时 / 未能启动, not "test failed".
-    if (VERIFY_SHELL_TOOLS.has(toolName)) {
+    if (isVerifyShellTool(toolName)) {
       const kind = state.lastShellFaultKind.get(toolName) ?? 'unusable';
       if (kind === 'timeout') {
         return `${toolName} timed out ${failureCount} time(s) in this user turn`;
@@ -1154,7 +1071,7 @@ export function shouldShortCircuitToolCall(
   }
   if (
     singleToolLimit !== undefined &&
-    !SINGLE_TOOL_LIMIT_EXEMPT_TOOLS.has(toolName) &&
+    !isSingleCallExemptTool(toolName) &&
     sameToolCount >= singleToolLimit
   ) {
     return `${toolName} has already been requested ${sameToolCount} time(s) in this user turn`;

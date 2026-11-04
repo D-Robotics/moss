@@ -11,6 +11,15 @@ Moss 的目标是让用户更快拿到**独立验证过、可继续修改的结�
 
 记录 CLI / 模型版本、操作系统、硬件、终端与尺寸、网络和缓存状态、推理预算、权限 / 沙箱、并发、工具及任务数据版本。Moss 的 `workspace-write` 不是 shell 的操作系统沙箱；比较审批次数时必须同时说明这一差异。每个任务保留失败、超时、跳过与基础设施异常的分母；独立验收通过率、人工复核及代码可合并性分开报告。配对重复实验并提供样本量和不确定区间，样本不足时不宣称 p95 或胜负具有统计意义。
 
+## Harness 污染与发布口径（2026-11-03 起强制）
+
+- **0-turn 空跑分类**：`pass=false`、`subtype=error_during_execution`、`numTurns≤1`、`toolCalls=0`、`tokensIn=tokensOut=0` 且未超时的样本标记 `harness_flake`。runner 自动重跑最多 2 次；重跑恢复的样本计入总分但保留 `harnessFlake` 诊断。三次仍是 0-turn 空跑的样本 `excludedAsHarnessFlake=true`，不进入 capability/release 分母，只在 `summary.harnessFlakes.exhausted` 与 rows 中单列。
+- **内部回归与能力门**：`--baseline` / `--capability-gate` 至少 `--samples 3`。`scripts/run-benchmark.mjs` 默认 3 样本；单样本只允许诊断，不得作为回归或对外结论。
+- **同协议对外对照**：Moss 与 Claude Code / Codex 的 harness 轨道必须使用同一 task id 集合、验收 check、模型与版本、预算、超时、重跑规则和 flake 分类。summary 记录 `protocol.taskSetSha256`；协议哈希不一致的运行不可合并为胜负结论。
+- **后台进程**：agent 通过 tracked background 工具启动的进程必须携带 id/pid，并在交卷前 `exec_stop` 确认停止（或 `exec_wait` 取得必要完成证据）。foreground shell 的 `&` / `nohup` / `disown` / `start /b` 绕过注册表，直接拒绝执行；会话关闭路径等待停止确认，不把 SIGTERM 已发出误报为已停止。
+- **冲突 spec**：请求把 docs / 注释 / requirements 当权威时，先对照 locked tests 产出 `SPEC-AUDIT.md`，再决定是否改代码；stale doc 与真实矛盾不改源码，审计是成功产物。
+- **DeepSWE / Terminal-Bench**：在 Robogo 提供 privileged/cgroup 等公平运行条件前，Pier 数字只作内部诊断，不进入对外对照表。DeepSWE 发布口径仍为 8 样本；Terminal-Bench 内部回归至少 3 样本或使用同一 flake-aware 规则。
+
 ## 应当记录的时间与结果
 
 - `submit → acknowledged`：用户提交到屏幕出现可靠的接收状态。

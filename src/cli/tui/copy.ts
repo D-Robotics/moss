@@ -240,7 +240,6 @@ export const ZH: Readonly<Record<string, string>> = {
   'common commands': '常用命令',
   'type / to browse commands · /help --all for the rest':
     '输入 / 浏览命令 · /help --all 查看其余命令',
-  'edited JS/TS files but did not run tests': '改过 JS/TS 文件，但没有跑测试',
   'run a shell command inline (result lands in the transcript)':
     '内联执行终端命令（结果进入对话记录）',
   'run a moss command (/help lists them all)': '执行 moss 命令（/help 列出全部）',

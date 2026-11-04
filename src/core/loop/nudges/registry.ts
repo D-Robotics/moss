@@ -11,10 +11,10 @@
 import type { Message } from '../../session/session-jsonl.js';
 import type { AgentLoopMutableState } from '../agent-loop-state.js';
 import { evaluateTodoNudge } from './todo-nudge.js';
-import { evaluateVerifyNudge } from './verify-nudge.js';
 import { evaluateRedVerifyNudge } from './red-verify-nudge.js';
 import { evaluateFanOutNudge } from './fan-out-nudge.js';
 import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
+import { evaluateSpecAuditNudge } from './spec-audit-nudge.js';
 import { evaluateSubagentRunningNudge } from './subagent-running-nudge.js';
 import { evaluateSubagentStoppedNudge } from './subagent-stopped-nudge.js';
 import { evaluateWebToolsNudge } from './web-tools-nudge.js';
@@ -24,6 +24,7 @@ import { evaluateRunTestsToolsNudge } from './run-tests-tools-nudge.js';
 import { evaluateBuildToolsNudge } from './build-tools-nudge.js';
 import { evaluateBackgroundServerNudge } from './background-server-nudge.js';
 import { evaluateTaskRepairNudge } from './task-repair-nudge.js';
+import { evaluateRunAnchorNudge } from './run-anchor-nudge.js';
 import { isNudgeDisabled, type NudgeId } from './disable.js';
 
 /** Inputs the registry needs from the agent loop host. */
@@ -43,6 +44,8 @@ export interface NudgeBuildContext {
   taskPhaseNudges?: boolean;
   /** Whether this turn's resolved tool surface can actually call todo_write. */
   todoWriteAvailable?: boolean;
+  /** Whether this turn's resolved tool surface can ask a structured user question. */
+  userQuestionsAvailable?: boolean;
 }
 
 /**
@@ -125,30 +128,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
     )
   );
 
-  // 2. Soft mid-run verification reminder after several edits with no tests.
-  push(
-    runNudgeStep(
-      'verify',
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.verifyNudgeAttempts,
-        set: (v) => {
-          state.verifyNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateVerifyNudge({
-          turns: state.turns,
-          totalToolCalls: metrics.totalToolCalls,
-          toolCallsByName: metrics.toolCallsByName,
-          userText: ctx.lastUserText(),
-          attempts: state.verifyNudgeAttempts,
-        })
-    )
-  );
-
-  // 3. After a red verification result, force fix-then-rerun (VerifyNudge
-  // alone is silenced once any verify tool has been called).
+  // 2. After a red test result, fix and re-run that same command.
   push(
     runNudgeStep(
       'red-verify',
@@ -206,11 +186,33 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
           toolCallsByName: metrics.toolCallsByName,
           userText: ctx.lastUserText(),
           attempts: state.ambiguityNudgeAttempts,
+          userQuestionsAvailable: ctx.userQuestionsAvailable,
         })
     )
   );
 
-  // 6. Background create_subagent still STARTED without terminal status.
+  // 6. Docs/spec authority work must audit before continuing blind edits.
+  push(
+    runNudgeStep(
+      'spec-audit',
+      ctx.buildCorrectionMessage,
+      {
+        get: () => state.specAuditNudgeAttempts,
+        set: (v) => {
+          state.specAuditNudgeAttempts = v;
+        },
+      },
+      () =>
+        evaluateSpecAuditNudge({
+          messages: currentMessages,
+          userText: ctx.lastUserText(),
+          totalToolCalls: metrics.totalToolCalls,
+          attempts: state.specAuditNudgeAttempts,
+        })
+    )
+  );
+
+  // 7. Background create_subagent still STARTED without terminal status.
   push(
     runNudgeStep(
       'subagent-running',
@@ -404,6 +406,31 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
       )
     );
   }
+
+  // 15. One objective re-anchor for deep runs: Moss states the goal once in
+  // the opening user message (Qoder re-injects goal_state every turn — 9021
+  // occurrences in the 2026-11-04 mining); this pointer-style reminder covers
+  // the drift without re-serializing state the model already has.
+  push(
+    runNudgeStep(
+      'run-anchor',
+      ctx.buildCorrectionMessage,
+      {
+        get: () => state.runAnchorNudgeAttempts,
+        set: (v) => {
+          state.runAnchorNudgeAttempts = v;
+        },
+      },
+      () =>
+        evaluateRunAnchorNudge({
+          turns: state.turns,
+          totalToolCalls: metrics.totalToolCalls,
+          toolCallsByName: metrics.toolCallsByName,
+          userText: ctx.lastUserText(),
+          attempts: state.runAnchorNudgeAttempts,
+        })
+    )
+  );
 
   return out;
 }

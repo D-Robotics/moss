@@ -1,6 +1,6 @@
 {
   "name": "@rdk-moss/agent",
-  "version": "0.29.1",
+  "version": "0.31.0",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -19,6 +19,7 @@
   "files": [
     "dist",
     "!dist/**/*.map",
+    "!dist/.tsbuildinfo",
     "scripts/check-node-version.cjs",
     "bin",
     "README.md",
@@ -41,15 +42,13 @@
     "prepare": "node scripts/check-node-version.cjs && npm run build",
     "prepublishOnly": "npm run build && npm run verify",
     "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
-    "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/write-build-stamp.mjs && node -e \"const fs=require('fs');fs.chmodSync('dist/cli.js',0o755)\"",
+    "build": "node scripts/verify/cli.mjs --stage build --clean",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run build && node scripts/run-package-tests.mjs",
-    "test:filter": "node scripts/run-package-tests.mjs",
-    "smoke": "node scripts/smoke-moss-cli.mjs",
+    "smoke": "node scripts/verify/cli.mjs --stage smoke",
     "bench": "npm run build && node scripts/run-benchmark.mjs",
     "bench:superagent": "npm run build && node scripts/bench-superagent.mjs",
     "bench:ab": "npm run build && node scripts/bench-ab.mjs",
@@ -61,10 +60,11 @@
     "rsi:ledger": "node scripts/rsi/ledger.mjs",
     "bench:tb": "node scripts/bench-tbench.mjs",
     "bench:device": "npm run build && node scripts/bench-device.mjs",
-    "check": "npm run format:check && npm run lint && npm run typecheck",
-    "verify": "npm run check && npm run test && npm run smoke",
+    "check": "node scripts/verify/cli.mjs --stage static",
+    "verify": "node scripts/verify/cli.mjs",
+    "verify:quick": "node scripts/verify/cli.mjs --stage static,smoke",
     "prompt:tokens": "node scripts/prompt-token-report.mjs",
-    "examples": "node examples/headless-run.mjs && node examples/repl-host.mjs && node examples/custom-tool-approval.mjs"
+    "examples": "node scripts/verify/cli.mjs --stage examples"
   },
   "dependencies": {
     "ink": "^7.1.1",

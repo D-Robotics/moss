@@ -41,6 +41,8 @@ import {
   parseCamerasProbe,
 } from '../device/observation.js';
 import { EXEC_DEFAULT_TIMEOUT_MS, looksBinary, safePath } from './tool-helpers.js';
+import { spillToolOutput } from './tool-output-spill.js';
+import { presentToolOutput } from '../safety/tool-output-redact.js';
 import { findLatestLiveTaskSnapshot, tryAppendTaskEvent } from '../core/task/task-store.js';
 
 const EXEC_STDOUT_MAX = 80_000;
@@ -86,7 +88,12 @@ export const deviceInfoTool: Tool = {
     DEVICE_PROBE_FIRST +
     '\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
-  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  metadata: {
+    hiddenFromModel: true,
+    classification: { discovery: true },
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {},
@@ -114,6 +121,9 @@ export const deviceExecTool: Tool = {
     '- Destructive or lockout-risk commands (reboot/shutdown, flashing, rm of system paths, writes to /boot or /etc, network changes, package removal, systemctl stop/disable/mask, ssh or account edits) stay gated even in full mode until the user confirms or opts into device trust.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    classification: { discovery: true },
+    maxResultTokens: 6_000,
+    truncationHint: 'output was cut — narrow the remote command to the slice you need',
     sideEffectClass: 'device_mutation',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
@@ -139,10 +149,14 @@ export const deviceExecTool: Tool = {
     const resolved = await connectDefaultDevice('device_exec');
     if (typeof resolved === 'string') return resolved;
     const command = String(input.command ?? '');
+    if (!command.trim()) {
+      return 'Error: device_exec needs a command. Nothing ran on the device — pass the shell command to execute.';
+    }
     const classification = classifyDeviceOperation({
       toolName: 'device_exec',
       sideEffect: 'device_mutation',
       command,
+      remoteUser: resolved.target.user,
     });
     if (
       classification &&
@@ -150,7 +164,13 @@ export const deviceExecTool: Tool = {
     ) {
       return `Command blocked: ${classification.reason}`;
     }
-    const timeoutMs = Number(input.timeout_ms) || EXEC_DEFAULT_TIMEOUT_MS;
+    const requestedTimeout = Number(input.timeout_ms);
+    // A non-positive value would reach the SSH exec as "no deadline"; treat it
+    // as the caller forgetting to pass one instead.
+    const timeoutMs =
+      Number.isFinite(requestedTimeout) && requestedTimeout > 0
+        ? requestedTimeout
+        : EXEC_DEFAULT_TIMEOUT_MS;
     try {
       const result = await resolved.conn.exec(command, {
         timeoutMs,
@@ -161,11 +181,25 @@ export const deviceExecTool: Tool = {
         ? `(binary output, ${stdoutRaw.length} chars — suppressed; pipe through hexdump/xxd on the device if needed)`
         : stdoutRaw;
       if (!looksBinary(stdoutRaw) && outText.length > EXEC_STDOUT_MAX) {
+        // Same egress filter as the visible result: the spill must not keep a
+        // secret that the model-facing text would have masked.
+        const spilled = spillToolOutput({
+          workspaceDir: ctx.workspaceDir,
+          toolName: 'device-exec',
+          text: presentToolOutput({
+            toolName: 'device_exec',
+            input: { command },
+            text: outText,
+            workspaceDir: ctx.workspaceDir,
+          }),
+        });
         const head = outText.slice(0, Math.floor(EXEC_STDOUT_MAX * 0.7));
         const tail = outText.slice(-Math.floor(EXEC_STDOUT_MAX * 0.25));
         outText =
           `${head}\n\n... [${outText.length - EXEC_STDOUT_MAX} chars omitted] ...\n\n${tail}\n` +
-          `(device stdout truncated to ~${EXEC_STDOUT_MAX} chars; re-run with a narrower command)`;
+          (spilled
+            ? `(device stdout truncated to ~${EXEC_STDOUT_MAX} chars; full output: ${spilled} — read the omitted region from there)`
+            : `(device stdout truncated to ~${EXEC_STDOUT_MAX} chars; re-run with a narrower command)`);
       }
       const stderrRaw = result.stderr.trim();
       const stderrFmt = stderrRaw
@@ -193,7 +227,13 @@ export const deviceFileReadTool: Tool = {
   description:
     'Read a text file from the configured device over SFTP. Returns the file content (use device_exec for binaries or huge files).\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
-  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  metadata: {
+    classification: { singleCallExempt: true, discovery: true },
+    maxResultTokens: 10_000,
+    truncationHint: 'the dropped region is not in context — page it with offset/limit',
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {
@@ -212,6 +252,7 @@ export const deviceFileReadTool: Tool = {
     const readRisk = classifyDeviceOperation({
       toolName: 'device_file_read',
       path,
+      remoteUser: resolved.target.user,
     });
     if (
       readRisk &&
@@ -239,7 +280,11 @@ export const deviceFileListTool: Tool = {
   description:
     'List one directory on the configured device over SFTP (names, types, sizes).\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
-  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  metadata: {
+    classification: { singleCallExempt: true, discovery: true },
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {
@@ -309,6 +354,7 @@ export const deviceFileWriteTool: Tool = {
       toolName: 'device_file_write',
       sideEffect: 'device_mutation',
       path: remotePath,
+      remoteUser: resolved.target.user,
     });
     if (
       writeRisk &&
@@ -353,7 +399,12 @@ export const deviceProcessesTool: Tool = {
   description:
     'List the top processes on the configured device (pid, user, CPU%, MEM%, RSS, command), sorted by CPU.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
-  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  metadata: {
+    hiddenFromModel: true,
+    classification: { discovery: true },
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {},
@@ -378,7 +429,12 @@ export const deviceResourcesTool: Tool = {
   description:
     'Report memory, load average, and per-mount disk usage on the configured device.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
-  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  metadata: {
+    hiddenFromModel: true,
+    classification: { discovery: true },
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {},
@@ -403,7 +459,12 @@ export const deviceTemperatureTool: Tool = {
   description:
     'Read thermal zones (°C) from /sys/class/thermal on the configured device — the first check when diagnosing throttling or stability issues.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
-  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  metadata: {
+    hiddenFromModel: true,
+    classification: { discovery: true },
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {},
@@ -484,6 +545,7 @@ export const deviceDeployTool: Tool = {
       remotePath,
       startCommand: input.start_command ? String(input.start_command) : undefined,
       healthCommand: input.health_command ? String(input.health_command) : undefined,
+      remoteUser: resolved.target.user,
     });
     if (
       deployRisk &&
@@ -540,7 +602,12 @@ export const deviceRoboticsStatusTool: Tool = {
     'Detect the robotics stack on the configured device: TROS (/opt/tros, D-Robotics RDK) or upstream ROS2 (/opt/ros/<distro>) installations, the ros2 binary path, TROS version, and hbm presence. Call this before any ROS work — on a plain Linux host it reports "none detected" so you do not chase missing tools.\n' +
     'ROS commands themselves run through device_exec after verifying and sourcing <installation>/setup.bash (for example, `test -f /opt/tros/setup.bash && source /opt/tros/setup.bash`). If that file is absent, check the TROS manual and cite its page URL.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
-  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  metadata: {
+    hiddenFromModel: true,
+    classification: { discovery: true },
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {},
@@ -565,7 +632,12 @@ export const deviceNetworkTool: Tool = {
   description:
     'Report the network state of the configured device: interfaces with link state, global addresses (inet/inet6), and the default route. First stop when diagnosing connectivity to a robot.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
-  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  metadata: {
+    hiddenFromModel: true,
+    classification: { discovery: true },
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {},
@@ -590,7 +662,12 @@ export const deviceCamerasTool: Tool = {
   description:
     'Enumerate v4l2 camera devices on the configured device (/sys/class/video4linux names + /dev/video* nodes). On RDK boards sensor names appear here — use before any camera/pipeline debugging.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
-  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  metadata: {
+    hiddenFromModel: true,
+    classification: { discovery: true },
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {},
@@ -610,6 +687,57 @@ export const deviceCamerasTool: Tool = {
   },
 };
 
+// One model-facing observation tool instead of seven empty-schema probes. The old
+// names stay registered (subagent scopes, truncation budgets, old transcripts and
+// SDK hosts reference them by name) but are no longer offered to the model.
+const DEVICE_PROBES = {
+  info: deviceInfoTool,
+  processes: deviceProcessesTool,
+  resources: deviceResourcesTool,
+  temperature: deviceTemperatureTool,
+  network: deviceNetworkTool,
+  cameras: deviceCamerasTool,
+  robotics_status: deviceRoboticsStatusTool,
+} as const;
+
+type DeviceProbeKind = keyof typeof DEVICE_PROBES;
+const DEVICE_PROBE_KINDS = Object.keys(DEVICE_PROBES) as DeviceProbeKind[];
+
+export const deviceProbeTool: Tool = {
+  name: 'device_probe',
+  description:
+    'Read-only device observation over SSH. kind=info connects and reports identity/system facts (call this first); ' +
+    'processes/resources/temperature/network/cameras/robotics_status return one structured snapshot each. ' +
+    'Use these before device_exec for standard observation; they are readonly, parallel-safe and retried on transport errors.\n' +
+    DEVICE_PROBE_FIRST +
+    '\n' +
+    DEVICE_TOOLS_DESCRIPTION_NOTE,
+  metadata: {
+    classification: { discovery: true, singleCallExempt: true },
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+    maxResultTokens: 6_000,
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      kind: {
+        type: 'string',
+        enum: DEVICE_PROBE_KINDS,
+        description: 'Which observation to read. info is the connectivity probe.',
+      },
+    },
+    required: ['kind'],
+  },
+  async execute(input, ctx) {
+    const kind = typeof input.kind === 'string' ? input.kind.trim() : '';
+    if (!DEVICE_PROBE_KINDS.includes(kind as DeviceProbeKind)) {
+      return `Error: device_probe kind must be one of ${DEVICE_PROBE_KINDS.join('|')}.`;
+    }
+    return DEVICE_PROBES[kind as DeviceProbeKind].execute({}, ctx);
+  },
+};
+
 export const deviceTools: Tool[] = [
   deviceInfoTool,
   deviceExecTool,
@@ -623,4 +751,5 @@ export const deviceTools: Tool[] = [
   deviceRoboticsStatusTool,
   deviceNetworkTool,
   deviceCamerasTool,
+  deviceProbeTool,
 ];

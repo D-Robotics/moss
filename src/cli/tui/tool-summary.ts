@@ -18,6 +18,7 @@ import {
   extractCommandOutputPreview,
 } from '../../tools/tool-helpers.js';
 import { summarizeVerificationResult } from '../../tools/harness-tools.js';
+import { EXEC_LIKE_TOOL_NAME_SET } from '../../core/tools/tool-catalog.js';
 
 export interface ToolCompletion {
   /** Headline for the `⎿` row, e.g. `Read 14 lines`. Undefined when redundant. */
@@ -34,7 +35,7 @@ export interface ToolCompletion {
   dropBody?: boolean;
 }
 
-const EXEC_TOOLS = new Set(['exec', 'device_exec', 'docker_exec', 'exec_background']);
+const EXEC_TOOLS = EXEC_LIKE_TOOL_NAME_SET;
 const READ_TOOLS = new Set(['read_file', 'device_file_read']);
 const WRITE_TOOLS = new Set(['write_file', 'device_file_write']);
 const LIST_TOOLS = new Set(['list_directory', 'device_file_list']);
@@ -101,8 +102,8 @@ export function summarizeToolCompletion(
     return { summary: detail ? tui('failed — {detail}', { detail }) : tui('failed') };
   }
 
-  // run_tests / verify_fix / code_diagnostics carry a structured verdict —
-  // that verdict is the single most useful line of the whole result.
+  // run_tests carries a structured verdict — that verdict is the single most
+  // useful line of the whole result.
   const verification = summarizeVerificationResult(toolName, body);
   if (verification) return { summary: verification };
 

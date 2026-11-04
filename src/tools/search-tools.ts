@@ -7,6 +7,7 @@ import type { Tool } from '../core/tools/tool-types.js';
 import { runProcess, ProcessError } from '../utils/run-process.js';
 import { toolError } from './tool-helpers.js';
 import { resolveReadPath } from '../safety/read-scope.js';
+import { hasUtf16Bom } from '../utils/text-encoding.js';
 import { redactEgress } from '../safety/tool-output-redact.js';
 
 // ── ripgrep availability ────────────────────────────────────────────────────
@@ -26,6 +27,22 @@ export async function isRgAvailable(): Promise<boolean> {
 
 export type SearchCodeOutputMode = 'content' | 'files_with_matches' | 'count';
 
+/**
+ * Working directory and shape of a search target that is also passed to the
+ * child as an argument. Node refuses to spawn with a file as `cwd` (ENOTDIR),
+ * and ripgrep drops the path prefix from its output when the target is one
+ * file — both silently turned every search scoped to a single file into
+ * "No matches found".
+ */
+async function searchTarget(target: string): Promise<{ cwd: string; singleFile: boolean }> {
+  try {
+    if ((await fs.stat(target)).isFile()) return { cwd: path.dirname(target), singleFile: true };
+  } catch {
+    // Missing path: let the child process report it.
+  }
+  return { cwd: target, singleFile: false };
+}
+
 export interface GrepWithRgOptions {
   searchDir: string;
   pattern: string;
@@ -43,6 +60,19 @@ export interface GrepWithRgOptions {
   contextLines: number;
   outputMode: SearchCodeOutputMode;
   multiline?: boolean;
+  /** rg -F: the pattern is literal text, not a regex. */
+  fixedStrings?: boolean;
+  /**
+   * Qoder `Grep.max_matches_per_file`: cap matching lines per file so one
+   * generated/bundled file cannot consume the whole result budget.
+   */
+  maxPerFile?: number;
+  /**
+   * Lines to gather before the caller applies its own per-file share. Larger
+   * than the result budget on purpose: with only the budget's worth of lines a
+   * single hot file fills the pool and later files never appear.
+   */
+  collectLimit?: number;
   /** Report incomplete bounded output without changing the array return contract. */
   onIncomplete?: () => void;
 }
@@ -74,10 +104,14 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
     contextLines,
     outputMode,
     multiline,
+    fixedStrings,
+    maxPerFile,
+    collectLimit,
     onIncomplete,
   } = opts;
 
   const args: string[] = ['--color=never'];
+  if (fixedStrings) args.push('-F');
 
   if (outputMode === 'files_with_matches') {
     args.push('--files-with-matches');
@@ -86,7 +120,7 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
   } else {
     args.push('--line-number', '--no-heading');
     // Cap matches per file so one hot file does not dominate the budget.
-    args.push('--max-count', String(Math.max(1, Math.min(limit, 50))));
+    args.push('--max-count', String(Math.max(1, maxPerFile ?? Math.min(limit, 50))));
     if (contextLines > 0) {
       args.push('-C', String(contextLines));
     }
@@ -109,13 +143,17 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
       args.push('--glob', `*${ext.startsWith('.') ? ext : `.${ext}`}`);
     }
   }
-  args.push(pattern, searchDir);
+  // Run inside the search root and name the target relative to it: with an
+  // absolute target, rg matches --glob patterns against the absolute path, so
+  // a documented pattern like `src/**/*.ts` matched nothing.
+  const target = await searchTarget(searchDir);
+  args.push(pattern, target.singleFile ? path.basename(searchDir) : '.');
 
   let stdout = '';
   try {
     const result = await runProcess('rg', {
       args,
-      cwd: searchDir,
+      cwd: target.cwd,
       timeout: timeoutMs,
       maxBuffer: 4 * 1024 * 1024,
     });
@@ -140,12 +178,18 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
   const out = stdout.trim();
   if (!out) return [];
 
-  const lines = out.split('\n').filter((l) => l.trim() && l !== '--');
+  const rawLines = out.split('\n').filter((l) => l.trim() && l !== '--');
+  // ripgrep prints `line:content` (no path) when the target is one file, so the
+  // path-prefixed parsers below would drop every line. Restore the prefix.
+  const lines =
+    target.singleFile && outputMode !== 'files_with_matches'
+      ? rawLines.map((line) => `${searchDir}:${line}`)
+      : rawLines;
 
   if (outputMode === 'files_with_matches') {
     const results: string[] = [];
     for (const line of lines) {
-      const abs = path.isAbsolute(line) ? line : path.resolve(searchDir, line);
+      const abs = path.isAbsolute(line) ? line : path.resolve(target.cwd, line);
       const relPath = path.relative(displayRoot, abs).split(path.sep).join('/');
       results.push(relPath);
       if (results.length >= limit) break;
@@ -159,7 +203,7 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
       // rg --count: path:count
       const m = line.match(/^(.*):(\d+)\s*$/);
       if (!m) continue;
-      const abs = path.isAbsolute(m[1]) ? m[1] : path.resolve(searchDir, m[1]);
+      const abs = path.isAbsolute(m[1]) ? m[1] : path.resolve(target.cwd, m[1]);
       const relPath = path.relative(displayRoot, abs).split(path.sep).join('/');
       results.push(`${relPath}: ${m[2]}`);
       if (results.length >= limit) break;
@@ -173,11 +217,12 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
     const m = line.match(/^(.*?):(\d+)([:-])(.*)$/);
     if (!m) continue;
     const [, file, lineNo, sep, content] = m;
-    const abs = path.isAbsolute(file) ? file : path.resolve(searchDir, file);
+    const abs = path.isAbsolute(file) ? file : path.resolve(target.cwd, file);
     const relPath = path.relative(displayRoot, abs).split(path.sep).join('/');
     const marker = sep === ':' ? ':>' : '-|';
     results.push(`${relPath}:${lineNo}${marker} ${content.slice(0, 200)}`);
-    if (results.length >= limit * (contextLines > 0 ? contextLines * 2 + 1 : 1)) break;
+    if (results.length >= (collectLimit ?? limit) * (contextLines > 0 ? contextLines * 2 + 1 : 1))
+      break;
   }
   return results;
 }
@@ -208,13 +253,17 @@ export async function filesWithRg(
     args.push('--glob', `**/${normalized}`);
   }
   if (maxDepth !== undefined) args.push('--max-depth', String(maxDepth));
-  args.push(searchDir);
+
+  // Relative target for the same reason as grepWithRg: an absolute search root
+  // makes a nested --glob miss.
+  const target = await searchTarget(searchDir);
+  args.push(target.singleFile ? path.basename(searchDir) : '.');
 
   let stdout = '';
   try {
     const result = await runProcess('rg', {
       args,
-      cwd: searchDir,
+      cwd: target.cwd,
       timeout: timeoutMs,
       maxBuffer: 8 * 1024 * 1024,
     });
@@ -244,7 +293,7 @@ export async function filesWithRg(
   // Resolve to absolute, stat for mtime, sort newest first, cap at limit.
   const withMtime: Array<{ abs: string; mtime: number }> = [];
   for (const line of candidates) {
-    const abs = path.isAbsolute(line) ? line : path.resolve(searchDir, line);
+    const abs = path.isAbsolute(line) ? line : path.resolve(target.cwd, line);
     try {
       const st = await fs.stat(abs);
       if (st.isFile()) withMtime.push({ abs, mtime: st.mtimeMs });
@@ -352,6 +401,11 @@ const IGNORE_DIRS = new Set([
   '.parcel-cache',
 ]);
 
+/** Escape regex metacharacters so literal text can go through the regex paths. */
+function literalPattern(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function isSafeRegex(pattern: string): boolean {
   if (/(\([^)]*[+*]\)[+*])/.test(pattern)) return false;
   if (/(\([^)]*\|[^)]*\)[+*])/.test(pattern)) return false;
@@ -418,9 +472,103 @@ export function resolveSearchLocation(raw: unknown, workspaceDir: string): Searc
   return { dir, bound: null };
 }
 
+/**
+ * Keep at most `share` matching lines per file, in the order the search found
+ * them, so one hot file cannot fill the result list. Context lines stay with
+ * the matches they belong to; once a file is capped, the rest of it is dropped.
+ */
+function applyPerFileShare(
+  matches: string[],
+  share: number
+): { kept: string[]; capped: Set<string> } {
+  const kept: string[] = [];
+  const counts = new Map<string, number>();
+  const capped = new Set<string>();
+  for (const line of matches) {
+    // Rendered as `path:line:> content`; `path:line-| content` is context.
+    const parsed = line.match(/^(.*):\d+(:>|-\|) /);
+    if (!parsed) {
+      kept.push(line);
+      continue;
+    }
+    const [, file, marker] = parsed;
+    if (marker === '-|') {
+      if (!capped.has(file)) kept.push(line);
+      continue;
+    }
+    const count = counts.get(file) ?? 0;
+    if (count >= share) {
+      capped.add(file);
+      continue;
+    }
+    counts.set(file, count + 1);
+    kept.push(line);
+  }
+  return { kept, capped };
+}
+
+/** Name the files whose match list stopped at the per-file share. */
+function perFileCappedNote(capped: Set<string>, share: number): string {
+  if (capped.size === 0) return '';
+  const names = [...capped];
+  const shown = names.slice(0, 3).join(', ');
+  const rest = names.length > 3 ? ` and ${names.length - 3} more` : '';
+  return (
+    `\n\n(per-file cap of ${share} matches hit in ${shown}${rest} — ` +
+    'search one file directly, raise max_matches_per_file, or narrow the glob)'
+  );
+}
+
+/**
+ * Offset of the first NUL byte in the first 8 KB of a file, or null for text.
+ * ripgrep skips binary files, so a match that exists only inside one came back
+ * as "No matches found". A UTF-16 BOM means the NULs are text: ripgrep
+ * transcodes those files, so calling them binary would be a false negative.
+ */
+async function binaryOffsetAt(file: string): Promise<number | null> {
+  try {
+    const handle = await fs.open(file, 'r');
+    try {
+      const buf = Buffer.alloc(8192);
+      const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+      const head = buf.subarray(0, bytesRead);
+      if (hasUtf16Bom(head)) return null;
+      const at = head.indexOf(0);
+      return at >= 0 ? at : null;
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
 function withBoundNote(text: string, location: SearchLocation): string {
   if (!location.bound) return text;
   return `${text}\n${location.bound.note}`;
+}
+
+/**
+ * A search under a path that does not exist used to answer "No matches found",
+ * which reads as "the code is not there". Stat first, so a typo says so.
+ * Returns the refusal text, or null when the target exists (or cannot be
+ * judged, in which case the search itself will report its own failure).
+ */
+async function missingSearchTarget(
+  location: SearchLocation,
+  rawPath: unknown
+): Promise<string | null> {
+  try {
+    await fs.stat(location.dir);
+    return null;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return null;
+  }
+  const shown = typeof rawPath === 'string' && rawPath.trim() ? rawPath.trim() : '.';
+  return (
+    `Error: no such path: ${shown}. Nothing was searched. ` +
+    'Use list_directory to check the path, or omit path to search the workspace root.'
+  );
 }
 
 function presentSearch(text: string, location: SearchLocation, incomplete = false): string {
@@ -438,6 +586,7 @@ export const searchFilesTool: Tool = {
   description:
     'Find files by glob (gitignore-aware, newest first). Default root is the workspace. Searches of / or $HOME are capped. Prefer this over exec find. For an open-ended pass, call tool_search group=subagent, then create_subagent scope=explore.',
   metadata: {
+    classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',
   },
@@ -469,6 +618,8 @@ export const searchFilesTool: Tool = {
   async execute(input, ctx) {
     try {
       const location = resolveSearchLocation(input.path, ctx.workspaceDir);
+      const missing = await missingSearchTarget(location, input.path);
+      if (missing) return redactEgress(missing);
       const rawLimit = Number(input.head_limit ?? input.maxResults);
       const requested = Math.min(
         500,
@@ -511,6 +662,7 @@ export const searchCodeTool: Tool = {
     'Search file contents with a regex or literal (ripgrep when available). Default root is the workspace; / and $HOME are capped. Prefer this over exec grep.\n' +
     'output_mode: content (default, matching lines), files_with_matches (paths only), or count. Filter with glob or type. case_sensitive defaults to true.',
   metadata: {
+    classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',
   },
@@ -564,10 +716,28 @@ export const searchCodeTool: Tool = {
         type: 'boolean',
         description: 'Multiline regex (default false).',
       },
+      fixed_strings: {
+        type: 'boolean',
+        description: 'Treat pattern as literal text (no regex metacharacters; rg -F).',
+      },
+      max_matches_per_file: {
+        type: 'number',
+        description:
+          'Max matching lines kept per file (default: a quarter of head_limit, min 3) so one bundled file cannot fill the result cap.',
+      },
     },
     required: ['pattern'],
   },
   async execute(input, ctx) {
+    // A blank pattern is a zero-length regex: it matches every line of every
+    // file, so the "result" was a dump of the whole workspace. Refuse and name
+    // the shape instead of spending the context budget on it.
+    if (typeof input.pattern !== 'string' || !input.pattern.trim()) {
+      return (
+        'Error: search_code needs a pattern. Nothing was searched — pass the text or regex to find ' +
+        '(e.g. "handleRequest", "TODO"). To match whitespace itself, pass a regex such as "\\\\s".'
+      );
+    }
     // head_limit is the Claude Code Grep name; maxResults is the Moss name.
     const rawLimit = Number(input.head_limit ?? input.maxResults);
     const maxResults = Math.min(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50, 200);
@@ -576,6 +746,14 @@ export const searchCodeTool: Tool = {
     const contextLines = Math.min(3, Math.max(0, Math.floor(Number(input.context_lines ?? 1))));
     const outputMode = parseOutputMode(input.output_mode);
     const multiline = input.multiline === true;
+    // Qoder Grep `fixed_strings`: search text that contains regex punctuation
+    // (`foo(`, `a.b`, `x[0]`) without hand-escaping it.
+    const fixedStrings = input.fixed_strings === true;
+    // Fair share of the result cap per file. Searching one file on purpose
+    // (`path: 'src/loop.ts'`) keeps the full budget: that file is the subject,
+    // so capping it would hide the calls the model asked for.
+    const rawPerFile = Math.floor(Number(input.max_matches_per_file));
+    const fairShare = Number.isFinite(rawPerFile) && rawPerFile > 0 ? rawPerFile : null;
     const globFilter =
       typeof input.glob === 'string' && input.glob.trim() ? input.glob.trim() : null;
     const typeFilter =
@@ -592,27 +770,43 @@ export const searchCodeTool: Tool = {
 
     let regex: RegExp;
     try {
-      if (!isSafeRegex(String(input.pattern))) {
+      if (!fixedStrings && !isSafeRegex(String(input.pattern))) {
         return redactEgress(
           'Error: pattern rejected as potentially unsafe (ReDoS risk). Use a simpler pattern.'
         );
       }
       regex = new RegExp(
-        String(input.pattern),
+        fixedStrings ? literalPattern(String(input.pattern)) : String(input.pattern),
         caseSensitive ? (multiline ? 'ms' : '') : multiline ? 'ims' : 'i'
       );
     } catch (err) {
-      return redactEgress(`Invalid regex pattern: ${errorMessage(err)}`);
+      return redactEgress(
+        `Invalid regex pattern: ${errorMessage(err)}` +
+          (fixedStrings ? '' : ' (pass fixed_strings: true to search the text literally)')
+      );
     }
 
     try {
       const location = resolveSearchLocation(input.path, ctx.workspaceDir);
+      const missing = await missingSearchTarget(location, input.path);
+      if (missing) return redactEgress(missing);
       const patternStr = String(input.pattern);
       const cappedResults = location.bound
         ? Math.min(maxResults, location.bound.maxResults)
         : maxResults;
       const timeoutMs = location.bound?.timeoutMs ?? 30_000;
       const maxDepth = location.bound?.maxDepth;
+      const targetIsFile = await fs
+        .stat(location.dir)
+        .then((stat) => stat.isFile())
+        .catch(() => false);
+      const fairShareLimit =
+        outputMode === 'content' && !targetIsFile
+          ? (fairShare ?? Math.max(3, Math.ceil(cappedResults / 4)))
+          : null;
+      // Gather four budgets' worth so later files still appear after the share
+      // is applied; with only one budget's worth the first hot file fills it.
+      const collectLimit = fairShareLimit !== null ? cappedResults * 4 : cappedResults;
       let incomplete = false;
       // Prefer ripgrep when available: respects .gitignore and is far
       // faster than the in-process walk on large repos.
@@ -629,6 +823,9 @@ export const searchCodeTool: Tool = {
         contextLines: outputMode === 'content' ? contextLines : 0,
         outputMode,
         multiline,
+        fixedStrings,
+        maxPerFile: collectLimit,
+        collectLimit,
         onIncomplete: () => {
           incomplete = true;
         },
@@ -652,26 +849,67 @@ export const searchCodeTool: Tool = {
             outputMode,
             contextLines: outputMode === 'content' ? contextLines : 0,
             glob: globFilter,
+            maxPerFile: collectLimit,
+            collectLimit,
             ...(maxDepth !== undefined ? { maxDepth } : {}),
           }
         );
       }
-      if (matches.length === 0) return presentSearch('No matches found', location, incomplete);
+      if (matches.length === 0) {
+        const binaryAt = targetIsFile ? await binaryOffsetAt(location.dir) : null;
+        if (binaryAt !== null) {
+          const shown = String(input.path ?? '');
+          return presentSearch(
+            `No text matches in ${shown} — the file is binary (NUL byte at offset ${String(binaryAt)}), ` +
+              'so its contents were skipped. To match inside it, run ' +
+              `exec: rg -a ${JSON.stringify(patternStr)} ${JSON.stringify(shown)}`,
+            location,
+            incomplete
+          );
+        }
+        return presentSearch('No matches found', location, incomplete);
+      }
+      // A capped search has to say so: an unmarked short list reads as "these
+      // are all the matches". Content mode budgets result lines, and each match
+      // brings up to 2*contextLines-1 extra context lines with it.
+      const resultCap =
+        outputMode === 'content'
+          ? cappedResults * (contextLines > 0 ? contextLines * 2 + 1 : 1)
+          : cappedResults;
+      const rawCount = matches.length;
+      // Qoder `Grep.max_matches_per_file`: one hot file must not spend the whole
+      // result budget — but only when the result actually overflows. A 6-match
+      // file inside a 20-line budget is a complete answer and stays complete.
+      let saturatedNote = '';
+      if (fairShareLimit !== null && (rawCount >= resultCap || fairShare !== null)) {
+        const share = applyPerFileShare(matches, fairShareLimit);
+        matches = share.kept;
+        saturatedNote = perFileCappedNote(share.capped, fairShareLimit);
+      }
+      // With the wider pool, "more than the budget" is proof; without it the
+      // pool ends at the budget, so filling it is the only signal there is.
+      const truncated = fairShareLimit !== null ? rawCount > resultCap : rawCount >= resultCap;
+      if (matches.length > resultCap) matches = matches.slice(0, resultCap);
+      const capNote = truncated
+        ? `\n\n(results truncated at ${matches.length} ${
+            outputMode === 'content' ? 'lines' : 'files'
+          }; raise head_limit (max 200) or narrow the pattern/glob for the rest)`
+        : '';
       if (outputMode === 'files_with_matches') {
         return presentSearch(
-          `Files with matches (${matches.length}):\n${matches.join('\n')}`,
+          `Files with matches (${matches.length}):\n${matches.join('\n')}${capNote}`,
           location,
           incomplete
         );
       }
       if (outputMode === 'count') {
         return presentSearch(
-          `Match counts (${matches.length} files):\n${matches.join('\n')}`,
+          `Match counts (${matches.length} files):\n${matches.join('\n')}${capNote}`,
           location,
           incomplete
         );
       }
-      return presentSearch(matches.join('\n'), location, incomplete);
+      return presentSearch(matches.join('\n') + capNote + saturatedNote, location, incomplete);
     } catch (err) {
       throw toolError('Error searching code', err);
     }
@@ -683,6 +921,10 @@ export interface GrepWalkOptions {
   contextLines?: number;
   glob?: string | null;
   maxDepth?: number;
+  /** Matching lines kept per file in content mode (same share as ripgrep). */
+  maxPerFile?: number;
+  /** Lines gathered before the caller applies its per-file share. */
+  collectLimit?: number;
 }
 
 export async function grepWalk(
@@ -699,12 +941,14 @@ export async function grepWalk(
   const contextLines = options.contextLines ?? 2;
   const globFilter = options.glob ?? null;
   const maxDepth = options.maxDepth;
+  const maxPerFile = Math.max(1, options.maxPerFile ?? limit);
+  const collectLimit = Math.max(limit, options.collectLimit ?? limit);
   const results: string[] = [];
   const fileCounts = new Map<string, number>();
   const deadline = Date.now() + timeoutMs;
 
   async function walk(d: string, depth: number) {
-    if (results.length >= limit || Date.now() > deadline) return;
+    if (results.length >= collectLimit || Date.now() > deadline) return;
     if (maxDepth !== undefined && depth > maxDepth) return;
     if (outputMode !== 'content' && fileCounts.size >= limit) return;
     let entries;
@@ -714,7 +958,7 @@ export async function grepWalk(
       return;
     }
     for (const e of entries) {
-      if (results.length >= limit || Date.now() > deadline) return;
+      if (results.length >= collectLimit || Date.now() > deadline) return;
       if (outputMode !== 'content' && fileCounts.size >= limit) return;
       const full = path.join(d, e.name);
       if (e.isDirectory()) {
@@ -735,57 +979,70 @@ export async function grepWalk(
             // invalid glob — skip filter
           }
         }
-        try {
-          const stat = await fs.stat(full);
-          if (stat.size > maxFileSize) continue;
-          const content = await fs.readFile(full, 'utf-8');
-          const lines = content.split('\n');
-          let fileMatchCount = 0;
-          for (let i = 0; i < lines.length; i++) {
-            regex.lastIndex = 0;
-            if (!regex.test(lines[i])) continue;
-            fileMatchCount++;
-            if (outputMode === 'content') {
-              if (results.length >= limit) break;
-              const ctxBefore = Math.max(0, i - contextLines);
-              const ctxAfter = Math.min(lines.length - 1, i + contextLines);
-              for (let j = ctxBefore; j <= ctxAfter; j++) {
-                const marker = j === i ? ':>' : '-|';
-                results.push(`${relPath}:${j + 1}${marker} ${lines[j].slice(0, 200)}`);
-              }
-              i = ctxAfter;
-            }
-          }
-          // Multiline whole-file fallback when per-line scan found nothing.
-          if (fileMatchCount === 0 && (regex.flags.includes('s') || regex.flags.includes('m'))) {
-            regex.lastIndex = 0;
-            if (regex.test(content)) {
-              fileMatchCount = 1;
-              if (outputMode === 'content' && results.length < limit) {
-                results.push(`${relPath}:1:> [multiline match]`);
-              }
-            }
-          }
-          if (fileMatchCount > 0) {
-            if (outputMode === 'files_with_matches') {
-              if (!fileCounts.has(relPath)) {
-                fileCounts.set(relPath, fileMatchCount);
-                results.push(relPath);
-              }
-            } else if (outputMode === 'count') {
-              if (!fileCounts.has(relPath)) {
-                fileCounts.set(relPath, fileMatchCount);
-                results.push(`${relPath}: ${fileMatchCount}`);
-              }
-            }
-          }
-        } catch {
-          // unreadable file
-        }
+        await scanFile(full, relPath);
       }
     }
   }
 
+  async function scanFile(full: string, relPath: string) {
+    try {
+      const stat = await fs.stat(full);
+      if (stat.size > maxFileSize) return;
+      const content = await fs.readFile(full, 'utf-8');
+      const lines = content.split('\n');
+      let fileMatchCount = 0;
+      for (let i = 0; i < lines.length; i++) {
+        regex.lastIndex = 0;
+        if (!regex.test(lines[i])) continue;
+        if (outputMode === 'content' && fileMatchCount >= maxPerFile) break;
+        fileMatchCount++;
+        if (outputMode === 'content') {
+          if (results.length >= collectLimit) break;
+          const ctxBefore = Math.max(0, i - contextLines);
+          const ctxAfter = Math.min(lines.length - 1, i + contextLines);
+          for (let j = ctxBefore; j <= ctxAfter; j++) {
+            const marker = j === i ? ':>' : '-|';
+            results.push(`${relPath}:${j + 1}${marker} ${lines[j].slice(0, 200)}`);
+          }
+          i = ctxAfter;
+        }
+      }
+      // Multiline whole-file fallback when per-line scan found nothing.
+      if (fileMatchCount === 0 && (regex.flags.includes('s') || regex.flags.includes('m'))) {
+        regex.lastIndex = 0;
+        if (regex.test(content)) {
+          fileMatchCount = 1;
+          if (outputMode === 'content' && results.length < collectLimit) {
+            results.push(`${relPath}:1:> [multiline match]`);
+          }
+        }
+      }
+      if (fileMatchCount > 0) {
+        if (outputMode === 'files_with_matches') {
+          if (!fileCounts.has(relPath)) {
+            fileCounts.set(relPath, fileMatchCount);
+            results.push(relPath);
+          }
+        } else if (outputMode === 'count') {
+          if (!fileCounts.has(relPath)) {
+            fileCounts.set(relPath, fileMatchCount);
+            results.push(`${relPath}: ${fileMatchCount}`);
+          }
+        }
+      }
+    } catch {
+      // unreadable file
+    }
+  }
+
+  // A target that is itself a file was previously invisible: `readdir` on it
+  // fails and the walk returned nothing, so `path: 'src/x.ts'` said
+  // "No matches found" about a file that matched.
+  const target = await fs.stat(dir).catch(() => null);
+  if (target?.isFile()) {
+    await scanFile(dir, path.relative(displayRoot, dir).split(path.sep).join('/'));
+    return results;
+  }
   await walk(dir, 0);
   return results;
 }

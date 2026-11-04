@@ -54,13 +54,7 @@ export interface TrustItem {
   label: string;
 }
 
-export {
-  forgetFolderTrust,
-  isFilesystemRoot,
-  isFolderTrusted,
-  listTrustedFolders,
-  rememberFolderTrust,
-};
+export { forgetFolderTrust, isFilesystemRoot, listTrustedFolders, rememberFolderTrust };
 
 /** Live `process.env` has already applied `.env`. Trust uses the pre-dotenv copy. */
 function resolvedEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {

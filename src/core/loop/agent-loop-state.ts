@@ -19,14 +19,14 @@ export interface AgentLoopMutableState {
   missingToolNudgeAttempts: number;
   /** Soft mid-run reminders to open todo_write on multi-step coding (Grok TodoNudge). */
   todoNudgeAttempts: number;
-  /** Soft mid-run reminders to run tests after several edits without verification. */
-  verifyNudgeAttempts: number;
   /** Soft mid-run recovery after a red verification result. */
   redVerifyNudgeAttempts: number;
   /** Soft mid-run recovery after fan_out/create_subagent child failures. */
   fanOutNudgeAttempts: number;
   /** Soft mid-run ask when multi-interpretation coding + edits without clarify. */
   ambiguityNudgeAttempts: number;
+  /** Soft audit reminder when docs/spec authority conflicts are possible. */
+  specAuditNudgeAttempts: number;
   /** Soft mid-run reminder while background create_subagent is still STARTED. */
   subagentRunningNudgeAttempts: number;
   /** Soft mid-run reminder after subagent_stop without suite evidence. */
@@ -45,6 +45,8 @@ export interface AgentLoopMutableState {
   backgroundServerNudgeAttempts: number;
   /** Soft mid-run recovery after a red task_acceptance verdict (repair-loop discipline). */
   taskRepairNudgeAttempts: number;
+  /** One mid-run objective re-anchor for deep tool loops (RunAnchorNudge). */
+  runAnchorNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   /** O13: one-shot reasoning level for the request after a thinking-only turn. */
   reasoningOverrideNextTurn?: 'low' | 'off';
@@ -94,10 +96,10 @@ export function createInitialLoopState(): AgentLoopMutableState {
     outputLimitHalted: false,
     missingToolNudgeAttempts: 0,
     todoNudgeAttempts: 0,
-    verifyNudgeAttempts: 0,
     redVerifyNudgeAttempts: 0,
     fanOutNudgeAttempts: 0,
     ambiguityNudgeAttempts: 0,
+    specAuditNudgeAttempts: 0,
     subagentRunningNudgeAttempts: 0,
     subagentStoppedNudgeAttempts: 0,
     webToolsNudgeAttempts: 0,
@@ -107,6 +109,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     buildToolsNudgeAttempts: 0,
     backgroundServerNudgeAttempts: 0,
     taskRepairNudgeAttempts: 0,
+    runAnchorNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,

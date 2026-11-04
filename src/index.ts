@@ -27,7 +27,6 @@ export {
 
 export { buildMossDefaultWorkflowPrompt, buildRuntimeCapabilitiesPrompt } from './context/index.js';
 export type { RuntimeCapabilitiesPromptOptions, RuntimeCapabilityTool } from './context/index.js';
-export { compactSubagentSummaryForParent } from './context/index.js';
 export { truncateToolOutput, registerToolOutputLimits } from './context/index.js';
 export {
   CONTEXT_WINDOW_HARD_MIN_TOKENS,
@@ -88,8 +87,6 @@ export {
   webSearchTool,
   applyPatchTool,
 } from './tools/builtin.js';
-
-export { codeDiagnosticsTool } from './tools/code-diagnostics.js';
 
 export {
   deviceTools,

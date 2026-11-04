@@ -14,9 +14,6 @@
  * Kept at the original path so consumers importing `dist/cli/tui-utils.js`
  * (src/cli/output.ts, src/cli/doctor.ts, src/cli/repl.ts, src/cli-main.ts, and
  * the cli-tui* / markdown-table / cli-attachments specs) keep working unchanged.
- * The exported surface is exactly the historical surface of this former
- * single-file module. `AGENTS_MD_TEMPLATE` stays here: it is a lone static
- * template constant with no code affinity to any of the modules above.
  */
 
 export * from './terminal-text.js';
@@ -29,20 +26,3 @@ export * from './attachment-refs.js';
 export * from './repl-chrome.js';
 
 export { cliLocale, isZhLocale } from './cli-locale.js';
-
-export const AGENTS_MD_TEMPLATE = `# AGENTS.md
-
-Project memory for Moss and coding agents. Auto-loaded at the start of every session.
-
-## Overview
-<!-- What this project is, in one or two sentences. -->
-
-## Build / test / run
-<!-- The exact commands an agent should use, e.g. install / build / test / lint. -->
-
-## Layout
-<!-- Top-level directories and what lives in each. -->
-
-## Conventions
-<!-- Code style, naming, patterns to follow, and things NOT to touch. -->
-`;

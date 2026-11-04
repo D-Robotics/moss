@@ -9,9 +9,12 @@
  * A tool with `requiresUserQuestion` is omitted when the run has no asker
  * (`userQuestions: false`): headless `-p` and any non-interactive host.
  * The tool name is not the signal. A host that injects an asker keeps it.
+ * Plan-only tools (`exit_plan`) are offered only while the interaction mode is
+ * `plan`; outside it they stay registered but unreachable from the model.
  */
 import type { ToolContext } from '../tools/tool-types.js';
 import { deviceTargetConfigured, isDeviceToolName } from '../../device/device-tool-offer.js';
+import { isLegacyAliasToolName, isPlanOnlyToolName } from '../tools/tool-catalog.js';
 
 /** Task ledger. Hidden when taskFlow is false; kept when taskFlow is unset. */
 const TASK_LEDGER_TOOL_NAMES = new Set([
@@ -78,8 +81,19 @@ export function toolVisibleForRun(
     deviceConfigured?: boolean;
     userQuestions?: boolean;
     requiresUserQuestion?: boolean;
+    /** True while the interaction mode is `plan` (the mode, not a tool flag). */
+    planMode?: boolean;
+    /** Registered but subsumed by a newer tool; never offered to the model. */
+    hiddenFromModel?: boolean;
   } = {}
 ): boolean {
+  // Compatibility aliases stay registered for hosts and old transcripts but are
+  // never offered: each one duplicates a canonical tool the model already has.
+  if (isLegacyAliasToolName(toolName)) return false;
+  if (options.hiddenFromModel === true) return false;
+  // The plan-exit action is part of plan mode, not a global tool: offering it
+  // in normal mode invites a call that cannot open anything.
+  if (isPlanOnlyToolName(toolName) && options.planMode !== true) return false;
   const deviceConfigured = options.deviceConfigured ?? deviceTargetConfigured();
   if (isDeviceToolName(toolName) && !deviceConfigured) return false;
   if (options.taskFlow === false && TASK_LEDGER_TOOL_NAMES.has(toolName)) return false;

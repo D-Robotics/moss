@@ -240,6 +240,7 @@ const ONE_SHOT_SUBAGENT_TOOLS = new Set([
 ]);
 const ONE_SHOT_BACKGROUND_TOOLS = new Set([
   'exec_background',
+  'exec_input',
   'exec_logs',
   'exec_stop',
   'exec_wait',
@@ -263,9 +264,7 @@ const ONE_SHOT_CODING_HEAVY_TOOLS = new Set([
   'search_files',
   'search_code',
   'apply_patch',
-  'code_diagnostics',
   'run_tests',
-  'verify_fix',
   'todo_write',
 ]);
 const ROUTED_ONE_SHOT_TOOLS = new Set([

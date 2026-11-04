@@ -20,16 +20,18 @@ import { mergeSubagentPatchTool } from './merge-subagent-patch.js';
 import { createWebFetchTool } from './web-fetch.js';
 import { createWebSearchTool } from './web-search.js';
 import { backgroundExecTools } from './background-exec.js';
-import { codeDiagnosticsTool } from './code-diagnostics.js';
+import { createExecEventCollector, formatExecEventResult } from './exec-events.js';
 import { harnessTools } from './harness-tools.js';
 import { deviceTools } from './device-tools.js';
 import { evidenceTools } from './evidence-tools.js';
 import { taskTools } from './task-tools.js';
 import {
-  EXEC_DEFAULT_TIMEOUT_MS,
+  EXEC_MAX_FOREGROUND_TIMEOUT_MS,
+  execCwdRefusal,
   globalToolStateManager,
   looksBinary,
   openChildEnv,
+  resolveForegroundTimeoutMs,
   takeShellNotices,
 } from './tool-helpers.js';
 
@@ -40,7 +42,7 @@ import {
   shellCommandHasWriteAction,
 } from '../context/stale-read-invalidate.js';
 import { deviceEnvFootnote } from '../utils/safe-child-env.js';
-import { createRedactingChunkWriter } from '../safety/tool-output-redact.js';
+import { createRedactingChunkWriter, presentToolOutput } from '../safety/tool-output-redact.js';
 import {
   filesWithIncreasedPlaceholderCount,
   formatRedactedWritebackWarning,
@@ -60,6 +62,7 @@ import {
   type ProtectedPathChange,
 } from '../safety/protected-path-snapshot.js';
 import { isProtectedPathApproved } from '../safety/protected-path-approvals.js';
+import { spillToolOutput } from './tool-output-spill.js';
 
 // Re-export tools from extracted modules for backward compatibility.
 export {
@@ -77,22 +80,43 @@ export { ToolStateManager } from './tool-helpers.js';
 export {
   harnessTools,
   runTestsTool,
-  verifyFixTool,
   summarizeVerificationResult,
   extractVerificationFailurePreview,
 } from './harness-tools.js';
 export { askUserQuestionTool } from './ask-user-question.js';
 
 const EXEC_DESCRIPTION_BASE =
-  'Run a shell command in the workspace (cwd does not persist). Prefer read_file, edit_file, multi_edit, search_files, search_code, run_tests, and verify_fix over cat/sed/find/grep. ' +
+  'Run a shell command in the workspace (cwd does not persist). Prefer read_file, edit_file, search_files, search_code, and run_tests over cat/sed/find/grep. ' +
   'Use absolute paths; do not cd. Chain with && only when the next step must not run if this one fails. ' +
-  'For servers, watchers, or anything that may not exit, set run_in_background or use exec_background, then exec_logs / exec_stop. ' +
+  'For servers, watchers, or anything that may not exit, set run_in_background, then exec_logs / exec_stop. Before claiming completion, stop what you started unless the user asked it to keep running. ' +
+  'Set event: true when you want each output line as its own event (a probe, a server boot log) instead of one blob at the end. ' +
   'Reads outside the workspace are allowed. Secret-like output, including Moss config and keys, is removed. Every MOSS_DEVICE_* value is hidden; a footnote lists names that are set — do not claim a hidden variable is unset.';
 
 export function execToolDescription(shell = resolveHostShell()): string {
   return shell.description
     ? `${EXEC_DESCRIPTION_BASE} ${shell.description}`
     : EXEC_DESCRIPTION_BASE;
+}
+
+/**
+ * Foreground shell backgrounding idioms exec refuses. `start /b` is matched
+ * under pwsh as well as cmd: `cmd /c start /b …` reaches cmd.exe from pwsh,
+ * and the block message names `start /b` for every shell kind.
+ * @internal exported for tests
+ */
+export function usesUntrackedShellBackground(command: string, shellKind: string): boolean {
+  const withoutQuotedText = command
+    .replace(/'(?:\\.|[^'\\])*'/g, ' ')
+    .replace(/"(?:\\.|[^"\\])*"/g, ' ');
+  if (shellKind === 'sh') {
+    return (
+      /(?<!&)&(?:\s|$)/.test(withoutQuotedText) || /\b(?:nohup|disown)\b/.test(withoutQuotedText)
+    );
+  }
+  if (shellKind === 'pwsh') {
+    return /\bstart-job\b/i.test(withoutQuotedText) || /\bstart\s+\/b\b/i.test(withoutQuotedText);
+  }
+  return /\bstart\s+\/b\b/i.test(withoutQuotedText);
 }
 
 /** O152 r4: detect placeholder growth, L3-restore, then warn from post-restore state. */
@@ -132,6 +156,9 @@ export const execTool: Tool = {
     return execToolDescription();
   },
   metadata: {
+    classification: { verifyShell: true, shellCommand: true },
+    maxResultTokens: 4_500,
+    truncationHint: 'output was cut — narrow the command (grep/head/tail) to the slice you need',
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
@@ -144,7 +171,7 @@ export const execTool: Tool = {
       timeout_ms: {
         type: 'number',
         description:
-          'Timeout in ms (default 120000). Use run_in_background for processes that do not exit.',
+          'Timeout in ms (default 120000, max 600000). Use run_in_background for processes that do not exit.',
       },
       run_in_background: {
         type: 'boolean',
@@ -164,12 +191,19 @@ export const execTool: Tool = {
         type: 'string',
         description: 'Optional label shown in exec_logs.',
       },
+      event: {
+        type: 'boolean',
+        description:
+          'Foreground only: emit one event per output line as it arrives (result lists them as [n] line) so a long-running server is observed line by line. Use exec_logs for run_in_background.',
+      },
     },
     required: ['command'],
   },
   async execute(input, ctx) {
+    const cwdRefusal = execCwdRefusal(input as Record<string, unknown>);
+    if (cwdRefusal) return cwdRefusal;
     // Claude Code Bash parity: run_in_background on the main exec tool so the
-    // model does not have to discover a separate exec_background tool.
+    // model does not have to discover a separate background tool.
     if (input.run_in_background === true) {
       const { execBackgroundTool } = await import('./background-exec.js');
       return execBackgroundTool.execute(
@@ -183,7 +217,14 @@ export const execTool: Tool = {
         ctx
       );
     }
-    const timeoutMs = Number(input.timeout_ms) || EXEC_DEFAULT_TIMEOUT_MS;
+    // An empty command spawns a shell that prints nothing, so the result read
+    // as "(no output)" — the same answer as a command that ran and was quiet.
+    // Nothing ran; say so instead of implying a silent success.
+    if (typeof input.command !== 'string' || !input.command.trim()) {
+      return 'Error: exec needs a command. Nothing ran — pass the shell command to execute (e.g. "npm test").';
+    }
+    const requestedTimeout = Number(input.timeout_ms);
+    const { timeoutMs } = resolveForegroundTimeoutMs(input.timeout_ms);
     const shell = resolveHostShell();
     if (shell.kind !== 'sh' && /\buname\b/i.test(String(input.command ?? ''))) {
       return `Command skipped: uname is not available on Windows ${shell.kind}.\n${shell.description}`;
@@ -206,6 +247,12 @@ export const execTool: Tool = {
       }
     }
     const commandText = String(input.command ?? '');
+    if (usesUntrackedShellBackground(commandText, shell.kind)) {
+      return (
+        'Command blocked: foreground shell backgrounding (`&`, nohup, disown, or start /b) creates a process Moss cannot track or stop. ' +
+        'Re-run with `run_in_background: true`; it returns the id/pid and exec_stop can confirm the process ended.'
+      );
+    }
     const redactedWrite = redactedShellWriteRefusal(
       commandText,
       shellCommandHasWriteAction(commandText)
@@ -294,6 +341,20 @@ export const execTool: Tool = {
     };
     const hideCredentialStream = /\.apikey-key\b/.test(commandText);
     const streamer = hideCredentialStream ? null : createRedactingChunkWriter(ctx.onToolOutput);
+    // Qoder Monitor parity: `event: true` turns each whole stdout line into its
+    // own event (live for the host, numbered in the result) instead of one
+    // buffered blob at exit. Redaction stays line-scoped inside the collector.
+    const eventCollector =
+      input.event === true
+        ? createExecEventCollector(
+            ctx.onToolOutput && !hideCredentialStream
+              ? (event) =>
+                  ctx.onToolOutput?.(
+                    `[event ${event.seq}]${event.stream === 'stderr' ? ' (stderr)' : ''} ${event.line}\n`
+                  )
+              : undefined
+          )
+        : null;
     const footnote = deviceEnvFootnote(String(input.command ?? ''));
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
     const hooksNotice = (output = ''): string =>
@@ -313,10 +374,11 @@ export const execTool: Tool = {
         // Live streaming: forward stdout chunks to the host (TUI/headless
         // renderer) so long-running commands show output incrementally.
         // Line-buffered so a secret on its own line is redacted before display.
-        ...(ctx.onToolOutput
+        ...(ctx.onToolOutput || eventCollector
           ? {
               onStdoutChunk: (chunk: string) => {
-                streamer?.write(chunk);
+                if (eventCollector) eventCollector.push(chunk, 'stdout');
+                else streamer?.write(chunk);
               },
             }
           : {}),
@@ -334,21 +396,47 @@ export const execTool: Tool = {
       // Returning MB of garbage floods the model's context. If the output
       // looks binary, return a safe summary instead.
       const stdoutTrimmed = result.stdout.trim();
-      let outText = looksBinary(stdoutTrimmed)
-        ? `(binary output, ${stdoutTrimmed.length} chars — suppressed to avoid flooding context; use hexdump or xxd if you need to inspect it)`
-        : stdoutTrimmed;
-      if (!looksBinary(stdoutTrimmed) && outText.length > STDOUT_MAX) {
+      let outText: string;
+      if (eventCollector) {
+        eventCollector.push(result.stderr, 'stderr');
+        eventCollector.flush();
+        outText = looksBinary(stdoutTrimmed)
+          ? `(binary output, ${stdoutTrimmed.length} chars — suppressed to avoid flooding context; use hexdump or xxd if you need to inspect it)`
+          : formatExecEventResult(eventCollector);
+      } else {
+        outText = looksBinary(stdoutTrimmed)
+          ? `(binary output, ${stdoutTrimmed.length} chars — suppressed to avoid flooding context; use hexdump or xxd if you need to inspect it)`
+          : stdoutTrimmed;
+      }
+      if (!looksBinary(stdoutTrimmed) && !eventCollector && outText.length > STDOUT_MAX) {
+        // The spill is a copy of the result the model would have seen, so it
+        // goes through the same egress filter: a secret the hook masks on the
+        // way out must not survive on disk just because it fell in the middle.
+        const spilled = spillToolOutput({
+          workspaceDir: ctx.workspaceDir,
+          toolName: 'exec',
+          text: presentToolOutput({
+            toolName: 'exec',
+            input: { command: commandText },
+            text: outText,
+            workspaceDir: ctx.workspaceDir,
+          }),
+        });
         const head = outText.slice(0, Math.floor(STDOUT_MAX * 0.7));
         const tail = outText.slice(-Math.floor(STDOUT_MAX * 0.25));
         outText =
           `${head}\n\n... [${outText.length - STDOUT_MAX} chars omitted] ...\n\n${tail}\n` +
-          `(stdout truncated to ~${STDOUT_MAX} chars; re-run with a narrower command or pipe through tail/head/rg)`;
+          (spilled
+            ? `(stdout truncated to ~${STDOUT_MAX} chars; full output: ${spilled} — read the omitted region from there)`
+            : `(stdout truncated to ~${STDOUT_MAX} chars; re-run with a narrower command or pipe through tail/head/rg)`);
       }
       const exitNote =
         result.exitCode !== undefined && result.exitCode !== 0
           ? `exit_code: ${result.exitCode}\n`
           : '';
-      const outParts = [exitNote + outText, stderrFmt].filter(Boolean);
+      const outParts = eventCollector
+        ? [exitNote + outText]
+        : [exitNote + outText, stderrFmt].filter(Boolean);
       let text = outParts.join('\n\n') || '(no output)';
       // Shell file rewrites (sed -i, redirects, …) leave prior read_file bodies
       // and ToolStateManager prior-read credit stale — clear credit for high-
@@ -368,7 +456,7 @@ export const execTool: Tool = {
           text +=
             '\n\n[moss] Detected shell file mutation — prior read credit cleared for: ' +
             paths.join(', ') +
-            '. Prefer edit_file/multi_edit/apply_patch; re-read before the next surgical edit.';
+            '. Prefer edit_file/apply_patch; re-read before the next surgical edit.';
         }
       }
       streamer?.flush();
@@ -382,6 +470,13 @@ export const execTool: Tool = {
       );
     } catch (err) {
       streamer?.flush();
+      const eventTail = ((): string => {
+        if (!eventCollector) return '';
+        if (err instanceof ProcessError) eventCollector.push(err.stderr, 'stderr');
+        eventCollector.flush();
+        const text = formatExecEventResult(eventCollector);
+        return text ? `\n${text}` : '';
+      })();
       const { l3Notice, writebackWarning } = redactedWritebackAfterL3(mutationSnap, () =>
         o101NoticeAfter(commandText)
       );
@@ -390,8 +485,22 @@ export const execTool: Tool = {
         if (err.timedOut) {
           ctx.markResultError?.();
           const waited = err.timeoutMs && err.timeoutMs > 0 ? err.timeoutMs : timeoutMs;
+          // Cursor's idle_timeout_seconds answers "hung or still working?" by
+          // killing early. Report the same signal without changing the kill.
+          const silence =
+            !output && !eventTail
+              ? '; it printed nothing before the timeout'
+              : typeof err.lastOutputAgoMs === 'number'
+                ? `; last output ${(err.lastOutputAgoMs / 1000).toFixed(1)}s before the timeout`
+                : '';
           return (
-            `timed out after ${waited}ms (raise timeout_ms or use exec_background)${output ? `\n${output}` : ''}${l3Notice}` +
+            `timed out after ${waited}ms ` +
+            (requestedTimeout > EXEC_MAX_FOREGROUND_TIMEOUT_MS
+              ? `(requested ${requestedTimeout}ms is capped at ${EXEC_MAX_FOREGROUND_TIMEOUT_MS}ms for foreground commands; use run_in_background for longer work)`
+              : '(raise timeout_ms or use run_in_background)') +
+            silence +
+            (eventCollector ? eventTail : output ? `\n${output}` : '') +
+            `${l3Notice}` +
             writebackWarning +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
@@ -400,7 +509,7 @@ export const execTool: Tool = {
         if (err.signal) {
           ctx.markResultError?.();
           return (
-            `Command killed by ${err.signal}:\n${output || err.message}${l3Notice}` +
+            `Command killed by ${err.signal}:\n${output || err.message}${eventTail}${l3Notice}` +
             writebackWarning +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
@@ -413,6 +522,7 @@ export const execTool: Tool = {
             : `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
         return (
           failure +
+          eventTail +
           shellNote +
           l3Notice +
           writebackWarning +
@@ -436,13 +546,14 @@ import {
   moveFileTool,
   listDirectoryTool,
 } from './file-tools.js';
-import { repoOutlineTool } from './repo-outline.js';
 import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
 import { todoWriteTool } from './todo-tool.js';
 import { askUserQuestionTool } from './ask-user-question.js';
-import { exitPlanTool, planGateEnabled } from './plan-gate.js';
+import { exitPlanTool } from './plan-gate.js';
 import { toolSearchTool } from './tool-search.js';
+import { installToolOutputDeclarations } from '../core/tools/tool-output-declarations.js';
+import { installToolClassifications } from '../core/tools/tool-classes.js';
 
 /** QA #149 F1: detection never breaks the exec result; on any error, keep the exit-code wording. */
 function isWindowsMissingCommand(stderr: string): boolean {
@@ -465,7 +576,6 @@ export const builtinTools: Tool[] = [
   multiEditTool,
   moveFileTool,
   listDirectoryTool,
-  repoOutlineTool,
   execTool,
   searchFilesTool,
   searchCodeTool,
@@ -475,7 +585,6 @@ export const builtinTools: Tool[] = [
   webFetchTool,
   webSearchTool,
   applyPatchTool,
-  codeDiagnosticsTool,
   toolSearchTool,
   createSubagentTool,
   mergeSubagentPatchTool,
@@ -489,13 +598,17 @@ export const builtinTools: Tool[] = [
   ...taskTools,
 ];
 
+// Declared output budgets/hints are installed once, from the tools themselves;
+// the truncation layer reads this registry instead of a name-keyed table.
+installToolOutputDeclarations(builtinTools);
+installToolClassifications(builtinTools);
+
 export function registerBuiltinTools(agent: { tools: { register: (tool: Tool) => void } }): void {
   for (const tool of builtinTools) {
-    // exit_plan is only useful while the plan gate is on. Leaving it in the
-    // prompt when MOSS_PLAN_GATE is unset spends tokens and invites a call
-    // that cannot open the dialog. bench:ab plan-gate sets the env before
-    // the process registers tools, so the on arm still receives it.
-    if (tool.name === 'exit_plan' && !planGateEnabled()) continue;
+    // `exit_plan` is registered in every mode and hidden by the run-visibility
+    // filter when the interaction mode is not `plan` (see PLAN_ONLY_TOOL_NAMES).
+    // Registration is for SDK hosts and transcripts; visibility is the model's
+    // surface, and the two axes are deliberately separate.
     agent.tools.register(tool);
   }
 }

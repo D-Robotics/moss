@@ -20,6 +20,8 @@ export interface DeviceDestructivePromptInput {
   trustZh?: string;
   /** An ask rule or external hook may require confirmation every time. */
   allowTrust?: boolean;
+  /** SSH login user; a root session gets an explicit full-privileges note. */
+  remoteUser?: string;
   /** Test override. Defaults to the process locale. */
   locale?: string;
 }
@@ -56,6 +58,10 @@ export function deviceDestructivePrompt(
       ? `（${input.deviceLabel}）`
       : ` on ${input.deviceLabel}`
     : '';
+  const rootNote = input.remoteUser === 'root';
+  const rootZh = '本会话以 root 登录这块板：每条命令都以最高权限执行。';
+  const rootEn =
+    'This session logs into the board as root: every command runs with full privileges.';
 
   if (zh) {
     const title = sensitive ? '敏感的设备读取' : '毁灭性设备操作';
@@ -65,6 +71,7 @@ export function deviceDestructivePrompt(
     const detail = [
       kind,
       'full 模式仍会直接执行只读探测和可逆变更（部署到 /home、/opt、/tmp，安装软件包，systemctl restart）。',
+      ...(rootNote ? [rootZh] : []),
       ...(allowTrust ? [`选 a 将在本会话信任：${trustLabel}`] : []),
     ];
     const question = sensitive
@@ -81,6 +88,7 @@ export function deviceDestructivePrompt(
       sensitive
         ? '读取 /etc/shadow、私钥、sshd_config 或 authorized_keys 需要确认。'
         : '重启、刷机、写入系统路径、改网络、卸载系统包、修改 ssh 或账号需要确认。',
+      ...(rootNote ? [rootZh] : ''),
       '',
       allowTrust
         ? `执行一次 [y]，本会话信任（${trustLabel}）[a]，或拒绝 [N]？ `
@@ -105,6 +113,7 @@ export function deviceDestructivePrompt(
     input.reason,
     'Full mode still runs read-only and reversible device work without asking.',
     kind,
+    ...(rootNote ? [rootEn] : []),
     ...(allowTrust ? [`Answering a trusts: ${trustLabel}`] : []),
   ];
   const question = sensitive
@@ -123,6 +132,7 @@ export function deviceDestructivePrompt(
     sensitive
       ? 'Reading /etc/shadow, private keys, sshd_config, or authorized_keys needs a confirmation.'
       : 'Reboot, flash, system-path writes, network changes, package removal, and ssh/account edits need a confirmation.',
+    ...(rootNote ? [rootEn] : []),
     '',
     allowTrust
       ? `Allow once [y], trust for this session (${trustLabel}) [a], or deny [N]? `

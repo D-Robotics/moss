@@ -168,8 +168,6 @@ export const READONLY_PREVIEW_TOOLS = new Set<string>([
   'list_directory',
   'search_code',
   'search_files',
-  'repo_outline',
-  'code_diagnostics',
   'web_fetch',
   'web_search',
   'skill',

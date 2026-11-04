@@ -379,7 +379,7 @@ export interface CompactionStrategy {
 }
 
 export interface StrategyParams {
-  summarize?: any; // Can be either SummarizeFn signature variant
+  summarize?: SummarizeFn;
   remoteCompactProvider?: RemoteCompactProvider;
   droppedMessages: Message[];
   contextWindowTokens: number;
@@ -885,34 +885,26 @@ class RemoteCompactionStrategy implements CompactionStrategy {
     if (!params.remoteCompactProvider) {
       throw new Error('Remote compaction requires a remoteCompactProvider');
     }
-    if (!params.summarize) {
-      throw new Error('Remote compaction requires a summarize function for local fallback');
+    const available = await params.remoteCompactProvider.isAvailable();
+    if (!available) {
+      throw new Error('Remote compaction endpoint is unavailable');
     }
-
-    // Create a wrapper for the buildCompactionSummary-style function to match SummarizeFn signature
-    const wrappedSummarize: SummarizeFn = async (summaryParams) => {
-      // summaryParams has { system, userPrompt, maxTokens, abortSignal }
-      // We need to call params.summarize which has { messages, maxTokens, systemPrompt, customInstructions, abortSignal }
-      // For remote compaction, we convert by treating the user prompt as the messages
-      return params.summarize!({
-        messages: [{ role: 'user', content: summaryParams.userPrompt, timestamp: Date.now() }],
-        maxTokens: summaryParams.maxTokens,
-        systemPrompt: summaryParams.system,
-        customInstructions: undefined,
-        abortSignal: summaryParams.abortSignal,
-      });
-    };
-
-    return runRemoteCompaction({
-      remoteCompactProvider: params.remoteCompactProvider,
-      localSummarize: wrappedSummarize,
-      contextWindowTokens: params.contextWindowTokens,
-      reserveTokens: params.reserveTokens,
-      customInstructions: params.customInstructions,
-      droppedMessages: params.droppedMessages,
+    const maxOutputTokens = Math.min(
+      Math.max(64, Math.floor(0.8 * params.reserveTokens)),
+      MAX_SUMMARY_OUTPUT_TOKENS
+    );
+    const result = await params.remoteCompactProvider.compact({
+      messages: params.droppedMessages,
       systemPrompt: params.systemPrompt,
+      maxOutputTokens,
+      contextWindowTokens: params.contextWindowTokens,
+      customInstructions: params.customInstructions,
       abortSignal: params.abortSignal,
     });
+    if (!result.summary.trim()) {
+      throw new Error('Remote compaction returned an empty summary');
+    }
+    return result.summary;
   }
 }
 
@@ -931,33 +923,6 @@ function selectCompactionStrategy(params: {
   }
 
   return new LlmCompactionStrategy(new DeterministicCompactionStrategy());
-}
-
-async function runRemoteCompaction(params: {
-  remoteCompactProvider: RemoteCompactProvider;
-  localSummarize: SummarizeFn;
-  contextWindowTokens: number;
-  reserveTokens: number;
-  customInstructions?: string;
-  droppedMessages: Message[];
-  systemPrompt?: string;
-  abortSignal?: AbortSignal;
-}): Promise<string> {
-  const { hybridCompact } = await import('./remote-compaction.js');
-  const hybrid = await hybridCompact(
-    {
-      remoteProvider: params.remoteCompactProvider,
-      localSummarize: params.localSummarize,
-      contextWindowTokens: params.contextWindowTokens,
-      reserveTokens: params.reserveTokens,
-      customInstructions: params.customInstructions,
-      abortSignal: params.abortSignal,
-    },
-    params.droppedMessages,
-    params.systemPrompt
-  );
-  log.info('compaction summary source', { method: hybrid.method });
-  return hybrid.summary;
 }
 
 export async function compactHistoryIfNeeded(params: {

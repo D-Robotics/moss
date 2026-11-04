@@ -1097,7 +1097,8 @@ function deviceTrustKeys(
 function classifyHookDeviceCall(
   toolName: string,
   sideEffect: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  remoteUser?: string
 ): DeviceRiskClassification | null {
   return classifyDeviceOperation({
     toolName,
@@ -1107,6 +1108,7 @@ function classifyHookDeviceCall(
     remotePath: stringField(input, 'remote_path', 'remotePath'),
     startCommand: stringField(input, 'start_command'),
     healthCommand: stringField(input, 'health_command'),
+    ...(remoteUser ? { remoteUser } : {}),
   });
 }
 
@@ -1191,7 +1193,15 @@ export function createCliToolApprovalHook(
     const requiresApproval = needsApproval(request, sideEffect);
     const workspaceFileMutation = isWorkspaceFileMutation(tool.name, sideEffect);
     const operand = extractRuleOperand(tool.name, request.input);
-    const classification = classifyHookDeviceCall(tool.name, sideEffect, request.input);
+    // G4: the hook must classify with the session's real SSH user — boards
+    // default to root, where `~` is the protected /root tree.
+    const deviceRemoteUser = options.device?.user?.trim() || env.MOSS_DEVICE_USER?.trim() || 'root';
+    const classification = classifyHookDeviceCall(
+      tool.name,
+      sideEffect,
+      request.input,
+      deviceRemoteUser
+    );
     const deviceKeys = deviceTrustKeys(options.device, env);
     const deviceFullTrust =
       options.deviceTrust === 'full' ||
@@ -1262,10 +1272,10 @@ export function createCliToolApprovalHook(
       options.workspaceDir
     );
     if (workspaceBlockReason) {
-      return settle({ approved: false, reason: workspaceBlockReason });
+      return settle({ approved: false, reason: workspaceBlockReason, denialClass: 'policy' });
     }
     if (preview.hardBlockReason) {
-      return settle({ approved: false, reason: preview.hardBlockReason });
+      return settle({ approved: false, reason: preview.hardBlockReason, denialClass: 'policy' });
     }
 
     // ── the permission decision order (single implementation) ──
@@ -1309,7 +1319,11 @@ export function createCliToolApprovalHook(
           (!process.stdin.isTTY && protectedAsker === null && !protectedViewAsker)
         ) {
           console.error(protectedPathHeadlessNotice(firstHit, zh));
-          return settle({ approved: false, reason: protectedPathHeadlessReason(firstHit, zh) });
+          return settle({
+            approved: false,
+            reason: protectedPathHeadlessReason(firstHit, zh),
+            denialClass: 'headless',
+          });
         }
         const view = protectedPathView(tool.name, protectedHits, zh);
         let protectedAnswer: string;
@@ -1338,17 +1352,26 @@ export function createCliToolApprovalHook(
           for (const hit of protectedHits) noteProtectedPathApproved(hit.resolved);
           if (!hookAsks) return settle({ approved: true });
         } else {
-          return settle({ approved: false, reason: protectedPathDeniedReason(firstHit, zh) });
+          return settle({
+            approved: false,
+            reason: protectedPathDeniedReason(firstHit, zh),
+            denialClass: 'policy',
+          });
         }
       }
     }
 
     switch (outcome.decision) {
       case 'deny':
-        return settle({ approved: false, reason: `Tool "${tool.name}" ${outcome.reason}.` });
+        return settle({
+          approved: false,
+          reason: `Tool "${tool.name}" ${outcome.reason}.`,
+          denialClass: 'policy',
+        });
       case 'block':
         return settle({
           approved: false,
+          denialClass: 'mode',
           reason: `Tool "${tool.name}" is blocked (${outcome.reason}). ${
             effectiveMode === 'plan'
               ? 'Switch to "manual", "accept-edits", or "full" mode (use Shift+Tab) to execute changes. '
@@ -1389,6 +1412,7 @@ export function createCliToolApprovalHook(
             operand: classification.operand,
             reason: classification.reason,
             allowTrust,
+            ...(deviceRemoteUser ? { remoteUser: deviceRemoteUser } : {}),
             ...(classification.trust
               ? { trustEn: classification.trust.en, trustZh: classification.trust.zh }
               : {}),
@@ -1404,7 +1428,7 @@ export function createCliToolApprovalHook(
       if (printMode || (!process.stdin.isTTY && asker === null && !getCliApprovalViewAsker())) {
         const reason = hookAskHeadlessReason(hookAsks, printMode ? 'print' : 'headless');
         if (options.detailMode !== 'quiet') console.error(`[hooks] ${reason}`);
-        return settle({ approved: false, reason });
+        return settle({ approved: false, reason, denialClass: 'headless' });
       }
     }
     // Same `-p` rule as O94: print mode cannot prompt even on a TTY.
@@ -1421,6 +1445,7 @@ export function createCliToolApprovalHook(
       }
       return settle({
         approved: false,
+        denialClass: 'headless',
         reason: destructiveCopy
           ? destructiveCopy.headlessReason
           : formatHeadlessBlockReason(tool.name, effectiveMode),
@@ -1521,7 +1546,11 @@ export function createCliToolApprovalHook(
       if (answer === 'y' || answer === 'yes' || answer === 'a' || answer === 'always') {
         return settle({ approved: true });
       }
-      return settle({ approved: false, reason: hookAskDeniedReason(tool.name, hookAsks) });
+      return settle({
+        approved: false,
+        reason: hookAskDeniedReason(tool.name, hookAsks),
+        denialClass: 'user',
+      });
     }
     if (answer === 'a' || answer === 'always') {
       if (!allowTrust) return settle({ approved: true });
@@ -1565,9 +1594,13 @@ export function createCliToolApprovalHook(
       return settle({ approved: true });
     }
     if (deviceGatedAsk && isZhLocale()) {
-      return settle({ approved: false, reason: `用户拒绝了 ${tool.name}。` });
+      return settle({ approved: false, reason: `用户拒绝了 ${tool.name}。`, denialClass: 'user' });
     }
-    return settle({ approved: false, reason: `User denied ${tool.name}.` });
+    return settle({
+      approved: false,
+      reason: `User denied ${tool.name}.`,
+      denialClass: 'user',
+    });
   };
   const configurable = hook as CliToolApprovalHook;
   configurable.setAsker = (asker: AskUser | null) => {

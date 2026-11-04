@@ -1,15 +1,18 @@
 /**
- * Plan-mode approval gate.
+ * Plan-mode approval tool.
  *
- * Default off (`MOSS_PLAN_GATE` unset). The A/B in `bench:ab plan-gate` is the
- * only path that may justify turning it on; a score inside the noise band
- * keeps the default off.
+ * Cursor/Claude Code expose their exit-plan action as part of the plan mode
+ * itself, not as an environment switch: `ExitPlanMode` exists whenever the
+ * session is planning, and its absence otherwise is what tells the model that
+ * "there is no approval dialog to wait for". Moss keeps the same contract:
+ * `exit_plan` is always registered (SDK hosts may call it directly) and is
+ * offered to the model only while the interaction mode is `plan`
+ * (`toolVisibleForRun` + `PLAN_ONLY_TOOL_NAMES`). The old `MOSS_PLAN_GATE`
+ * environment flag was an A/B harness artefact; it is retired because a mode
+ * that exists must have its exit action.
  */
+import crypto from 'node:crypto';
 import type { Tool } from '../core/tools/tool-types.js';
-
-export function planGateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.MOSS_PLAN_GATE === '1';
-}
 
 interface ExitPlanInput {
   summary?: string;
@@ -19,7 +22,8 @@ export const exitPlanTool: Tool<ExitPlanInput> = {
   name: 'exit_plan',
   description:
     'Call when a read-only plan is ready for the user to approve. ' +
-    'This does not edit files. If the plan gate is off, the plan stands as the answer.',
+    'This does not edit files and does not switch modes by itself: after it, wait for the user, ' +
+    'then stop unless they ask for work.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -38,13 +42,15 @@ export const exitPlanTool: Tool<ExitPlanInput> = {
   async execute(input): Promise<string> {
     const summary = typeof input.summary === 'string' ? input.summary.trim() : '';
     if (!summary) return 'Error: exit_plan requires a summary of the plan.';
-    if (!planGateEnabled()) {
-      return (
-        'Plan gate is off (MOSS_PLAN_GATE is not 1). The plan stands as the answer; ' +
-        'do not wait for an approval dialog. Summary recorded:\n' +
-        summary
-      );
-    }
-    return 'Plan submitted for approval. Wait for the user before editing files.\n' + summary;
+    // Version the plan at submission time. The approval dialog echoes the same
+    // fingerprint, so "approved" names a specific plan instead of whatever the
+    // model writes next (Claude Code binds plan approval to the request id; text
+    // has no id, so the hash is the closest honest equivalent).
+    const version = crypto.createHash('sha256').update(summary, 'utf8').digest('hex').slice(0, 12);
+    return (
+      `Plan submitted for approval (version ${version}). Wait for the user before editing files.\n` +
+      `The approval applies to this version; if the plan changes materially, ask again.\n` +
+      summary
+    );
   },
 };

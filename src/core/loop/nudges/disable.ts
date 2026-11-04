@@ -18,10 +18,10 @@ export const MOSS_DISABLE_NUDGES_ENV = 'MOSS_DISABLE_NUDGES';
  */
 export const NUDGE_IDS = [
   'todo',
-  'verify',
   'red-verify',
   'fan-out',
   'ambiguity',
+  'spec-audit',
   'subagent-running',
   'subagent-stopped',
   'web-tools',
@@ -31,6 +31,7 @@ export const NUDGE_IDS = [
   'build-tools',
   'background-server',
   'task-repair',
+  'run-anchor',
   'reasoning-only',
   'output-continuation',
   'missing-tool-call',
@@ -41,6 +42,7 @@ export const NUDGE_IDS = [
   'steering-tool-loop',
   'steering-context-pressure',
   'background-completion',
+  'background-lifecycle-gate',
   'acceptance-gate',
   'follow-up-guard',
   'truncated-tool-json',

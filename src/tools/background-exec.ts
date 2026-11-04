@@ -45,12 +45,20 @@ import {
   MAX_PROCS,
   nextBackgroundId,
   notifyLifecycle,
+  subscribeBackgroundLifecycle,
+  subscribeBackgroundOutput,
   waitForBackgroundProcesses,
   tailLines,
   type BackgroundProc,
   type BackgroundWaitMode,
 } from '../core/tools/background-process-registry.js';
-import { EXEC_DEFAULT_TIMEOUT_MS, openChildEnv, takeShellNotices } from './tool-helpers.js';
+import {
+  EXEC_DEFAULT_TIMEOUT_MS,
+  execCwdRefusal,
+  openChildEnv,
+  takeShellNotices,
+} from './tool-helpers.js';
+import { isSafeRegex } from './search-tools.js';
 
 /**
  * Wait out a background command only for the runTask/resumeTask that set
@@ -85,6 +93,7 @@ export const execBackgroundTool: Tool = {
   description:
     'Start a long-running command and return a handle. Outside /goal it returns after settle_ms. During a goal it waits until exit or timeout_ms unless settle_ms is set or wait is false. Read output with exec_logs; stop with exec_stop. An immediate crash is reported inline.',
   metadata: {
+    classification: { shellCommand: true },
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
@@ -121,6 +130,9 @@ export const execBackgroundTool: Tool = {
     if (ctx.abortSignal?.aborted) {
       return 'Background command cancelled before start.';
     }
+
+    const cwdRefusal = execCwdRefusal(input as Record<string, unknown>);
+    if (cwdRefusal) return cwdRefusal;
 
     const command = String(input.command ?? '').trim();
     if (!command) return 'Error: command is required';
@@ -233,7 +245,9 @@ export const execBackgroundTool: Tool = {
     let child: ChildProcess;
     try {
       child = spawnProcess(invocation.executable, invocation.args, {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        // stdin is piped so exec_input can drive REPLs and prompts on a
+        // tracked child (Qoder BashInput / Cursor write_shell_stdin).
+        stdio: ['pipe', 'pipe', 'pipe'],
         cwd: ctx.workspaceDir,
         env: withWindowsSystemRoot(hostShellChildEnv(opened.env, shell)),
         detached: process.platform !== 'win32',
@@ -428,8 +442,8 @@ export const execBackgroundTool: Tool = {
 export const execLogsTool: Tool = {
   name: 'exec_logs',
   description:
-    'Read the status and recent output of a background command started by exec_background. ' +
-    'Omit `id` to list all tracked background processes.',
+    'Read the status and recent output of a background command started by exec(run_in_background). ' +
+    'Omit `id` to list them. wait_for blocks until a line matches, so start-then-test is one call.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -442,9 +456,18 @@ export const execLogsTool: Tool = {
         type: 'number',
         description: 'Number of trailing output lines to return (default 100, max 1000)',
       },
+      wait_for: {
+        type: 'string',
+        description:
+          'Block until output matches this regex, or the process exits, or timeout_ms elapses.',
+      },
+      timeout_ms: {
+        type: 'number',
+        description: 'With wait_for, longest wait in ms (default 15000, max 120000).',
+      },
     },
   },
-  async execute(input) {
+  async execute(input, ctx) {
     const id = typeof input.id === 'string' ? input.id.trim() : '';
     if (!id) {
       if (backgroundProcesses.size === 0) return 'No background processes.';
@@ -454,10 +477,130 @@ export const execLogsTool: Tool = {
     if (!proc)
       return `Error: no background process with id "${id}". Use exec_logs (no id) to list them.`;
     const tail = Math.min(Math.max(1, Number(input.tail) || 100), 1000);
+    const pattern = typeof input.wait_for === 'string' ? input.wait_for.trim() : '';
+    if (pattern) {
+      let regex: RegExp;
+      try {
+        if (!isSafeRegex(pattern)) {
+          return 'Error: wait_for rejected as potentially unsafe (ReDoS risk). Use a simpler pattern.';
+        }
+        regex = new RegExp(pattern, 'm');
+      } catch (err) {
+        return `Invalid wait_for regex: ${errorMessage(err)}`;
+      }
+      const waited = await waitForOutputMatch(proc, regex, input, ctx.abortSignal);
+      const body = tailLines(proc.buffer, tail) || '(no output captured)';
+      const label = `wait_for /${pattern}/`;
+      const verdict = waited.matched
+        ? `${label} matched after ${formatWaitMs(waited.elapsedMs)}${waited.line ? `: ${waited.line}` : ''}`
+        : waited.exited
+          ? `exited before matching ${label}`
+          : `${label} not matched after ${formatWaitMs(waited.elapsedMs)}; still running`;
+      return `${describe(proc)}\n${verdict}\n--- last ${tail} line(s) ---\n${body}`;
+    }
     const body = tailLines(proc.buffer, tail) || '(no output captured)';
     return `${describe(proc)}\n--- last ${tail} line(s) ---\n${body}`;
   },
 };
+
+const WAIT_FOR_DEFAULT_MS = 15_000;
+const WAIT_FOR_MAX_MS = 120_000;
+
+function formatWaitMs(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+interface OutputWaitResult {
+  matched: boolean;
+  /** The process stopped running before a match was found. */
+  exited: boolean;
+  elapsedMs: number;
+  line?: string;
+}
+
+/** The output line around the match, so the model sees the shape of the hit. */
+function matchedLine(buffer: string, match: RegExpExecArray): string {
+  const at = match.index;
+  const start = buffer.lastIndexOf('\n', at) + 1;
+  const end = buffer.indexOf('\n', at);
+  return buffer
+    .slice(start, end === -1 ? buffer.length : end)
+    .trim()
+    .slice(0, 200);
+}
+
+/**
+ * Resolve when `regex` matches the process output, the process stops, or the
+ * timeout elapses. Output is already redacted when it enters the buffer.
+ */
+function waitForOutputMatch(
+  proc: BackgroundProc,
+  regex: RegExp,
+  input: Record<string, unknown>,
+  signal?: AbortSignal
+): Promise<OutputWaitResult> {
+  const requested = Number(input.timeout_ms);
+  const timeoutMs = Math.min(
+    Math.max(1, Number.isFinite(requested) && requested > 0 ? requested : WAIT_FOR_DEFAULT_MS),
+    WAIT_FOR_MAX_MS
+  );
+  const startedAt = Date.now();
+  const scan = (): OutputWaitResult | null => {
+    const match = regex.exec(proc.buffer);
+    if (match) {
+      return {
+        matched: true,
+        exited: false,
+        elapsedMs: Date.now() - startedAt,
+        line: matchedLine(proc.buffer, match),
+      };
+    }
+    if (proc.status !== 'running') {
+      return { matched: false, exited: true, elapsedMs: Date.now() - startedAt };
+    }
+    return null;
+  };
+  const immediate = scan();
+  if (immediate) return Promise.resolve(immediate);
+
+  return new Promise<OutputWaitResult>((resolve) => {
+    let settled = false;
+    const cleanup: Array<() => void> = [];
+    const onAbort = (): void => {
+      finish({ matched: false, exited: false, elapsedMs: Date.now() - startedAt });
+    };
+    const finish = (result: OutputWaitResult): void => {
+      if (settled) return;
+      settled = true;
+      for (const fn of cleanup) fn();
+      signal?.removeEventListener('abort', onAbort);
+      resolve(result);
+    };
+    const check = (): void => {
+      const result = scan();
+      if (result) finish(result);
+    };
+    const timer = setTimeout(
+      () =>
+        finish({
+          matched: false,
+          exited: proc.status !== 'running',
+          elapsedMs: Date.now() - startedAt,
+        }),
+      timeoutMs
+    );
+    if (typeof timer.unref === 'function') timer.unref();
+    cleanup.push(() => clearTimeout(timer));
+    cleanup.push(subscribeBackgroundOutput(proc.id, check));
+    cleanup.push(
+      subscribeBackgroundLifecycle((snapshot) => {
+        if (snapshot.id === proc.id) check();
+      })
+    );
+    signal?.addEventListener('abort', onAbort, { once: true });
+    check();
+  });
+}
 
 export const execStopTool: Tool = {
   name: 'exec_stop',
@@ -486,8 +629,12 @@ export const execStopTool: Tool = {
     }
     killProc(proc);
     const age = Math.round((Date.now() - proc.startedAt) / 1000);
+    const stopped = await waitForBackgroundProcesses([id], 'wait_all', 5_000, { pollMs: 20 });
+    const confirmation = stopped.completed
+      ? `confirmed ${proc.status}${proc.exitCode !== null ? ` (exit ${proc.exitCode})` : ''}`
+      : 'still running after the stop timeout — inspect exec_logs and escalate';
     const tail = tailLines(proc.buffer, 10) || '(no output)';
-    return `Stopping ${id} (pid ${proc.pid}, age ${age}s)\n--- last output ---\n${tail}`;
+    return `Stopping ${id} (pid ${proc.pid}, age ${age}s): ${confirmation}\n--- last output ---\n${tail}`;
   },
 };
 
@@ -521,22 +668,37 @@ export const execWaitTool: Tool = {
     required: ['ids'],
   },
   async execute(input, ctx) {
-    const rawIds = Array.isArray(input?.ids) ? input.ids : [];
-    const ids = rawIds
-      .map((v: unknown) => String(v).trim())
+    const rawIds: unknown[] = Array.isArray(input?.ids) ? input.ids : [];
+    const ids: string[] = rawIds
+      .map((v) => String(v).trim())
       .filter(Boolean)
       .slice(0, 20);
     if (ids.length === 0) {
       return 'No ids provided. Start commands with exec_background, then exec_wait with their ids (e.g. ["bg_1","bg_2"]).';
     }
+    const known = ids.filter((id) => backgroundProcesses.has(id));
+    if (known.length === 0) {
+      // Waiting on nothing used to answer "wait_all satisfied", which reads as
+      // "the job you named finished". Nothing was waited on, so say that.
+      return (
+        `Error: no background process with id(s) ${ids.map((id) => `"${id}"`).join(', ')} — ` +
+        'nothing was waited on. Use exec_logs with no id to list background processes.'
+      );
+    }
     const mode: BackgroundWaitMode = input?.mode === 'wait_any' ? 'wait_any' : 'wait_all';
     const timeoutMs = Math.min(120_000, Math.max(1000, Number(input?.timeout_ms) || 30_000));
-    const result = await waitForBackgroundProcesses(ids, mode, timeoutMs, {
+    const startedAt = Date.now();
+    const result = await waitForBackgroundProcesses(known, mode, timeoutMs, {
       signal: ctx.abortSignal,
     });
+    const elapsedMs = Date.now() - startedAt;
     const lines: string[] = [];
-    if (result.missing.length) {
-      lines.push(`Unknown id(s) — not waited on: ${result.missing.join(', ')}`);
+    const missing = ids.filter((id) => !known.includes(id));
+    if (missing.length) {
+      lines.push(
+        `Unknown id(s) — not waited on: ${missing.join(', ')}. ` +
+          'Use exec_logs with no id to list background processes.'
+      );
     }
     for (const id of ids) {
       const proc = backgroundProcesses.get(id);
@@ -558,8 +720,71 @@ export const execWaitTool: Tool = {
           ? 'wait_any satisfied (first completed)'
           : 'wait_all satisfied (all completed)'
         : 'timed out';
-    lines.push(`\n${verdict} after ${timeoutMs}ms (mode=${mode}, ${ids.length} id(s)).`);
+    lines.push(`\n${verdict} after ${elapsedMs}ms (mode=${mode}, ${known.length} id(s)).`);
     return lines.join('\n');
+  },
+};
+
+export const execInputTool: Tool = {
+  name: 'exec_input',
+  description:
+    'Write to stdin of a command started with exec(run_in_background). Read the reply with exec_logs. eof: true closes stdin.',
+  metadata: {
+    sideEffectClass: 'local_write',
+    planMode: 'requires_user_confirmation',
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Background process id, e.g. "bg_1"' },
+      text: {
+        type: 'string',
+        description: 'Text for stdin; a newline is appended unless newline: false.',
+      },
+      newline: {
+        type: 'boolean',
+        description: 'Append a newline (default true).',
+      },
+      eof: {
+        type: 'boolean',
+        description: 'Close stdin after writing.',
+      },
+    },
+    required: ['id'],
+  },
+  async execute(input) {
+    const id = typeof input.id === 'string' ? input.id.trim() : '';
+    if (!id) return 'Error: id is required';
+    const proc = backgroundProcesses.get(id);
+    if (!proc)
+      return `Error: no background process with id "${id}". Use exec_logs (no id) to list them.`;
+    if (proc.status !== 'running') {
+      return `${id} is already ${proc.status}; its stdin is closed. Inspect it with exec_logs("${id}").`;
+    }
+    const text = typeof input.text === 'string' ? input.text : '';
+    const eof = input.eof === true;
+    if (!text && !eof) return 'Error: pass text to write, or eof: true to close stdin.';
+    const payload = text ? (input.newline === false ? text : `${text}\n`) : '';
+    const stdin = proc.child.stdin;
+    if (!stdin || stdin.destroyed || !stdin.writable) {
+      return `Error: ${id} has no writable stdin (the process closed it or was not started with a pipe).`;
+    }
+    try {
+      if (payload) {
+        await new Promise<void>((resolve, reject) => {
+          stdin.write(payload, (err) => (err ? reject(err) : resolve()));
+        });
+      }
+      if (eof) stdin.end();
+    } catch (err) {
+      return `Error writing to ${id} stdin: ${errorMessage(err)}. The process may have exited; check exec_logs("${id}").`;
+    }
+    const bytes = Buffer.byteLength(payload, 'utf8');
+    if (!payload) return `Closed stdin on ${id}. Read the rest with exec_logs("${id}").`;
+    return (
+      `Wrote ${bytes} byte(s) to ${id} stdin${eof ? ' and closed stdin' : ''}.` +
+      ` Read the response with exec_logs("${id}").`
+    );
   },
 };
 
@@ -568,4 +793,5 @@ export const backgroundExecTools: Tool[] = [
   execLogsTool,
   execStopTool,
   execWaitTool,
+  execInputTool,
 ];

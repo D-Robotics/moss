@@ -1,8 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { Tool } from '../core/tools/tool-types.js';
+import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { ErrorCode, wrapAsMoss } from '../errors.js';
-import { atomicWriteFile } from '../utils/atomic-write.js';
+import { atomicWriteBytes } from '../utils/atomic-write.js';
+import {
+  decodeTextBytes,
+  encodeTextBytes,
+  hasUtf16Bom,
+  type TextEncoding,
+} from '../utils/text-encoding.js';
 import {
   globalToolStateManager,
   findSimilarFileName,
@@ -19,6 +25,23 @@ import {
   redactedPlaceholderWriteError,
 } from '../safety/tool-output-redact.js';
 import { isMossCredentialPath, resolveReadPath } from '../safety/read-scope.js';
+
+/**
+ * Lines of a text file where a trailing newline ends the last line instead of
+ * starting an empty one. `split('\n')` said a three-line file had four, so a
+ * plain read showed a phantom empty line and `offset 4` returned it as if it
+ * existed (`wc -l` says 3).
+ */
+function contentLines(content: string): string[] {
+  const lines = content.split('\n');
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+/** Drop the newline that terminates the last line, so numbering ends with it. */
+function withoutTrailingNewline(content: string): string {
+  return content.endsWith('\n') ? content.slice(0, -1) : content;
+}
 
 /** Strip read_file-style line-number prefixes the model often pastes back. */
 export function stripLineNumberPrefixes(s: string): string {
@@ -147,6 +170,28 @@ export function findClosestLineHints(content: string, needle: string, maxHints =
   return out;
 }
 
+/** Largest file `read_file` loads. Above this a turn risks dying on memory. */
+const READ_MAX_FILE_BYTES = 50 * 1024 * 1024;
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${String(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Offset of the first NUL byte in the first 8 KB, or null for text. Git and
+ * ripgrep use the same heuristic; a tool that promises text must not hand the
+ * model bytes it decoded as garbage.
+ */
+function binaryOffset(buf: Buffer): number | null {
+  const limit = Math.min(buf.length, 8192);
+  for (let i = 0; i < limit; i += 1) {
+    if (buf[i] === 0) return i;
+  }
+  return null;
+}
+
 function readRangeKey(input: { offset?: unknown; limit?: unknown }): string {
   const hasRange = input.offset !== undefined || input.limit !== undefined;
   if (!hasRange) return 'full';
@@ -162,6 +207,9 @@ export const readFileTool: Tool = {
     'Each line is prefixed with a line number and a tab that are NOT file content — do not copy them into edits. ' +
     'An unchanged re-read returns a short stub. Paths outside the workspace are still read; secret-like values are removed.',
   metadata: {
+    classification: { singleCallExempt: true, discovery: true },
+    maxResultTokens: 10_000,
+    truncationHint: 'the dropped region is not in context — re-read only it with offset/limit',
     sideEffectClass: 'readonly',
     planMode: 'allow',
     // O122: execute() must run so a full re-read registers (its own unchanged stub saves tokens).
@@ -192,43 +240,85 @@ export const readFileTool: Tool = {
       const reuse = await globalToolStateManager.readReuseState(filePath, rangeKey);
       if (reuse === 'fresh') return FILE_UNCHANGED_STUB;
       if (reuse === 'truncated') return FILE_UNCHANGED_TRUNCATED_STUB;
-      const content = await fs.readFile(filePath, 'utf-8');
+      const stat = await fs.stat(filePath);
+      if (stat.isDirectory()) {
+        const shown = String(input.path ?? '').trim() || 'the workspace root';
+        return (
+          `Error: ${shown} is a directory, not a file. ` +
+          'Use list_directory to see what is in it.'
+        );
+      }
+      if (stat.size > READ_MAX_FILE_BYTES) {
+        // Loading a huge log whole is how a turn dies of memory instead of
+        // answering. Text paging still loads the file, so point at a reader.
+        return (
+          `Error: ${String(input.path ?? '')} is ${formatBytes(stat.size)} — larger than ` +
+          `read_file loads (${formatBytes(READ_MAX_FILE_BYTES)}). ` +
+          'Use exec with head/tail/sed -n to read a slice, or search_code to find the region.'
+        );
+      }
+      const raw = await fs.readFile(filePath);
+      const binaryAt = hasUtf16Bom(raw) ? null : binaryOffset(raw);
+      if (binaryAt !== null) {
+        // Serving NUL-laden bytes as text showed a PNG as one line of "PNG":
+        // the model reads that as the file's content.
+        return (
+          `Error: ${String(input.path ?? '')} is binary (NUL byte at offset ${String(binaryAt)}). ` +
+          'read_file returns text — use exec (file, xxd -l 256) or device_file_read to inspect it.'
+        );
+      }
+      const { text: content } = decodeTextBytes(raw);
       const hasRange = input.offset !== undefined || input.limit !== undefined;
       const result = (() => {
         if (hasRange) {
-          const lines = content.split('\n');
+          const lines = contentLines(content);
           const start = Math.max(1, Math.floor(Number(input.offset) || 1));
+          if (start > lines.length) {
+            // An empty window used to print `[lines 99-4 of 4]` with no body,
+            // which reads as "line 99 exists and is empty".
+            return (
+              `Error: offset ${start} is past the end of ${String(input.path ?? '')} ` +
+              `(${lines.length} line(s)). Use offset 1–${lines.length}.`
+            );
+          }
           const count =
-            input.limit !== undefined ? Math.max(0, Math.floor(Number(input.limit))) : lines.length;
+            input.limit !== undefined
+              ? Math.max(1, Math.floor(Number(input.limit)) || 1)
+              : lines.length;
           const slice = lines.slice(start - 1, start - 1 + count);
           const end = Math.min(lines.length, start - 1 + count);
           let body = slice.join('\n');
           let note = '';
           if (body.length > 100_000) {
-            note = `\n\n[... truncated range, total ${body.length} chars]`;
+            const shown = String(input.path ?? '');
+            // `offset`/`limit` count lines, so they cannot narrow one line.
+            note = body.slice(0, 100_000).includes('\n')
+              ? `\n\n[... truncated range, total ${body.length} chars]`
+              : `\n\n[... truncated inside a single ${body.length}-char line — offset/limit cannot split a line; read a slice with exec: cut -c 1-2000 ${JSON.stringify(shown)}]`;
             body = body.slice(0, 100_000);
           }
           return `[lines ${start}-${end} of ${lines.length}]\n${withLineNumbers(body, start)}${note}`;
         }
         if (content.length > 100_000) {
-          return (
-            withLineNumbers(content.slice(0, 100_000)) +
-            `\n\n[... truncated, total ${content.length} chars — pass offset/limit to page through the rest]`
-          );
+          const shown = String(input.path ?? '');
+          const note = content.slice(0, 100_000).includes('\n')
+            ? `\n\n[... truncated, total ${content.length} chars — pass offset/limit to page through the rest]`
+            : `\n\n[... truncated inside a single ${content.length}-char line — offset/limit cannot split a line; read a slice with exec: cut -c 1-2000 ${JSON.stringify(shown)}]`;
+          return withLineNumbers(content.slice(0, 100_000)) + note;
         }
-        return withLineNumbers(content);
+        return withLineNumbers(withoutTrailingNewline(content));
       })();
       // Record against the raw body size; credential paths are redacted below
       // so an unchanged re-read still short-circuits on disk state.
       await globalToolStateManager.recordFileState(
         filePath,
         rangeKey,
-        wouldTruncateToolOutput('read', result)
+        wouldTruncateToolOutput('read_file', result)
       );
       globalToolStateManager.markFullReadTruncation(
         filePath,
         rangeKey,
-        wouldTruncateToolOutput('read', result)
+        wouldTruncateToolOutput('read_file', result)
       );
       // O105: defense in depth — even a direct execute (no agent post-hook)
       // must not return Moss credential plaintext. Same path as presentToolOutput.
@@ -261,6 +351,8 @@ export const writeFileTool: Tool = {
   description:
     'Create or overwrite a workspace file (parent directories are created). Prefer edit_file or multi_edit for existing files. If the path exists, read_file it once this session first.',
   metadata: {
+    classification: { singleCallExempt: true, fileMutation: true },
+    maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },
@@ -275,6 +367,9 @@ export const writeFileTool: Tool = {
   async execute(input, ctx) {
     try {
       const displayPath = String(input.path ?? '');
+      if (!displayPath.trim()) {
+        return 'Error: write_file needs a path. Nothing was written.';
+      }
       const filePath = await safePath(displayPath, ctx.workspaceDir);
       const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
       if (stale) return `Error: ${stale}`;
@@ -282,11 +377,22 @@ export const writeFileTool: Tool = {
       // Existing files: require prior read so full rewrites cannot bypass
       // surgical-edit thrash guards (Claude Code FileWrite parity).
       let existed = false;
+      let isDirectory = false;
       try {
-        await fs.access(filePath);
+        isDirectory = (await fs.stat(filePath)).isDirectory();
         existed = true;
       } catch {
         existed = false;
+      }
+      // A directory exists, so it fell through the prior-read gate — whose
+      // advice (read it, then retry) can never succeed: read_file refuses a
+      // directory. Say what the path is instead of sending the model on that
+      // loop.
+      if (isDirectory) {
+        return (
+          `Error: ${displayPath} is a directory, not a file. Nothing was written. ` +
+          'Pass a file path inside it (e.g. a file name after the slash).'
+        );
       }
       if (existed) {
         const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
@@ -307,14 +413,21 @@ export const writeFileTool: Tool = {
 
       const contentStrEarly = String(input.content ?? '');
       let originalBody: string | null = null;
+      // Keep the file's own encoding: rewriting a UTF-16 config as UTF-8 is a
+      // silent format change even when the text is identical.
+      let encoding: TextEncoding = 'utf8';
       if (existed) {
-        originalBody = await fs.readFile(filePath, 'utf-8');
+        const decoded = decodeTextBytes(await fs.readFile(filePath));
+        originalBody = decoded.text;
+        encoding = decoded.encoding;
       }
       const redactedWrite = redactedPlaceholderWriteError(originalBody, contentStrEarly);
       if (redactedWrite) return `Error: ${redactedWrite}`;
 
+      // A parent path is a file (`f.txt/x`): the sandbox walk lstat fails here
+      // with a raw ENOTDIR. The outer catch names the caller's path instead.
       await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, contentStrEarly, 'utf-8');
+      await fs.writeFile(filePath, encodeTextBytes(contentStrEarly, encoding));
       await globalToolStateManager.recordMutation(filePath);
       const contentLines = contentStrEarly.split('\n');
       const previewLines = contentLines.slice(0, 12).map((l) => `+ ${l}`);
@@ -325,6 +438,12 @@ export const writeFileTool: Tool = {
         contentStrEarly.length > 0 ? `\n--- write preview ---\n${previewLines.join('\n')}` : '';
       return `Successfully wrote ${contentStrEarly.length} chars to ${displayPath}.${preview}`;
     } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOTDIR') {
+        return (
+          `Error: cannot create ${String(input.path ?? '')} — a parent path is a file, not a directory. ` +
+          'Nothing was written.'
+        );
+      }
       throw toolError('Error writing file', err);
     }
   },
@@ -348,6 +467,12 @@ export interface PreciseEditSuccess {
 export interface PreciseEditFailure {
   ok: false;
   error: string;
+  /**
+   * Why the match failed. `ambiguous` means the text exists at several sites
+   * and nothing was written — the caller keeps prior-read credit because the
+   * file is unchanged. `not-found` means the content no longer matches.
+   */
+  reason?: 'invalid' | 'not-found' | 'ambiguous';
 }
 
 /**
@@ -364,11 +489,16 @@ export function applyPreciseEditToContent(
   if (oldStr === '') {
     return {
       ok: false,
+      reason: 'invalid',
       error: 'old_string is empty. Use write_file to create a new file or replace an entire file.',
     };
   }
   if (oldStr === newStr) {
-    return { ok: false, error: 'old_string and new_string are identical — nothing to change.' };
+    return {
+      ok: false,
+      reason: 'invalid',
+      error: 'old_string and new_string are identical — nothing to change.',
+    };
   }
 
   const strippedOld = stripLineNumberPrefixes(oldStr);
@@ -464,6 +594,7 @@ export function applyPreciseEditToContent(
         : '';
     return {
       ok: false,
+      reason: 'not-found',
       error:
         'old_string not found. The text must match exactly — including indentation — and must not include ' +
         "read_file's line-number prefixes.\n" +
@@ -474,11 +605,22 @@ export function applyPreciseEditToContent(
     };
   }
   if (ranges.length > 1 && !request.replaceAll) {
+    // Qoder's Edit.allow_multiple answers "which of these N did you mean"
+    // before touching the file. Moss answers the same question in the failure:
+    // name the sites, then give the three ways out. Nothing is written here, so
+    // the caller keeps prior-read credit.
+    const lineNumbers = ranges
+      .map((r) => content.slice(0, Math.max(0, r.start)).split('\n').length)
+      .sort((a, b) => a - b);
+    const shown = lineNumbers.slice(0, 10).join(', ');
+    const more = lineNumbers.length > 10 ? `, … (${lineNumbers.length - 10} more)` : '';
     return {
       ok: false,
+      reason: 'ambiguous',
       error:
-        `old_string is not unique (${ranges.length} matches). ` +
-        'Add more surrounding context to target a single location, or pass replace_all: true.',
+        `old_string is not unique (${ranges.length} matches, lines ${shown}${more}); no file was written.\n` +
+        `Disambiguate: add the surrounding lines so it matches once, pass replace_all: true to replace all ${ranges.length} ` +
+        'matches, or send one edits[] entry per site with distinct context.',
     };
   }
 
@@ -564,20 +706,194 @@ function withSpanEnding(text: string, ending: '\n' | '\r\n' | null): string {
   return text;
 }
 
+/** Input shape shared by `edit_file`, `edit_file.edits[]` and the `multi_edit` alias. */
+const EDIT_ENTRY_SCHEMA = {
+  type: 'object',
+  properties: {
+    path: { type: 'string', description: 'File path relative to workspace root' },
+    old_string: {
+      type: 'string',
+      description: 'Exact text to replace (must be unique unless replace_all)',
+    },
+    new_string: { type: 'string', description: 'Replacement text' },
+    replace_all: {
+      type: 'boolean',
+      description: 'Replace every occurrence in this file (default false)',
+    },
+  },
+  required: ['path', 'old_string', 'new_string'],
+};
+
+/**
+ * `edits[]` entries declare their own path, but a single-file batch naturally
+ * arrives as `{path, edits: [{old_string, new_string}]}` (Claude Code's Edit
+ * shape). Inherit the top-level path for entries that omit it instead of
+ * rejecting the call with `edits[0].path is required`.
+ */
+function inheritBatchPath(raw: unknown[], fallbackPath: unknown): unknown[] {
+  const fallback = typeof fallbackPath === 'string' ? fallbackPath.trim() : '';
+  if (!fallback) return raw;
+  return raw.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.path === 'string' && record.path.trim()) return entry;
+    return { ...record, path: fallback };
+  });
+}
+
+/**
+ * `edits[]` entries sit below the parameter-alias snap, which only rewrites
+ * top-level keys. Accept the same cross-harness names there rather than
+ * failing the batch on `edits[0].path is required` for a call that named one.
+ */
+function snapEditEntryAliases(entry: unknown): unknown {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+  const record = entry as Record<string, unknown>;
+  const { file_path, old_str, new_str, ...rest } = record;
+  return {
+    ...rest,
+    ...(rest.path === undefined && typeof file_path === 'string' ? { path: file_path } : {}),
+    ...(rest.old_string === undefined && typeof old_str === 'string'
+      ? { old_string: old_str }
+      : {}),
+    ...(rest.new_string === undefined && typeof new_str === 'string'
+      ? { new_string: new_str }
+      : {}),
+  };
+}
+
+/**
+ * Apply an ordered list of replacements across files, all-or-nothing: every
+ * edit is matched in memory first and files are written only when all of them
+ * succeeded. Backs `edit_file`'s `edits[]` form and the `multi_edit` alias.
+ */
+async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string): Promise<string> {
+  try {
+    if (raw.length === 0) return 'Error: edits array is empty.';
+    if (raw.length > 40)
+      return `Error: too many edits (max 40). Split into smaller ${toolName} batches.`;
+
+    // Load each unique file once; apply edits in order into memory.
+    type FileBuf = {
+      displayPath: string;
+      filePath: string;
+      content: string;
+      original: string;
+      encoding: TextEncoding;
+    };
+    const buffers = new Map<string, FileBuf>();
+    const summaries: string[] = [];
+
+    for (let i = 0; i < raw.length; i++) {
+      const item = snapEditEntryAliases(raw[i]) as Record<string, unknown>;
+      const displayPath = String(item?.path ?? '');
+      if (!displayPath) return `Error: edits[${i}].path is required.`;
+      const oldStr = String(item?.old_string ?? '');
+      const newStr = String(item?.new_string ?? '');
+      const replaceAll = item?.replace_all === true;
+
+      let buf = buffers.get(displayPath);
+      if (!buf) {
+        const filePath = await safePath(displayPath, ctx.workspaceDir);
+        let content: string;
+        let encoding: TextEncoding = 'utf8';
+        try {
+          const decoded = decodeTextBytes(await fs.readFile(filePath));
+          content = decoded.text;
+          encoding = decoded.encoding;
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+            return `Error: edits[${i}] file does not exist: ${displayPath}. Use write_file first.`;
+          }
+          if ((err as NodeJS.ErrnoException).code === 'EISDIR') {
+            return `Error: edits[${i}] ${displayPath} is a directory, not a file. Nothing was changed.`;
+          }
+          throw err;
+        }
+        const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
+        if (stale) return `Error: edits[${i}] ${stale}`;
+        const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
+          toolName,
+          workspaceDir: ctx.workspaceDir,
+        });
+        if (unread) return `Error: edits[${i}] ${unread}`;
+        buf = { displayPath, filePath, content, original: content, encoding };
+        buffers.set(displayPath, buf);
+      }
+
+      const result = applyPreciseEditToContent(buf.content, {
+        oldString: oldStr,
+        newString: newStr,
+        replaceAll,
+      });
+      if (!result.ok) {
+        // Ambiguity writes nothing, so the staged files' prior reads stay
+        // valid; a content mismatch invalidates them (all-or-nothing: nothing
+        // is written either way).
+        if (result.reason !== 'ambiguous') {
+          for (const b of buffers.values()) {
+            globalToolStateManager.invalidateFileState(b.filePath);
+          }
+          globalToolStateManager.invalidateFileState(buf.filePath);
+        }
+        const missExtra =
+          result.reason === 'not-found' || result.reason === 'ambiguous'
+            ? ''
+            : '\nNext step: call `read_file` on this path and retry with exact current text.';
+        return (
+          `Error: edits[${i}] on ${displayPath}: ${result.error}${missExtra}\n` +
+          'No files were written (all-or-nothing).'
+        );
+      }
+      const redactedEdit = redactedPlaceholderEditError(oldStr, newStr);
+      if (redactedEdit) {
+        return (
+          `Error: edits[${i}] on ${displayPath}: ${redactedEdit}\n` +
+          'No files were written (all-or-nothing).'
+        );
+      }
+      buf.content = result.content;
+      const preview = formatCompactEditPreview(oldStr, newStr, 6);
+      summaries.push(
+        `  [${i + 1}] ${displayPath}: ${result.occurrences} replacement(s) [${result.matchMode}]` +
+          (preview ? `\n${preview}` : '')
+      );
+    }
+
+    // Commit all files only after every edit succeeded.
+    for (const buf of buffers.values()) {
+      if (buf.content === buf.original) continue;
+      await atomicWriteBytes(buf.filePath, encodeTextBytes(buf.content, buf.encoding));
+      await globalToolStateManager.recordMutation(buf.filePath);
+    }
+
+    return (
+      `Applied ${raw.length} edit(s) across ${buffers.size} file(s) (all-or-nothing commit).\n` +
+      summaries.join('\n') +
+      '\nVerify with tests instead of re-reading every file.'
+    );
+  } catch (err) {
+    throw toolError(`Error applying ${toolName}`, err);
+  }
+}
+
 export const editFileTool: Tool = {
   name: 'edit_file',
   description:
-    'Replace one exact unique string in an existing file. read_file it first. ' +
+    'Replace exact strings in existing files. read_file first. ' +
     'old_string must match whitespace exactly and be unique unless replace_all. Do not include read_file line-number prefixes. ' +
-    'Empty new_string deletes the match. Use write_file for new files and multi_edit for several replacements.',
+    'Empty new_string deletes the match. Pass edits[] for 2+ replacements: ordered, all-or-nothing, one call. ' +
+    'Use write_file for new files and apply_patch for cross-file patches with context hunks.',
   metadata: {
+    classification: { singleCallExempt: true, surgicalEdit: true, fileMutation: true },
+    maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },
   inputSchema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'File path relative to workspace root' },
+      path: { type: 'string', description: 'File path relative to workspace root (single edit)' },
       old_string: {
         type: 'string',
         description: 'Exact text to replace — must be unique in the file unless replace_all is set',
@@ -590,21 +906,40 @@ export const editFileTool: Tool = {
         type: 'boolean',
         description: 'Replace every occurrence instead of requiring a unique match (default false)',
       },
+      edits: {
+        type: 'array',
+        description:
+          'Batch form: ordered replacements across one or more files, applied all-or-nothing. When set, path/old_string/new_string are ignored.',
+        items: EDIT_ENTRY_SCHEMA,
+      },
     },
-    required: ['path', 'old_string', 'new_string'],
   },
   async execute(input, ctx) {
+    if (Array.isArray(input.edits))
+      return applyEditBatch(inheritBatchPath(input.edits, input.path), ctx, 'edit_file');
     try {
       const displayPath = String(input.path ?? '');
-      const oldStr = String(input.old_string ?? '');
-      const newStr = String(input.new_string ?? '');
+      if (!displayPath) {
+        return 'Error: path is required for a single edit (or pass edits[] for a batch).';
+      }
+      if (typeof input.old_string !== 'string' || typeof input.new_string !== 'string') {
+        return 'Error: old_string and new_string are required for a single edit (or pass edits[] for a batch).';
+      }
+      const oldStr = input.old_string;
+      const newStr = input.new_string;
       const filePath = await safePath(displayPath, ctx.workspaceDir);
       let content: string;
+      let encoding: TextEncoding = 'utf8';
       try {
-        content = await fs.readFile(filePath, 'utf-8');
+        const decoded = decodeTextBytes(await fs.readFile(filePath));
+        content = decoded.text;
+        encoding = decoded.encoding;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           return `Error: file does not exist: ${displayPath}. Use write_file to create it.`;
+        }
+        if ((err as NodeJS.ErrnoException).code === 'EISDIR') {
+          return `Error: ${displayPath} is a directory, not a file. Nothing was changed. Use list_directory to see what is in it.`;
         }
         throw err;
       }
@@ -622,9 +957,10 @@ export const editFileTool: Tool = {
         replaceAll: Boolean(input.replace_all),
       });
       if (!result.ok) {
-        // Force re-read before the next edit attempt — prior-read credit is
-        // no longer trustworthy once old_string failed to match.
-        globalToolStateManager.invalidateFileState(filePath);
+        // A content mismatch makes the prior read stale. An ambiguous match
+        // leaves the file untouched, so that read credit stays valid and the
+        // retry does not need an extra read_file round trip.
+        if (result.reason !== 'ambiguous') globalToolStateManager.invalidateFileState(filePath);
         const body = result.error.includes('old_string not found')
           ? result.error.replace('old_string not found.', `old_string not found in ${displayPath}.`)
           : result.error;
@@ -633,7 +969,7 @@ export const editFileTool: Tool = {
       const redactedWrite = redactedPlaceholderEditError(oldStr, newStr);
       if (redactedWrite) return `Error: ${redactedWrite}`;
 
-      await atomicWriteFile(filePath, result.content);
+      await atomicWriteBytes(filePath, encodeTextBytes(result.content, encoding));
       await globalToolStateManager.recordMutation(filePath);
       const label =
         input.replace_all && result.occurrences > 1
@@ -658,133 +994,42 @@ export const editFileTool: Tool = {
   },
 };
 
+/**
+ * Compatibility alias. Kept registered for hosts and transcripts recorded
+ * before the merge; the model is offered `edit_file` instead
+ * (`docs/design/tool-surface-rea.md`, "Keep / merge / remove").
+ */
 export const multiEditTool: Tool = {
   name: 'multi_edit',
   description:
     'Apply several edit_file replacements in one call (same match rules, in order, all-or-nothing). Prefer this for 2+ edits.',
   metadata: {
+    classification: { surgicalEdit: true, fileMutation: true },
+    maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },
   inputSchema: {
     type: 'object',
     properties: {
+      path: {
+        type: 'string',
+        description: 'Path for edits entries that omit one (single-file batch)',
+      },
       edits: {
         type: 'array',
         description: 'Ordered list of surgical edits to apply',
-        items: {
-          type: 'object',
-          properties: {
-            path: { type: 'string', description: 'File path relative to workspace root' },
-            old_string: {
-              type: 'string',
-              description: 'Exact text to replace (must be unique unless replace_all)',
-            },
-            new_string: { type: 'string', description: 'Replacement text' },
-            replace_all: {
-              type: 'boolean',
-              description: 'Replace every occurrence in this file (default false)',
-            },
-          },
-          required: ['path', 'old_string', 'new_string'],
-        },
+        items: EDIT_ENTRY_SCHEMA,
       },
     },
     required: ['edits'],
   },
   async execute(input, ctx) {
-    try {
-      const raw = Array.isArray(input.edits) ? input.edits : [];
-      if (raw.length === 0) return 'Error: edits array is empty.';
-      if (raw.length > 40)
-        return 'Error: too many edits (max 40). Split into smaller multi_edit batches.';
-
-      // Load each unique file once; apply edits in order into memory.
-      type FileBuf = { displayPath: string; filePath: string; content: string; original: string };
-      const buffers = new Map<string, FileBuf>();
-      const summaries: string[] = [];
-
-      for (let i = 0; i < raw.length; i++) {
-        const item = raw[i] as Record<string, unknown>;
-        const displayPath = String(item?.path ?? '');
-        if (!displayPath) return `Error: edits[${i}].path is required.`;
-        const oldStr = String(item?.old_string ?? '');
-        const newStr = String(item?.new_string ?? '');
-        const replaceAll = item?.replace_all === true;
-
-        let buf = buffers.get(displayPath);
-        if (!buf) {
-          const filePath = await safePath(displayPath, ctx.workspaceDir);
-          let content: string;
-          try {
-            content = await fs.readFile(filePath, 'utf-8');
-          } catch (err) {
-            if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-              return `Error: edits[${i}] file does not exist: ${displayPath}. Use write_file first.`;
-            }
-            throw err;
-          }
-          const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
-          if (stale) return `Error: edits[${i}] ${stale}`;
-          const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
-            toolName: 'multi_edit',
-            workspaceDir: ctx.workspaceDir,
-          });
-          if (unread) return `Error: edits[${i}] ${unread}`;
-          buf = { displayPath, filePath, content, original: content };
-          buffers.set(displayPath, buf);
-        }
-
-        const result = applyPreciseEditToContent(buf.content, {
-          oldString: oldStr,
-          newString: newStr,
-          replaceAll,
-        });
-        if (!result.ok) {
-          // Drop prior-read credit for every file already staged in this batch
-          // so the model re-reads before retrying (all-or-nothing: nothing written).
-          for (const b of buffers.values()) {
-            globalToolStateManager.invalidateFileState(b.filePath);
-          }
-          globalToolStateManager.invalidateFileState(buf.filePath);
-          const missExtra = /old_string not found/i.test(result.error)
-            ? ''
-            : '\nNext step: call `read_file` on this path and retry with exact current text.';
-          return (
-            `Error: edits[${i}] on ${displayPath}: ${result.error}${missExtra}\n` +
-            'No files were written (all-or-nothing).'
-          );
-        }
-        const redactedEdit = redactedPlaceholderEditError(oldStr, newStr);
-        if (redactedEdit) {
-          return (
-            `Error: edits[${i}] on ${displayPath}: ${redactedEdit}\n` +
-            'No files were written (all-or-nothing).'
-          );
-        }
-        buf.content = result.content;
-        const preview = formatCompactEditPreview(oldStr, newStr, 6);
-        summaries.push(
-          `  [${i + 1}] ${displayPath}: ${result.occurrences} replacement(s) [${result.matchMode}]` +
-            (preview ? `\n${preview}` : '')
-        );
-      }
-
-      // Commit all files only after every edit succeeded.
-      for (const buf of buffers.values()) {
-        if (buf.content === buf.original) continue;
-        await atomicWriteFile(buf.filePath, buf.content);
-        await globalToolStateManager.recordMutation(buf.filePath);
-      }
-
-      return (
-        `Applied ${raw.length} edit(s) across ${buffers.size} file(s) (all-or-nothing commit).\n` +
-        summaries.join('\n') +
-        '\nVerify with tests instead of re-reading every file.'
-      );
-    } catch (err) {
-      throw toolError('Error applying multi_edit', err);
-    }
+    return applyEditBatch(
+      inheritBatchPath(Array.isArray(input.edits) ? input.edits : [], input.path),
+      ctx,
+      'multi_edit'
+    );
   },
 };
 
@@ -793,6 +1038,8 @@ export const moveFileTool: Tool = {
   description:
     'Move or rename a workspace path. overwrite=true requires a prior read_file of an existing destination.',
   metadata: {
+    classification: { singleCallExempt: true, fileMutation: true },
+    maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },
@@ -812,6 +1059,11 @@ export const moveFileTool: Tool = {
     try {
       const srcDisplay = String(input.source ?? '');
       const destDisplay = String(input.destination ?? '');
+      // An empty path resolves to the workspace root, which turned a missing
+      // argument into a rename of the whole workspace.
+      if (!srcDisplay.trim() || !destDisplay.trim()) {
+        return 'Error: move_file needs both source and destination paths. Nothing was moved.';
+      }
       const src = await safePath(srcDisplay, ctx.workspaceDir);
       const dest = await safePath(destDisplay, ctx.workspaceDir);
       try {
@@ -928,6 +1180,7 @@ export const listDirectoryTool: Tool = {
   description:
     'List a directory (depth default 1, max 5). Directories end with /, symlinks with @. Skips node_modules, .git, and dist. Prefer search_files for globs. A path outside the workspace is still listed.',
   metadata: {
+    classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',
   },
@@ -954,9 +1207,27 @@ export const listDirectoryTool: Tool = {
     },
   },
   async execute(input, ctx) {
+    const displayPath = String(input.path || '.');
     try {
       const depth = input.depth !== undefined ? Number(input.depth) : 1;
-      const dirPath = resolveReadPath(String(input.path || '.'), ctx.workspaceDir);
+      const dirPath = resolveReadPath(displayPath, ctx.workspaceDir);
+      const target = await fs.stat(dirPath).catch((err: NodeJS.ErrnoException) => {
+        if (err.code === 'ENOENT') return 'missing' as const;
+        return null;
+      });
+      if (target === 'missing') {
+        return (
+          `Error: no such directory: ${displayPath}. ` +
+          'Use search_files to locate the path, or omit `path` to list the workspace root.'
+        );
+      }
+      if (target && !target.isDirectory()) {
+        // `readdir` on a file is ENOTDIR, which says nothing the model can use.
+        return (
+          `Error: ${displayPath} is a file, not a directory. ` +
+          'Use read_file for its contents or search_code to search it.'
+        );
+      }
       const rawLimit = Number(input.head_limit ?? input.limit);
       const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 200;
       const lines = await listDirEntries(dirPath, depth, limit);

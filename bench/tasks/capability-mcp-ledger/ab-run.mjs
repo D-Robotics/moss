@@ -41,7 +41,7 @@ const CLI_ENTRY = process.env.MOSS_BENCH_CLI ?? path.join(repoRoot, 'dist', 'cli
 const FIXTURE_SERVER =
   process.env.MOSS_MCP_BENCH_SERVER ??
   path.join(repoRoot, 'test', 'fixtures', 'mcp-bench-server.mjs');
-const REPORTS_DIR = path.join(repoRoot, '.autopilot', 'reports');
+const REPORTS_DIR = path.join(repoRoot, 'bench', 'results');
 const KILL_GRACE_MS = 5_000;
 
 const GOAL =

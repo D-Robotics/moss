@@ -13,7 +13,7 @@ export const evaluateBuildToolsNudge = defineToolsNudge({
   userRe:
     /(?:\bnpm run build\b|\bpnpm (?:run )?build\b|\byarn build\b|\bbun run build\b|\bcargo build\b|\bgo build\b|\bmake build\b|\bmvn (?:package|install)\b|\bgradle build\b|跑构建|执行构建|编译一下|build (?:the )?(?:project|app|package))/iu,
   sawEvidence: ({ messages, toolCallsByName }) => {
-    // Dedicated verify tools may already cover typecheck/build via verify_fix.
+    // run_tests may already cover a build-shaped check.
     if (countBySet(toolCallsByName, VERIFY_TOOLS) > 0) return true;
     for (const cmd of collectExecCommands(messages)) {
       if (
@@ -31,6 +31,6 @@ export const evaluateBuildToolsNudge = defineToolsNudge({
   },
   correction:
     '[System] The user asked to build/compile the project, and tools have already run without a build-shaped command ' +
-    '(`npm run build` / `cargo build` / `tsc` / `verify_fix` / `code_diagnostics`). ' +
+    '(`npm run build` / `cargo build` / `tsc`). ' +
     'Run a real build/typecheck and report the output — do not invent "build succeeded".',
 });

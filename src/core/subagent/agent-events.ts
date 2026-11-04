@@ -134,6 +134,8 @@ export interface RunMetrics {
   effectiveContextTokens: number;
   llmCompactionFailureStreak: number;
   systemPromptLayerCount: number;
+  /** Short hashes of host-declared prompt layers, keyed by layer id. */
+  systemPromptLayerHashes?: Record<string, string>;
   promptCacheEnabled?: boolean;
   promptCacheDebug?: boolean;
   promptCacheStableChars?: number;

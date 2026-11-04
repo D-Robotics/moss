@@ -23,7 +23,6 @@ import {
   noteGoalVerifyResult,
   noteRunCompletionEvent,
   requestExpectsFileChanges,
-  type GoalVerifyResult,
   type RunCompletionTracker,
   type SafetyBlock,
   type VerificationCheck,
@@ -34,7 +33,6 @@ import {
 } from '../safety/protected-path-snapshot.js';
 import { hookEventZhName } from './hook-event-names.js';
 
-export type { GoalVerifyResult, RunCompletionTracker, VerificationCheck };
 export {
   createRunCompletionTracker,
   noteBackgroundProtectedPathMods,

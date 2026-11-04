@@ -8,9 +8,16 @@ import { buildExperienceBlock, experienceEnabled } from '../experience/experienc
 
 const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
-import { stopAllBackgroundProcesses } from '../tools/background-process-registry.js';
+import {
+  stopAllBackgroundProcesses,
+  waitForBackgroundProcesses,
+} from '../tools/background-process-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
-import { DeferredToolOffer, TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
+import {
+  DeferredToolOffer,
+  TOOL_SEARCH_NAME,
+  deferredGroupFor,
+} from '../tools/deferred-tool-offer.js';
 import {
   enrichRunToolContext,
   hiddenUserQuestionMessage,
@@ -34,7 +41,9 @@ import {
   createInMemoryMossAsyncTaskRegistry,
 } from '../../contracts/index.js';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
+import { buildTurnWatchNotice, turnWatchEnabled } from '../../context/turn-watch.js';
 import { createAcceptanceCompletionGate } from '../loop/acceptance-completion-gate.js';
+import { createBackgroundLifecycleGate } from '../loop/background-lifecycle-gate.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
 import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
@@ -48,6 +57,8 @@ import {
 } from '../loop/follow-up-guard.js';
 import { buildCompactionCheckpointOutline } from '../loop/compact-hooks.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
+import { summarizePromptLayers } from '../prompt/report.js';
+import { hashSystemPromptForTelemetry } from '../../prompts/system-prompt-telemetry.js';
 import { PendingToolAbortStore } from '../loop/pending-tool-aborts.js';
 import { abortable, combineAbortSignals } from './abort.js';
 import type { AgentLoopLlmUsage, AgentLoopParams } from '../loop/agent-loop-types.js';
@@ -107,7 +118,6 @@ import type {
   ChatResult as SharedChatResult,
   MossAgentEvent as SharedMossAgentEvent,
   InternalMessage as SharedInternalMessage,
-  InternalContentBlock as SharedInternalContentBlock,
 } from './moss-agent-types.js';
 import { toSessionMessages, fromSessionMessages, toLLMMessages } from './moss-agent-types.js';
 
@@ -116,7 +126,6 @@ export type ChatOptions = SharedChatOptions;
 export type ChatResult = SharedChatResult;
 export type MossAgentEvent = SharedMossAgentEvent;
 export type InternalMessage = SharedInternalMessage;
-export type InternalContentBlock = SharedInternalContentBlock;
 import {
   buildUserMessageContent,
   appendTurnExtraContext,
@@ -143,6 +152,8 @@ export class MossAgent {
   private readonly rootAbortController = new AbortController();
   private disposed = false;
   private closePromise: Promise<void> | undefined;
+  private turnWatchReportedMtimes = new Map<string, number>();
+  private turnWatchLastDate: string | undefined;
   private readonly activeStreamAdvances = new Set<Promise<unknown>>();
   private steeringEngine: SteeringEngine | null = null;
   private readonly remoteCompactProvider: ReturnType<typeof createRemoteCompactProviderFromEnv>;
@@ -224,7 +235,12 @@ export class MossAgent {
     void this.close().catch((error) => log.warn('agent disposal failed', { error }));
   }
 
-  close(): Promise<void> {
+  /**
+   * Abort and settle this agent. Defaults to stopping process-global background
+   * exec jobs; embedded temporary agents can leave host-owned jobs running.
+   * The first call's options govern subsequent idempotent close calls.
+   */
+  close(options?: { stopBackgroundProcesses?: boolean }): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.disposed = true;
     this.rootAbortController.abort(
@@ -232,18 +248,26 @@ export class MossAgent {
     );
     // O70: background exec_start children hold stdout/stderr pipes open; stop
     // them whenever the agent closes so hosts that skip the CLI finally path
-    // still drain the event loop.
-    stopAllBackgroundProcesses();
+    // still drain the event loop. Close waits for the stop confirmation so a
+    // SIGTERM that was merely sent is never reported as "process gone".
+    const stoppedBackgroundIds =
+      options?.stopBackgroundProcesses === false ? [] : stopAllBackgroundProcesses();
+    const backgroundStopSettled =
+      stoppedBackgroundIds.length > 0
+        ? waitForBackgroundProcesses(stoppedBackgroundIds, 'wait_all', 5_000, { pollMs: 20 })
+        : Promise.resolve({ completed: true, aborted: false, missing: [], snapshots: [] });
     this.pendingToolAborts.dispose();
     const asyncTasks = this.ownsAsyncTaskRegistry
       ? (this.asyncTasks.stopAll?.('parent_aborted').then(() => {}) ?? Promise.resolve())
       : Promise.resolve();
-    this.closePromise = Promise.allSettled([...this.activeStreamAdvances, asyncTasks]).then(
-      async () => {
-        this.inboxes.clear();
-        this.runEpochStore.clear();
-      }
-    );
+    this.closePromise = Promise.allSettled([
+      ...this.activeStreamAdvances,
+      asyncTasks,
+      backgroundStopSettled,
+    ]).then(async () => {
+      this.inboxes.clear();
+      this.runEpochStore.clear();
+    });
     return this.closePromise;
   }
 
@@ -308,11 +332,13 @@ export class MossAgent {
     this.approvedPreflightController.releaseRun(runId);
   }
 
-  buildSystemPrompt(options?: {
-    platform?: string;
-    extraContext?: string;
-    omitExtraPromptLayers?: boolean;
-  }): string {
+  /**
+   * The layers the agent itself contributes (persona, language, domain, behavior,
+   * expert catalog, tool-result contract). Split out so the host-declared layer
+   * count and the per-layer telemetry can distinguish "agent prompt" from
+   * "host layers" without re-parsing the joined string.
+   */
+  private buildBaseSystemPromptParts(): string[] {
     const parts: string[] = [];
 
     if (this.config.baseSystemPrompt) {
@@ -348,9 +374,24 @@ export class MossAgent {
     const expertCatalog = buildSubagentExpertCatalog(this.expertRegistry.list());
     if (expertCatalog) parts.push(expertCatalog);
     parts.push(TOOL_RESULT_HANDLING_SECTION);
+    return parts;
+  }
 
-    if (this.config.extraPromptLayers && !options?.omitExtraPromptLayers) {
-      parts.push(...this.config.extraPromptLayers);
+  buildSystemPrompt(options?: {
+    platform?: string;
+    extraContext?: string;
+    omitExtraPromptLayers?: boolean;
+  }): string {
+    const parts = this.buildBaseSystemPromptParts();
+
+    // Host layers: the declared table wins when a host provides one; the two
+    // legacy arrays stay for SDK hosts that never adopted PromptLayersPort.
+    if (!options?.omitExtraPromptLayers) {
+      if (this.config.promptLayers) {
+        parts.push(...this.config.promptLayers.stable);
+      } else if (this.config.extraPromptLayers) {
+        parts.push(...this.config.extraPromptLayers);
+      }
     }
 
     if (options?.extraContext) {
@@ -358,6 +399,21 @@ export class MossAgent {
     }
 
     return parts.filter(Boolean).join('\n\n');
+  }
+
+  /** Per-layer attribution for run_metrics (ids + short hashes). */
+  private buildSystemPromptMeta(stablePrompt: string): {
+    hashShort: string;
+    layerCount: number;
+    layerHashes: Record<string, string>;
+  } {
+    const base = this.buildBaseSystemPromptParts().filter(Boolean);
+    const host = summarizePromptLayers(this.config.promptLayers);
+    return {
+      hashShort: hashSystemPromptForTelemetry(stablePrompt, []).combinedHashShort,
+      layerCount: base.length + host.layerCount,
+      layerHashes: host.layerHashes,
+    };
   }
 
   /**
@@ -374,10 +430,12 @@ export class MossAgent {
       ...(options?.platform ? { platform: options.platform } : {}),
       ...(options?.omitExtraPromptLayers ? { omitExtraPromptLayers: true } : {}),
     });
+    const dynamicLayers =
+      this.config.promptLayers?.dynamic ?? this.config.dynamicPromptLayers ?? [];
     const dynamic =
       options?.omitExtraPromptLayers === true
         ? ''
-        : (this.config.dynamicPromptLayers ?? [])
+        : dynamicLayers
             .filter((layer) => typeof layer === 'string' && layer.trim().length > 0)
             .join('\n\n');
     return {
@@ -1070,6 +1128,19 @@ ${result.stderr ?? ''}`.trim();
     if (options?.taskFlow === false && extraContext) {
       extraContext = omitTaskPhasePrompts(extraContext);
     }
+    if (turnWatchEnabled()) {
+      const turnWatch = await buildTurnWatchNotice({
+        messages,
+        workspaceDir: path.resolve(this.config.workspaceDir ?? process.cwd()),
+        reportedMtimes: this.turnWatchReportedMtimes,
+        ...(this.turnWatchLastDate !== undefined ? { lastSeenDate: this.turnWatchLastDate } : {}),
+      });
+      this.turnWatchReportedMtimes = turnWatch.reportedMtimes;
+      this.turnWatchLastDate = turnWatch.todayDate;
+      if (turnWatch.notice) {
+        extraContext = extraContext ? `${extraContext}\n\n${turnWatch.notice}` : turnWatch.notice;
+      }
+    }
     // Prefix cache matches the messages array from the front. The stable system
     // text stays byte-identical. The dynamic suffix (environment, MCP connect,
     // skills) is stored on the user message that introduces it, and again only
@@ -1138,6 +1209,8 @@ ${result.stderr ?? ''}`.trim();
         deviceConfigured: options?.deviceConfigured,
         userQuestions,
         requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
+        hiddenFromModel: tool.metadata?.hiddenFromModel === true,
+        planMode: this.config.planModeActive?.() === true,
       }) &&
       (options?.toolFilter?.(tool) ?? true);
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
@@ -1167,9 +1240,21 @@ ${result.stderr ?? ''}`.trim();
       ...enrichedRun,
       resolveMissingTool: resolveMissingToolForRun,
       revealDeferredTools: (group) => this.deferredTools.reveal(group),
-      describeMissingTool: (name) =>
-        hiddenUserQuestionMessage(this.tools.get(name), userQuestions) ??
-        hostDescribeMissingTool?.(name),
+      describeMissingTool: (name) => {
+        // A deferred tool is real but not in this turn's list. "Unknown tool"
+        // sent the model looking for another name instead of loading the group.
+        const group = deferredGroupFor(name);
+        if (group && !this.deferredTools.isRevealed(group)) {
+          return (
+            `Tool ${name} is registered but its "${group}" group is not loaded yet. ` +
+            `Call ${TOOL_SEARCH_NAME} with {"group":"${group}"} first; its schema appears on the next model call.`
+          );
+        }
+        return (
+          hiddenUserQuestionMessage(this.tools.get(name), userQuestions) ??
+          hostDescribeMissingTool?.(name)
+        );
+      },
     };
 
     const adapter = createMossAgentLoopEventAdapter({
@@ -1233,6 +1318,7 @@ ${result.stderr ?? ''}`.trim();
                 approved: false,
                 decision: 'deny',
                 reason: `Tool "${call.name}" is not available for this run.`,
+                denialClass: 'mode' as const,
               };
             }
             const input =
@@ -1249,7 +1335,12 @@ ${result.stderr ?? ''}`.trim();
             });
             return decision.approved
               ? null
-              : { approved: false, decision: 'deny', reason: decision.reason };
+              : {
+                  approved: false,
+                  decision: 'deny',
+                  reason: decision.reason,
+                  ...(decision.denialClass ? { denialClass: decision.denialClass } : {}),
+                };
           }
         : undefined;
 
@@ -1519,14 +1610,21 @@ ${result.stderr ?? ''}`.trim();
           ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
         })
       : async () => ({ ok: true as const });
+    const backgroundLifecycleGate = createBackgroundLifecycleGate({ sessionKey });
     const hostCompletionGate = this.config.completionGate;
     const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
       ? async (request) => {
+          const background = await backgroundLifecycleGate(request);
+          if (!background.ok) return background;
           const pre = await acceptanceGate(request);
           if (!pre.ok) return pre;
           return hostCompletionGate(request);
         }
-      : acceptanceGate;
+      : async (request) => {
+          const background = await backgroundLifecycleGate(request);
+          if (!background.ok) return background;
+          return acceptanceGate(request);
+        };
 
     const params: AgentLoopParams = {
       ...(harnessAdapterReceipt ? { harnessAdapterReceipt } : {}),
@@ -1538,6 +1636,7 @@ ${result.stderr ?? ''}`.trim();
       systemPrompt,
       systemPromptParts,
       getSystemPrompt: () => composeRunPrompt().full,
+      systemPromptMeta: this.buildSystemPromptMeta(systemPrompt),
       ...(promptCacheEnabled
         ? {
             getSystemPromptParts: () => {

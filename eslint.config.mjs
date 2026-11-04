@@ -4,7 +4,6 @@ import tseslint from 'typescript-eslint';
 
 const tsRuntimeFiles = ['src/**/*.ts'];
 const repositoryScriptFiles = ['*.mjs', 'scripts/**/*.mjs'];
-const testFiles = ['test/**/*.mjs'];
 const configurationFiles = ['eslint.config.mjs', '*.config.{js,mjs,cjs}'];
 
 const nodeLanguageOptions = {
@@ -27,18 +26,6 @@ const javascriptRules = {
   ],
 };
 
-const testRules = {
-  ...javascriptRules,
-  'no-unused-vars': [
-    'error',
-    {
-      args: 'none',
-      caughtErrorsIgnorePattern: '^_',
-      varsIgnorePattern: '^_',
-    },
-  ],
-};
-
 export default tseslint.config(
   {
     ignores: [
@@ -46,8 +33,12 @@ export default tseslint.config(
       '**/dist/**',
       '**/coverage/**',
       '**/docs-api/**',
+      '.claude/**',
       '.codegraph/**',
       '.moss/**',
+      '.omx/**',
+      '.qoder/**',
+      '.workbuddy/**',
       '.tmp/**',
     ],
   },
@@ -56,22 +47,6 @@ export default tseslint.config(
     files: repositoryScriptFiles,
     languageOptions: nodeLanguageOptions,
     rules: javascriptRules,
-  },
-  {
-    name: 'moss/tests',
-    files: testFiles,
-    languageOptions: nodeLanguageOptions,
-    rules: testRules,
-  },
-  {
-    name: 'moss/intentional-test-fixtures',
-    files: ['test/cli-tui-noise.spec.mjs', 'test/loop-first-chunk-hard-timeout.spec.mjs'],
-    rules: {
-      // These tests deliberately match raw ANSI bytes and model a generator
-      // that stalls before its first yield.
-      'no-control-regex': 'off',
-      'require-yield': 'off',
-    },
   },
   {
     name: 'moss/configuration',

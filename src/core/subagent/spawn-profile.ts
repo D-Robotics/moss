@@ -7,36 +7,21 @@ export type SpawnToolScope =
   | 'verify'
   | 'critic';
 
-const CORE_READ_TOOLS = [
-  'read_file',
-  'list_directory',
-  'search_files',
-  'search_code',
-  'memory_read',
-];
+const CORE_READ_TOOLS = ['read_file', 'list_directory', 'search_files', 'search_code'];
 
 // Read-only device tools a host may register; kept as names so scoped
 // sub-agents can use them when the host wires device support.
-const DEVICE_READ_TOOLS = [
-  'device_file_read',
-  'device_file_list',
-  'device_info',
-  'device_temperature',
-  'device_resources',
-  'device_processes',
-  'device_network',
-  'device_cameras',
-  'device_robotics_status',
-];
+const DEVICE_READ_TOOLS = ['device_probe', 'device_file_read', 'device_file_list'];
 
-const WEB_TOOLS = ['web_search', 'web_fetch', 'web_browser_fetch'];
+const WEB_TOOLS = ['web_search', 'web_fetch'];
 
 // No first-class attachment_* agent tools are registered (prompt attachments
 // are a host/SDK concern, not agent tools). Keep empty so scope sets stay real.
 const ATTACHMENT_TOOLS: string[] = [];
 
-// Skill tools a host may register; kept as names so scoped sub-agents can use them.
-const SKILL_TOOLS = ['load_skill', 'skillhub_search', 'skillhub_install', 'install_skill'];
+// The builtin skill tool. Hosts that ship their own loader extend the scope via
+// registerSpawnToolExtensions instead of relying on a name Moss never registers.
+const SKILL_TOOLS = ['skill'];
 
 export class SpawnProfileRegistry {
   private hostSpawnToolExtensions: Readonly<Record<string, readonly string[]>> = Object.freeze({});
@@ -93,9 +78,7 @@ export const SPAWN_TOOL_SCOPE_SETS: Record<Exclude<SpawnToolScope, 'full'>, Set<
     ...ATTACHMENT_TOOLS,
     ...WEB_TOOLS,
     ...SKILL_TOOLS,
-    // Planning helpers a host may register; todo_write is the built-in checklist.
-    'plan',
-    'plan_step',
+    // todo_write is the built-in checklist; hosts may add their own plan tools.
     'todo_write',
     ...DEVICE_READ_TOOLS,
   ]),
@@ -107,13 +90,11 @@ export const SPAWN_TOOL_SCOPE_SETS: Record<Exclude<SpawnToolScope, 'full'>, Set<
     // Dedicated verification tools first (structured results + is_error);
     // exec remains for ad-hoc project commands when harness tools do not apply.
     'run_tests',
-    'verify_fix',
     'exec',
-    'exec_background',
     'exec_logs',
+    'exec_wait',
     'exec_stop',
     'device_exec',
-    'code_diagnostics',
     'todo_write',
     // Structured verdict machinery: verify sub-agents record evidence and
     // gate completion on acceptance evaluated against it (robotics loop P0).
@@ -167,7 +148,7 @@ export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
         '',
         'You are a **read-only** explorer of code and environments:',
         '- Forbidden: `write` `edit` `exec` `device_exec` `memory_save`, any device-side **write/delegate/flash** tools (removed from this session).',
-        '- Use `read_file` `list_directory` `search_code` to understand the workspace; when a device is connected, use `device_file_*` / `device_info` / `device_*` diagnostics in **read-only** mode.',
+        '- Use `read_file` `list_directory` `search_code` to understand the workspace; when a device is connected, use `device_probe` (kind=info/processes/resources/temperature/network/cameras/robotics_status) and `device_file_*` in **read-only** mode.',
         '- Use available Web tools (for example `web_fetch`; `web_search` only when registered) for official documentation; parallelize independent reads and searches.',
         '- **Do not** create migration TODOs during exploration; final reply: concise findings with file paths and command references.',
         '',
@@ -176,7 +157,7 @@ export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
         '',
         '你是代码与环境的**只读**探索者：',
         '- 禁止：`write` `edit` `exec` `device_exec` `memory_save`、任何形式的设备端**委派/写技能/写文件**/刷机类工具（本会话已裁剪工具列表）。',
-        '- 使用 `read_file` `list_directory` `search_code` 理解工作区；已连接设备时用 `device_file_*` / `device_info` / `device_*` 诊断等**只读**手段核对设备端状态。',
+        '- 使用 `read_file` `list_directory` `search_code` 理解工作区；已连接设备时用 `device_probe`（kind=info/processes/resources/temperature/network/cameras/robotics_status）与 `device_file_*` 等**只读**手段核对设备端状态。',
         '- 需要官方说明时用实际可用的 Web 工具（例如 `web_fetch`；只有注册了 `web_search` 才使用它）；无依赖的检索与多文件读取尽量**并行**。',
         '- **不要**在探索阶段写实施总结以外的「待办迁移」；最终回复：简明发现与引用路径/命令要点。',
       ].join('\n') +
@@ -192,7 +173,7 @@ export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
         '',
         'You are responsible for **reading and planning only** — no repository or device modifications:',
         '- Forbidden: `write` `edit` `exec` `device_exec` `memory_save` and any write/delegate tools (removed).',
-        '- Use `read_file` `list_directory` `search_code` and (if available) `plan` / `plan_step` / `todo_write` to structure the plan.',
+        '- Use `read_file` `list_directory` `search_code` and `todo_write` to structure the plan.',
         '- Output must include: **step-by-step implementation plan**, dependencies and ordering, key risks.',
         '',
         '### Required section: Key Files (implementation entry points)',
@@ -206,7 +187,7 @@ export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
         '',
         '你只负责**阅读与规划**，不得修改仓库或设备端：',
         '- 禁止：`write` `edit` `exec` `device_exec` `memory_save` 及任何写入/委派类工具（已裁剪）。',
-        '- 用 `read_file` `list_directory` `search_code` 与（若可用）`plan` / `plan_step` / `todo_write` 维护计划条目。',
+        '- 用 `read_file` `list_directory` `search_code` 与 `todo_write` 维护计划条目。',
         '- 输出须包含：**分步实施方案**、依赖与顺序、主要风险。',
         '',
         '### 必备小节：关键文件（实现入口）',
@@ -227,7 +208,7 @@ export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
         '',
         '### Hard constraints',
         '- Forbidden: modifying user workspace and device persistent state — no `write` `edit` `device_file_write`, device **delegation**, flash/install/uninstall/channel-config tools (removed).',
-        '- Allowed: prefer structured `run_tests` / `verify_fix` / `code_diagnostics`; fall back to host `exec` / device `device_exec` for project-specific commands. Use `web_*` for public docs; do not use shell `curl` as a substitute for Web tools.',
+        '- Allowed: `run_tests` with `file` or `command` (`suite=true` only for the whole suite). Fall back to host `exec` / device `device_exec` for one focused command. Use `web_*` for public docs; do not use shell `curl` as a substitute for Web tools.',
         '- You may `read_file` / `search_code` README, AGENTS.md, package.json, Makefile etc. to confirm expected commands.',
         '',
         '### Anti-rubber-stamp (self-check)',

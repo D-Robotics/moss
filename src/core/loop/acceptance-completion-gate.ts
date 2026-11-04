@@ -11,9 +11,6 @@ import type { AgentLoopExtensions } from './agent-loop-types.js';
 import { isNudgeDisabled } from './nudges/disable.js';
 import { parseAcceptanceVerdictText } from './acceptance-verdict-text.js';
 
-export const TASK_ACCEPTANCE_VERDICT_MARKER = 'Task acceptance (';
-export const TASK_ACCEPTANCE_PASS_MARKER = 'FINAL: PASS';
-
 /** Extract readable text from a tool_result content block. */
 function toolResultText(block: { content?: unknown }): string {
   const content = block.content;

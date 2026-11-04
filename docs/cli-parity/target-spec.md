@@ -1,5 +1,7 @@
 # moss CLI parity target spec (frozen)
 
+> **2026-11-04 架构清理（后续改动）**：`src/cli/tui/input-box.ts`、`src/cli/attachments.ts`、`src/cli/identity.ts`、`src/cli/setup.ts` 已删除（无引用、或功能从未接线）。本文中指向这些文件的行号/哈希仅作历史记录；`@` 提及只插入路径，附件预处理不再存在于 CLI 路径。
+
 **Re-probed against the signed-off build.** Every `done` cell in this revision was derived from the
 build the adversarial verifier signed off (its final pass, `dist` 05:06 = r3.2: `tui/app.js`
 `68b70096…`) — from that build's source, its spec gates, or a PTY capture against it. Nothing in the

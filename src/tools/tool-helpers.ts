@@ -24,6 +24,46 @@ export const EXEC_DEFAULT_TIMEOUT_MS = (() => {
 })();
 
 /**
+ * Foreground exec ceiling (Claude Code Bash caps at 600000). Past this a
+ * command belongs in the background, where it has a handle and can be stopped.
+ */
+export const EXEC_MAX_FOREGROUND_TIMEOUT_MS = 600_000;
+
+/**
+ * Other harnesses give their shell tool a `cwd` / `working_directory` input;
+ * Moss's exec always starts at the workspace root. Silently ignoring it ran the
+ * command in the wrong directory, so name the parameter and the fix instead.
+ */
+export function execCwdRefusal(input: Record<string, unknown>): string | null {
+  for (const key of ['cwd', 'working_directory', 'workdir']) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim()) {
+      return (
+        `Error: exec has no ${key} parameter — commands start at the workspace root and cwd does not persist. ` +
+        `Nothing ran. Prefix the command instead: cd ${JSON.stringify(value.trim())} && <command>.`
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * Normalize a model-supplied `timeout_ms` for a foreground command. Absent,
+ * zero, negative, or non-numeric values fall back to the default; anything
+ * above the ceiling is clamped instead of blocking the turn for an hour.
+ */
+export function resolveForegroundTimeoutMs(raw: unknown): { timeoutMs: number; capped: boolean } {
+  const requested = Number(raw);
+  if (!Number.isFinite(requested) || requested <= 0) {
+    return { timeoutMs: EXEC_DEFAULT_TIMEOUT_MS, capped: false };
+  }
+  if (requested > EXEC_MAX_FOREGROUND_TIMEOUT_MS) {
+    return { timeoutMs: EXEC_MAX_FOREGROUND_TIMEOUT_MS, capped: true };
+  }
+  return { timeoutMs: requested, capped: false };
+}
+
+/**
  * ToolStateManager — encapsulates mutable state shared across tools.
  *
  * Tracks file read timestamps to detect stale writes (when a file is modified
@@ -76,6 +116,12 @@ export class ToolStateManager {
   private readonly fileReadHash = new Map<string, string>();
   /** O86: paths whose earlier read body left the model context (compaction/elision). */
   private readonly fileReadDropped = new Set<string>();
+  /**
+   * Paths whose read credit was withdrawn because an edit attempt missed
+   * (`old_string` not found, failed multi_edit). Lets the next refusal say
+   * that, instead of claiming the file was never read.
+   */
+  private readonly fileReadInvalidated = new Set<string>();
 
   /**
    * O128 (PM): paths whose last full read_file was cut by the output budget.
@@ -113,6 +159,7 @@ export class ToolStateManager {
       this.fileReadTruncated.set(resolvedPath, truncated);
       this.fileMutatedSinceRead.delete(resolvedPath);
       this.fileReadDropped.delete(resolvedPath);
+      this.fileReadInvalidated.delete(resolvedPath);
       const hash = await hashFile(resolvedPath);
       if (hash) this.fileReadHash.set(resolvedPath, hash);
       else this.fileReadHash.delete(resolvedPath);
@@ -172,6 +219,13 @@ export class ToolStateManager {
     attach?: PartialReadAttach
   ): Promise<string | null> {
     if (!this.hasRecorded(resolvedPath)) {
+      if (this.fileReadInvalidated.has(resolvedPath)) {
+        return (
+          `The last edit attempt on ${displayPath} did not apply, so its read credit was dropped. ` +
+          `Call read_file on ${displayPath} to see the current text (or use the lines quoted in that error), ` +
+          `then retry with an exact old_string match.`
+        );
+      }
       return (
         `You must call read_file on ${displayPath} at least once before editing it. ` +
         `Read the current contents (full file, or omit offset/limit), then retry the edit with an exact old_string match.`
@@ -278,6 +332,7 @@ export class ToolStateManager {
     this.fileMutatedSinceRead.clear();
     this.fileReadHash.clear();
     this.fileReadDropped.clear();
+    this.fileReadInvalidated.clear();
   }
 
   /** O86: earlier read bodies left context; `null` = all paths. */
@@ -311,6 +366,7 @@ export class ToolStateManager {
    * cannot thrash the same unread snapshot (Claude FileEdit discipline).
    */
   invalidateFileState(resolvedPath: string): void {
+    if (this.fileReadState.has(resolvedPath)) this.fileReadInvalidated.add(resolvedPath);
     this.fileReadState.delete(resolvedPath);
     this.fileReadRange.delete(resolvedPath);
     this.fileReadTruncated.delete(resolvedPath);

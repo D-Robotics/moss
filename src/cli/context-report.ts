@@ -40,8 +40,6 @@ import type { Message } from '../core/session/session-jsonl.js';
 export const FRESH_SESSION_USER_MESSAGE =
   'Fix the off-by-one in src/parse.js. Expected behavior is in src/parse.test.js.';
 
-export { TOOL_RESULT_HANDLING_SECTION };
-
 export const CONTEXT_WINDOW_SECTION = (contextTokens: number): string => {
   const ctxK = Math.round(contextTokens / 1000);
   return `## Context Window\nYour context window is ${ctxK}k tokens. State this number accurately when the user asks about context size — do not guess from training knowledge.`;

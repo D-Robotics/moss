@@ -8,13 +8,32 @@
 1. **main 是滚动线。** 能力持续累积进 main；`package.json` 的版本号表示**当前能力级别**，
    不表示某个被单独验收并发过 tag 的版本。
 2. **semver（0.x）**：新增导出、向后兼容扩展 = minor；删除/重命名/行为破坏 = 在提交说明里
-   显式写"破坏性变更"。SDK 公共面仍由 `test/sdk-contract.spec.mjs` 快照锁定。
-3. **tag 只在有真实证据时打。** 打 tag 前必须：`npm run verify` 全绿（check + 全部 spec + PTY smoke）、
-   `npm run examples` 三例实跑通过。tag 说明里必须写清**跑了什么、没跑什么**。
+   显式写"破坏性变更"。2026-11-04 起不再有 `test/sdk-contract.spec.mjs` 快照（全部 spec 已删除）；
+   改公共面必须在提交说明里列出，并由 `npm run verify` 实跑 `examples/` 兜底。
+3. **tag 只在有真实证据时打。** 现行口径（2026-11-04 起）：该 commit 必须 `npm run verify` 全绿
+   （static + build + smoke + 三个 examples，目标 ≤60s），且 tag push 触发的
+   `Deep verification`（`.github/workflows/deep.yml`）四个矩阵 leg 全绿。tag 说明里必须写清
+   **跑了什么、没跑什么**，并注明"行为 spec 套件已于 2026-11-04 删除，本 tag 不含行为回归证据"。
+   （历史口径：2026-10-01 ～ 2026-11-03 的 tag 要求 `npm run verify` 覆盖当时存在的全部 spec。）
 4. **不为从未验收的中间版本补打 tag。** v0.14.0–v0.20.0 永久不补：它们的门（SWE-bench 三跑、
    确定性对、T-Bench 基线、v0.20 全量 bench 复跑）从未执行，补打等于伪造发布证据。
-5. **退役的门可随时复活。** 9 个验收脚本移入 `.autopilot/acceptance/retired/`，命令与状态
-   逐条登记在 `.autopilot/acceptance/retired/README.md`；哪天门跑完，就按本文件第 3 条主张对应版本号。
+5. **退役的门可随时复活。** 9 个验收脚本与逐条状态登记（原 `.autopilot/acceptance/retired/`
+   及其 `README.md`）已于 2026-11-04 随 `.autopilot` 战役存档清理移出 main，完整内容存于
+   git 历史；哪天要跑门，先从 git 历史取回脚本，跑完就按本文件第 3 条主张对应版本号。
+
+## 2026-11-04 起的验证口径（现行）
+
+- **行为 spec 套件已删除。** 仓库 owner 于 2026-11-04 删除全部 504 个 `test/*.spec.mjs`（git 历史
+  `01a16fd7` 及更早保留）。当前门不再包含任何行为回归证据。
+- **唯一验证入口**：`scripts/verify/cli.mjs`。`npm run verify` = static（format/lint/typecheck 并行）
+  - build + CLI smoke + 三个 examples，2026-11-04 实测 **30.9s**；CI 用
+    `VERIFY_BUDGET_SECONDS=60` 强制预算。
+- **CI 结构**：`.github/workflows/ci.yml` 的 `Fast gate`（Ubuntu 22.16，单作业，含 `node_modules`
+  缓存）每次 push/PR 跑；`.github/workflows/deep.yml` 在夜跑、tag、手动触发时跑三平台 22.16 +
+  Linux 24 的同一门，`Deep gate` 聚合。设计见 [`docs/design/ci-and-verify.md`](ci-and-verify.md)。
+- **未验证、因此不主张**：agent loop / 工具 / provider / 权限 / TUI / MCP / 设备 / task-runtime 的
+  行为回归；安装 e2e；真实终端；benchmark 与真机闭环。
+- **恢复路径**：从 git 历史取回 spec 套件与跑器（`01a16fd7`），先与 owner 确认框架与门口径。
 
 ## 为什么改口径
 
@@ -32,6 +51,9 @@ package.json 已 0.13.0）。v0.14–v0.20 期间欠账扩大：代码交付到 
 选择后者：证据不足时缩小主张，而不是补齐文字。
 
 ## 当前主张（2026-10-12，v0.26.1）
+
+> 以下 v0.26.1 及更早的主张是当时树的实测记录；其中的"spec 数量 / 全量 verify"描述不适用于
+> 2026-11-04 之后的树，现行口径见上一节。
 
 - **版本**：`0.26.1`；tag `v0.26.1`。该版本是 **npm 首发版**：`@rdk-moss/agent` 此前 npm latest
   停在 0.6.0（2026-07-19），0.26.0 只有仓内 tag、从未发布。内容 = v0.26.0 全部能力（权限模式引擎 +
@@ -219,5 +241,7 @@ package.json 已 0.13.0）。v0.14–v0.20 期间欠账扩大：代码交付到 
 ```bash
 git tag -d v0.21.0                    # 撤销本口径的 tag
 git revert <本策略的提交>              # 回到候选状态
-node .autopilot/acceptance/retired/<gate>.sh   # 逐门执行，跑完再主张版本号
+git show <存档删除提交>^:.autopilot/acceptance/retired/<gate>.sh > <gate>.sh
+                                      # 从 git 历史取回 2026-11-04 移除的门脚本
+node <gate>.sh                        # 逐门执行，跑完再主张版本号
 ```

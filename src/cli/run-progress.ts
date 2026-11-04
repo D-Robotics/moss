@@ -15,15 +15,16 @@
  * outcome vocabulary here.
  */
 import type { MossAgentEvent } from '../core/index.js';
+import { EXEC_LIKE_TOOL_NAME_SET } from '../core/tools/tool-catalog.js';
 import {
   createRunCompletionTracker,
   formatOutcomeLine,
   noteRunCompletionEvent,
   resolveRunOutcome,
   type OutcomeLang,
-  type RunCompletionTracker,
   type RunOutcome,
 } from './run-outcome.js';
+import type { RunCompletionTracker } from './run-completion.js';
 
 export const THINKING_WAIT_INTERVAL_MS = 30_000;
 export const HEARTBEAT_MAX_GAP_MS = 60_000;
@@ -61,7 +62,7 @@ export interface CreateRunProgressTrackerOptions {
   clock?: RunProgressClock;
 }
 
-const EXEC_LIKE = new Set(['exec', 'device_exec', 'docker_exec', 'exec_background']);
+const EXEC_LIKE = EXEC_LIKE_TOOL_NAME_SET;
 
 function defaultClock(): RunProgressClock {
   return {

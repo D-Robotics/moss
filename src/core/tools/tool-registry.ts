@@ -1,118 +1,32 @@
 import type { Tool } from './tool-types.js';
 
-export interface ToolGroup {
-  id: string;
-  displayName: string;
-  tools: Tool[];
-}
-
-export interface ToolRegistryOptions {
-  onToolRegistered?: (tool: Tool, groupId?: string) => void;
-  onToolRemoved?: (toolName: string, groupId?: string) => void;
-}
-
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
-  private groups = new Map<string, ToolGroup>();
-  private toolToGroup = new Map<string, string>();
-  private opts: ToolRegistryOptions;
 
-  constructor(opts?: ToolRegistryOptions) {
-    this.opts = opts ?? {};
-  }
-
-  register(tool: Tool, groupId?: string): void {
+  register(tool: Tool): void {
     if (this.tools.has(tool.name)) {
-      const owner = this.toolToGroup.get(tool.name);
-      if (owner?.startsWith('plugin:')) {
-        throw new Error(`tool already registered: ${tool.name}`);
-      }
-      this.replace(tool, groupId);
+      this.replace(tool);
       return;
     }
-    this.install(tool, groupId);
+    this.tools.set(tool.name, tool);
   }
 
   /** Explicitly replace a tool while transferring its lifecycle ownership. @beta */
-  replace(tool: Tool, groupId?: string): void {
+  replace(tool: Tool): void {
     if (this.tools.has(tool.name)) this.remove(tool.name);
-    this.install(tool, groupId);
-  }
-
-  private install(tool: Tool, groupId?: string): void {
     this.tools.set(tool.name, tool);
-    if (groupId) {
-      this.toolToGroup.set(tool.name, groupId);
-      const group = this.groups.get(groupId);
-      if (group) {
-        const idx = group.tools.findIndex((t) => t.name === tool.name);
-        if (idx === -1) group.tools.push(tool);
-        else group.tools[idx] = tool;
-      }
-    }
-    this.opts.onToolRegistered?.(tool, groupId);
-  }
-
-  /** Install a tool for one lifecycle owner without replacing an existing tool. @internal */
-  registerScoped(tool: Tool, owner: string): () => void {
-    this.register(tool, owner);
-    let disposed = false;
-    return () => {
-      if (disposed) return;
-      disposed = true;
-      if (this.tools.get(tool.name) === tool) this.remove(tool.name);
-    };
-  }
-
-  registerGroup(group: ToolGroup): void {
-    if (this.groups.has(group.id)) throw new Error(`tool group already registered: ${group.id}`);
-    const groupNames = new Set<string>();
-    for (const tool of group.tools) {
-      if (groupNames.has(tool.name)) throw new Error(`tool already registered: ${tool.name}`);
-      groupNames.add(tool.name);
-      if (this.tools.has(tool.name)) throw new Error(`tool already registered: ${tool.name}`);
-    }
-    this.groups.set(group.id, { ...group, tools: [...group.tools] });
-    for (const tool of group.tools) {
-      this.tools.set(tool.name, tool);
-      this.toolToGroup.set(tool.name, group.id);
-      this.opts.onToolRegistered?.(tool, group.id);
-    }
   }
 
   remove(toolName: string): boolean {
-    const existed = this.tools.delete(toolName);
-    const groupId = this.toolToGroup.get(toolName);
-    if (groupId) {
-      const group = this.groups.get(groupId);
-      if (group) {
-        group.tools = group.tools.filter((t) => t.name !== toolName);
-      }
-      this.toolToGroup.delete(toolName);
-    }
-    if (existed) {
-      this.opts.onToolRemoved?.(toolName, groupId);
-    }
-    return existed;
-  }
-
-  removeGroup(groupId: string): void {
-    const group = this.groups.get(groupId);
-    if (!group) return;
-    for (const tool of group.tools) {
-      this.tools.delete(tool.name);
-      this.toolToGroup.delete(tool.name);
-      this.opts.onToolRemoved?.(tool.name, groupId);
-    }
-    this.groups.delete(groupId);
+    return this.tools.delete(toolName);
   }
 
   get(name: string): Tool | undefined {
     return this.tools.get(name);
   }
 
-  has(name: string): boolean {
-    return this.tools.has(name);
+  has(toolName: string): boolean {
+    return this.tools.has(toolName);
   }
 
   getAll(): Tool[] {
@@ -121,14 +35,6 @@ export class ToolRegistry {
 
   getNames(): string[] {
     return [...this.tools.keys()];
-  }
-
-  getGroups(): ToolGroup[] {
-    return [...this.groups.values()];
-  }
-
-  getGroupForTool(toolName: string): string | undefined {
-    return this.toolToGroup.get(toolName);
   }
 
   get size(): number {

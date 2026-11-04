@@ -29,7 +29,6 @@ import {
   useWindowSize,
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
-import { planGateEnabled } from '../../tools/plan-gate.js';
 import { userTextWithoutTurnContext } from '../../core/session/internal-transcript.js';
 import {
   TaskRuntime,
@@ -48,7 +47,7 @@ import {
   usageBlock,
   type TranscriptRow,
 } from './render-bridge.js';
-import { isComposerLeak, mouseEventsInChunk, noteDroppedKeys } from './input/key-stream.js';
+import { isComposerLeak, mouseEventsInChunk } from './input/key-stream.js';
 import { isExpandAffordance, routeMouse, type MouseLayout } from './input/mouse-route.js';
 import {
   deleteText,
@@ -225,8 +224,8 @@ import {
 } from './renderer.js';
 import { installTuiLogSink } from './terminal-io.js';
 import { noteFrameHeight } from './frame-invariant.js';
-import { needsTestHint, type VerifyHintState } from '../verify-hint.js';
 import { createRunCompletionTracker, noteRunCompletionEvent } from '../run-completion.js';
+import { approvalPlanVersion, extractPlanVersion } from '../plan-version.js';
 import { formatOutcomeLine, resolveRunOutcome } from '../run-outcome.js';
 import {
   createViewport,
@@ -646,6 +645,8 @@ export function TuiAppRoot({
   const modelProbeGenerationRef = useRef(0);
   /** Plan-mode exit gate, filled in after `dispatchRun` exists (below). */
   const planGateRef = useRef<(() => void) | undefined>(undefined);
+  /** Version the model submitted via `exit_plan` this run (cleared on approval). */
+  const submittedPlanVersionRef = useRef<string | undefined>(undefined);
   const runStartedAtRef = useRef<number | undefined>(undefined);
   const pendingDialogRef = useRef<PendingDialog | null>(null);
   /** Timer behind the D-7 two-press Ctrl+C quit confirmation. */
@@ -1284,6 +1285,10 @@ export function TuiAppRoot({
             flushProse(store);
           }
           applyAgentEvent(store, event);
+          if (event.type === 'tool_end' && event.toolName === 'exit_plan' && !event.isError) {
+            const version = extractPlanVersion(event.result);
+            if (version) submittedPlanVersionRef.current = version;
+          }
           runtime.applyEvent(event);
           if (event.type === 'done') {
             reconcileFinalResponse(store, event.result?.response);
@@ -1304,7 +1309,6 @@ export function TuiAppRoot({
       const startedAt = runStartedAtRef.current;
       runStartedAtRef.current = undefined;
       const halted = controller.signal.aborted;
-      const unverified = !halted && needsTestHint(store.run as VerifyHintState);
       // Capture final answer before endRun clears the live buffer (O98 TUI line).
       const finalText = [
         ...store.rows
@@ -1341,9 +1345,6 @@ export function TuiAppRoot({
           if (text) appendRow(store, 'summary', text);
         }
       }
-      if (unverified) {
-        appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
-      }
       const runtimeSettled = await settleRuntime(halted);
       if (runtimeSettled && startedAt !== undefined) appendTaskVerdictIfAny(startedAt);
       notifyAttention(halted ? tui('run interrupted') : tui('run finished'));
@@ -1356,10 +1357,14 @@ export function TuiAppRoot({
         runtimeSettled &&
         !halted &&
         getCliInteractionMode() === 'plan' &&
-        (rowsThisRun.some((row) => row.kind === 'tool') ||
+        // Approval names the plan the model actually submitted. A plan-shaped run
+        // that never called `exit_plan` still gets the gate, but its receipt says
+        // so (fallback hash), which is what makes "approved" auditable.
+        (submittedPlanVersionRef.current !== undefined ||
+          rowsThisRun.some((row) => row.kind === 'tool') ||
           rowsThisRun.some((row) => row.kind === 'assistant' && row.text.length > 300));
       handle.notify();
-      if (producedPlan && planGateEnabled()) planGateRef.current?.();
+      if (producedPlan) planGateRef.current?.();
       absorbDeferredSteers(halted);
     },
     [
@@ -1596,11 +1601,7 @@ export function TuiAppRoot({
         } finally {
           abortRef.current = undefined;
           const halted = controller.signal.aborted;
-          const unverifiedTask = !halted && needsTestHint(store.run as VerifyHintState);
           endRun(store, halted);
-          if (unverifiedTask) {
-            appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
-          }
           const runtimeSettled = await settleRuntime(halted);
           if (runtimeSettled) appendTaskVerdictIfAny(runStartedAtRef.current ?? 0);
           runStartedAtRef.current = undefined;
@@ -1657,6 +1658,12 @@ export function TuiAppRoot({
     if (pendingDialogRef.current) return;
     runtime.setApprovalPending(true);
     handle.notify();
+    // Name the version the user is approving. `exit_plan` already stamped the
+    // submitted plan; the receipt echoes that stamp so approval binds to one
+    // version (fallback hash only when the model skipped exit_plan).
+    const planText = [...store.rows].reverse().find((row) => row.kind === 'assistant')?.text ?? '';
+    const planVersion = approvalPlanVersion(submittedPlanVersionRef.current, planText);
+    submittedPlanVersionRef.current = undefined;
     const PROCEED_AUTO = 'Proceed: accept edits this session.';
     const PROCEED_MANUAL = 'Proceed: keep manual approvals.';
     const entry: PendingDialog = {
@@ -1665,11 +1672,13 @@ export function TuiAppRoot({
       resolve: (value) => {
         if (value === PROCEED_AUTO) {
           setCliInteractionMode('acceptEdits');
-          void dispatchRun('The plan above is approved — proceed with execution now.');
+          void dispatchRun(
+            `The plan above is approved (version ${planVersion}) — proceed with execution now.`
+          );
         } else if (value === PROCEED_MANUAL) {
           setCliInteractionMode('manual');
           void dispatchRun(
-            'The plan above is approved — proceed with execution now (manual approvals stay on).'
+            `The plan above is approved (version ${planVersion}) — proceed with execution now (manual approvals stay on).`
           );
         } else if (value.trim()) {
           void dispatchRun(`Plan feedback — revise the plan accordingly: ${value}`);
@@ -1689,7 +1698,7 @@ export function TuiAppRoot({
       footer: tui('↑↓ then Enter · or type feedback below · Esc keeps planning'),
       cursor: 0,
     });
-  }, [dispatchRun, handle, runtime]);
+  }, [dispatchRun, handle, runtime, store]);
   useEffect(() => {
     planGateRef.current = openPlanGate;
     return () => {
@@ -2952,10 +2961,7 @@ export function TuiAppRoot({
       key.delete ||
       key.ctrl ||
       key.meta;
-    if (!inkKey && isComposerLeak(chunk)) {
-      noteDroppedKeys(1);
-      return;
-    }
+    if (!inkKey && isComposerLeak(chunk)) return;
     if (permissionsOpen) {
       const rules = permissionPanelRules();
       if (key.escape) {

@@ -210,27 +210,3 @@ export function mouseEventsInChunk(
     (event): event is Extract<KeyStreamEvent, { kind: 'mouse' }> => event.kind === 'mouse'
   );
 }
-
-/** True when every event in the chunk must stay out of the composer. */
-export function droppedKeyStream(chunk: string): KeyStreamEvent[] {
-  const { events, carry } = classifyKeyStream(chunk);
-  const dropped = events.filter(
-    (event) => event.kind === 'mouse' || event.kind === 'focus' || event.kind === 'unknown-csi'
-  );
-  if (carry.startsWith('\x1b')) dropped.push({ kind: 'unknown-csi', raw: carry });
-  return dropped;
-}
-
-let droppedCount = 0;
-
-export function noteDroppedKeys(count: number): void {
-  droppedCount += count;
-}
-
-export function droppedKeyCount(): number {
-  return droppedCount;
-}
-
-export function resetDroppedKeyCount(): void {
-  droppedCount = 0;
-}

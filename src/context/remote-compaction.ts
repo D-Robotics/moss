@@ -1,17 +1,6 @@
 import type { Message } from '../contracts/messages.js';
-import { createCompactionSummaryMessage } from '../contracts/messages.js';
-import { estimateMessagesTokens } from './tokens.js';
-import {
-  buildCompactionSummary,
-  type SummarizeFn,
-  DEFAULT_COMPACTION_SETTINGS,
-  MAX_SUMMARY_OUTPUT_TOKENS,
-} from './compaction.js';
-import { getRootLogger } from '../logger.js';
+import { MossError, ErrorCode } from '../errors.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
-import { MossError, ErrorCode, errorMessage } from '../errors.js';
-
-const log = getRootLogger().child('agent:remote-compact');
 
 export function resolveRemoteCompactUrls(endpoint: string): {
   compactUrl: string;
@@ -34,23 +23,11 @@ export interface RemoteCompactRequest {
 
 export interface RemoteCompactResponse {
   summary: string;
-  compactedMessages?: Message[];
-  tokensSaved: number;
-  method: 'remote' | 'local_fallback';
 }
 
 export interface RemoteCompactProvider {
   compact(request: RemoteCompactRequest): Promise<RemoteCompactResponse>;
   isAvailable(): Promise<boolean>;
-}
-
-export interface HybridCompactionConfig {
-  remoteProvider?: RemoteCompactProvider;
-  localSummarize: SummarizeFn;
-  contextWindowTokens: number;
-  reserveTokens?: number;
-  customInstructions?: string;
-  abortSignal?: AbortSignal;
 }
 
 function redactSecretsInText(text: string): string {
@@ -211,12 +188,7 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
         bodyText = await res.text();
       }
 
-      const data = JSON.parse(bodyText) as {
-        summary?: string;
-        compacted_messages?: Message[];
-        tokens_saved?: number;
-      };
-
+      const data = JSON.parse(bodyText) as { summary?: unknown };
       const summary = typeof data.summary === 'string' ? data.summary.trim() : '';
       if (!summary) {
         throw new MossError({
@@ -225,112 +197,11 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
         });
       }
 
-      const tokensSaved =
-        typeof data.tokens_saved === 'number' && data.tokens_saved >= 0 ? data.tokens_saved : 0;
-
-      let compactedMessages: Message[] | undefined;
-      if (data.compacted_messages !== undefined) {
-        if (!Array.isArray(data.compacted_messages)) {
-          log.warn('remote compact returned non-array compacted_messages; ignoring', {
-            type: typeof data.compacted_messages,
-          });
-        } else {
-          compactedMessages = data.compacted_messages as Message[];
-        }
-      }
-
-      return {
-        summary,
-        compactedMessages,
-        tokensSaved,
-        method: 'remote',
-      };
+      return { summary };
     } finally {
       clearTimeout(timer);
     }
   }
-}
-
-export async function hybridCompact(
-  config: HybridCompactionConfig,
-  messages: Message[],
-  systemPrompt?: string
-): Promise<{
-  summary: string;
-  summaryMessage: Message;
-  method: 'remote' | 'local_fallback' | 'local_only';
-  tokensSaved: number;
-}> {
-  const reserveTokens = config.reserveTokens ?? DEFAULT_COMPACTION_SETTINGS.reserveTokens;
-  const maxOutputTokens = Math.min(
-    Math.max(64, Math.floor(0.8 * reserveTokens)),
-    MAX_SUMMARY_OUTPUT_TOKENS
-  );
-  const inputTokens = estimateMessagesTokens(messages);
-
-  if (config.remoteProvider) {
-    try {
-      const available = await config.remoteProvider.isAvailable();
-      if (available) {
-        const result = await config.remoteProvider.compact({
-          messages,
-          systemPrompt,
-          maxOutputTokens,
-          contextWindowTokens: config.contextWindowTokens,
-          customInstructions: config.customInstructions,
-          abortSignal: config.abortSignal,
-        });
-
-        if (result.summary) {
-          const summaryMessage = createCompactionSummaryMessage(result.summary, Date.now());
-          log.info('remote compaction succeeded', {
-            inputTokens,
-            tokensSaved: result.tokensSaved,
-            summaryLength: result.summary.length,
-          });
-          return {
-            summary: result.summary,
-            summaryMessage,
-            method: 'remote',
-            tokensSaved: result.tokensSaved,
-          };
-        }
-      }
-    } catch (err) {
-      if (config.abortSignal?.aborted) {
-        log.info('remote compaction aborted, not falling back to local');
-        throw err;
-      }
-      log.warn('remote compaction failed, falling back to local', {
-        error: errorMessage(err),
-      });
-    }
-  }
-
-  if (config.abortSignal?.aborted) {
-    throw new Error('compaction aborted before local fallback');
-  }
-
-  const summary = await buildCompactionSummary({
-    summarize: config.localSummarize,
-    messages,
-    contextWindowTokens: config.contextWindowTokens,
-    maxTokens: maxOutputTokens,
-    reserveTokens,
-    customInstructions: config.customInstructions,
-    abortSignal: config.abortSignal,
-  });
-
-  const summaryTokens = Math.ceil(summary.length / 4);
-  const tokensSaved = Math.max(0, inputTokens - summaryTokens);
-  const summaryMessage = createCompactionSummaryMessage(summary, Date.now());
-
-  return {
-    summary,
-    summaryMessage,
-    method: config.remoteProvider ? 'local_fallback' : 'local_only',
-    tokensSaved,
-  };
 }
 
 export function createRemoteCompactProviderFromEnv(): RemoteCompactProvider | undefined {

@@ -27,12 +27,6 @@ const ENGINES = {
     // turn with the failure evidence when it fails.
     arms: { off: { env: {} }, on: { env: { MOSS_GOAL_VERIFY_LOOP: '1' } } },
   },
-  'plan-gate': {
-    // Default stays off. Turn it on only when hard-ambiguous-spec and
-    // hard-coupling-refactor beat the off arm by >= 5pt outside the noise band.
-    tasks: ['hard-ambiguous-spec', 'hard-coupling-refactor'],
-    arms: { off: { env: {} }, on: { env: { MOSS_PLAN_GATE: '1' } } },
-  },
   'model-routing': {
     threeArm: true,
     cheapModel: 'deepseek-flash@latest',

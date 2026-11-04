@@ -24,12 +24,24 @@ export function isDeferredToolName(name: string): boolean {
   return DEFERRED_NAMES.has(name);
 }
 
+/** Group a deferred tool belongs to, for the "load this first" error path. */
+export function deferredGroupFor(name: string): string | null {
+  for (const [group, names] of Object.entries(DEFERRED_GROUPS)) {
+    if (names.includes(name)) return group;
+  }
+  return null;
+}
+
 export function deferredToolGroupNames(): readonly string[] {
   return Object.keys(DEFERRED_GROUPS);
 }
 
 export class DeferredToolOffer {
   private readonly revealed = new Set<string>();
+
+  isRevealed(group: string): boolean {
+    return this.revealed.has(group);
+  }
 
   isOffered(name: string): boolean {
     for (const [group, names] of Object.entries(DEFERRED_GROUPS)) {

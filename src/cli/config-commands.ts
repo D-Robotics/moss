@@ -330,7 +330,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_GOAL_VERIFY_CMD (process env only; a project .env cannot set this)',
       'MOSS_GOAL_VERIFY_LOOP (process env only; a project .env cannot set this)',
       'MOSS_DISABLE_NUDGES (comma-separated nudge ids to suppress; unset leaves every nudge on)',
-      'MOSS_PLAN_GATE (1 enables the /plan approval gate; default off)',
+      'MOSS_DISABLE_TURN_WATCH (1 stops the per-turn external-edit and date-rollover notice)',
       'MOSS_GOAL_AUTO_MAX_RUNS',
       'MOSS_ACCEPT_LOGIN_PATH (0 stops acceptance commands from appending the login-shell PATH)',
       'MOSS_BUDGET_MAX_TOKENS',
@@ -502,6 +502,8 @@ const ENV_NOTE_ZH: Record<string, string> = {
   'legacy alias of MOSS_CLI_AUTO_APPROVE': 'MOSS_CLI_AUTO_APPROVE 的旧别名',
   'comma-separated nudge ids to suppress; unset leaves every nudge on':
     '逗号分隔的要关掉的提示编号；不设置则全部开启',
+  '1 stops the per-turn external-edit and date-rollover notice':
+    '设为 1 关闭每轮的外部文件变更与跨天日期提示',
   '1 enables the /plan approval gate; default off': '设为 1 打开 /plan 审批门；默认关闭',
   'prefix of the MOSS_BUDGET_MAX_* keys': 'MOSS_BUDGET_MAX_* 键的前缀',
   '1 enables the project-local experience experiment': '设为 1 打开项目本地经验实验',

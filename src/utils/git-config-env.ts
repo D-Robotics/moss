@@ -23,8 +23,6 @@ import {
   type GitConfigPair,
 } from './git-spawn.js';
 
-export type { GitConfigPair };
-
 const CACHE_LIMIT = 64;
 
 const cache = new Map<string, GitConfigPair[]>();

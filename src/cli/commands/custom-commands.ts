@@ -120,6 +120,10 @@ export function parseCommandFile(raw: string): ParsedCommandFile {
 export interface SkillCommandRef {
   name: string;
   description: string;
+  /** Where the SKILL.md lives; used for namespace precedence and diagnostics. */
+  scope?: 'workspace' | 'user';
+  /** Alias name without the leading slash, when the skill name is not slash-safe. */
+  slashAlias?: string;
 }
 
 export type ResolvedUserCommand =
@@ -251,11 +255,11 @@ export function loadCustomCommands(
   const seen = new Set<string>();
   const announced = new Set<string>();
   const specs: CommandSpec[] = [];
-  const dirs = [
-    path.join(source.workspace, '.moss', 'commands'),
-    path.join(source.configDir, 'commands'),
+  const dirs: Array<{ dir: string; scope: 'workspace' | 'user' }> = [
+    { dir: path.join(source.workspace, '.moss', 'commands'), scope: 'workspace' },
+    { dir: path.join(source.configDir, 'commands'), scope: 'user' },
   ];
-  for (const dir of dirs) {
+  for (const { dir, scope } of dirs) {
     for (const { name, file, parsed } of readCommandsFromDir(dir, (skipped, reason) => {
       if (announced.has(skipped)) return;
       announced.add(skipped);
@@ -275,6 +279,7 @@ export function loadCustomCommands(
       const summary = parsed.description?.trim() || `custom command (${name}.md)`;
       specs.push({
         name: slash,
+        scope,
         summary: parsed.argumentHint ? `${summary} — args: ${parsed.argumentHint}` : summary,
         body: parsed.body,
         run(ctx, args) {

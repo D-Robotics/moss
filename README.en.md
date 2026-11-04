@@ -528,13 +528,16 @@ one line: press `e` to switch to English.
 ## Quality gates and benchmarks
 
 ```bash
-npm run check    # prettier + eslint (0 warning) + typecheck
-npm run test     # build + every test/*.spec.mjs (235 specs, run against dist/)
-npm run smoke    # CLI smoke: --version / --help / PTY startup
-npm run verify   # check + test + smoke — required before any release
+npm run check          # prettier + eslint (0 warning) + typecheck, in parallel
+npm run verify:quick   # static + smoke. A delivery check, not every edit
+npm run verify         # static + build + smoke + 3 examples — the ship gate, target <=60s
+npm run smoke          # CLI smoke: --version / --help / config --help / PTY startup (builds first)
+npm run examples       # the three offline embedding examples (living SDK docs; builds first)
 
-# Real terminals (tmux / GNU screen / Terminal.app); off by default, missing terminals are skipped
-npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-terminals
+# The behavior spec suite was removed on 2026-11-04 (still in git history); cross-OS /
+# Node 24 evidence comes from the nightly and tag matrix in .github/workflows/deep.yml.
+# Design: docs/design/ci-and-verify.md
+
 ```
 
 Benchmarks stay out of git in `bench/results/`:
@@ -550,17 +553,17 @@ Benchmarks stay out of git in `bench/results/`:
   (turns / tools / success rate)
 
 A version number states the **current capability level**: `main` is the rolling line, tags are cut
-only after `verify` is green and `examples/` pass for real — see
+only after `npm run verify` is green (examples included) and the deep matrix for that commit is green — see
 [`docs/release-policy.md`](docs/release-policy.md).
 
 ## Support matrix
 
-| Dimension | Supported                                                                | Verified by                         |
-| --------- | ------------------------------------------------------------------------ | ----------------------------------- |
-| Node      | ≥ 22.16.0                                                                | CI matrix (22.16 / 24)              |
-| Platform  | Linux / macOS / Windows                                                  | CI matrix (no PTY smoke on Windows) |
-| Providers | deepseek / qwen / openai / anthropic / openai-compatible                 | unit tests + smoke                  |
-| Surfaces  | TTY: full-screen TUI; non-TTY / `MOSS_NO_TUI=1` / Windows: readline REPL | TUI specs + PTY smoke               |
+| Dimension | Supported                                                                | Verified by                                                  |
+| --------- | ------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| Node      | ≥ 22.16.0                                                                | Fast gate 22.16 + deep matrix (22.16 on 3 OSes, 24 on Linux) |
+| Platform  | Linux / macOS / Windows                                                  | deep matrix (same verify command; no PTY smoke on Windows)   |
+| Providers | deepseek / qwen / openai / anthropic / openai-compatible                 | smoke + examples                                             |
+| Surfaces  | TTY: full-screen TUI; non-TTY / `MOSS_NO_TUI=1` / Windows: readline REPL | PTY smoke (macOS/Linux) + TUI bench                          |
 
 ## Documentation
 

@@ -36,6 +36,23 @@ function wrapUntrustedWebContent(content: string): string {
 }
 
 const dnsCache = new Map<string, { addresses: string[]; expiresAt: number }>();
+
+/**
+ * `example.com/docs` and `localhost:3000/x` are what a model copies out of a
+ * search result or a log: a host and a path with no scheme. `new URL` rejects
+ * the first and reads the second's host as a protocol, so both failed with a
+ * message about the wrong problem. Assume https for a domain-shaped host and a
+ * bare host with a numeric port; leave real schemes (file:, ftp:, data:) alone.
+ */
+function assumeHttps(raw: string): string | null {
+  const domain = /^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?(?:[/?#].*)?$/i.test(raw);
+  const loopbackPort = /^[a-z0-9-]+:\d+(?:[/?#].*)?$/i.test(raw);
+  if (!domain && !loopbackPort) return null;
+  // `http://host/path` matches neither pattern above, but guard anyway so a
+  // real scheme is never rewritten.
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? null : `https://${raw}`;
+}
+
 type HostAddressResolver = (hostname: string) => Promise<string[]>;
 type BodyProbeReader = {
   read(): Promise<{ done: boolean; value?: Uint8Array }>;
@@ -224,6 +241,42 @@ function getTurndown(): TurndownService {
     turndown.remove(['script', 'style', 'meta', 'link', 'noscript', 'iframe']);
   }
   return turndown;
+}
+
+/** `charset=` from a Content-Type header, lowercased, or null. */
+function headerCharset(contentType: string): string | null {
+  const match = /charset\s*=\s*"?\s*([a-z0-9._:-]+)/i.exec(contentType);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+/**
+ * `<meta charset=gbk>` or a legacy `content="text/html; charset=gbk"` in the
+ * first 4 KB, for servers that omit the header. Read as latin1 so the byte
+ * offsets survive whatever encoding the page actually uses.
+ */
+function metaCharset(body: Buffer): string | null {
+  const head = body.subarray(0, 4096).toString('latin1');
+  const match =
+    /<meta[^>]+charset\s*=\s*["']?\s*([a-z0-9._:-]+)/i.exec(head) ??
+    /<meta[^>]+content\s*=\s*["'][^"']*charset\s*=\s*([a-z0-9._:-]+)/i.exec(head);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+/**
+ * Decode a text response with the encoding the server declared, or the one the
+ * page declares in its own `<meta>` tag. Decoding a GBK/Big5/Shift_JIS page as
+ * UTF-8 produced mojibake that read as the page's content.
+ */
+function decodeTextBody(body: Buffer, contentType: string, sniffMeta: boolean): string {
+  for (const label of [headerCharset(contentType), sniffMeta ? metaCharset(body) : null, 'utf-8']) {
+    if (!label) continue;
+    try {
+      return new TextDecoder(label).decode(body);
+    } catch {
+      // Unknown label from a sloppy server: try the next candidate.
+    }
+  }
+  return body.toString('utf-8');
 }
 
 function htmlToText(html: string, maxChars: number): string {
@@ -424,6 +477,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
       'Blocks private / loopback / link-local addresses by default (anti-SSRF). ' +
       'For live JS apps, prefer a headless browser tool. Prefer article/docs URLs over SPA marketing homepages.',
     metadata: {
+      maxResultTokens: 8_000,
       sideEffectClass: 'readonly',
       planMode: 'allow',
       transientRetry: true,
@@ -464,7 +518,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
       }
       let url: URL;
       try {
-        url = new URL(raw);
+        url = new URL(assumeHttps(raw) ?? raw);
       } catch {
         throw new MossError({
           code: ErrorCode.USER_INPUT_INVALID,
@@ -476,8 +530,8 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
       if (url.protocol !== 'http:' && url.protocol !== 'https:') {
         throw new MossError({
           code: ErrorCode.USER_INPUT_INVALID,
-          message: `web_fetch: unsupported protocol ${url.protocol}`,
-          hint: 'Only http: and https: are allowed. For local files use read/readFile tools.',
+          message: `web_fetch: unsupported protocol ${url.protocol.replace(/:$/, '')}`,
+          hint: 'Only http and https are allowed. For local files use read_file.',
           recoverable: false,
         });
       }
@@ -569,8 +623,8 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
                 await res.body?.cancel?.().catch(() => {});
                 throw new MossError({
                   code: ErrorCode.USER_INPUT_INVALID,
-                  message: `web_fetch: redirect to unsupported protocol ${nextUrl.protocol}`,
-                  hint: 'Only http: and https: redirects are allowed.',
+                  message: `web_fetch: redirect to unsupported protocol ${nextUrl.protocol.replace(/:$/, '')}`,
+                  hint: 'Only http and https redirects are allowed.',
                   recoverable: false,
                 });
               }
@@ -650,7 +704,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
             out = body.toString('utf-8');
           }
         } else if (isText) {
-          const text = body.toString('utf-8');
+          const text = decodeTextBody(body, contentType, contentType.includes('html'));
           if (contentType.includes('html')) {
             // Extract more than final budget when focusing so keyword sections
             // deeper in the page can still be selected.

@@ -2,13 +2,80 @@
 
 ## Unreleased
 
-### Super-agent recovery after native task refinement (0.29.1)
+### Device safety: root sessions classify `~` by the real home (G4)
+
+- RDK boards default to the root SSH user, whose home is the protected `/root` tree. `~`, `$HOME`, and `${HOME}` in device commands, write paths, and deploy targets now expand against the session's real user before classification, so `rm -rf ~/data` on a root session is judged destructive instead of reversible. Callers that do not provide a user keep the legacy `/home/_user` placeholder behavior.
+- The destructive/sensitive confirmation prompt now states when the session logs into the board as root (zh + en).
+
+### 设备安全：root 会话按真实家目录分级（G4）
+
+- RDK 板默认以 root 登录，其家目录是受保护的 `/root` 树。设备命令、写路径与部署目标里的 `~` / `$HOME` / `${HOME}` 现在按会话真实用户展开后再分级：root 会话的 `rm -rf ~/data` 判为毁灭性而非可逆。未提供用户的调用保持 `/home/_user` 占位符旧行为。
+- 毁灭性/敏感确认提示现在会注明会话以 root 登录这块板（中英双语）。
+
+### Benchmark hygiene and lifecycle enforcement
+
+- Zero-turn `error_during_execution` samples with no model usage and no tool calls are classified as `harness_flake`, retried up to twice, and excluded from scored denominators when the retries are exhausted. Retried samples keep their diagnostic attempts; summaries publish protocol IDs, task-set hashes, scored denominators, and separate flake counts.
+- `--baseline` and `--capability-gate` now require at least three samples; diagnostic single-sample runs say so explicitly. See `docs/bench/coding-agent-evaluation.md` for the Claude Code/Codex same-protocol comparison rule and the privileged/cgroup hold on DeepSWE/Terminal-Bench publication.
+- Foreground shell backgrounding that bypasses the registry (`&`, `nohup`, `disown`, `start /b`, `Start-Job`) is rejected with a pointer to the tracked background tools. `exec_stop` waits for process-group termination confirmation; agent close and CLI shutdown also wait instead of reporting a merely sent SIGTERM.
+- A completion gate now names live background ids/pids and requires stop/wait evidence before a final claim (one block, then an honest live-process report is allowed). Spec-authority requests receive a one-shot audit nudge toward `SPEC-AUDIT.md`; headless ambiguity correction no longer tells the model to ask a user.
+
+### Benchmark 污染与生命周期强制
+
+- 无模型用量、无工具调用且 ≤1 轮的 `error_during_execution` 样本会标记 `harness_flake`，最多自动重跑 2 次；重试耗尽的样本退出计分分母并单列。恢复样本保留尝试诊断；summary 发布协议 ID、任务集哈希、计分分母与 flake 计数。
+- `--baseline` / `--capability-gate` 至少 3 样本；单样本运行显式标记为诊断。Claude Code/Codex 同协议对照与 DeepSWE/Terminal-Bench privileged/cgroup 暂缓口径见 `docs/bench/coding-agent-evaluation.md`。
+- 前台 shell 用 `&` / `nohup` / `disown` / `start /b` / `Start-Job` 绕过后台注册表会被拒绝，并指回 tracked 后台工具。`exec_stop` 等待进程组终止确认；agent close 与 CLI 退出也等待确认，不再把“已发送 SIGTERM”当成“已停止”。
+- 完成门会列出仍在运行的后台 id/pid，并要求停止或等待证据后才允许最终声明（只拦截一次，之后允许诚实报告仍在运行）。spec/文档权威请求获得一次性 `SPEC-AUDIT.md` 审计提示；headless 歧义修正不再要求询问用户。
+
+### SDK and context surface cleanup (0.31 breaking cleanup)
+
+- **0.x breaking change:** removed the no-op `MossAgentConfig` knobs
+  `enableContextPruning`, `enableCompaction`, `enableMicrocompact`,
+  `microcompactConfig`, `enableTailToolSnip`, `tailToolSnipConfig`,
+  `enableStaleReadInvalidation`, and `enableToolOutputTruncation`. Runtime
+  behavior is configured through the existing pruning/compaction settings and
+  the context-budget planner; setting these removed knobs never changed
+  behavior.
+- **0.x breaking change:** tool input validation honors only the declared
+  `inputSchema`. An undeclared runtime `inputZodSchema` property is no longer
+  an implicit validation or coercion contract.
+- **0.x breaking change:** removed the frozen plugin/group registry surface:
+  `ToolGroup`, `ToolRegistryOptions`, `registerScoped`, `registerGroup`,
+  `removeGroup`, `getGroups`, and `getGroupForTool`. Direct `register` keeps its
+  existing replace-on-name behavior and explicit `replace` remains the
+  lifecycle-transfer path.
+- **0.x breaking change:** removed the SDK-only `compactSubagentSummaryForParent`
+  export and the context `hybridCompact` deep path. Remote compaction now has
+  one fallback chain — remote, then the normal LLM summary, then the
+  deterministic summary; `RemoteCompactResponse` exposes only the summary.
+- Added `npm run test:parallel` and `npm run verify:quick`. The package version
+  is bumped to 0.31.0 for this narrowed public surface.
+
+### SDK 与上下文面清理（0.31 破坏性清理）
+
+- **0.x 破坏性变更：**移除从未被运行时读取的 `MossAgentConfig` 开关
+  `enableContextPruning`、`enableCompaction`、`enableMicrocompact`、
+  `microcompactConfig`、`enableTailToolSnip`、`tailToolSnipConfig`、
+  `enableStaleReadInvalidation` 和 `enableToolOutputTruncation`。实际行为仍由
+  pruning/compaction settings 与上下文预算 planner 控制；设置这些旧开关原本不会改变行为。
+- **0.x 破坏性变更：**工具输入校验只认声明的 `inputSchema`。未写入 `Tool`
+  契约的运行时 `inputZodSchema` 属性不再是隐式校验或转换契约。
+- **0.x 破坏性变更：**移除冻结的插件/分组注册面：`ToolGroup`、
+  `ToolRegistryOptions`、`registerScoped`、`registerGroup`、`removeGroup`、
+  `getGroups` 和 `getGroupForTool`。直接 `register` 维持既有同名替换语义，
+  显式 `replace` 仍是生命周期转移路径。
+- **0.x 破坏性变更：**移除仅存在于 SDK 的 `compactSubagentSummaryForParent`
+  导出以及 context 的 `hybridCompact` 深路径。远程压缩只保留一条降级链：
+  远端 → 常规 LLM 摘要 → 确定性摘要；`RemoteCompactResponse` 只暴露摘要。
+- 新增 `npm run test:parallel` 与 `npm run verify:quick`。本次收窄公共面，
+  包版本升至 0.31.0。
+
+### Super-agent recovery after native task refinement (0.30.1)
 
 Recovery now validates the original native task creation event and fixed acceptance command. A model's later `task_define` refinement no longer invalidates a legitimate ticket binding; older or ambiguous rounds still require inspection. The complex operations benchmark adds three durable business modules, external HTTP acceptance and a bounded real-model fault drill. See the [evaluation spec](docs/specs/superagent-complex-evaluation.md).
 
 恢复改为核对原生任务首次创建事件与固定验收命令，避免模型用 `task_define` 细化描述后无法续跑；旧轮次和不明确绑定仍会阻塞。新增三工单业务与真实 HTTP 验收、限额模型演练脚本。
 
-### Optional native Super-agent coordination (0.29 capability)
+### Optional native Super-agent coordination (0.30 capability)
 
 Moss can host the pinned MIT-licensed DeepSeek Super-agent core through local CLI/SDK admission, durable SQLite tickets and isolated native Moss workers. Mandates retain their original acceptance command; ready requires native Task Runtime acceptance and independent controller verification. Pause, stop, retry, input deduplication and explicit crash recovery are supported. No DSH, Web UI or external source/reply adapter is included. See the [guide](docs/superagent.md), [spec](docs/specs/moss-superagent.md) and [acceptance evidence](docs/specs/moss-superagent-acceptance.md).
 

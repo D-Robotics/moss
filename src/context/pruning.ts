@@ -1,9 +1,6 @@
-import {
-  COMPACTION_SUMMARY_PREFIX,
-  type ContentBlock,
-  type Message,
-} from '../contracts/messages.js';
+import type { ContentBlock, Message } from '../contracts/messages.js';
 import { CHARS_PER_TOKEN_ESTIMATE, estimateMessageChars, estimateMessagesChars } from './tokens.js';
+import { isCompactionSummaryMessage } from './summary-checkpoint-merge.js';
 
 const MIN_MESSAGE_HISTORY_TOKEN_UNITS = 4096;
 
@@ -409,19 +406,6 @@ export function expandKeptWithToolRoundtrips(messages: Message[], kept: Message[
   }
 
   return changed ? messages.filter((msg) => keptSet.has(msg)) : kept;
-}
-
-function isCompactionSummaryMessage(message: Message): boolean {
-  if (message.role !== 'user') return false;
-  if (typeof message.content === 'string') {
-    return message.content.trimStart().startsWith(COMPACTION_SUMMARY_PREFIX);
-  }
-  return message.content.some(
-    (block) =>
-      block.type === 'text' &&
-      typeof block.text === 'string' &&
-      block.text.trimStart().startsWith(COMPACTION_SUMMARY_PREFIX)
-  );
 }
 
 function protectLatestCompactionSummary(messages: Message[], kept: Message[]): Message[] {

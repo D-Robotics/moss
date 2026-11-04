@@ -4,6 +4,7 @@ import type {
   LLMContentBlock,
   LLMStreamEvent,
 } from '../llm/llm-provider.js';
+import type { PromptLayersPort } from '../../contracts/prompt-layer.js';
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { SessionStore } from '../session/session.js';
 import type {
@@ -16,8 +17,6 @@ import type {
 import type { ToolFilter } from '../tools/tool-filter.js';
 import type { ContextPruningSettings } from '../../context/pruning.js';
 import type { CompactionSettings } from '../../context/compaction.js';
-import type { MicroCompactConfig } from '../../context/microcompact.js';
-import type { TailToolSnipConfig } from '../../context/tail-tool-snip.js';
 import type { FollowUpGuardConfig } from '../loop/follow-up-guard.js';
 import type { CompactHookRegistry } from '../loop/compact-hooks.js';
 import type { AgentHooks } from './agent-hooks.js';
@@ -61,33 +60,15 @@ export interface ProviderConfig {
 
 export interface ContextManagementConfig {
   contextTokens?: number;
-
-  enableContextPruning?: boolean;
-
   pruningSettings?: Partial<ContextPruningSettings>;
-
-  enableCompaction?: boolean;
-
   compactionSettings?: Partial<CompactionSettings>;
 
   /** Override environment-derived remote compaction; null keeps summarization local. */
   remoteCompactProvider?: import('../../context/remote-compaction.js').RemoteCompactProvider | null;
-
-  enableMicrocompact?: boolean;
-
-  microcompactConfig?: Partial<MicroCompactConfig>;
-
-  enableTailToolSnip?: boolean;
-
-  tailToolSnipConfig?: Partial<TailToolSnipConfig>;
-
-  enableStaleReadInvalidation?: boolean;
 }
 
 export interface ToolExecutionConfig {
   toolTimeoutMs?: number;
-
-  enableToolOutputTruncation?: boolean;
 }
 
 export interface PromptConfig {
@@ -206,6 +187,23 @@ export interface MossAgentConfig
    * sub-agent). Core can't do provider API probes (that's a CLI/host concern),
    * so the host injects this. If absent, the parent's contextTokens is used. */
   resolveModelContextTokens?: (model: string) => Promise<number | undefined>;
+
+  /**
+   * Host-owned query for "is this run in plan mode?". Core has no notion of the
+   * CLI's interaction modes, so the host injects it. Plan-only tools such as
+   * `exit_plan` are offered to the model only while this returns true; the
+   * approval layer applies the read-only side independently. Unset means not
+   * planning (SDK hosts that never plan).
+   */
+  planModeActive?: () => boolean;
+
+  /**
+   * Declared prompt layers (id/stability/origin). When set, the agent reads the
+   * table every turn instead of the two legacy arrays; a `/mode` switch or a late
+   * MCP handshake reaches runs that already exist. `extraPromptLayers` /
+   * `dynamicPromptLayers` stay supported for SDK hosts.
+   */
+  promptLayers?: PromptLayersPort;
 
   /** Instance-local declarative experts available to sub-agent tools. @beta */
   subagentExperts?: readonly import('../subagent/expert-registry.js').SubagentExpertDefinition[];
@@ -441,6 +439,10 @@ export type MossAgentEvent =
       toolOrderChanges: number;
       /** SHA-256 prefix of the system prompt actually sent on the last model call. */
       systemPromptHashShort?: string;
+      /** Declared prompt layers (agent base + host table) at this turn. */
+      systemPromptLayerCount?: number;
+      /** Per-layer short hashes: which layer changed, not just that the prompt did. */
+      systemPromptLayerHashes?: Record<string, string>;
 
       cacheReadTokens: number;
       cacheCreationTokens: number;

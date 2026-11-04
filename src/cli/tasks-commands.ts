@@ -3,7 +3,6 @@
  * artifacts under the workspace: task contracts, recorded evidence,
  * deployments, acceptance verdicts, and the live device target.
  */
-import fs from 'node:fs';
 import path from 'node:path';
 import { isZhLocale, uiText } from './cli-locale.js';
 import { listTaskRecords } from '../tools/task-tools.js';
@@ -11,22 +10,10 @@ import { listEvidenceRecords, summarizeEvidence } from '../tools/evidence-tools.
 import { listDeploymentRecords } from '../device/deployment.js';
 import { formatDeviceTarget, resolveDefaultDeviceTarget } from '../device/device-target.js';
 import { listDeviceConnections } from '../device/device-registry.js';
-import { listAcceptanceVerdicts } from '../core/task-runtime/artifacts.js';
+import { listAcceptanceVerdicts, readJsonlFile } from '../core/task-runtime/artifacts.js';
 import { formatSessionTimestamp } from './repl-chrome.js';
-import { listTaskEvents, replayTaskPhase } from '../core/task/task-store.js';
-import type { TaskEvent } from '../contracts/task-runtime.js';
-
-function parseJsonl(file: string): unknown[] {
-  try {
-    const raw = fs.readFileSync(file, 'utf8');
-    return raw
-      .split('\n')
-      .filter((line) => line.trim() !== '')
-      .map((line) => JSON.parse(line));
-  } catch {
-    return [];
-  }
-}
+import { listTaskStateSnapshots } from '../core/task/task-store.js';
+import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
 
 export function renderTasksUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
@@ -89,28 +76,12 @@ function taskStatusWord(status: string): string {
   }
 }
 
-/**
- * The status a row shows. The contract's own status only moves on
- * task_acceptance, so a `moss task run` that failed would still read `draft`.
- * When the task has lifecycle events, the replayed phase wins.
- */
-function displayTaskStatus(contractStatus: string, events: readonly TaskEvent[]): string {
-  if (events.length === 0) return contractStatus;
-  const phase = replayTaskPhase([...events]);
-  switch (phase) {
-    case 'draft':
-      return contractStatus;
-    case 'accepted':
-    case 'abandoned':
-    case 'blocked':
-      return phase;
-    case 'failed': {
-      const last = [...events].reverse().find((event) => event.type === 'task_failed');
-      return last?.data?.detail === 'aborted' ? 'aborted' : 'failed';
-    }
-    default:
-      return 'active';
-  }
+function displayTaskStatus(snapshot: TaskStateSnapshot): string {
+  if (snapshot.phase === 'draft') return snapshot.contractStatus;
+  if (snapshot.outcome === 'aborted') return 'aborted';
+  if (snapshot.statusView === 'completed') return snapshot.phase;
+  if (snapshot.statusView === 'blocked') return 'blocked';
+  return 'active';
 }
 
 /** Acceptance verdict word: PASS/FAIL/PARTIAL in en, 通过/未通过/部分 in zh. */
@@ -159,21 +130,22 @@ export async function runTasksCommand(
       )
     );
     console.log('─'.repeat(96));
-    const events = await listTaskEvents(workspace);
+    const snapshots = new Map(
+      (await listTaskStateSnapshots(workspace)).map((snapshot) => [snapshot.taskId, snapshot])
+    );
     for (const task of tasks) {
       const goal = task.goal.length > 42 ? `${task.goal.slice(0, 39)}…` : task.goal;
-      const status = displayTaskStatus(
-        task.status,
-        events.filter((event) => event.taskId === task.taskId)
-      );
+      const snapshot = snapshots.get(task.taskId);
+      const status = snapshot ? displayTaskStatus(snapshot) : task.status;
       console.log(
         `${task.taskId.padEnd(30)} ${taskStatusWord(status).padEnd(10)} ${String(task.acceptanceCriteria.length).padStart(8)}  ${goal}`
       );
     }
     const evidence = await listEvidenceRecords(workspace, 1000);
     const summary = summarizeEvidence(evidence);
-    const deployments = parseJsonl(path.join(mossDir, 'deployments.jsonl')).length;
-    const verdicts = parseJsonl(path.join(mossDir, 'acceptance.jsonl')).length;
+    const deployments = (await readJsonlFile<unknown>(path.join(mossDir, 'deployments.jsonl')))
+      .length;
+    const verdicts = (await readJsonlFile<unknown>(path.join(mossDir, 'acceptance.jsonl'))).length;
     console.log(
       uiText(
         `\n  evidence: ${summary.passed} pass / ${summary.failed} fail / ${summary.inconclusive} inconclusive` +

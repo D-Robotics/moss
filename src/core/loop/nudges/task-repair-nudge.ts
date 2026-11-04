@@ -2,7 +2,7 @@
  * TaskRepairNudge — mid-run recovery after a red task_acceptance verdict.
  *
  * RedVerifyNudge covers suite-shaped verification tools (run_tests /
- * verify_fix / code_diagnostics / test-shaped exec) but NOT the task
+ * test-shaped exec) but NOT the task
  * runtime's own acceptance gate. A FAIL task_acceptance verdict with no
  * successful repair-path activity for that task after it (record_failure /
  * record_repair / record_evidence carrying its task_id)
@@ -17,7 +17,8 @@
  * a PASS verdict on task A never masks a pending FAIL on task B — repair
  * activity is likewise attributed through the tools' task_id input.
  *
- * Known limitations (locked by test/task-repair-nudge.spec.mjs):
+ * Known limitations (re-check if this nudge is reworked; there is no spec suite
+ * as of 2026-11-04):
  * - a successful record_evidence after a FAIL silences the wave for that task
  *   (evidence is legitimate progress: latest evidence per metric wins);
  * - a PARTIAL verdict (optional criteria unmet) is not treated as red.

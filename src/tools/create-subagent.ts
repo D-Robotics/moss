@@ -164,6 +164,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     'Do not use for quick usage, config, or short-answer questions.',
   ].join(' '),
   metadata: {
+    classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',
     requiresApproval: false,
@@ -564,6 +565,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     'Do not use for quick help or one-line answers.',
   ].join(' '),
   metadata: {
+    classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',
     requiresApproval: false,
@@ -826,6 +828,7 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
     'Use wait=false for a non-blocking status snapshot, or wait=true when you need the final completion summary.',
   ].join(' '),
   metadata: {
+    classification: { discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',
     retainResult: true,
@@ -905,6 +908,7 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
     'Use when a long-running sub-agent is no longer useful or should yield control back to the parent task.',
   ].join(' '),
   metadata: {
+    classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',
     retainResult: true,

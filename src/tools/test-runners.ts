@@ -60,7 +60,7 @@ interface RunPlan {
   direct: DirectSpawn | null;
 }
 
-type Plan = { message: string } | { skip: true } | RunPlan;
+type Plan = { message: string } | RunPlan;
 
 const childEnv = (): Record<string, string> => ({ ...process.env }) as Record<string, string>;
 
@@ -530,7 +530,7 @@ function formatCounts(
   }
   if (!pass && !empty) {
     output +=
-      '\nNext step: fix the failing tests (minimal surgical edits), then re-run `run_tests` or `verify_fix`. ' +
+      '\nNext step: fix the failing tests (minimal surgical edits), then re-run `run_tests`. ' +
       'Do not report done while tests are red.\n';
   } else if (empty && !timedOut) {
     output +=
@@ -568,14 +568,29 @@ function judge(
       return view(
         'unknown',
         blank(output),
-        `Test Results:\nCommand: ${command}\nexit 0, counts unknown\ntests_pass=false`
+        `Test Results: ⚠️ exit 0, counts unknown\nCommand: ${command}\ntests_pass=false`
       );
     }
     const why = spawnError ?? `exit ${exitCode}`;
+    const body = output.trim();
+    if (!spawnError) {
+      // The command ran and failed; "failed to run" sent the model off to
+      // debug the invocation instead of the failing test.
+      return view(
+        'fail',
+        blank(output),
+        `Test Results: ❌ exit ${exitCode}\nCommand: ${command}\n` +
+          (body ? `\nOutput:\n${body.slice(0, 2000)}\n` : '(no output)\n') +
+          'tests_pass=false'
+      );
+    }
+    // `why` already carries the reason when the process never started, so
+    // repeating it under "Output" only doubled the same sentence.
+    const detail = body && body !== why ? `\n\nOutput:\n${body.slice(0, 2000)}` : '';
     return view(
       'fail',
       blank(output),
-      `Test command failed to run: ${why}\n\nOutput:\n${output.slice(0, 2000)}\nCommand: ${command}\ntests_pass=false`
+      `Test command failed to run: ${why}${detail}\nCommand: ${command}\ntests_pass=false`
     );
   }
   if (timedOut) {
@@ -611,10 +626,17 @@ export function renderCommandResult(
 
 function collectFailures(output: string, result: TestResult): void {
   const seen = new Set<string>();
-  const patterns = [/✖\s+(.+)/g, /not ok\s+\d+\s+-\s+(.+)/g, /AssertionError[:\s]*([^\n]+)/g];
+  // Node prints `✖ failing tests:` as a section header and repeats every
+  // failure under it; `AssertionError: ...` is a message, not a test name.
+  // Reading all three as names listed one failing test three times, two of
+  // them as header text, next to a summary that said "1 FAILED".
+  const patterns = [/✖\s+(.+)/g, /not ok\s+\d+\s+-\s+(.+)/g];
   for (const re of patterns) {
     for (const match of output.matchAll(re)) {
-      const name = (match[1] ?? '').trim().slice(0, 200);
+      const raw = (match[1] ?? '').trim();
+      if (!raw || raw.endsWith(':')) continue;
+      // Node appends the duration: "✖ adds (1.5ms)".
+      const name = raw.replace(/\s+\(\d+(?:\.\d+)?\s*ms\)$/, '').slice(0, 200);
       const at = match.index ?? 0;
       const context = output.slice(Math.max(0, at - 200), at + 500);
       const message = (context.match(/(?:AssertionError|Error)[:\s]*(.+)/)?.[1] ?? '')
@@ -662,26 +684,20 @@ async function spawnOne(
     const failed = err instanceof ProcessError ? err : null;
     const timedOut = failed?.timedOut === true;
     const raw = failed ? `${failed.stdout}\n${failed.stderr}`.trim() : '';
+    // No exit code means the process never started (ENOENT, bad cwd, abort).
+    // That is the one case worth "failed to run"; a non-zero exit is a failing
+    // test run.
+    const neverStarted =
+      failed === null || failed.exitCode === null || ctx.abortSignal?.aborted === true;
     return judge(
       command,
       failed?.exitCode ?? 1,
-      timedOut ? raw : raw || errorMessage(err),
+      timedOut ? raw : raw || (neverStarted ? errorMessage(err) : ''),
       timedOut,
-      timedOut ? undefined : errorMessage(err)
+      timedOut || !neverStarted ? undefined : errorMessage(err)
     );
   }
 }
-
-const skippedOutcome = (): SuiteOutcome => ({
-  text: '',
-  passed: false,
-  unknown: false,
-  noTests: false,
-  skipped: true,
-  notRun: false,
-  note: '',
-  result: blank(''),
-});
 
 async function executePlan(
   ctx: ToolContext,
@@ -758,14 +774,6 @@ async function executePlan(
   };
 }
 
-function explicitField(
-  input: Record<string, unknown> | undefined,
-  field: string
-): string | undefined {
-  if (!input || !Object.prototype.hasOwnProperty.call(input, field)) return undefined;
-  return String(input[field] ?? '').trim();
-}
-
 function noRunnerMessage(): string {
   return [
     'Test Results: no runner detected',
@@ -775,24 +783,51 @@ function noRunnerMessage(): string {
   ].join('\n');
 }
 
+function wantsSuite(input: Record<string, unknown> | undefined): boolean {
+  return input?.suite === true;
+}
+
+/** Bare run_tests must not start pytest / npm test / go test / cargo test. */
+function suiteNotStartedMessage(): string {
+  return [
+    'Test Results: not started',
+    'tests_pass=false',
+    'No file or command was given, so the suite was not started.',
+    'Pass file for the one spec you changed, or command for one explicit test command.',
+    'Pass suite=true only when the user asked to run the whole suite or you are delivering.',
+  ].join('\n');
+}
+
 async function planFromInput(
   ctx: ToolContext,
   input: Record<string, unknown> | undefined,
-  source: 'run' | 'verify',
   deadline: number
 ): Promise<Plan> {
   const env = childEnv();
-  if (source === 'verify') {
-    const explicit = explicitField(input, 'test_command');
-    if (explicit === '') return { skip: true };
-    if (explicit) return { commands: [explicit], skipped: [], env, direct: null };
-  } else {
+  {
     const fileRaw = input?.file ? String(input.file).trim() : '';
     if (fileRaw) {
       const root = path.resolve(ctx.workspaceDir);
       const abs = path.resolve(root, fileRaw);
       if (abs !== root && !abs.startsWith(root + path.sep)) {
         return { message: `Test file path escapes workspace: ${fileRaw}` };
+      }
+      // A mistyped spec path used to reach node as a test file: node printed
+      // "Could not find ..." and the caller read it as a failing suite. Stat
+      // first, so a wrong path is not mistaken for a red test.
+      const isFile = await fs
+        .stat(abs)
+        .then((s) => s.isFile())
+        .catch(() => false);
+      if (!isFile) {
+        return {
+          message: [
+            'Test Results: not run',
+            'tests_pass=false',
+            `No such test file: ${fileRaw}. Nothing was executed.`,
+            'Find the spec with search_files (or list_directory), then pass its path.',
+          ].join('\n'),
+        };
       }
       // Direct spawn avoids shell quoting. node --test must not inherit its IPC env.
       if (fileRaw.endsWith('.py')) {
@@ -819,13 +854,14 @@ async function planFromInput(
     if (input?.command) {
       return { commands: [String(input.command).trim()], skipped: [], env, direct: null };
     }
+    if (!wantsSuite(input)) return { message: suiteNotStartedMessage() };
   }
   const detected = await planTestRunners(ctx.workspaceDir, () => pytestImportable(ctx, deadline));
   if (detected.run.length === 0) {
     if (detected.skipped.some((line) => line.includes('pytest not installed'))) {
       return { commands: [], skipped: detected.skipped, env, direct: null };
     }
-    return source === 'verify' ? { skip: true } : { message: noRunnerMessage() };
+    return { message: noRunnerMessage() };
   }
   return { commands: detected.run, skipped: detected.skipped, env, direct: null };
 }
@@ -838,18 +874,7 @@ export async function runWorkspaceTests(
   timeoutMs: number
 ): Promise<string> {
   const deadline = Date.now() + timeoutMs;
-  const plan = await planFromInput(ctx, input, 'run', deadline);
+  const plan = await planFromInput(ctx, input, deadline);
   if (!isRunPlan(plan)) return 'message' in plan ? plan.message : noRunnerMessage();
   return (await executePlan(ctx, plan, Math.max(0, deadline - Date.now()))).text;
-}
-
-export async function runVerifyTests(
-  ctx: ToolContext,
-  input: Record<string, unknown> | undefined,
-  timeoutMs: number
-): Promise<SuiteOutcome> {
-  const deadline = Date.now() + timeoutMs;
-  const plan = await planFromInput(ctx, input, 'verify', deadline);
-  if (!isRunPlan(plan)) return skippedOutcome();
-  return executePlan(ctx, plan, Math.max(0, deadline - Date.now()));
 }

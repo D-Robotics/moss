@@ -1,0 +1,77 @@
+name: Deep verification
+
+# The fast gate in ci.yml runs one Linux leg. This workflow is the wider
+# evidence: the same gate on every supported OS and Node major, plus a single
+# aggregated status. It runs nightly, on version tags and on demand, so a
+# cross-platform break is caught within a day instead of at release time.
+#
+# There is no exhaustive behavior suite in the repository today (it was
+# removed on 2026-11-04); this workflow therefore verifies build + static +
+# CLI smoke + examples everywhere, not thousands of specs. What is NOT proven
+# is written down in docs/design/ci-and-verify.md.
+
+on:
+  schedule:
+    # 02:00 Asia/Shanghai (18:00 UTC previous day).
+    - cron: '0 18 * * *'
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deep-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Gate (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 22.16.0 }
+          - { os: macos-latest, node: 22.16.0 }
+          - { os: windows-latest, node: 22.16.0 }
+          - { os: ubuntu-latest, node: 24 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # Windows has no PTY; the smoke stage skips the PTY check there itself.
+      - name: Verify (fast gate)
+        env:
+          # Deep runs are evidence, not the latency contract; Windows runners
+          # are slower and must not fail the leg on the one-minute budget.
+          VERIFY_BUDGET_SECONDS: '0'
+        run: npm run verify
+
+  summary:
+    name: Deep gate
+    if: always()
+    needs:
+      - gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NEEDS_JSON: ${{ toJSON(needs) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Gate on every leg
+        run: node scripts/verify/ci-gate.mjs

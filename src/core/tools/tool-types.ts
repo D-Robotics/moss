@@ -226,6 +226,42 @@ export interface ToolMetadata {
    * `hooks.enrichToolContext` supplies one. The name is not the signal.
    */
   requiresUserQuestion?: boolean;
+
+  /**
+   * Output budget in estimated tokens before the middle is elided. Declared
+   * here instead of in a name-keyed table (`tool-output-truncate.ts`), so a
+   * tool cannot silently fall back to the generic default when a name changes
+   * or a table entry is missed. Installed by `builtinTools` at module init;
+   * unset means the generic default.
+   */
+  maxResultTokens?: number;
+
+  /**
+   * How to recover the elided middle of an oversized result ("page it with
+   * offset/limit", "narrow the command"). Shown inside the elision notice so
+   * the model does not re-read the whole thing (Task OS M12 finding #2).
+   */
+  truncationHint?: string;
+
+  /**
+   * Tool classification for loop-guard/thrash policy. Declared on the tool so a
+   * new tool cannot silently inherit the generic bucket; see `tool-classes.ts`.
+   */
+  classification?: {
+    singleCallExempt?: boolean;
+    discovery?: boolean;
+    surgicalEdit?: boolean;
+    verifyShell?: boolean;
+    fileMutation?: boolean;
+    shellCommand?: boolean;
+  };
+
+  /**
+   * Registered (SDK hosts and old transcripts still resolve the name) but not
+   * offered to the model. Used when one newer tool subsumes several old ones and
+   * the old names must keep working.
+   */
+  hiddenFromModel?: boolean;
 }
 
 export interface Tool<TInput = any> {

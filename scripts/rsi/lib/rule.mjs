@@ -45,21 +45,25 @@ function finite(value) {
 }
 
 function isSkipped(task) {
-  return Boolean(task) && task.samples === 0 && task.passes === 0;
+  if (!task) return false;
+  if (task.samples === 0 && task.passes === 0) return true;
+  const scored = Number.isInteger(task.scoredSamples) ? task.scoredSamples : task.samples;
+  return scored === 0 && task.passes === 0;
 }
 
 function rate(task) {
+  if (!task || !Number.isInteger(task.samples) || task.samples < 0) return null;
+  const denominator = Number.isInteger(task.scoredSamples) ? task.scoredSamples : task.samples;
   if (
-    !task ||
-    !Number.isInteger(task.samples) ||
-    task.samples < 0 ||
+    !Number.isInteger(denominator) ||
+    denominator < 0 ||
     !Number.isInteger(task.passes) ||
     task.passes < 0 ||
-    task.passes > task.samples
+    task.passes > denominator
   )
     return null;
-  if (task.samples === 0) return null;
-  return task.passes / task.samples;
+  if (denominator === 0) return null;
+  return task.passes / denominator;
 }
 
 function tokensOf(task) {

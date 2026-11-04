@@ -31,14 +31,50 @@ type JsonSchemaProperty = {
   enum?: unknown[];
 };
 
-function formatZodToolError(
-  toolName: string,
-  err: { issues: Array<{ path: Array<string | number>; message: string }> }
-): string {
-  const detail = err.issues
-    .map((i) => `${i.path.length > 0 ? i.path.join('.') : 'root'}: ${i.message}`)
-    .join('; ');
-  return `${toolName}: input validation failed — ${detail}`;
+/** `timeoutMs`, `timeout_ms`, and `TIMEOUT-MS` name the same parameter. */
+function normalizeParamName(name: string): string {
+  return name.toLowerCase().replace(/[_-]/g, '');
+}
+
+/**
+ * Same parameter, different name — the normalization above cannot join these.
+ * Claude Code's Read/Write/Edit declare `file_path`; Anthropic's str_replace_editor
+ * declares `old_str`/`new_str`. Moss declares `path`/`old_string`/`new_string`,
+ * so a model following the habit lost the whole turn to
+ * `missing required parameter "path"`.
+ */
+const CROSS_HARNESS_PARAM_ALIASES: Record<string, string> = {
+  filepath: 'path',
+  oldstr: 'old_string',
+  newstr: 'new_string',
+};
+
+/**
+ * Models are trained across harnesses and emit the other harness's spelling
+ * (Qoder asks for `multiSelect`; Moss declares `multi_select`). A misspelled key
+ * is otherwise dropped silently, so the call runs with a default the model
+ * believes it overrode. Snap an undeclared key onto the declared one it names.
+ */
+function snapParamAliases(
+  input: Record<string, unknown>,
+  props: Record<string, JsonSchemaProperty>
+): Record<string, unknown> {
+  const declared = Object.keys(props);
+  if (declared.length === 0) return input;
+  const byNormalized = new Map<string, string>();
+  for (const name of declared) byNormalized.set(normalizeParamName(name), name);
+  let snapped: Record<string, unknown> | null = null;
+  for (const key of Object.keys(input)) {
+    if (props[key]) continue;
+    const normalized = normalizeParamName(key);
+    const alias = CROSS_HARNESS_PARAM_ALIASES[normalized];
+    const target = byNormalized.get(normalized) ?? (alias && props[alias] ? alias : undefined);
+    if (!target || input[target] !== undefined) continue;
+    snapped ??= { ...input };
+    snapped[target] = input[key];
+    delete snapped[key];
+  }
+  return snapped ?? input;
 }
 
 export function validateToolInputObject(
@@ -59,29 +95,35 @@ export function validateToolInputObject(
   if (!schema || schema.type !== 'object') {
     return { ok: true, value: obj };
   }
+  const props = schema.properties;
+  // Snap before the required check so `{ timeOutMs: 5000 }` can satisfy
+  // `required: ['timeout_ms']`.
+  const value = props ? snapParamAliases(obj, props) : obj;
   const required = schema.required ?? [];
   for (const key of required) {
-    if (!(key in obj) || obj[key] === undefined) {
+    if (!(key in value) || value[key] === undefined) {
       return { ok: false, message: `${tool.name}: missing required parameter "${key}"` };
     }
   }
-  const props = schema.properties;
   if (props) {
-    for (const key of Object.keys(obj)) {
+    for (const key of Object.keys(value)) {
       const spec = props[key];
       if (!spec) continue;
-      const v = obj[key];
+      const v = value[key];
       if (v === undefined) continue;
       if (spec.enum !== undefined && spec.enum.length > 0) {
         if (!spec.enum.some((e) => Object.is(e, v))) {
+          // Name the allowed values: "must be one of the enum values" made the
+          // model guess a second time.
           return {
             ok: false,
-            message: `${tool.name}: parameter "${key}" must be one of the enum values`,
+            message:
+              `${tool.name}: parameter "${key}" must be one of ` +
+              `${spec.enum.map((e) => JSON.stringify(e)).join(', ')} (got ${JSON.stringify(v)})`,
           };
         }
         continue;
       }
-      if ((tool as unknown as Record<string, unknown>).inputZodSchema) continue;
       if (!spec.type) continue;
       const t = spec.type;
       if (t === 'string' && typeof v !== 'string')
@@ -98,23 +140,7 @@ export function validateToolInputObject(
         return { ok: false, message: `${tool.name}: parameter "${key}" should be object` };
     }
   }
-  const zodSchema = (tool as unknown as Record<string, unknown>).inputZodSchema as
-    | {
-        safeParse: (data: unknown) => {
-          success: boolean;
-          data?: unknown;
-          error?: { issues: Array<{ path: Array<string | number>; message: string }> };
-        };
-      }
-    | undefined;
-  if (zodSchema) {
-    const zr = zodSchema.safeParse(obj);
-    if (!zr.success) {
-      return { ok: false, message: formatZodToolError(tool.name, zr.error!) };
-    }
-    return { ok: true, value: zr.data as Record<string, unknown> };
-  }
-  return { ok: true, value: obj };
+  return { ok: true, value };
 }
 
 export async function runPreToolHookChain(

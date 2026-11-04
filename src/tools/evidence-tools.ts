@@ -5,7 +5,11 @@ import type {
 } from '../contracts/evidence.js';
 import { evaluateExpectation } from '../contracts/evidence.js';
 import type { Tool } from '../core/tools/tool-types.js';
-import { appendEvidenceRecord, listEvidenceRecords } from '../core/task-runtime/artifacts.js';
+import {
+  appendEvidenceRecord,
+  listEvidenceRecords,
+  listTaskRecords,
+} from '../core/task-runtime/artifacts.js';
 import { tryAppendTaskEvent } from '../core/task/task-store.js';
 
 // Canonical artifact IO lives in core (shared task runtime); re-exported here
@@ -14,6 +18,22 @@ export { appendEvidenceRecord, listEvidenceRecords } from '../core/task-runtime/
 
 function newEvidenceId(): string {
   return `ev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * `task_acceptance` already defaults to the latest contract when task_id is
+ * omitted. Evidence did not: a real PASS recorded without task_id counted in
+ * the evidence store but was invisible to acceptance, which answered
+ * "[NO EVIDENCE]" for the metric the model had just measured. Attribute the
+ * same way, and only for a metric the latest contract actually asks about.
+ */
+async function implicitTaskId(workspaceDir: string, metric: string): Promise<string> {
+  const tasks = await listTaskRecords(workspaceDir).catch(() => []);
+  if (tasks.length === 0) return '';
+  const latest = tasks.reduce((best, task) => (task.updatedAt >= best.updatedAt ? task : best));
+  return latest.acceptanceCriteria.some((criterion) => criterion.metric === metric)
+    ? latest.taskId
+    : '';
 }
 
 /**
@@ -125,6 +145,18 @@ export const recordEvidenceTool: Tool = {
     if (!metric) return 'Error: record_evidence: metric is required.';
     if (!source) return 'Error: record_evidence: source is required.';
 
+    const requestedTaskId = input.task_id ? String(input.task_id).trim() : '';
+    let taskId = requestedTaskId;
+    let unknownTask = false;
+    let knownTaskIds: string[] = [];
+    if (requestedTaskId) {
+      const known = await listTaskRecords(ctx.workspaceDir).catch(() => []);
+      knownTaskIds = known.map((task) => task.taskId);
+      unknownTask = !knownTaskIds.includes(requestedTaskId);
+    } else {
+      taskId = await implicitTaskId(ctx.workspaceDir, metric);
+    }
+
     const observed =
       input.observed === undefined || input.observed === null
         ? undefined
@@ -184,7 +216,7 @@ export const recordEvidenceTool: Tool = {
       ...(explicitResult !== undefined ? { explicitResult } : {}),
       ...(automaticResult !== undefined ? { automaticResult } : {}),
       ...(input.device_id ? { deviceId: String(input.device_id) } : {}),
-      ...(input.task_id ? { taskId: String(input.task_id) } : {}),
+      ...(taskId ? { taskId } : {}),
       ...(input.details ? { details: String(input.details) } : {}),
     };
     try {
@@ -201,8 +233,18 @@ export const recordEvidenceTool: Tool = {
       }).catch(() => undefined);
     }
     const summary = summarizeEvidence(await listEvidenceRecords(ctx.workspaceDir));
+    const attribution =
+      taskId && !requestedTaskId
+        ? `\n  task: ${taskId} (latest contract; task_id omitted)`
+        : unknownTask
+          ? `\n  task: ${taskId} — no task contract has this id, so this row will not count toward task_acceptance` +
+            (knownTaskIds.length
+              ? ` (known ids: ${knownTaskIds.slice(-3).join(', ')}). Record it again with the right id.`
+              : ' (no contract defined yet — call task_define first).')
+          : '';
     return (
       formatRecord(record, explanation) +
+      attribution +
       `\n  workspace evidence: ${summary.passed} pass / ${summary.failed} fail / ${summary.inconclusive} inconclusive of ${summary.total}`
     );
   },

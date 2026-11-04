@@ -36,6 +36,7 @@ import {
 import { findIndirectProtectedWrites } from './indirect-write-detect.js';
 import { findPwshWriteTargets } from './pwsh-write-targets.js';
 import { findExecCapableForms } from './exec-capable-read.js';
+import { realpathOfNearestAncestor } from './read-scope.js';
 
 export type ProtectedPathCategory =
   | 'git'
@@ -151,23 +152,6 @@ function classifyNormalised(
   if (mossIdx !== -1 && mossIdx === parts.length - 2) {
     if (/^(config|settings|mcp|hooks)[\w.-]*\.json$/.test(base) || base.includes('trust')) {
       return 'moss-config';
-    }
-  }
-  return undefined;
-}
-
-function realpathOfNearestAncestor(abs: string): string | undefined {
-  let current = abs;
-  const rest: string[] = [];
-  for (let i = 0; i < 64; i += 1) {
-    try {
-      const real = fs.realpathSync.native(current);
-      return rest.length ? path.join(real, ...[...rest].reverse()) : real;
-    } catch {
-      const parent = path.dirname(current);
-      if (parent === current) return undefined;
-      rest.push(path.basename(current));
-      current = parent;
     }
   }
   return undefined;

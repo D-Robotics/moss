@@ -106,14 +106,14 @@ function planningPrompt(
     `1. task_define with task_id="${taskId}" — goal, acceptance_criteria, target_device if a device is involved, verification_plan.`,
     `2. task_plan_update with task_id="${taskId}" — small code changes: 1–3 steps; when a device or deployment is involved: inspect → change → build/deploy → verify, at most 8 steps.`,
     '3. Implement only that change now.',
-    '4. Run the acceptance command, or run_tests / verify_fix once. That records tests_pass, build_ok, or typecheck_ok when the criterion is written as tests_pass == true (not ==pass); the same for build_ok and typecheck_ok. Any other metric still needs record_evidence. Then run task_acceptance and report that verdict. Do not claim the goal is done before it passes.',
+    '4. Run the acceptance command, or run_tests with file or command (suite=true only when the criterion is the whole suite). A bare run_tests does not start the suite. That records tests_pass when the criterion is written as tests_pass == true (not ==pass). build_ok and typecheck_ok need the acceptance command or record_evidence. Any other metric still needs record_evidence. Then run task_acceptance and report that verdict. Do not claim the goal is done before it passes.',
   ].join('\n');
 }
 
 function executionPrompt(goal: string, taskId: string, round: number): string {
   const evidenceLine =
     round === 1
-      ? 'Work through the short plan. run_tests, verify_fix, or the acceptance command records tests_pass, build_ok, or typecheck_ok. Use record_evidence for any other metric — real probes only, no asserted values.'
+      ? 'Work through the short plan. run_tests with file or command, or the acceptance command, records tests_pass, build_ok, or typecheck_ok. A bare call does not start the suite. Use record_evidence for any other metric — real probes only, no asserted values.'
       : 'Continue from where you left off. Re-run the failing check so tests_pass, build_ok, or typecheck_ok stay current, and record_evidence again for any other metric (latest evidence per metric wins).';
   return [
     '[task-phase:executing]',

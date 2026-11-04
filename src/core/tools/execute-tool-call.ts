@@ -14,6 +14,7 @@ import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
 import { MossError, ErrorCode, errorMessage, isMossError, wrapAsMoss } from '../../errors.js';
 import { isEffectiveUiZh } from '../../utils/ui-language.js';
+import type { DenialClass } from '../../contracts/tool-denial.js';
 
 /**
  * O88: text the model (and the tool row) gets when approval is refused. It
@@ -21,12 +22,66 @@ import { isEffectiveUiZh } from '../../utils/ui-language.js';
  * for success. A hook's own reason already opens with 「已拦截：」/`Blocked`, so
  * it is used as-is instead of being wrapped in an untranslated prefix.
  * The outcome kind ('denied') and TOOL_NOT_ALLOWED code are unaffected.
+ *
+ * The guidance is chosen by the *denial class* the decision point attached
+ * (`DenialClass`), never by one blanket sentence. Why: the four sources imply
+ * different next actions, and a blanket "do not retry" directly contradicts a
+ * mode-block reason that already says "then run it again". Claude Code gets away
+ * with one sentence because its `denied` has one source (the permission system,
+ * acting for the user); Moss's denial has four, so the class must travel with
+ * the decision and the copy must agree with the reason it accompanies.
+ *
+ * The sentence stays on the same line after the reason so the prefix-based
+ * classifiers in `tool-loop-guard.ts` / `run-completion.ts` keep matching their
+ * first sentence unchanged.
  */
-export function deniedToolResultText(reason: string | undefined, zh = isEffectiveUiZh()): string {
+const DENIED_GUIDANCE: Record<DenialClass | 'unspecified', { en: string; zh: string }> = {
+  user: {
+    en: 'The user declined this call. Do not retry it unchanged; adjust the request (narrower, safer, or read-only) or ask the user how to proceed.',
+    zh: '用户拒绝了这次调用；不要原样重试，改为调整请求（更窄、更安全或只读）或询问用户下一步。',
+  },
+  mode: {
+    en: 'The current interaction mode blocks this action. Do not reach the same effect through another tool; if it is genuinely needed, ask the user to switch modes and then run it again.',
+    zh: '当前交互模式拦截了该操作；不要换工具绕行，确有必要时请用户切换模式后再执行。',
+  },
+  policy: {
+    en: 'A configured policy or protected-path rule blocks this. Do not route around it with another tool; use an allowed path or tell the user which rule blocked it.',
+    zh: '已配置的策略或受保护路径规则拦截了该操作；不要用其他工具绕行，改用允许的路径，或告诉用户是哪条规则拦截的。',
+  },
+  headless: {
+    en: 'No interactive approver is available in this run. Do not retry; choose an action that needs no approval, or report what you would need from the user.',
+    zh: '本次运行没有人可以批准该操作；不要重试，改用无需批准的做法，或说明需要用户提供什么。',
+  },
+  unspecified: {
+    en: 'Do not retry this call unchanged; adjust the request (narrower, safer, or read-only) or ask the user how to proceed.',
+    zh: '不要原样重试这次调用；调整请求（更窄、更安全或只读）或询问用户下一步。',
+  },
+};
+
+/** Drop the reason's trailing punctuation so the guidance never prints ".." or "。。". */
+function trimTrailingPunctuation(text: string): string {
+  return text.replace(/[.。!！?？;；,，\s]+$/u, '');
+}
+
+export function deniedToolResultText(
+  reason: string | undefined,
+  zh = isEffectiveUiZh(),
+  denialClass?: DenialClass
+): string {
   const r = reason?.trim();
-  if (!r) return zh ? '已拦截：用户拒绝了这次工具调用。' : 'Tool execution denied by user.';
-  if (zh) return r.startsWith('已拦截') ? r : `已拦截：${r}`;
-  return /^blocked\b/i.test(r) ? r : `Tool execution denied: ${r}`;
+  const guidance = DENIED_GUIDANCE[denialClass ?? 'unspecified'];
+  // A hook's own copy already carries its handling instructions and its own
+  // decision source; appending a second, differently-scoped instruction is the
+  // contradiction this function exists to remove.
+  if (zh && r?.startsWith('已拦截')) return r;
+  if (!zh && r && /^blocked\b/i.test(r)) return r;
+  if (!r) {
+    return zh
+      ? `已拦截：用户拒绝了这次工具调用。${guidance.zh}`
+      : `Tool execution denied by user. ${guidance.en}`;
+  }
+  if (zh) return `已拦截：${trimTrailingPunctuation(r)}。${guidance.zh}`;
+  return `Tool execution denied: ${trimTrailingPunctuation(r)}. ${guidance.en}`;
 }
 
 const logger = getRootLogger();
@@ -124,7 +179,7 @@ export function isStringToolFailureResult(text: string | undefined): boolean {
   if (/❌\s+\d+\s+FAILED\b/i.test(head)) return true;
   if (/❌\s+ISSUES FOUND\b/i.test(head)) return true;
   if (/(?:^|\n)\s*(?:Build|Typecheck|Tests):\s*❌\s*FAIL\b/i.test(head)) return true;
-  // code_diagnostics: "Result: FAIL" is its own status line near the top
+  // A verification command's "Result: FAIL" is its own status line near the top
   if (/(?:^|\n)\s*Result:\s*FAIL\b/i.test(head)) return true;
   // create_subagent / subagent_status / fan_out child failure banners
   if (/\[Sub-agent[^\]]*\]\s*FAILED/i.test(head)) return true;
@@ -291,7 +346,12 @@ export interface ExecuteToolCallDeps {
     input: unknown;
     abortSignal: AbortSignal;
     tool?: Tool;
-  }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
+  }) => Promise<{
+    approved: boolean;
+    decision: string;
+    reason?: string;
+    denialClass?: DenialClass;
+  } | null>;
 
   push: (event: MiniAgentEvent) => void;
 
@@ -467,7 +527,7 @@ async function executeOneToolCallInner(
         });
         if (!approval.approved) {
           const reason = approval.reason?.trim();
-          const text = deniedToolResultText(reason);
+          const text = deniedToolResultText(reason, undefined, approval.denialClass);
           return {
             kind: 'denied',
             text,
