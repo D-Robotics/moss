@@ -29,7 +29,6 @@ import {
   useWindowSize,
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
-import { planGateEnabled } from '../../tools/plan-gate.js';
 import { userTextWithoutTurnContext } from '../../core/session/internal-transcript.js';
 import {
   TaskRuntime,
@@ -1354,7 +1353,7 @@ export function TuiAppRoot({
         (rowsThisRun.some((row) => row.kind === 'tool') ||
           rowsThisRun.some((row) => row.kind === 'assistant' && row.text.length > 300));
       handle.notify();
-      if (producedPlan && planGateEnabled()) planGateRef.current?.();
+      if (producedPlan) planGateRef.current?.();
       absorbDeferredSteers(halted);
     },
     [

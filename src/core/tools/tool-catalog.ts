@@ -25,6 +25,19 @@ export function isLegacyAliasToolName(name: string): boolean {
 /** The single shell entry point. Background runs are `exec` + `run_in_background`. */
 export const EXEC_TOOL_NAMES = ['exec'] as const;
 
+/**
+ * Tools that only make sense while the interaction mode is `plan`. They stay
+ * registered for SDK hosts but are hidden from the model in every other mode,
+ * the way Cursor/Qoder/Claude Code hide `ExitPlanMode` outside plan mode.
+ */
+export const PLAN_ONLY_TOOL_NAMES = ['exit_plan'] as const;
+
+const PLAN_ONLY_TOOLS = new Set<string>(PLAN_ONLY_TOOL_NAMES);
+
+export function isPlanOnlyToolName(name: string): boolean {
+  return PLAN_ONLY_TOOLS.has(name);
+}
+
 /** Tool names whose results are shell output, including retired render-only names. */
 export const EXEC_LIKE_TOOL_NAMES = ['exec', 'exec_background', 'device_exec'] as const;
 

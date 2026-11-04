@@ -10,7 +10,14 @@ export interface ToolApprovalRequest {
   abortSignal: AbortSignal;
 }
 
-export type ToolApprovalDecision = { approved: true } | { approved: false; reason: string };
+export type ToolApprovalDecision =
+  | { approved: true }
+  | {
+      approved: false;
+      reason: string;
+      /** Which denial this is; selects the model-facing next-action guidance. */
+      denialClass?: import('../../contracts/tool-denial.js').DenialClass;
+    };
 
 export interface InputGuardrailRequest {
   sessionKey: string;

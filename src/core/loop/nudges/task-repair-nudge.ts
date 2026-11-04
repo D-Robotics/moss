@@ -17,7 +17,8 @@
  * a PASS verdict on task A never masks a pending FAIL on task B — repair
  * activity is likewise attributed through the tools' task_id input.
  *
- * Known limitations (locked by test/task-repair-nudge.spec.mjs):
+ * Known limitations (re-check if this nudge is reworked; there is no spec suite
+ * as of 2026-11-04):
  * - a successful record_evidence after a FAIL silences the wave for that task
  *   (evidence is legitimate progress: latest evidence per metric wins);
  * - a PARTIAL verdict (optional criteria unmet) is not treated as red.

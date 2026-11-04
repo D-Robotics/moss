@@ -331,7 +331,6 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_GOAL_VERIFY_LOOP (process env only; a project .env cannot set this)',
       'MOSS_DISABLE_NUDGES (comma-separated nudge ids to suppress; unset leaves every nudge on)',
       'MOSS_DISABLE_TURN_WATCH (1 stops the per-turn external-edit and date-rollover notice)',
-      'MOSS_PLAN_GATE (1 enables the /plan approval gate; default off)',
       'MOSS_GOAL_AUTO_MAX_RUNS',
       'MOSS_ACCEPT_LOGIN_PATH (0 stops acceptance commands from appending the login-shell PATH)',
       'MOSS_BUDGET_MAX_TOKENS',

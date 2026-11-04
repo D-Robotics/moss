@@ -1,7 +1,10 @@
 const BASE_TOOL_OUTPUT_LIMITS: Record<string, number> = {
   device_exec: 6_000,
   device_file_read: 10_000,
-  read: 10_000,
+  // The model-facing name is `read_file`; `read` never existed as a tool, and
+  // keying the budget on it silently fell back to the 4k default for every
+  // read_file result (found in the 2026-11-04 architecture audit, B8).
+  read_file: 10_000,
   // O97: a partial-read rejection from these tools can carry the full file
   // (read_file's view). Give them the same budget as `read` so a ~20k-char
   // source file arrives whole instead of with its middle cut out. Normal
@@ -15,7 +18,6 @@ const BASE_TOOL_OUTPUT_LIMITS: Record<string, number> = {
   web_fetch: 8_000,
   device_diagnose: 3_000,
   exec: 4_500,
-  bash: 4_500,
 };
 
 let _extraToolOutputLimits: Record<string, number> = {};
@@ -44,10 +46,9 @@ function estimateTokens(text: string): number {
  * finding #2: 2-3 blind re-read turns per coding run).
  */
 const TRUNCATION_RECOVERY_HINTS: Record<string, string> = {
-  read: 'the dropped region is not in context — re-read only it with offset/limit',
+  read_file: 'the dropped region is not in context — re-read only it with offset/limit',
   device_file_read: 'the dropped region is not in context — page it with offset/limit',
   exec: 'output was cut — narrow the command (grep/head/tail) to the slice you need',
-  bash: 'output was cut — narrow the command (grep/head/tail) to the slice you need',
   device_exec: 'output was cut — narrow the remote command to the slice you need',
 };
 

@@ -12,8 +12,7 @@ import { tui } from './tui/copy.js';
  *
  * A command lives in exactly one row — name, argument hint, description, and
  * surface availability — so wording and availability cannot drift between the
- * REPL and the TUI. `test/cli-interactive-commands.spec.mjs` locks the two
- * derivations together.
+ * REPL and the TUI. Both derivations must be changed and checked together.
  */
 export type CommandSurface = 'repl' | 'tui';
 

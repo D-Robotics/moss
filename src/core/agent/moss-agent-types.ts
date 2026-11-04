@@ -187,6 +187,15 @@ export interface MossAgentConfig
    * so the host injects this. If absent, the parent's contextTokens is used. */
   resolveModelContextTokens?: (model: string) => Promise<number | undefined>;
 
+  /**
+   * Host-owned query for "is this run in plan mode?". Core has no notion of the
+   * CLI's interaction modes, so the host injects it. Plan-only tools such as
+   * `exit_plan` are offered to the model only while this returns true; the
+   * approval layer applies the read-only side independently. Unset means not
+   * planning (SDK hosts that never plan).
+   */
+  planModeActive?: () => boolean;
+
   /** Instance-local declarative experts available to sub-agent tools. @beta */
   subagentExperts?: readonly import('../subagent/expert-registry.js').SubagentExpertDefinition[];
   /**

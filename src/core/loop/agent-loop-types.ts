@@ -72,7 +72,12 @@ export interface AgentLoopToolInput {
     abortSignal: AbortSignal;
     /** Set when the executor already resolved the tool, including a late MCP tool. */
     tool?: Tool;
-  }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
+  }) => Promise<{
+    approved: boolean;
+    decision: string;
+    reason?: string;
+    denialClass?: import('../../contracts/tool-denial.js').DenialClass;
+  } | null>;
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
   toolHooks?: ToolHookRegistry;

@@ -1173,6 +1173,7 @@ ${result.stderr ?? ''}`.trim();
         deviceConfigured: options?.deviceConfigured,
         userQuestions,
         requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
+        planMode: this.config.planModeActive?.() === true,
       }) &&
       (options?.toolFilter?.(tool) ?? true);
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
@@ -1280,6 +1281,7 @@ ${result.stderr ?? ''}`.trim();
                 approved: false,
                 decision: 'deny',
                 reason: `Tool "${call.name}" is not available for this run.`,
+                denialClass: 'mode' as const,
               };
             }
             const input =
@@ -1296,7 +1298,12 @@ ${result.stderr ?? ''}`.trim();
             });
             return decision.approved
               ? null
-              : { approved: false, decision: 'deny', reason: decision.reason };
+              : {
+                  approved: false,
+                  decision: 'deny',
+                  reason: decision.reason,
+                  ...(decision.denialClass ? { denialClass: decision.denialClass } : {}),
+                };
           }
         : undefined;
 

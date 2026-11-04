@@ -488,7 +488,12 @@ function hookFailedLine(event: HookEventName, message: string): string {
  */
 export type PreToolUseDecision =
   | ToolApprovalDecision
-  | { approved: false; reason: string; hookAsks: PreToolUseHookAsk[] };
+  | {
+      approved: false;
+      reason: string;
+      hookAsks: PreToolUseHookAsk[];
+      denialClass?: import('../contracts/tool-denial.js').DenialClass;
+    };
 
 export interface ConfiguredHookCallbacks {
   onBeforeToolExec?: (request: ToolApprovalRequest) => Promise<PreToolUseDecision>;

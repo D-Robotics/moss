@@ -547,7 +547,7 @@ import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
 import { todoWriteTool } from './todo-tool.js';
 import { askUserQuestionTool } from './ask-user-question.js';
-import { exitPlanTool, planGateEnabled } from './plan-gate.js';
+import { exitPlanTool } from './plan-gate.js';
 import { toolSearchTool } from './tool-search.js';
 
 /** QA #149 F1: detection never breaks the exec result; on any error, keep the exit-code wording. */
@@ -595,11 +595,10 @@ export const builtinTools: Tool[] = [
 
 export function registerBuiltinTools(agent: { tools: { register: (tool: Tool) => void } }): void {
   for (const tool of builtinTools) {
-    // exit_plan is only useful while the plan gate is on. Leaving it in the
-    // prompt when MOSS_PLAN_GATE is unset spends tokens and invites a call
-    // that cannot open the dialog. bench:ab plan-gate sets the env before
-    // the process registers tools, so the on arm still receives it.
-    if (tool.name === 'exit_plan' && !planGateEnabled()) continue;
+    // `exit_plan` is registered in every mode and hidden by the run-visibility
+    // filter when the interaction mode is not `plan` (see PLAN_ONLY_TOOL_NAMES).
+    // Registration is for SDK hosts and transcripts; visibility is the model's
+    // surface, and the two axes are deliberately separate.
     agent.tools.register(tool);
   }
 }

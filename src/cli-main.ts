@@ -17,6 +17,9 @@ import {
   setCliInteractionMode,
   type CliInteractionMode,
 } from './cli/approval.js';
+import { subscribeCliInteractionMode } from './cli/interaction-mode.js';
+import { planModeLayer } from './cli/plan-mode-layer.js';
+import { CliPromptLayers, promptLayersDebugEnabled } from './cli/prompt-layers.js';
 import {
   CliConfigFileError,
   CliConfigWriteError,
@@ -876,23 +879,61 @@ async function main() {
     process.exit(ExitCode.SESSION);
   }
   if (session.notice) console.error(`[session] ${session.notice}`);
-  // Per-run context layers. The environment layer describes the workspace so
-  // the agent does not have to discover it on the first turn; the runtime
-  // capability and context-window layers are appended after tools are wired.
-  const extraPromptLayers: string[] = [];
-  // Date, git status, and the workspace listing sit in the dynamic suffix so
-  // the cached prefix (persona + contracts + AGENTS.md) stays byte-stable.
-  const dynamicPromptLayers: string[] = [];
+  // Every CLI prompt layer is declared once, with its stability (cached prefix
+  // or volatile suffix) and its origin spelled out; the registry owns the two
+  // arrays the agent takes, and updates them in place so a mode switch or a late
+  // MCP handshake reaches existing runs and sub-agents.
+  const promptLayers = new CliPromptLayers();
   const envLayer = await buildEnvironmentContextLayer(workspace);
-  if (envLayer) dynamicPromptLayers.push(envLayer);
-  // Project instructions: the workspace AGENTS.md, loaded once so the
-  // "auto-loaded from workspace root" claim in help/onboarding is real.
-  const agentsLayer = buildAgentsMdLayer(workspace);
-  if (agentsLayer) extraPromptLayers.push(agentsLayer);
+  if (envLayer) {
+    promptLayers.set({
+      id: 'cli:environment',
+      stability: 'dynamic',
+      origin: 'environment',
+      text: envLayer,
+    });
+  }
+  // Plan mode is a read-only contract, not only an approval setting. The layer
+  // lives in the dynamic suffix (re-read every run) so a `/mode` switch applies
+  // on the next turn without rewriting the cached stable prefix.
+  promptLayers.set({
+    id: 'mode:plan',
+    stability: 'dynamic',
+    origin: 'mode',
+    text: planModeLayer(getCliInteractionMode()),
+  });
+  subscribeCliInteractionMode((mode) =>
+    promptLayers.set({
+      id: 'mode:plan',
+      stability: 'dynamic',
+      origin: 'mode',
+      text: planModeLayer(mode),
+    })
+  );
+  // Project instructions: AGENTS.md / CLAUDE.md from the user config dir, the
+  // workspace and its ancestors up to the git root, loaded once so the
+  // "auto-loaded project instructions" claim in the prompts is real.
+  const agentsLayer = buildAgentsMdLayer(workspace, { userDir: configDir });
+  if (agentsLayer) {
+    promptLayers.set({
+      id: 'project:instructions',
+      stability: 'stable',
+      origin: 'project',
+      text: agentsLayer,
+    });
+  }
   // Answer language follows the latest user message. Locale is only the
   // fallback when that message has no language of its own.
   const answerLanguageLayer = buildAnswerLanguageLayer();
-  if (answerLanguageLayer) extraPromptLayers.push(answerLanguageLayer);
+  if (answerLanguageLayer) {
+    promptLayers.set({
+      id: 'contract:answer-language',
+      stability: 'stable',
+      origin: 'contract',
+      text: answerLanguageLayer,
+    });
+  }
+  if (promptLayersDebugEnabled()) console.error(`[prompt]\n${promptLayers.formatReport()}`);
 
   const projectCapabilities = await resolveProjectCapabilities({
     workspaceDir: workspace,
@@ -952,7 +993,14 @@ async function main() {
     sources: permissionRuleSources,
   });
   const deviceTarget = resolveDefaultDeviceTarget();
-  if (deviceTarget) dynamicPromptLayers.push(CONFIGURED_DEVICE_PROMPT);
+  if (deviceTarget) {
+    promptLayers.set({
+      id: 'cli:device',
+      stability: 'dynamic',
+      origin: 'environment',
+      text: CONFIGURED_DEVICE_PROMPT,
+    });
+  }
   const approvalHook = createCliToolApprovalHook(safetyMode, process.env, {
     approvalPolicy: resolvedConfig.approvalPolicy,
     trustedTools: resolvedConfig.trustedTools,
@@ -1111,8 +1159,12 @@ async function main() {
       model,
       usingBundledDefault: resolvedConfig.usingBundledDefault,
     }),
-    extraPromptLayers,
-    dynamicPromptLayers,
+    extraPromptLayers: promptLayers.stable,
+    dynamicPromptLayers: promptLayers.dynamic,
+    // Plan mode is a session state the core cannot see: expose it so plan-only
+    // tools (`exit_plan`) are offered exactly while the mode is `plan`, the way
+    // Cursor/Claude Code expose ExitPlanMode only inside plan mode.
+    planModeActive: () => getCliInteractionMode() === 'plan',
     // Coding is the primary CLI workload. Inject the compact software-
     // engineering domain prompt into the stable system prompt so every coding
     // turn gets "read before edit → minimal verifiable change → close the loop".
@@ -1214,7 +1266,6 @@ async function main() {
   // does not wait on npx. A failure is one line, not a crashed CLI. No cache,
   // no bundled manual. MOSS_NO_RDK_DOCS=1 or rdkDocs:false skips it.
   let mcpRegistry: McpToolRegistry | null = null;
-  let mcpPromptLayerIndex: number | undefined;
   // TUI boot paints the current registry snapshot. Notices start only after
   // that paint, so a server still connecting is not also announced as failed.
   let announceMcpStatus = !useTui;
@@ -1223,15 +1274,16 @@ async function main() {
     if (!mcpRegistry) return;
     // Knowledge only. The server index is a stable layer from config names,
     // so a connect that adds a tool count cannot rewrite the cached prefix.
-    const combined = rdkDocsKnowledgeLayer(mcpRegistry.getStatuses());
-    if (mcpPromptLayerIndex === undefined) {
-      mcpPromptLayerIndex = dynamicPromptLayers.length;
-      dynamicPromptLayers.push(combined);
-    } else {
-      // MossAgent re-reads this array before each model call. It lives in the
-      // dynamic suffix so a late connect does not rewrite the cached prefix.
-      dynamicPromptLayers[mcpPromptLayerIndex] = combined;
-    }
+    // MossAgent re-reads the layer arrays before each model call. The MCP index
+    // lives in the dynamic suffix so a late connect does not rewrite the cached
+    // prefix; its id keeps the slot stable across connects.
+    promptLayers.set({
+      id: 'cli:mcp',
+      stability: 'dynamic',
+      origin: 'tooling',
+      text: rdkDocsKnowledgeLayer(mcpRegistry.getStatuses()),
+    });
+    if (promptLayersDebugEnabled()) console.error(`[prompt]\n${promptLayers.formatReport()}`);
   };
   const builtinRdkDocsEnabled = rdkDocsAutoConnectEnabled({
     env: process.env,
@@ -1254,7 +1306,12 @@ async function main() {
   if (mcpConfigs.length > 0) {
     // Present whenever the search tools are registered, including `moss -p`
     // which starts before the handshake. No counts: those change on connect.
-    extraPromptLayers.push(buildMcpStableIndex(mcpConfigs.map((config) => config.name)));
+    promptLayers.set({
+      id: 'cli:mcp-index',
+      stability: 'stable',
+      origin: 'tooling',
+      text: buildMcpStableIndex(mcpConfigs.map((config) => config.name)),
+    });
     try {
       mcpRegistry = McpToolRegistry.connectInBackground(mcpConfigs, {
         // Real MCP tools register on demand: the search meta-tool installs
@@ -1337,7 +1394,6 @@ async function main() {
       },
     });
     const sessionSkills = [...baseSkills];
-    let skillsLayerIndex: number | undefined;
     let installedSkillTool: ReturnType<typeof createSkillTool> | undefined;
     const emptySkillsLayer = buildEmptySkillsHintLayer(skillDirs);
     const rdkDocsConfigured = mcpConfigs.some((config) => config.name === RDK_DOCS_SERVER_NAME);
@@ -1369,12 +1425,12 @@ async function main() {
       );
       const layer =
         sessionSkills.length > 0 ? (buildSkillsPromptLayer(sessionSkills) ?? '') : emptySkillsLayer;
-      if (skillsLayerIndex === undefined) {
-        skillsLayerIndex = dynamicPromptLayers.length;
-        dynamicPromptLayers.push(layer);
-      } else {
-        dynamicPromptLayers[skillsLayerIndex] = layer;
-      }
+      promptLayers.set({
+        id: 'cli:skills',
+        stability: 'dynamic',
+        origin: 'tooling',
+        text: layer,
+      });
     };
     syncRdkDocsSkills();
   }
@@ -1449,11 +1505,14 @@ async function main() {
 
     await configuredHooks.runSessionStart();
 
-    extraPromptLayers.push(
-      buildRuntimeCapabilitiesPrompt({
+    promptLayers.set({
+      id: 'cli:runtime-capabilities',
+      stability: 'stable',
+      origin: 'tooling',
+      text: buildRuntimeCapabilitiesPrompt({
         tools: agent.tools.getAll(),
-      })
-    );
+      }),
+    });
 
     // If context window was probed (or configured), tell the LLM its actual size
     // so it can answer "how large is your context window?" accurately.  This layer
@@ -1462,9 +1521,12 @@ async function main() {
     // It lives on the dynamic suffix: a late probe must not rewrite the cached prefix.
     if (resolvedConfig.contextTokens) {
       const ctxK = Math.round(resolvedConfig.contextTokens / 1000);
-      dynamicPromptLayers.push(
-        `## Context Window\nYour context window is ${ctxK}k tokens. State this number accurately when the user asks about context size — do not guess from training knowledge.`
-      );
+      promptLayers.set({
+        id: 'cli:context-window',
+        stability: 'dynamic',
+        origin: 'environment',
+        text: `## Context Window\nYour context window is ${ctxK}k tokens. State this number accurately when the user asks about context size — do not guess from training knowledge.`,
+      });
     }
 
     // AgentReady table commands (moss task …) dispatch with the fully

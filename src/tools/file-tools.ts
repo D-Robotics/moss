@@ -310,12 +310,12 @@ export const readFileTool: Tool = {
       await globalToolStateManager.recordFileState(
         filePath,
         rangeKey,
-        wouldTruncateToolOutput('read', result)
+        wouldTruncateToolOutput('read_file', result)
       );
       globalToolStateManager.markFullReadTruncation(
         filePath,
         rangeKey,
-        wouldTruncateToolOutput('read', result)
+        wouldTruncateToolOutput('read_file', result)
       );
       // O105: defense in depth — even a direct execute (no agent post-hook)
       // must not return Moss credential plaintext. Same path as presentToolOutput.
