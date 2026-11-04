@@ -125,6 +125,16 @@ export async function runReviewCommand(
       out(`${record.createdAt}  ${verdictLine(record, zh)}`);
       printFindings(record, out);
     }
+    // The list is history; one line states where the fix loop stands now.
+    const [latest] = records.slice(-1);
+    if (latest) {
+      const state = buildReviewState(latest);
+      out(
+        zh
+          ? `当前修复尝试：第 ${state.attempt} / ${state.maxAttempts} 次${state.attemptsExhausted ? '（已用尽）' : ''} — ${nextActionText(state, zh)}`
+          : `repair attempt: ${state.attempt} of ${state.maxAttempts}${state.attemptsExhausted ? ' (exhausted)' : ''} — ${state.nextAction}`
+      );
+    }
     return 0;
   }
 
