@@ -479,6 +479,18 @@ config/agent/skills 全部做完之后才加载——现在 `runCli` 在判定�
 所以只记录中位数与方向，不宣称 bench 达标；REPL 路径实跑 `MOSS_NO_TUI=1` + `/exit` 仍正常
 （exit 0、banner 与 workspace 行都在）。
 
+**H1 第二片（本轮）= 内置工具图移出同步 entry + 去掉 `core/index` barrel**：`runtime.ts` 之前静态
+`import { registerBuiltinTools } from '../tools/builtin.js'`（`import('./dist/tools/builtin.js')` 单独测
+**119ms**）和 `import { MossAgent, JsonlSessionStore } from '../core/index.js'`（barrel 单独测 **99ms**，
+直连两个模块 78ms）。现在：工具图改为「在判定为 agent 路径后立刻 `import('../tools/builtin.js')` 预取，
+`await` 在原来的注册点」——既不进同步 entry，也不延后到 composer 之后；`core/index` 换成
+`core/agent/moss-agent.js` + `core/session/jsonl-session-store.js` 直连。
+**A/B/C 实测（同机、各 5 次 PTY 启动，读 `entry`/`composer` 中位数）**：
+A 基线（上一轮提交后）entry **343ms** / composer **382ms**；B（只换直连 import）entry 328 / composer 411；
+C（+ 工具图预取）entry **308ms**（−35ms，**−10%**）/ composer **376ms**。B 的 composer 变化在噪声内，
+C 在两项上都最好，故保留两者。行为未回退：`tool-surface` stage 通过；真实 `-p "read note.txt"`
+（脚本化 provider）里 `✓ read_file (note.txt) 9ms` —— 说明预取的内置工具在注册点确实可用。
+
 **下一步候选（H1）**：把这段"首次 commit → PTY 就绪"的 200–380ms 定位出来（`composer` 后加
 `frame-written` / `raw-mode` 两个 mark，或直接测 node 冷启动占比），再决定是否值得把 composer 骨架渲染
 前移到 ink 之外；`ink` 预取本身可再提前到 `runCli` 第一行（当前在 args/phase 解析后，损失约 10–20ms）。

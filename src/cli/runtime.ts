@@ -96,8 +96,8 @@ import {
   printMissingConfigGuidance,
   renderOneShotOnboardingHint,
 } from './onboarding-hints.js';
-import { MossAgent, JsonlSessionStore } from '../core/index.js';
-import { registerBuiltinTools } from '../tools/builtin.js';
+import { MossAgent } from '../core/agent/moss-agent.js';
+import { JsonlSessionStore } from '../core/session/jsonl-session-store.js';
 import { registerFileBasedTools } from '../tools/file-based-tools.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { loadMcpConfigs } from './mcp-config.js';
@@ -213,6 +213,12 @@ export async function runCli(): Promise<void> {
   // Load it while config/agent/skills work runs instead of after it, so the
   // composer paints sooner. Only for interactive chat where the TUI will mount;
   // `--version`/`--help`/print paths never pay for it.
+  // The builtin tool implementations are another large graph that only the
+  // agent-using paths need; start loading it alongside the rest of startup so
+  // it is off the synchronous entry path and hidden behind config work.
+  const needsAgent =
+    (parsedArgs.command === undefined || parsedArgs.command === 'chat') && !parsedArgs.print;
+  const builtinToolsPromise = needsAgent ? import('../tools/builtin.js') : undefined;
   const tuiBootWanted =
     Boolean(process.stdout.isTTY) &&
     process.env.MOSS_NO_TUI !== '1' &&
@@ -918,6 +924,7 @@ export async function runCli(): Promise<void> {
       model: nextModel,
       usingBundledDefault: agent.config.usingBundledDefault,
     });
+  const { registerBuiltinTools } = await (builtinToolsPromise ?? import('../tools/builtin.js'));
   await registerBuiltinTools(agent);
   // Device targets resolve host > env > .moss/devices.json (registered via
   // `moss device add`); declaring the workspace turns the registry tier on.
