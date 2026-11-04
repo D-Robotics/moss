@@ -80,12 +80,15 @@ export function collectTouchedWorkspaceFiles(
       for (const key of toolPathKeys(meta.name, meta.input)) {
         if (!key.startsWith('ws:')) continue;
         const raw = key.slice(3);
-        const absolutePath = path.isAbsolute(raw) ? raw : path.resolve(workspaceDir, raw);
+        // resolve() canonicalizes separators on Windows so map keys and
+        // caller-supplied path.join() paths agree regardless of slash style.
+        const absolutePath = path.resolve(workspaceDir, raw);
         const rel = path.relative(workspaceDir, absolutePath);
         if (rel.startsWith('..') || path.isAbsolute(rel) || rel === '') continue;
+        const relativePath = rel.split(path.sep).join('/');
         const existing = out.get(absolutePath);
         if (!existing || existing.lastTouchMs < carryTs) {
-          out.set(absolutePath, { absolutePath, relativePath: rel, lastTouchMs: carryTs });
+          out.set(absolutePath, { absolutePath, relativePath, lastTouchMs: carryTs });
         }
       }
     }

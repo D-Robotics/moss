@@ -503,6 +503,7 @@ const covered = new Set([
   'acceptance-gate',
   'follow-up-guard',
   'truncated-tool-json',
+  'run-anchor',
 ]);
 assert.deepEqual([...covered].sort(), [...NUDGE_IDS].sort());
 
