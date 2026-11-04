@@ -154,6 +154,8 @@ export interface VerificationGateDecision {
   ok: boolean;
   reason: string;
   correction?: string;
+  /** Which rule fired; the wrapper bounds the two rules differently. */
+  kind?: 'unverified-change' | 'review-fail';
 }
 
 function findUnresolvedReviewFailure(calls: readonly RecordedCall[]): RecordedCall | undefined {
@@ -175,6 +177,7 @@ export function evaluateVerificationCompletionGate(request: {
   if (reviewFailure && !FINDINGS_ACK_RE.test(request.response)) {
     return {
       ok: false,
+      kind: 'review-fail',
       reason: 'an independent review returned FAIL and the answer does not address it',
       correction:
         'The independent reviewer returned FAIL. Fix the findings and re-review, or report the ' +
@@ -194,6 +197,7 @@ export function evaluateVerificationCompletionGate(request: {
   }
   return {
     ok: false,
+    kind: 'unverified-change',
     reason: 'files were changed but the result was never checked',
     correction:
       'You changed files but the last thing you did afterwards was answer your own claim. ' +
@@ -204,20 +208,40 @@ export function evaluateVerificationCompletionGate(request: {
   };
 }
 
+/** Review-repair cycles allowed per run (Bugbot's autofix cap is 3). */
+const REVIEW_REPAIR_LIMIT = 3;
+
 /**
- * Per-run wrapper: blocks at most once. After one correction the run may end
- * (verified, honestly disclosed, or plainly after not complying) — the gate
- * never rejects the completion, so it cannot deadlock a run.
+ * Per-run wrapper with two different bounds:
+ * - an unverified change is asked for exactly once (after that, an honest or
+ *   plainly non-compliant ending is allowed — never a nag);
+ * - an unresolved review FAIL drives up to REVIEW_REPAIR_LIMIT repair cycles
+ *   (fix + re-review); if the model still claims success after that, the loop's
+ *   own retry ceiling turns it into a failed completion rather than a silent
+ *   "done" over a critical finding.
  */
 export function createVerificationCompletionGate(): NonNullable<
   AgentLoopExtensions['completionGate']
 > {
-  let blocked = false;
+  let verificationBlocked = false;
+  let reviewBlocks = 0;
   return async (request) => {
     const decision = evaluateVerificationCompletionGate(request);
     if (decision.ok) return { ok: true as const };
-    if (blocked) return { ok: true as const };
-    blocked = true;
+    if (decision.kind === 'review-fail') {
+      // Bounded: after the last repair cycle the run is allowed to end; the
+      // honest path (acknowledging findings) passes on its own above.
+      if (reviewBlocks >= REVIEW_REPAIR_LIMIT) return { ok: true as const };
+      reviewBlocks += 1;
+      return {
+        ok: false as const,
+        reason: decision.reason,
+        ...(decision.correction ? { correction: decision.correction } : {}),
+        retryLimit: REVIEW_REPAIR_LIMIT,
+      };
+    }
+    if (verificationBlocked) return { ok: true as const };
+    verificationBlocked = true;
     return {
       ok: false as const,
       reason: decision.reason,

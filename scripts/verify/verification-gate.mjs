@@ -204,6 +204,30 @@ check('wrapper retryLimit is exactly one', () => {
   assert.equal(second.ok, true);
 });
 
+const reviewWrapper = createVerificationCompletionGate();
+const reviewRequest = {
+  sessionKey: 'probe',
+  runId: 'probe-review-run',
+  turn: 1,
+  response: 'Everything is fine.',
+  messages: messages(
+    writeFile(),
+    readFile(),
+    review('## Reviewer verdict: **FAIL**\n[Critical finding] calc.js:2')
+  ),
+  totalToolCalls: 2,
+  toolCallsByName: { write_file: 1, read_file: 1, create_subagent: 1 },
+};
+const reviewDecisions = [];
+for (let i = 0; i < 4; i += 1) reviewDecisions.push(await reviewWrapper(reviewRequest));
+check('a review FAIL allows three bounded repair cycles, then stops', () => {
+  for (let i = 0; i < 3; i += 1) {
+    assert.equal(reviewDecisions[i].ok, false);
+    assert.equal(reviewDecisions[i].retryLimit, 3);
+  }
+  assert.equal(reviewDecisions[3].ok, true);
+});
+
 const failed = cases.filter((entry) => !entry.ok);
 if (failed.length > 0) {
   console.error(`[verification-gate] ${failed.length} assertion(s) failed`);
