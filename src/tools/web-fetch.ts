@@ -36,6 +36,23 @@ function wrapUntrustedWebContent(content: string): string {
 }
 
 const dnsCache = new Map<string, { addresses: string[]; expiresAt: number }>();
+
+/**
+ * `example.com/docs` and `localhost:3000/x` are what a model copies out of a
+ * search result or a log: a host and a path with no scheme. `new URL` rejects
+ * the first and reads the second's host as a protocol, so both failed with a
+ * message about the wrong problem. Assume https for a domain-shaped host and a
+ * bare host with a numeric port; leave real schemes (file:, ftp:, data:) alone.
+ */
+function assumeHttps(raw: string): string | null {
+  const domain = /^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?(?:[/?#].*)?$/i.test(raw);
+  const loopbackPort = /^[a-z0-9-]+:\d+(?:[/?#].*)?$/i.test(raw);
+  if (!domain && !loopbackPort) return null;
+  // `http://host/path` matches neither pattern above, but guard anyway so a
+  // real scheme is never rewritten.
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? null : `https://${raw}`;
+}
+
 type HostAddressResolver = (hostname: string) => Promise<string[]>;
 type BodyProbeReader = {
   read(): Promise<{ done: boolean; value?: Uint8Array }>;
@@ -464,7 +481,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
       }
       let url: URL;
       try {
-        url = new URL(raw);
+        url = new URL(assumeHttps(raw) ?? raw);
       } catch {
         throw new MossError({
           code: ErrorCode.USER_INPUT_INVALID,

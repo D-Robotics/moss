@@ -202,3 +202,32 @@ test('a non-http URL is refused with the protocol named and a usable next step',
     }
   );
 });
+
+test('a bare host is fetched over https instead of failing on the missing scheme', async () => {
+  const f = stubFetch(
+    () => new Response('<p>ok</p>', { status: 200, headers: { 'content-type': 'text/html' } })
+  );
+  try {
+    const tool = createWebFetchTool({ resolveHostAddresses: async () => [PUBLIC_IP] });
+    for (const [given, fetched] of [
+      ['example.com', 'https://example.com/'],
+      ['example.com/docs?x=1', 'https://example.com/docs?x=1'],
+    ]) {
+      await tool.execute({ url: given }, ctx());
+      assert.equal(f.calls.at(-1).url, fetched);
+    }
+  } finally {
+    f.restore();
+  }
+});
+
+test('a relative path is still refused as an invalid URL', async () => {
+  const tool = createWebFetchTool({ resolveHostAddresses: async () => [PUBLIC_IP] });
+  await assert.rejects(
+    () => tool.execute({ url: '/docs/setup' }, ctx()),
+    (err) => {
+      assert.match(err.message, /invalid URL "\/docs\/setup"/);
+      return true;
+    }
+  );
+});
