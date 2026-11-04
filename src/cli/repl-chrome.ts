@@ -1,15 +1,8 @@
 import type { MossAgentEvent } from '../core/index.js';
 import type { SessionMeta } from '../core/session/session.js';
-import { isZhLocale } from './cli-locale.js';
+import { formatSessionTimestamp } from './session-format.js';
 
-export function formatSessionTimestamp(updatedAt: number): string {
-  if (!Number.isFinite(updatedAt) || updatedAt <= 0)
-    return isZhLocale() ? '未知时间' : 'unknown time';
-  const date = new Date(updatedAt);
-  if (!isZhLocale()) return date.toLocaleString();
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
+export { formatSessionTimestamp, humanTokens } from './session-format.js';
 
 export function formatTuiSessions(
   sessions: SessionMeta[],
@@ -39,19 +32,6 @@ export function formatTuiSessions(
   lines.push('Shell: moss resume --session <key>');
   lines.push('Shell: moss fork --fork-from <key>');
   return lines.join('\n');
-}
-
-export function humanTokens(n: number): string {
-  if (!Number.isFinite(n) || n < 0) return '0';
-  if (n >= 1_000_000) {
-    const m = n / 1_000_000;
-    return m >= 10 ? `${Math.round(m)}M` : `${m.toFixed(1).replace(/\.0$/, '')}M`;
-  }
-  if (n >= 1_000) {
-    const k = n / 1_000;
-    return k >= 10 ? `${Math.round(k)}k` : `${k.toFixed(1).replace(/\.0$/, '')}k`;
-  }
-  return String(Math.round(n));
 }
 
 export function activityLabel(event: MossAgentEvent): string | null {

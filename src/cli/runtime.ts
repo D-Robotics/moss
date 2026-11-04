@@ -149,7 +149,8 @@ import type { CommandContext as RegistryCommandContext } from './commands/regist
 async function registryCommandModule() {
   return import('./commands/registry.js');
 }
-import { cliLocale, KNOWN_COMMANDS } from './tui-utils.js';
+import { cliLocale } from './cli-locale.js';
+import { INTERACTIVE_COMPLETION_COMMANDS as KNOWN_COMMANDS } from './interactive-commands.js';
 import { closestSlashCommands } from './command-completion.js';
 import {
   isLoadedSkillSlash,

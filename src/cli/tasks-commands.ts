@@ -11,7 +11,7 @@ import { listDeploymentRecords } from '../device/deployment.js';
 import { formatDeviceTarget, resolveDefaultDeviceTarget } from '../device/device-target.js';
 import { listDeviceConnections } from '../device/device-registry.js';
 import { listAcceptanceVerdicts, readJsonlFile } from '../core/task-runtime/artifacts.js';
-import { formatSessionTimestamp } from './repl-chrome.js';
+import { formatSessionTimestamp } from './session-format.js';
 import { listTaskStateSnapshots } from '../core/task/task-store.js';
 import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
 

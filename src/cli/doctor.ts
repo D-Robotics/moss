@@ -9,7 +9,7 @@ import {
 } from './config.js';
 import type { ResolvedCliConfig } from './config.js';
 import { deriveMaxOutputTokens } from './agent-runtime.js';
-import { humanTokens } from './tui-utils.js';
+import { humanTokens } from './session-format.js';
 import { MIN_NODE_MAJOR, MIN_NODE_MINOR, nodeVersionProblem } from './node-version-check.js';
 import { errorMessage } from '../errors.js';
 import { uiText } from '../utils/ui-language.js';

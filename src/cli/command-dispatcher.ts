@@ -2,7 +2,7 @@
 // Replaces 22 if-else branches in main() with a declarative routing table.
 
 import { isZhLocale, uiText } from './cli-locale.js';
-import { formatSessionTimestamp } from './repl-chrome.js';
+import { formatSessionTimestamp } from './session-format.js';
 import type { LLMMessage } from '../core/llm/llm-provider.js';
 import type { SessionStore, SessionMeta } from '../core/session/session.js';
 import type { MossAgent } from '../core/agent/moss-agent.js';
