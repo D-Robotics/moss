@@ -42,6 +42,7 @@ import {
 } from '../device/observation.js';
 import { EXEC_DEFAULT_TIMEOUT_MS, looksBinary, safePath } from './tool-helpers.js';
 import { spillToolOutput } from './tool-output-spill.js';
+import { presentToolOutput } from '../safety/tool-output-redact.js';
 import { findLatestLiveTaskSnapshot, tryAppendTaskEvent } from '../core/task/task-store.js';
 
 const EXEC_STDOUT_MAX = 80_000;
@@ -169,10 +170,17 @@ export const deviceExecTool: Tool = {
         ? `(binary output, ${stdoutRaw.length} chars — suppressed; pipe through hexdump/xxd on the device if needed)`
         : stdoutRaw;
       if (!looksBinary(stdoutRaw) && outText.length > EXEC_STDOUT_MAX) {
+        // Same egress filter as the visible result: the spill must not keep a
+        // secret that the model-facing text would have masked.
         const spilled = spillToolOutput({
           workspaceDir: ctx.workspaceDir,
           toolName: 'device-exec',
-          text: outText,
+          text: presentToolOutput({
+            toolName: 'device_exec',
+            input: { command },
+            text: outText,
+            workspaceDir: ctx.workspaceDir,
+          }),
         });
         const head = outText.slice(0, Math.floor(EXEC_STDOUT_MAX * 0.7));
         const tail = outText.slice(-Math.floor(EXEC_STDOUT_MAX * 0.25));

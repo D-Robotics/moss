@@ -7,7 +7,9 @@
  * command cannot be re-read, and the failure the model needs may be in it.
  * The spill file is a runtime artifact (`.moss/runtime/` is in the runtime
  * gitignore), and stale ones are pruned on each write so the directory cannot
- * grow without bound.
+ * grow without bound. Callers pass text already run through
+ * `presentToolOutput`, so the copy cannot preserve a secret that the visible
+ * result masks.
  */
 import fs from 'node:fs';
 import path from 'node:path';

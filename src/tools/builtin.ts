@@ -41,7 +41,7 @@ import {
   shellCommandHasWriteAction,
 } from '../context/stale-read-invalidate.js';
 import { deviceEnvFootnote } from '../utils/safe-child-env.js';
-import { createRedactingChunkWriter } from '../safety/tool-output-redact.js';
+import { createRedactingChunkWriter, presentToolOutput } from '../safety/tool-output-redact.js';
 import {
   filesWithIncreasedPlaceholderCount,
   formatRedactedWritebackWarning,
@@ -397,10 +397,18 @@ export const execTool: Tool = {
           : stdoutTrimmed;
       }
       if (!looksBinary(stdoutTrimmed) && !eventCollector && outText.length > STDOUT_MAX) {
+        // The spill is a copy of the result the model would have seen, so it
+        // goes through the same egress filter: a secret the hook masks on the
+        // way out must not survive on disk just because it fell in the middle.
         const spilled = spillToolOutput({
           workspaceDir: ctx.workspaceDir,
           toolName: 'exec',
-          text: outText,
+          text: presentToolOutput({
+            toolName: 'exec',
+            input: { command: commandText },
+            text: outText,
+            workspaceDir: ctx.workspaceDir,
+          }),
         });
         const head = outText.slice(0, Math.floor(STDOUT_MAX * 0.7));
         const tail = outText.slice(-Math.floor(STDOUT_MAX * 0.25));

@@ -27,7 +27,7 @@ test('truncated exec output spills the full text and names the file', async (t) 
   fs.writeFileSync(
     script,
     'const pad = (n, c) => c.repeat(n);\n' +
-      "process.stdout.write(pad(30000, 'a') + 'MIDDLE-ONE' + pad(30000, 'b') + 'MIDDLE-TWO' + pad(30000, 'c'));\n"
+      "process.stdout.write(pad(30000, 'a') + '\\nMIDDLE-ONE\\n' + 'DB_PASSWORD=hunter2hunter2' + '\\n' + pad(30000, 'b') + 'MIDDLE-TWO' + pad(30000, 'c'));\n"
   );
 
   const text = await execTool.execute(
@@ -43,6 +43,11 @@ test('truncated exec output spills the full text and names the file', async (t) 
   assert.ok(spilled.length > 90_000, `spill holds the full output (${spilled.length} chars)`);
   assert.match(spilled, /MIDDLE-ONE/);
   assert.match(spilled, /MIDDLE-TWO/);
+  assert.doesNotMatch(
+    spilled,
+    /hunter2hunter2/,
+    'the spill goes through the same secret filter as the visible result'
+  );
   assert.ok(
     !text.includes('MIDDLE-TWO') || text.length < spilled.length,
     'the result is shortened'
