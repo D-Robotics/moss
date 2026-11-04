@@ -33,6 +33,19 @@ function readFile() {
 function exec(command) {
   return call('exec', { command });
 }
+function review(resultText) {
+  const id = `tool-${++toolUseId}`;
+  return {
+    use: {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id, name: 'create_subagent', input: { expert: 'reviewer' } }],
+    },
+    result: {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: id, content: resultText }],
+    },
+  };
+}
 
 const cases = [];
 function check(name, fn) {
@@ -82,6 +95,42 @@ check('an explicit unverified disclosure passes', () => {
   const decision = evaluateVerificationCompletionGate({
     response: 'The change is unverified — I did not run anything after writing it.',
     messages: messages(writeFile()),
+  });
+  assert.equal(decision.ok, true);
+});
+
+check('an unaddressed review FAIL is held', () => {
+  const decision = evaluateVerificationCompletionGate({
+    response: 'Everything is fine — the change is complete and correct.',
+    messages: messages(
+      writeFile(),
+      review('## Reviewer verdict: **FAIL**\n[Critical finding] calc.js:2')
+    ),
+  });
+  assert.equal(decision.ok, false);
+});
+
+check('a review FAIL that the answer owns passes', () => {
+  const decision = evaluateVerificationCompletionGate({
+    response: 'The reviewer reported a Critical finding at calc.js:2; it remains unresolved.',
+    messages: messages(
+      writeFile(),
+      readFile(),
+      review('## Reviewer verdict: **FAIL**\n[Critical finding] calc.js:2')
+    ),
+  });
+  assert.equal(decision.ok, true);
+});
+
+check('a later PASS clears an earlier FAIL', () => {
+  const decision = evaluateVerificationCompletionGate({
+    response: 'Fixed and re-reviewed.',
+    messages: messages(
+      writeFile(),
+      readFile(),
+      review('## Reviewer verdict: **FAIL**\n[Critical finding] calc.js:2'),
+      review('## Reviewer verdict: **PASS**')
+    ),
   });
   assert.equal(decision.ok, true);
 });

@@ -51,6 +51,25 @@ const CHECK_COMMAND_RE =
 const UNVERIFIED_DISCLOSURE_RE =
   /(未验证|未运行验证|未做验证|没有验证|无法验证|未能验证|unverified|not\s+verified|did\s+not\s+verify|could\s+not\s+verify|cannot\s+verify)/i;
 
+/**
+ * L3 (bounded-repair input): an independent review that returned FAIL must not
+ * be silently dropped. This is the Bugbot rule — unresolved findings are a
+ * failure state, not a footnote — applied at the completion boundary.
+ */
+const REVIEW_TOOLS = new Set(['create_subagent', 'fan_out', 'subagent', 'spawn_subagent']);
+
+/** Machine-readable or structural review-fail markers (reviewer contract). */
+const REVIEW_FAIL_RE =
+  /VERDICT:\s*\*{0,2}\s*FAIL|"verdict"\s*:\s*"fail"|\bverdict\b:?\s*\*{0,2}\s*FAIL|\bCritical finding/i;
+
+/** A later review that passed clears the earlier failure. */
+const REVIEW_PASS_RE =
+  /VERDICT:\s*\*{0,2}\s*PASS|"verdict"\s*:\s*"pass"|\bverdict\b:?\s*\*{0,2}\s*PASS/i;
+
+/** The final answer must own the findings: fix, or list what remains open. */
+const FINDINGS_ACK_RE =
+  /(修复|已修|未解决|未修复|仍未|剩余|无法|blocked|unresolved|remaining|not\s+fixed|still\s+failing|FAIL|fail|fixed|addressed)/i;
+
 interface RecordedCall {
   name: string;
   input: Record<string, unknown>;
@@ -131,11 +150,32 @@ export interface VerificationGateDecision {
   correction?: string;
 }
 
+function findUnresolvedReviewFailure(calls: readonly RecordedCall[]): RecordedCall | undefined {
+  let failure: RecordedCall | undefined;
+  for (const call of calls) {
+    if (!REVIEW_TOOLS.has(call.name)) continue;
+    if (REVIEW_FAIL_RE.test(call.resultText)) failure = call;
+    else if (REVIEW_PASS_RE.test(call.resultText)) failure = undefined;
+  }
+  return failure;
+}
+
 export function evaluateVerificationCompletionGate(request: {
   response: string;
   messages: readonly Message[];
 }): VerificationGateDecision {
   const calls = collectCalls(request.messages);
+  const reviewFailure = findUnresolvedReviewFailure(calls);
+  if (reviewFailure && !FINDINGS_ACK_RE.test(request.response)) {
+    return {
+      ok: false,
+      reason: 'an independent review returned FAIL and the answer does not address it',
+      correction:
+        'The independent reviewer returned FAIL. Fix the findings and re-review, or report the ' +
+        'unresolved findings honestly (what is still broken and why) — do not present the change ' +
+        'as done while a critical finding is open.',
+    };
+  }
   let lastMutation = -1;
   for (let index = 0; index < calls.length; index += 1) {
     if (MUTATION_TOOLS.has(calls[index]!.name)) lastMutation = index;

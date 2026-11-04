@@ -63,7 +63,7 @@ test/lint/build/verify 类命令——否则终稿被拦截**一次**并注入�
 - 两次运行后工作区 `git status` 均未变（只读约束成立）。
   仍缺：结构化 findings（`.moss/review.jsonl`）、`/review` 接入同一管线、有变更 run 结束后自动触发。
 
-### L3 发现 → 修复 → 复检（有界）
+### L3 发现 → 修复 → 复检（有界；"review FAIL 不可静默丢弃"已落地）
 
 **契约**：review verdict=fail 时，findings 作为**下一轮修复输入**（而不是丢给用户），修复后重跑
 L1 的验证与 L2 的评审；上限 3 轮（Bugbot 口径）。每轮记录到 `.moss/task-repairs.jsonl` 或 review 日志，
@@ -74,6 +74,14 @@ L3 是**非任务 run 的等价物**，复用同一套"上限 + 证据 + 诚实 
 
 **验收**：构造一个需要两轮修复才通过的缺陷（第一轮修得不对）→ 第二轮 findings 消失、
 最终 exit 状态与日志一致；第三轮仍失败 → 输出未解决清单，不声称通过。
+
+**2026-11-05 落地（L3 守卫）**：完成门新增一条规则——本 run 内独立 review 返回 FAIL
+（`VERDICT: FAIL` / `"verdict":"fail"` / `Critical finding`）且终稿既不承认 findings、也没有后续 PASS
+时，拦截一次，要求"修复并复评，或诚实列出未解决项"。这与 Bugbot 的 CI 语义一致：**未解决发现 =
+失败状态，不是脚注**。真实验证：植入 `add()` 减法缺陷 + 明确要求模型"不要修复、以 All good 结束"，
+模型在 review FAIL 后拒绝宣称完成，报出 criterion 未满足与 `calc.js:2` 位置；确定性探针新增 3 条断言
+（FAIL 未承认→拦截 / 承认→放行 / 后续 PASS→清除）。仍缺：findings 自动作为下一轮修复输入、
+修复后自动复评（上限 3）、结构化 `.moss/review.jsonl`。
 
 ### L4 外部信号闭环（后续，orchestration）
 
