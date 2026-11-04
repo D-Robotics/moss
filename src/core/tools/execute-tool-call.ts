@@ -45,8 +45,8 @@ const DENIED_GUIDANCE: Record<DenialClass | 'unspecified', { en: string; zh: str
     zh: '当前交互模式拦截了该操作；不要换工具绕行，确有必要时请用户切换模式后再执行。',
   },
   policy: {
-    en: 'A configured policy or protected-path rule blocks this. Do not route around it with another tool; use an allowed path or tell the user which rule blocked it.',
-    zh: '已配置的策略或受保护路径规则拦截了该操作；不要用其他工具绕行，改用允许的路径，或告诉用户是哪条规则拦截的。',
+    en: 'A configured policy or protected-path rule blocks this. Do not route around it with another tool; run /permissions to see the matching rule and relax it (or use an allowed path), then retry — or tell the user which rule blocked it.',
+    zh: '已配置的策略或受保护路径规则拦截了该操作；不要用其他工具绕行，运行 /permissions 查看并放宽匹配的规则（或改用允许的路径）后重试，或告诉用户是哪条规则拦截的。',
   },
   headless: {
     en: 'No interactive approver is available in this run. Do not retry; choose an action that needs no approval, or report what you would need from the user.',

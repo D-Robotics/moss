@@ -993,7 +993,7 @@ export function describeCliToolApproval(
   let decisionContext = 'readonly tool; approval is not required';
 
   if (denied) {
-    decisionContext = `Blocked by configured deniedTools (${deniedPattern})`;
+    decisionContext = `Blocked by configured deniedTools (${deniedPattern}) — remove that entry from permissions.deniedTools (or its deny rule) to allow this tool; /permissions lists the active rules.`;
   } else if (hardBlockReason) {
     decisionContext = hardBlockReason;
   } else if (!allowedBySafety) {

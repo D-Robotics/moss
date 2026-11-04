@@ -141,6 +141,15 @@ stderr 出现 `○ broken — failed: spawn /nonexistent-mcp-binary-xyz ENOENT �
 `[hooks] Blocked by Stop hook: hook exited 1 (fix what the hook checks, then re-run; or remove the hook from your Moss config hooks.Stop)`，
 退出码 `9`（未完成）。
 
+**H5 第二片（2026-11-05）：工具被 deny 规则拦截时给出「怎么放宽」**。`exit_tool_call` 的 `policy` 类拒绝原来只说
+「已配置策略拦截、不要绕行」，没告诉用户去哪里看/改规则。现在 `DENIED_GUIDANCE.policy`（中英）追加
+`run /permissions to see the matching rule and relax it (or use an allowed path), then retry`；同时
+`approval.ts` 的 `deniedTools` 背景行也补了「从 `permissions.deniedTools` 移除该条、`/permissions` 列出生效规则」。
+**真实证据（真实 CLI + 脚本化 provider，配置 `permissions.deny: ["exec"]` 并让模型调用 `exec`）**：工具结果
+`Tool execution denied: Tool "exec" blocked by deny rule exec (user). … run /permissions to see the matching rule and
+relax it (or use an allowed path), then retry …`，`exec` 确实未执行（`echoDidNotRun: true`）；`MOSS_LANG=zh` 下
+同一路径输出 `……运行 /permissions 查看并放宽匹配的规则（或改用允许的路径）后重试……`。
+
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**
