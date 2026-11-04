@@ -287,16 +287,21 @@ export const readFileTool: Tool = {
           let body = slice.join('\n');
           let note = '';
           if (body.length > 100_000) {
-            note = `\n\n[... truncated range, total ${body.length} chars]`;
+            const shown = String(input.path ?? '');
+            // `offset`/`limit` count lines, so they cannot narrow one line.
+            note = body.slice(0, 100_000).includes('\n')
+              ? `\n\n[... truncated range, total ${body.length} chars]`
+              : `\n\n[... truncated inside a single ${body.length}-char line — offset/limit cannot split a line; read a slice with exec: cut -c 1-2000 ${JSON.stringify(shown)}]`;
             body = body.slice(0, 100_000);
           }
           return `[lines ${start}-${end} of ${lines.length}]\n${withLineNumbers(body, start)}${note}`;
         }
         if (content.length > 100_000) {
-          return (
-            withLineNumbers(content.slice(0, 100_000)) +
-            `\n\n[... truncated, total ${content.length} chars — pass offset/limit to page through the rest]`
-          );
+          const shown = String(input.path ?? '');
+          const note = content.slice(0, 100_000).includes('\n')
+            ? `\n\n[... truncated, total ${content.length} chars — pass offset/limit to page through the rest]`
+            : `\n\n[... truncated inside a single ${content.length}-char line — offset/limit cannot split a line; read a slice with exec: cut -c 1-2000 ${JSON.stringify(shown)}]`;
+          return withLineNumbers(content.slice(0, 100_000)) + note;
         }
         return withLineNumbers(withoutTrailingNewline(content));
       })();

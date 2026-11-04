@@ -59,3 +59,19 @@ test('a trailing newline ends the last line instead of adding an empty one', asy
   const window = await readFileTool.execute({ path: 'small.txt', offset: 3 }, ctx(dir));
   assert.match(window, /^\[lines 3-3 of 3\]/);
 });
+
+test('truncation inside one long line names a reader that can split it', async (t) => {
+  const dir = await workspace(t);
+  await fs.writeFile(path.join(dir, 'one-line.txt'), 'x'.repeat(150_000) + '\n');
+  const out = await readFileTool.execute({ path: 'one-line.txt' }, ctx(dir));
+  assert.match(out, /truncated inside a single 150001-char line/);
+  assert.match(out, /cut -c 1-2000 "one-line\.txt"/);
+  assert.doesNotMatch(out, /pass offset\/limit/, 'line paging cannot narrow one line');
+});
+
+test('truncation across many lines still points at offset/limit', async (t) => {
+  const dir = await workspace(t);
+  await fs.writeFile(path.join(dir, 'many.txt'), ('y'.repeat(99) + '\n').repeat(2000));
+  const out = await readFileTool.execute({ path: 'many.txt' }, ctx(dir));
+  assert.match(out, /pass offset\/limit/);
+});
