@@ -103,3 +103,17 @@ test('one hot file cannot take the whole result cap, and says it was capped', as
   assert.match(widened, /src\/hot\.js:31:> call\(29\);/, 'the override reaches every match');
   assert.doesNotMatch(widened, /per-file cap/);
 });
+
+test('a nested glob is matched from the search root, not the absolute path', async (t) => {
+  const dir = await fixture();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'src', 'deep.ts'), 'export const marker = 1;\n');
+  const ctx = ctxFor(dir);
+
+  const files = await searchFilesTool.execute({ pattern: 'src/**/*.ts' }, ctx);
+  assert.match(files, /src\/deep\.ts/, 'the glob the schema documents must match');
+  assert.doesNotMatch(files, /src\/hot\.js/, 'and must still filter by extension');
+
+  const code = await searchCodeTool.execute({ pattern: 'marker', glob: 'src/**/*.ts' }, ctx);
+  assert.match(code, /src\/deep\.ts:1:> export const marker = 1;/);
+});

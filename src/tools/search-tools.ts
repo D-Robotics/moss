@@ -143,9 +143,12 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
       args.push('--glob', `*${ext.startsWith('.') ? ext : `.${ext}`}`);
     }
   }
-  args.push(pattern, searchDir);
-
+  // Run inside the search root and name the target relative to it: with an
+  // absolute target, rg matches --glob patterns against the absolute path, so
+  // a documented pattern like `src/**/*.ts` matched nothing.
   const target = await searchTarget(searchDir);
+  args.push(pattern, target.singleFile ? path.basename(searchDir) : '.');
+
   let stdout = '';
   try {
     const result = await runProcess('rg', {
@@ -186,7 +189,7 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
   if (outputMode === 'files_with_matches') {
     const results: string[] = [];
     for (const line of lines) {
-      const abs = path.isAbsolute(line) ? line : path.resolve(searchDir, line);
+      const abs = path.isAbsolute(line) ? line : path.resolve(target.cwd, line);
       const relPath = path.relative(displayRoot, abs).split(path.sep).join('/');
       results.push(relPath);
       if (results.length >= limit) break;
@@ -200,7 +203,7 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
       // rg --count: path:count
       const m = line.match(/^(.*):(\d+)\s*$/);
       if (!m) continue;
-      const abs = path.isAbsolute(m[1]) ? m[1] : path.resolve(searchDir, m[1]);
+      const abs = path.isAbsolute(m[1]) ? m[1] : path.resolve(target.cwd, m[1]);
       const relPath = path.relative(displayRoot, abs).split(path.sep).join('/');
       results.push(`${relPath}: ${m[2]}`);
       if (results.length >= limit) break;
@@ -214,7 +217,7 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
     const m = line.match(/^(.*?):(\d+)([:-])(.*)$/);
     if (!m) continue;
     const [, file, lineNo, sep, content] = m;
-    const abs = path.isAbsolute(file) ? file : path.resolve(searchDir, file);
+    const abs = path.isAbsolute(file) ? file : path.resolve(target.cwd, file);
     const relPath = path.relative(displayRoot, abs).split(path.sep).join('/');
     const marker = sep === ':' ? ':>' : '-|';
     results.push(`${relPath}:${lineNo}${marker} ${content.slice(0, 200)}`);
@@ -250,13 +253,17 @@ export async function filesWithRg(
     args.push('--glob', `**/${normalized}`);
   }
   if (maxDepth !== undefined) args.push('--max-depth', String(maxDepth));
-  args.push(searchDir);
+
+  // Relative target for the same reason as grepWithRg: an absolute search root
+  // makes a nested --glob miss.
+  const target = await searchTarget(searchDir);
+  args.push(target.singleFile ? path.basename(searchDir) : '.');
 
   let stdout = '';
   try {
     const result = await runProcess('rg', {
       args,
-      cwd: (await searchTarget(searchDir)).cwd,
+      cwd: target.cwd,
       timeout: timeoutMs,
       maxBuffer: 8 * 1024 * 1024,
     });
@@ -286,7 +293,7 @@ export async function filesWithRg(
   // Resolve to absolute, stat for mtime, sort newest first, cap at limit.
   const withMtime: Array<{ abs: string; mtime: number }> = [];
   for (const line of candidates) {
-    const abs = path.isAbsolute(line) ? line : path.resolve(searchDir, line);
+    const abs = path.isAbsolute(line) ? line : path.resolve(target.cwd, line);
     try {
       const st = await fs.stat(abs);
       if (st.isFile()) withMtime.push({ abs, mtime: st.mtimeMs });
