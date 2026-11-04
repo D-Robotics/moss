@@ -361,11 +361,22 @@ export const writeFileTool: Tool = {
       // Existing files: require prior read so full rewrites cannot bypass
       // surgical-edit thrash guards (Claude Code FileWrite parity).
       let existed = false;
+      let isDirectory = false;
       try {
-        await fs.access(filePath);
+        isDirectory = (await fs.stat(filePath)).isDirectory();
         existed = true;
       } catch {
         existed = false;
+      }
+      // A directory exists, so it fell through the prior-read gate — whose
+      // advice (read it, then retry) can never succeed: read_file refuses a
+      // directory. Say what the path is instead of sending the model on that
+      // loop.
+      if (isDirectory) {
+        return (
+          `Error: ${displayPath} is a directory, not a file. Nothing was written. ` +
+          'Pass a file path inside it (e.g. a file name after the slash).'
+        );
       }
       if (existed) {
         const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
@@ -392,6 +403,8 @@ export const writeFileTool: Tool = {
       const redactedWrite = redactedPlaceholderWriteError(originalBody, contentStrEarly);
       if (redactedWrite) return `Error: ${redactedWrite}`;
 
+      // A parent path is a file (`f.txt/x`): the sandbox walk lstat fails here
+      // with a raw ENOTDIR. The outer catch names the caller's path instead.
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, contentStrEarly, 'utf-8');
       await globalToolStateManager.recordMutation(filePath);
@@ -404,6 +417,12 @@ export const writeFileTool: Tool = {
         contentStrEarly.length > 0 ? `\n--- write preview ---\n${previewLines.join('\n')}` : '';
       return `Successfully wrote ${contentStrEarly.length} chars to ${displayPath}.${preview}`;
     } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOTDIR') {
+        return (
+          `Error: cannot create ${String(input.path ?? '')} — a parent path is a file, not a directory. ` +
+          'Nothing was written.'
+        );
+      }
       throw toolError('Error writing file', err);
     }
   },
@@ -756,6 +775,9 @@ async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string
           if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
             return `Error: edits[${i}] file does not exist: ${displayPath}. Use write_file first.`;
           }
+          if ((err as NodeJS.ErrnoException).code === 'EISDIR') {
+            return `Error: edits[${i}] ${displayPath} is a directory, not a file. Nothing was changed.`;
+          }
           throw err;
         }
         const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
@@ -880,6 +902,9 @@ export const editFileTool: Tool = {
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           return `Error: file does not exist: ${displayPath}. Use write_file to create it.`;
+        }
+        if ((err as NodeJS.ErrnoException).code === 'EISDIR') {
+          return `Error: ${displayPath} is a directory, not a file. Nothing was changed. Use list_directory to see what is in it.`;
         }
         throw err;
       }
