@@ -1,4 +1,5 @@
 import type { Tool } from './tool-types.js';
+import { installToolOutputDeclarations } from './tool-output-declarations.js';
 
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
@@ -9,12 +10,16 @@ export class ToolRegistry {
       return;
     }
     this.tools.set(tool.name, tool);
+    // A tool registered after startup (MCP, skills, host extensions) must still
+    // install its own output budget; otherwise it silently runs on the 4k default.
+    installToolOutputDeclarations([tool]);
   }
 
   /** Explicitly replace a tool while transferring its lifecycle ownership. @beta */
   replace(tool: Tool): void {
     if (this.tools.has(tool.name)) this.remove(tool.name);
     this.tools.set(tool.name, tool);
+    installToolOutputDeclarations([tool]);
   }
 
   remove(toolName: string): boolean {
