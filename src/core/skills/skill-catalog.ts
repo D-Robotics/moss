@@ -23,6 +23,15 @@ import type { SkillUsage } from './skill-usage.js';
 export const SKILL_CATALOG_DEFAULT_BUDGET_CHARS = 8_000;
 export const SKILL_CATALOG_DESCRIPTION_MAX_CHARS = 200;
 export const SKILL_CATALOG_DESCRIPTION_COMPACT_CHARS = 120;
+/**
+ * Ceilings for the rest of one entry. Claude Code's disclosure budget caps a
+ * skill entry at ~1,536 chars; without an equivalent, one skill whose `when`
+ * text is a paragraph could take a fifth of Moss's 8,000-char catalog and push
+ * other skills into name-only mode. Descriptions were already clipped; `when`
+ * and the composed line were not.
+ */
+export const SKILL_CATALOG_WHEN_MAX_CHARS = 240;
+export const SKILL_CATALOG_ENTRY_MAX_CHARS = 1_536;
 
 export type SkillCatalogStrategy = 'full' | 'compact' | 'name-only' | 'mixed';
 
@@ -124,8 +133,13 @@ function renderEntry(skill: SkillManifest, mode: 'full' | 'compact' | 'name-only
       ? SKILL_CATALOG_DESCRIPTION_COMPACT_CHARS
       : SKILL_CATALOG_DESCRIPTION_MAX_CHARS;
   const description = clip(skill.description, max);
-  const when = skill.when ? ` (when: ${collapse(skill.when)})` : '';
-  return `- ${skill.name}: ${description}${when}`;
+  const whenText = skill.when ? clip(skill.when, SKILL_CATALOG_WHEN_MAX_CHARS) : '';
+  const when = whenText ? ` (when: ${whenText})` : '';
+  const line = `- ${skill.name}: ${description}${when}`;
+  if (line.length <= SKILL_CATALOG_ENTRY_MAX_CHARS) return line;
+  // Last-resort ceiling: a pathological name or description cannot exceed one
+  // entry's share of the budget.
+  return `${line.slice(0, SKILL_CATALOG_ENTRY_MAX_CHARS - 1).trimEnd()}…`;
 }
 
 function renderText(lines: readonly string[]): string {
