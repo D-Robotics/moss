@@ -541,7 +541,8 @@ test('task_define → record_evidence → task_acceptance full lifecycle', async
   assert.equal(JSON.parse(lines[0]).verdict, 'fail');
 
   const unknown = await taskAcceptanceTool.execute({ task_id: 'task_nope' }, ctx);
-  assert.match(unknown, /^Error: task_acceptance: task task_nope not found/);
+  assert.match(unknown, /^Error: task_acceptance: no contract with id task_nope/);
+  assert.match(unknown, /Known contracts:\n {2}- task_/);
 });
 
 test('task_define: redefine updates in place and validates references', async (t) => {

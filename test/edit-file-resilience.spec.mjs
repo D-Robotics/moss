@@ -194,7 +194,7 @@ test('edit_file miss invalidates prior-read so next edit requires re-read', asyn
     },
     ctx(dir)
   );
-  assert.match(blocked, /must call read_file|before editing/i);
+  assert.match(blocked, /read credit was dropped|must call read_file|before editing/i);
 
   await markRead(dir, 'd.ts');
   const ok = await editFileTool.execute(
