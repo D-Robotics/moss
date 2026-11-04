@@ -1188,7 +1188,7 @@ function applyConfigSetPair(
         ok: false,
         messages: [
           `Invalid rule spec: ${errorMessage(err)}`,
-          'Rules look like ToolName (whole tool) or ToolName(pattern), e.g. exec(npm run *)',
+          'Rules look like ToolName (whole tool) or ToolName(pattern), e.g. exec(npm run *), web_fetch(domain:example.com)',
         ],
       };
     }

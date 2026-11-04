@@ -132,7 +132,7 @@ export function parsePermissionRuleSpec(
       throwMoss({
         code: ErrorCode.USER_INPUT_INVALID,
         message: `Invalid permission rule spec: "${trimmed}"`,
-        hint: 'Rules look like ToolName (whole tool) or ToolName(pattern), e.g. exec(npm run *) or read_file(./.env)',
+        hint: 'Rules look like ToolName (whole tool) or ToolName(pattern), e.g. exec(npm run *), read_file(./.env), or web_fetch(domain:example.com)',
         context: { spec: trimmed, source },
       });
     }
@@ -142,7 +142,7 @@ export function parsePermissionRuleSpec(
       throwMoss({
         code: ErrorCode.USER_INPUT_INVALID,
         message: `Invalid permission rule spec: "${trimmed}" (empty pattern)`,
-        hint: 'Use the bare tool name for a whole-tool rule, or put a pattern in parentheses, e.g. exec(npm run *)',
+        hint: 'Use the bare tool name for a whole-tool rule, or put a pattern in parentheses, e.g. exec(npm run *) or web_fetch(domain:example.com)',
         context: { spec: trimmed, source },
       });
     }
@@ -196,6 +196,10 @@ export function extractRuleOperand(
     const s = input.source ?? input.src;
     return typeof s === 'string' ? s : undefined;
   }
+  if (toolName === 'web_fetch') {
+    const url = input.url;
+    return typeof url === 'string' ? url : undefined;
+  }
   if (toolName === 'apply_patch' && typeof input.patch === 'string') {
     const match = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/m.exec(input.patch);
     return match?.[1]?.trim() || undefined;
@@ -219,6 +223,29 @@ function toolNameMatches(pattern: string, toolName: string): boolean {
   return micromatch.isMatch(toolName, pattern, TOOL_NAME_MATCH_OPTIONS);
 }
 
+/** Host of a URL operand, tolerating a scheme-less operand. */
+function operandHost(operand: string): string | undefined {
+  try {
+    return new URL(operand.includes('://') ? operand : `https://${operand}`).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/** `domain:` specifier: exact host, its subdomains, or a wildcard host pattern. */
+function matchDomainOperand(value: string, operand: string): boolean {
+  const host = operandHost(operand);
+  if (!host || !value) return false;
+  const wanted = value.toLowerCase().replace(/^\./, '');
+  if (host === wanted || host.endsWith(`.${wanted}`)) return true;
+  return micromatch.isMatch(host, wanted, {
+    dot: true,
+    nocase: true,
+    noextglob: true,
+    nonegate: true,
+  });
+}
+
 /**
  * Match one rule against a tool call. Bare rules match only the tool name;
  * pattern rules additionally require the operand to match the pattern.
@@ -239,6 +266,13 @@ export function matchPermissionRule(
   if (operand === undefined) return false;
   const pattern = rule.operandPattern;
   if (pattern === '*') return true;
+  // Claude Code alignment (`WebFetch(domain:example.com)`): a `domain:` specifier
+  // compares the URL host instead of the whole URL, so a migrated deny rule keeps
+  // protecting the same requests. Subdomains are included; `*.example.com` works.
+  const domainSpecifier = /^domain:(.+)$/i.exec(pattern);
+  if (domainSpecifier) {
+    return matchDomainOperand(domainSpecifier[1]!.trim(), operand);
+  }
   if (pattern.endsWith('*')) {
     return operand.startsWith(pattern.slice(0, -1));
   }
