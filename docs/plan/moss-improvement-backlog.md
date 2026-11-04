@@ -82,6 +82,22 @@ PNG 真图往返、魔数优先、伪装 .png 拒绝、缺文件/超限报错、
 仍未做：文本模型的能力守卫（无 vision 的模型会把图发出去再报错）、剪贴板/TUI 粘贴、`attachment-refs.ts` 接线、
 会话体积预算（base64 直接进 JSONL，一张 3 MB 图 ≈ 4 MB 会话行）。
 
+**已落地（2026-11-05，本轮 = B01 下一片：图片总量预算）**：新 `src/context/image-budget.ts`——
+`pruneHistoricalImages` 在 `convertMessagesToPi`（工具观测图片进入 provider 消息的唯一入口）里从新到旧保留
+最新 `IMAGE_HISTORY_MAX_COUNT=8` 张、累计 base64 `IMAGE_HISTORY_MAX_BYTES=12 MiB`，更早的 image block 在
+**请求里**换成一条 `[N earlier image(s) omitted from this request: only the newest 8 images / 12 MiB stay
+attached. The session still has them; call read_image again if you need to look.]`；session JSONL 不改写
+（审计/回放/导出保留全部图片），无图消息保持同一引用（前缀缓存稳定）；`MOSS_IMAGE_HISTORY_MAX_COUNT` /
+`MOSS_IMAGE_HISTORY_MAX_BYTES` 可强制调小便于验证。回归门：verify stage `image-budget`（6 断言，0.1s：
+默认预算不裁剪、count 预算保留最新两张并给提示、session 不被改写、字节预算生效、env 覆盖与非法值回退、
+无图消息引用不变）。
+**线级真实验证**（脚本化 OpenAI 兼容 provider 记录每个请求体，`MOSS_CONFIG_DIR` 隔离配置，真实 CLI 跑 3 张图）：
+`MOSS_IMAGE_HISTORY_MAX_COUNT=1` 时请求里的 `image_url` 数量恒为 **1/1/1**，且提示逐轮累积（notices 0→1→2）；
+同一场景不设上限（默认 8）时为 **1/2/3** 且无任何 notice；两次运行的 `.moss/sessions/*.jsonl` 都保存了
+**3** 个 image block。
+仍未做：text-only 模型的视觉能力守卫（`read_image` 对无视觉输入模型给出明确降级）、剪贴板/TUI 粘贴、
+`attachment-refs.ts` 接线。
+
 **B02 压缩可回溯（P0）**
 Moss 的压缩策略本身不弱（`compaction.ts:1137` 还会回读最近 5 个文件），但**摘要之外的历史在上下文里彻底消失**，
 而模型知道「被摘要过」却不知道「原文还能查」。对手把这一点做成了机制：Cursor 的旧段是带 `# HISTORICAL --

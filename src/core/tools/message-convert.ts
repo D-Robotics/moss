@@ -8,6 +8,7 @@ import type {
 } from '../../provider/pi-ai-types.js';
 import { shouldRoundTripAssistantThinking } from '../../provider/reasoning-policy.js';
 import type { ToolContentBlock } from '../../contracts/messages.js';
+import { pruneHistoricalImages } from '../../context/image-budget.js';
 
 // Moved verbatim to provider/reasoning-policy.ts (T3.2); re-exported to keep
 // this module's public surface stable for core consumers.
@@ -194,5 +195,8 @@ export function convertMessagesToPi(
     }
   }
 
-  return result;
+  // B01: the newest images ride along, older ones become a short notice. This is
+  // the single place tool-observed images enter provider messages, so the budget
+  // is enforced once for loops, sub-agents and replay alike.
+  return pruneHistoricalImages(result);
 }

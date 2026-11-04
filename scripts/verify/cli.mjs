@@ -38,6 +38,7 @@ import { stage as planEndStage } from './stages/plan-end.mjs';
 import { stage as rulesActivationStage } from './stages/rules-activation.mjs';
 import { stage as subagentPromptStage } from './stages/subagent-prompt-contract.mjs';
 import { stage as toolSurfaceStage } from './stages/tool-surface.mjs';
+import { stage as imageBudgetStage } from './stages/image-budget.mjs';
 import { stage as loopCommandStage } from './stages/loop-command.mjs';
 
 const STAGES = new Map(
@@ -56,6 +57,7 @@ const STAGES = new Map(
     rulesActivationStage,
     subagentPromptStage,
     toolSurfaceStage,
+    imageBudgetStage,
     loopCommandStage,
   ].map((stage) => [stage.name, stage])
 );
@@ -75,6 +77,7 @@ const FAST_GATE = [
   'rules-activation',
   'subagent-prompt-contract',
   'tool-surface',
+  'image-budget',
   'loop-command',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
