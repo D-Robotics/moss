@@ -324,7 +324,12 @@
   （`create_subagent` 前 hook 收到 goal，子代理返回 4）。
 - ✅ `PermissionDenied` 事件：工具被拒（策略/hook/用户）后触发，payload `{event, toolName, reason}`；
   真实运行验证（deny 规则拦 `write_file`，hook 收到 reason 原文），fire-and-forget 不阻塞拒绝。
-- ⬜ 仍缺：决策优先级/exit-code 的 probe 契约表、可选 `failClosed`。
+- ✅ 契约探针已进交付门：`scripts/verify/hooks-contract.mjs` + `scripts/verify/stages/hooks-contract.mjs`
+  （fast gate 新增 `hooks-contract` stage，11 条断言：原生 exit 0/1/2、`claude` 格式 exit 1/2、
+  `blocking:false`、显式 deny、ask 暴露、deny>ask、`updatedInput` 整对象替换、`blocking:false` 不能改写）。
+  实测 `npm run verify` 19.0s（预算 60s）。探针纠正了一处文档错误：PreToolUse 在 **两种格式**下都对
+  非零退出阻塞（刻意比 Claude 严格，仅非 PreToolUse 事件才按 `claude` 格式只认 exit 2）。
+- ⬜ 仅剩可选 `failClosed`（spawn 失败/超时的可配置策略；当前默认已 fail-closed）。
 
 ### 可选/低优先（列入但不推荐立刻做）
 
