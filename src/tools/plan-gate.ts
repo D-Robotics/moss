@@ -11,6 +11,7 @@
  * environment flag was an A/B harness artefact; it is retired because a mode
  * that exists must have its exit action.
  */
+import crypto from 'node:crypto';
 import type { Tool } from '../core/tools/tool-types.js';
 
 interface ExitPlanInput {
@@ -41,6 +42,15 @@ export const exitPlanTool: Tool<ExitPlanInput> = {
   async execute(input): Promise<string> {
     const summary = typeof input.summary === 'string' ? input.summary.trim() : '';
     if (!summary) return 'Error: exit_plan requires a summary of the plan.';
-    return 'Plan submitted for approval. Wait for the user before editing files.\n' + summary;
+    // Version the plan at submission time. The approval dialog echoes the same
+    // fingerprint, so "approved" names a specific plan instead of whatever the
+    // model writes next (Claude Code binds plan approval to the request id; text
+    // has no id, so the hash is the closest honest equivalent).
+    const version = crypto.createHash('sha256').update(summary, 'utf8').digest('hex').slice(0, 12);
+    return (
+      `Plan submitted for approval (version ${version}). Wait for the user before editing files.\n` +
+      `The approval applies to this version; if the plan changes materially, ask again.\n` +
+      summary
+    );
   },
 };

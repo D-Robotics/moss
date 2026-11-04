@@ -13,6 +13,7 @@
  * dependencies. Non-TTY or `--no-tty` sessions fall back to the readline REPL.
  */
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -1647,6 +1648,13 @@ export function TuiAppRoot({
     if (pendingDialogRef.current) return;
     runtime.setApprovalPending(true);
     handle.notify();
+    // Name the version the user is approving. The plan is conversational text, so
+    // the fingerprint is the only stable handle; the follow-up message echoes it so
+    // "approved" refers to a specific plan and a later revision must be re-approved.
+    const planText = [...store.rows].reverse().find((row) => row.kind === 'assistant')?.text ?? '';
+    const planVersion = planText
+      ? crypto.createHash('sha256').update(planText, 'utf8').digest('hex').slice(0, 12)
+      : 'unknown';
     const PROCEED_AUTO = 'Proceed: accept edits this session.';
     const PROCEED_MANUAL = 'Proceed: keep manual approvals.';
     const entry: PendingDialog = {
@@ -1655,11 +1663,13 @@ export function TuiAppRoot({
       resolve: (value) => {
         if (value === PROCEED_AUTO) {
           setCliInteractionMode('acceptEdits');
-          void dispatchRun('The plan above is approved — proceed with execution now.');
+          void dispatchRun(
+            `The plan above is approved (version ${planVersion}) — proceed with execution now.`
+          );
         } else if (value === PROCEED_MANUAL) {
           setCliInteractionMode('manual');
           void dispatchRun(
-            'The plan above is approved — proceed with execution now (manual approvals stay on).'
+            `The plan above is approved (version ${planVersion}) — proceed with execution now (manual approvals stay on).`
           );
         } else if (value.trim()) {
           void dispatchRun(`Plan feedback — revise the plan accordingly: ${value}`);
@@ -1679,7 +1689,7 @@ export function TuiAppRoot({
       footer: tui('↑↓ then Enter · or type feedback below · Esc keeps planning'),
       cursor: 0,
     });
-  }, [dispatchRun, handle, runtime]);
+  }, [dispatchRun, handle, runtime, store]);
   useEffect(() => {
     planGateRef.current = openPlanGate;
     return () => {
