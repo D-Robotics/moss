@@ -636,6 +636,9 @@ export async function runCli(): Promise<void> {
     ...(configDir ? { configDir } : {}),
     initialText: process.argv.join(' '),
   });
+  // Prompt assembly (system prompt layers, AGENTS.md, rules, soul) is the last
+  // piece before the agent is built; a separate mark keeps it out of `config`.
+  startupTiming.mark('prompt');
   // Skills whose `globs` match a touched path enter the catalog; the skills
   // block below installs the real refresh and this hook forwards to it.
   let refreshSkillActivation = (): void => {};
@@ -1090,6 +1093,7 @@ export async function runCli(): Promise<void> {
       mcpRegistry = null;
     }
   }
+  startupTiming.mark('mcp');
   agent.config.resolveMissingTool = (name, signal) =>
     mcpRegistry?.resolveCallableTool(name, signal) ?? Promise.resolve(undefined);
   agent.config.describeMissingTool = (name) => mcpRegistry?.missingToolReason(name);

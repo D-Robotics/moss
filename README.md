@@ -430,7 +430,7 @@ npm run examples       # 四个离线嵌入示例（SDK 契约的活文档，先
 | 变量                      | 作用                                                                                                                               | 什么时候用                                                                      |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `MOSS_LEAN_TOOLS`         | 工具描述换用精简档（`ToolMetadata.leanDescription`）：`=1` 强制精简、`=0` 强制完整；不设时 **上下文窗口 ≤ 64,000 tokens 自动精简** | 小窗口模型（32k/64k）每轮省约 200–700 tokens 的工具声明；或想强制对比两种工具面 |
-| `MOSS_STARTUP_TIMING`     | 启动时向 stderr 打一行分阶段耗时：`entry/proxy/config/agent/skills/total`（TUI 另有 `tui-import/composer`）                        | 启动变慢时先定位是哪一段，而不是猜                                              |
+| `MOSS_STARTUP_TIMING`     | 启动时向 stderr 打一行分阶段耗时：`entry/proxy/config/prompt/agent/mcp/skills/total`（TUI 另有 `tui-import/composer`）             | 启动变慢时先定位是哪一段，而不是猜                                              |
 | `MOSS_VERIFY_CONCURRENCY` | `npm run verify` 的并发度（默认 4，`1` = 串行基线）；`startup-timing` 等耗时敏感项独占                                             | 排查验证门抖动，或核对并发带来的加速                                            |
 | `MOSS_NO_TUI`             | 强制 readline REPL（不进全屏 TUI）                                                                                                 | 终端不兼容、要复制纯文本，或调试 TUI 之外的行为                                 |
 

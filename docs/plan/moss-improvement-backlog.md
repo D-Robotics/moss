@@ -647,6 +647,19 @@ stage、等在跑的结束，半跑 stage 不会显示成 `ok`。`VERIFY_CONCURR
 新 stage 不启动、在跑跑完、exit 1。注：调度器首版在与其他会话共享 checkout 时被其提交 `2a00395f` 一并带走，
 本轮补的独占集收窄（smoke 也进池，仍守 PTY 断言）与文档/表格记录是本轮改动。
 
+**B12 分阶段计时补齐 `prompt` / `mcp` 两段 + 一次负结果（2026-11-05）**
+原来只有 `entry/proxy/config/agent/skills/total`，看不出「提示词组装」与「MCP 准备」各占多少，而 B12 的验收口径
+要求能定位到这几段。现在 `prompt` 在 `createCliPromptSetup` 之后打点（系统提示层/AGENTS.md/rules/soul）、`mcp` 在
+MCP 注册表准备之后打点；真实一行变为
+`[startup] timing: entry=341ms proxy=84ms config=120ms prompt=262ms agent=278ms mcp=278ms skills=530ms total=530ms`。
+`startup-timing` probe 同步收紧：正则必须含 `prompt=`/`mcp=`，单调性断言扩展为
+`config ≤ prompt ≤ agent ≤ mcp ≤ skills ≤ total`（4 checks pass），README 的环境变量表同步。
+**负结果（已回退，不再重试）**：把 `core/mcp/registry.js` 的静态 import 改成「只有配置了 MCP 服务器才动态 import」，
+理论上能省掉 client/transport/npx 模块图；实测冷进程 `import('./dist/cli/runtime.js')` 中位数
+**262ms → 270ms**（8 次，噪声内），`--cpu-prof` 里被采样的 dist 模块数 **8 → 7**，没有可测收益，故回退，保持静态 import。
+**这次测出的真实大头**：`agent → skills` 之间约 **250ms**（`278 → 530`），即技能发现 + 命令/slash 命名空间 + 文件工具注册；
+下一片该动的是把这块移出「composer 之前」的可达集，而不是继续找 MCP 的模块。
+
 ## 4. 已排除：已落地 / 已澄清（防止重复调研）
 
 | 项                                                  | 为什么不再列                                                                                                                                      |
