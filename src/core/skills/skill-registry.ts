@@ -280,8 +280,19 @@ function readSkillsFromDir(
   }
   const skills: SkillManifest[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
     const child = path.join(dir, entry.name);
+    // Dotfile managers and shared skill packs usually symlink skill folders
+    // into ~/.claude/skills; treat a symlink to a directory as a skill folder.
+    // Only one level is walked, so a self-referential link cannot recurse.
+    let isDirectory = entry.isDirectory();
+    if (!isDirectory && entry.isSymbolicLink()) {
+      try {
+        isDirectory = fs.statSync(child).isDirectory();
+      } catch {
+        isDirectory = false;
+      }
+    }
+    if (!isDirectory) continue;
     const file = path.join(child, 'SKILL.md');
     // One level only: a SKILL.md under references/ belongs to its parent skill.
     if (isHiddenSkillFolder(entry.name)) {
