@@ -648,6 +648,7 @@ export async function runCli(): Promise<void> {
   // that have no access to this wiring — install them as the module runner.
   setLifecycleHookRunner({
     runStop: (info) => configuredHooks.runStop(info),
+    runPermissionDenied: (info) => configuredHooks.runPermissionDenied(info),
     runSubagentStart: (info) => configuredHooks.runSubagentStart(info),
     runSubagentStop: (info) => configuredHooks.runSubagentStop(info),
     runNotification: (info) => configuredHooks.runNotification(info),
@@ -721,7 +722,17 @@ export async function runCli(): Promise<void> {
   // O157: a hook `ask` reaches the policy hook, which prompts (or refuses in -p).
   const preToolUseGate = composePreToolUseGate(configPreHook, approvalHook);
   const onBeforeToolExec: AgentHooks['onBeforeToolExec'] = (req) =>
-    runWithApprovalRequest(req, () => preToolUseGate(req));
+    runWithApprovalRequest(req, async () => {
+      const decision = await preToolUseGate(req);
+      if (!decision.approved) {
+        // Fire-and-forget: the deny verdict must not wait on a logging hook.
+        void configuredHooks.runPermissionDenied({
+          toolName: req.tool.name,
+          ...(decision.reason ? { reason: decision.reason } : {}),
+        });
+      }
+      return decision;
+    });
   const protectedConfigPaths = [
     loadedConfig.configPath,
     ...mossConfigDirs(configDir, envBeforeDotenv).flatMap((dir) =>

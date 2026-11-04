@@ -341,6 +341,9 @@ export interface HooksConfig {
   /** Fires when a tool approval would be shown. Deny is honored; allow is not. */
   PermissionRequest?: HookCommandConfig[];
 
+  /** Fires when a tool call ends up denied (policy, hook, or user). */
+  PermissionDenied?: HookCommandConfig[];
+
   SessionStart?: HookCommandConfig[];
 
   /** Fires after each completed agent run; a blocking non-zero exit vetoes the stop. */
@@ -370,6 +373,7 @@ export const HOOK_EVENT_KEYS = [
   'PostToolUse',
   'UserPromptSubmit',
   'PermissionRequest',
+  'PermissionDenied',
   'SessionStart',
   'Stop',
   'SubagentStart',

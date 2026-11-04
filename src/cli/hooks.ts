@@ -523,6 +523,7 @@ export interface ConfiguredHookCallbacks {
   runStop: (info: StopHookInfo) => Promise<StopHookResult>;
 
   runSubagentStart: (info: { goal: string }) => Promise<void>;
+  runPermissionDenied: (info: { toolName: string; reason?: string }) => Promise<void>;
   runSubagentStop: (info: SubagentStopHookInfo) => Promise<void>;
 
   /** SessionEnd: fires once when the CLI session is shutting down. */
@@ -574,6 +575,7 @@ export function createConfiguredHookCallbacks(
   const permission = hooks?.PermissionRequest ?? [];
   const sessionStart = hooks?.SessionStart ?? [];
   const stop = hooks?.Stop ?? [];
+  const permissionDenied = hooks?.PermissionDenied ?? [];
   const subagentStart = hooks?.SubagentStart ?? [];
   const subagentStop = hooks?.SubagentStop ?? [];
   const preCompact = hooks?.PreCompact ?? [];
@@ -767,6 +769,28 @@ export function createConfiguredHookCallbacks(
     }
   };
 
+  const runPermissionDenied = async (info: {
+    toolName: string;
+    reason?: string;
+  }): Promise<void> => {
+    for (const hook of permissionDenied) {
+      if (!toolNameMatches(hook, info.toolName)) continue;
+      const r = await runHookCommand(
+        hook.command,
+        {
+          event: 'PermissionDenied',
+          toolName: info.toolName,
+          ...(info.reason ? { reason: info.reason.slice(0, 500) } : {}),
+        },
+        cwd,
+        timeoutFor(hook)
+      );
+      if (r.exitCode !== 0) {
+        process.stderr.write(`${hookExitedLine('PermissionDenied', r.exitCode, r.stderr)}\n`);
+      }
+    }
+  };
+
   const runSubagentStart = async (info: { goal: string }): Promise<void> => {
     for (const hook of subagentStart) {
       const r = await runHookCommand(
@@ -947,6 +971,7 @@ export function createConfiguredHookCallbacks(
     onToolResult,
     runSessionStart,
     runStop,
+    runPermissionDenied,
     runSubagentStart,
     runSubagentStop,
     runSessionEnd,
@@ -1025,6 +1050,7 @@ export interface SubagentStopHookInfo {
 interface LifecycleHookRunner {
   runStop(info: StopHookInfo): Promise<StopHookResult>;
   runSubagentStart(info: { goal: string }): Promise<void>;
+  runPermissionDenied(info: { toolName: string; reason?: string }): Promise<void>;
   runSubagentStop(info: SubagentStopHookInfo): Promise<void>;
   runNotification?: (info: { reason: string; message: string }) => Promise<void>;
 }

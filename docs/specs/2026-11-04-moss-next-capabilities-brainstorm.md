@@ -322,7 +322,9 @@
   （hook 把 `write_file{path:original.txt}` 改成 `rewritten.txt`，落地文件内容来自 hook）。
 - ✅ `SubagentStart` 事件：spawn 子代理前触发，payload `{event, goal}`；真实运行验证
   （`create_subagent` 前 hook 收到 goal，子代理返回 4）。
-- ⬜ 仍缺：`PermissionDenied`、决策优先级/exit-code 的 probe 契约表、可选 `failClosed`。
+- ✅ `PermissionDenied` 事件：工具被拒（策略/hook/用户）后触发，payload `{event, toolName, reason}`；
+  真实运行验证（deny 规则拦 `write_file`，hook 收到 reason 原文），fire-and-forget 不阻塞拒绝。
+- ⬜ 仍缺：决策优先级/exit-code 的 probe 契约表、可选 `failClosed`。
 
 ### 可选/低优先（列入但不推荐立刻做）
 
