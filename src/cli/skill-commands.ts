@@ -18,6 +18,11 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
       '  moss skill create <名称>          生成 .moss/skills/<名称>/SKILL.md 脚手架',
       '  moss skill list                   列出已发现的技能（工作区与用户级）',
       '  moss skill validate <路径>        按 Agent Skills 规范校验一个技能目录',
+      '  moss skill install <源> [--workspace] [--name 名称] [--yes]',
+      '                                    从目录 / git URL / npm 包安装并写锁文件',
+      '  moss skill update [名称] [--workspace] [--yes]',
+      '                                    按锁文件重新拉取并显示文件级差异',
+      '  moss skill lock [--workspace]     校验已安装技能与锁文件是否一致',
       '',
       '编辑脚手架，补全 `description` 和正文；下次启动 moss 会自动加载（渐进披露：',
       '只有 `name` 和 `description` 进入提示词；正文由技能工具按 `{参数}` 加载）。',
@@ -35,6 +40,11 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
     '  moss skill create <name>          scaffold .moss/skills/<name>/SKILL.md',
     '  moss skill list                   list discovered skills (workspace + user)',
     '  moss skill validate <path>        validate a skill directory against the Agent Skills spec',
+    '  moss skill install <source> [--workspace] [--name n] [--yes]',
+    '                                    install from a directory / git URL / npm package, write the lockfile',
+    '  moss skill update [name] [--workspace] [--yes]',
+    '                                    re-fetch from the lockfile and show a file-level diff',
+    '  moss skill lock [--workspace]     verify installed skills still match the lockfile',
     '',
     'Edit the scaffold, fill in description + body; it appears in the next',
     'session automatically (progressive disclosure: only name + description',
@@ -74,6 +84,19 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
   const err = (text: string) => process.stderr.write(`${text}\n`);
   const sub = argv[0] ?? 'list';
   const zh = isZhLocale();
+
+  if (sub === 'install' || sub === 'update' || sub === 'lock') {
+    const mod = await import('./skill-install.js');
+    const installCtx = {
+      workspaceDir: ctx.workspaceDir,
+      configDir: ctx.configDir,
+      out,
+      err,
+    };
+    if (sub === 'install') return mod.runSkillInstall(argv.slice(1), installCtx);
+    if (sub === 'update') return mod.runSkillUpdate(argv.slice(1), installCtx);
+    return mod.runSkillLock(argv.slice(1), installCtx);
+  }
 
   if (sub === 'create') {
     const name = argv[1];
