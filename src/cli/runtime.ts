@@ -1,4 +1,17 @@
 /**
+ * Startup context-window probe ceiling.
+ *
+ * Headless `-p` waits for this probe before its first turn (the compaction
+ * budget uses the window), so its timeout is user-visible dead time: a slow or
+ * hung `/v1/models` used to stall the run for the full 4s before anything
+ * happened. 1.5s keeps a healthy endpoint (tens of ms) unaffected, still gives
+ * a slow-but-alive one a real chance, and bounds the stall; a timeout keeps the
+ * conservative unprobed window, which is exactly what a failed probe yields
+ * anyway (doctor surfaces it).
+ */
+const STARTUP_CONTEXT_PROBE_TIMEOUT_MS = 1_500;
+
+/**
  * CLI runtime: everything one `moss` process wires up.
  *
  * `cli-main.ts` used to be both the entry point and the 1,600-line `main()`. The
@@ -1284,7 +1297,7 @@ export async function runCli(): Promise<void> {
           baseUrl: resolvedConfig.baseUrl,
           ...(resolvedConfig.apiKey ? { apiKey: resolvedConfig.apiKey } : {}),
           ...(resolvedConfig.provider ? { provider: String(resolvedConfig.provider) } : {}),
-          timeoutMs: 4000,
+          timeoutMs: STARTUP_CONTEXT_PROBE_TIMEOUT_MS,
         });
         if (probed.source === 'provider-api') {
           agent.config.contextTokens = probed.contextTokens;
