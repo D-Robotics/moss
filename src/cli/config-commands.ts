@@ -78,6 +78,11 @@ function serializeResolvedConfig(
     maxAgentTurnsSource: resolved.maxAgentTurnsSource,
     contextTokens: resolved.contextTokens,
     contextTokensSource: resolved.contextTokensSource,
+    // Read by read_image before it attaches an image; surfaced here so a user
+    // who set it (or inherited it) can see the resolved value and where it came
+    // from instead of guessing why images are refused.
+    supportsImages: resolved.supportsImages ?? true,
+    supportsImagesSource: resolved.supportsImagesSource ?? 'default',
     reviewMode: resolved.reviewMode ?? 'manual',
     reviewModeSource: resolved.reviewMode ? 'config-or-env' : 'default',
     verificationGate: resolved.verificationGate,
@@ -618,6 +623,10 @@ export function renderConfigHelp(zh = false): string {
     '  moss config set guardrails.input.redactPatterns SECRET=[^\\\\s]+',
     '  moss config set agent.maxTurns 96',
     '  moss config set agent.contextTokens 200000',
+    '  # agent.supportsImages — declare whether the configured model accepts image input',
+    '  # (default true). false makes read_image explain the limitation instead of',
+    '  # attaching an image the provider would drop or reject.',
+    '  moss config set agent.supportsImages false',
     '  # agent.reasoningBudget — Moss adaptive-reasoning knob (off|adaptive|high).',
     '  # high forces reasoning=high on outbound calls; adaptive may escalate to high under',
     "  # verify/turn-error pressure; off means do NOT escalate (keeps the model's own",
@@ -956,8 +965,8 @@ function buildProjectConfigTemplate(): ConfigFile {
 
 function supportedConfigKeys(): string {
   return uiText(
-    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
-    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
+    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.supportsImages, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
+    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.supportsImages、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
   );
 }
 
@@ -1315,6 +1324,17 @@ function applyConfigSetPair(
     } catch (err) {
       return { ok: false, messages: [errorMessage(err)] };
     }
+  } else if (key === 'agent.supportsImages') {
+    const supportsImages = parseConfigBoolean(value);
+    if (supportsImages === null) {
+      return {
+        ok: false,
+        messages: [
+          'Supported agent.supportsImages values: true/false (yes/no, on/off, 1/0 also accepted)',
+        ],
+      };
+    }
+    next.agent = { ...next.agent, supportsImages };
   } else if (key === 'agent.reasoningBudget') {
     if (!value.trim()) {
       return {
@@ -1571,6 +1591,9 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   } else if (key === 'agent.contextTokens') {
     next.agent = { ...current.agent };
     delete next.agent.contextTokens;
+  } else if (key === 'agent.supportsImages') {
+    next.agent = { ...current.agent };
+    delete next.agent.supportsImages;
   } else if (key === 'agent.reasoningBudget') {
     next.agent = { ...current.agent };
     delete next.agent.reasoningBudget;

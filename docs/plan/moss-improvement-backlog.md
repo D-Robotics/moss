@@ -109,8 +109,20 @@ exec file|xxd）… switch to a vision-capable model」，`execute` 与 `execute
 `agent.supportsImages:false` → 三轮请求的 imageParts **0/0/0**，模型看到的工具结果含
 「declares no image input」并回复 `SAW:LIMITATION`；同一工作区设 true → 请求 imageParts **0/0/1**，
 模型回复 `SAW:IMAGE`。session JSONL：false 时 **0** 个 image block，true 时 **1** 个（审计与请求一致）。
-仍未做：剪贴板/TUI 粘贴、`attachment-refs.ts` 接线（`config set agent.supportsImages` 也尚未进
-`moss config set` 键表，只支持配置文件）。
+**已落地（2026-11-05，再补一片 = 声明可从 CLI 写/清/看）**：`agent.supportsImages` 之前只能手改
+config.json（`config get` 来源表认识它，`config set` 的 switch 不认识）。现在 `moss config set
+agent.supportsImages false`（true/false，兼容 yes/no、on/off、1/0）与 `moss config unset
+agent.supportsImages` 都可用，`moss config --help` 的 en/zh 键表与示例列出该键，`moss config show --json`
+新增 `supportsImages` + `supportsImagesSource`（user/project/default），非法值 exit 1 且不写文件。
+`read-image` stage 从 11 断言扩到 **14**（新增：set 落盘并在 resolved 输出里可见、非法值失败且文件不变、
+unset 回到默认 true/source=default）。
+**真实证据（真实 CLI + 脚本化 provider，同一工作区/提示）**：`MOSS_CONFIG_DIR` 临时目录下
+`moss config set agent.supportsImages false` → `config show --json` 得 `"supportsImages": false,
+"supportsImagesSource": "user"`；同一工作区 `moss -p "Use read_image on pic.png …"`（pic.png 为 1×1 真
+PNG，70 B）→ 工具结果为拒绝文本、**三轮请求 imageParts 0/0/0**、终稿 `ANSWERED:REFUSED`；`config unset`
+后再跑同一命令 → 工具结果 `[image] pic.png (image/png, 70 B)`、**imageParts 0/0/2**、终稿
+`ANSWERED:IMAGE`。两次都 exit 0。
+仍未做：剪贴板/TUI 粘贴、`attachment-refs.ts` 接线。
 
 **B02 压缩可回溯（P0）**
 Moss 的压缩策略本身不弱（`compaction.ts:1137` 还会回读最近 5 个文件），但**摘要之外的历史在上下文里彻底消失**，

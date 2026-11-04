@@ -174,6 +174,54 @@ try {
     true
   );
   ok('an undeclared capability keeps the default (images attach)');
+
+  // ── 9. The declaration is reachable from the CLI, not only by hand-editing ──
+
+  const configModule = await import(
+    pathToFileURL(path.join(root, 'dist/cli/config-commands.js')).href
+  );
+  const cfgDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-read-image-cfg-'));
+  const cfgWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-read-image-ws-'));
+  const savedEnv = process.env.MOSS_CONFIG_DIR;
+  const print = console.log;
+  const exitBefore = process.exitCode;
+  process.env.MOSS_CONFIG_DIR = cfgDir;
+  console.log = () => {};
+  try {
+    configModule.runConfigSet(['agent.supportsImages', 'false'], cfgWorkspace);
+    const written = JSON.parse(await fs.readFile(path.join(cfgDir, 'config.json'), 'utf8'));
+    assert.equal(written.agent?.supportsImages, false, 'config set must persist the declaration');
+    const shown = JSON.parse(configModule.renderConfigJson(undefined, process.env, cfgWorkspace));
+    assert.equal(shown.supportsImages, false);
+    assert.equal(shown.supportsImagesSource, 'user');
+    ok('`config set agent.supportsImages false` persists and shows up resolved');
+
+    process.exitCode = 0;
+    configModule.runConfigSet(['agent.supportsImages', 'maybe'], cfgWorkspace);
+    assert.equal(process.exitCode, 1, 'an invalid boolean must fail');
+    const afterInvalid = JSON.parse(await fs.readFile(path.join(cfgDir, 'config.json'), 'utf8'));
+    assert.equal(afterInvalid.agent?.supportsImages, false, 'a rejected value must not be written');
+    ok('an invalid value fails without touching the file');
+
+    process.exitCode = 0;
+    configModule.runConfigUnset(['agent.supportsImages'], cfgWorkspace);
+    assert.equal(process.exitCode, 0);
+    const afterUnset = JSON.parse(await fs.readFile(path.join(cfgDir, 'config.json'), 'utf8'));
+    assert.equal(afterUnset.agent?.supportsImages, undefined);
+    const defaults = JSON.parse(
+      configModule.renderConfigJson(undefined, process.env, cfgWorkspace)
+    );
+    assert.equal(defaults.supportsImages, true);
+    assert.equal(defaults.supportsImagesSource, 'default');
+    ok('`config unset agent.supportsImages` returns it to the default (true)');
+  } finally {
+    console.log = print;
+    if (savedEnv === undefined) delete process.env.MOSS_CONFIG_DIR;
+    else process.env.MOSS_CONFIG_DIR = savedEnv;
+    process.exitCode = exitBefore;
+    await fs.rm(cfgDir, { recursive: true, force: true });
+    await fs.rm(cfgWorkspace, { recursive: true, force: true });
+  }
 } finally {
   await fs.rm(dir, { recursive: true, force: true });
 }
