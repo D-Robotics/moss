@@ -158,6 +158,12 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
+        command: '/remember',
+        args: '<fact>',
+        description: 'append one fact to AGENTS.md (explicit memory; shows a preview first)',
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/agents',
         description: 'list file-defined sub-agents with source paths and warnings',
         availableDuringRun: 'immediate',

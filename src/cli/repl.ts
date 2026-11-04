@@ -467,6 +467,43 @@ export async function runInteractive(
       continue;
     }
 
+    if (msg === '/remember' || msg.startsWith('/remember ')) {
+      const fact = msg.slice('/remember'.length).trim();
+      const remember = await import('./remember-command.js');
+      if (fact === '') {
+        console.error(remember.renderRememberUsage());
+        rl.prompt();
+        continue;
+      }
+      const plan = remember.buildRememberPlan(workspace, fact);
+      if ('error' in plan) {
+        console.error(`/remember: ${plan.error}`);
+        rl.prompt();
+        continue;
+      }
+      console.error(remember.renderRememberPreview(plan));
+      if (!plan.changed) {
+        rl.prompt();
+        continue;
+      }
+      const answer = await new Promise<string>((resolve) => {
+        rl.question('Write to AGENTS.md? [y/N] ', (line) => resolve(line.trim()));
+      });
+      if (!/^y(es)?$/i.test(answer)) {
+        console.error('cancelled — nothing written');
+        rl.prompt();
+        continue;
+      }
+      const applied = remember.applyRememberPlan(plan);
+      if (!applied.ok) console.error(`/remember: ${applied.error}`);
+      else
+        console.error(
+          `wrote ${plan.file} (review: git diff AGENTS.md; a new session loads it automatically)`
+        );
+      rl.prompt();
+      continue;
+    }
+
     if (msg === '/diff' || msg.startsWith('/diff ')) {
       try {
         const result = await runWorkingTreeDiff(workspace);

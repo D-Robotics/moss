@@ -64,6 +64,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | `npm run bench:device -- --dry \| --target sim \| --target real`                 | 设备任务成功率（`bench/device-tasks/`）；PASS = Moss 裁决通过且独立探测与证据一致。见 `docs/bench/device-bench.md`                                                                                                        |
 | `moss review check`                                                              | 独立评审门禁（读 `.moss/review.jsonl` 最新记录）：0 通过 / 1 有未解决问题 / 2 无评审或 verdict 未知；`moss review list` 看历史                                                                                            |
 | `moss loop --until "<cmd>" "<prompt>"`                                           | 本地闭环：每轮跑一次全新 headless 会话再用你的命令验收；失败把检查输出喂回下一轮（默认 3 轮），exit 0 只来自命令                                                                                                          |
+| `moss remember "<fact>" [--dry-run]`                                             | 显式记忆：把一条事实写进工作区 `AGENTS.md`（先预览、去重、可撤销）；不做自动记忆                                                                                                                                          |
 | `npm run bench:tui-feel`                                                         | TUI 体感基准（`scripts/tui-feel/`，PTY + pyte；缺 python/pyte 时跳过）。结果落 `bench/results/`，不入库                                                                                                                   |
 
 `test/*.spec.mjs` 行为套件已于 2026-11-04 由 owner 删除（504 个文件，历史见 git `01a16fd7` 及更早）；仓库当前没有行为 spec 跑器。验证入口只有 `scripts/verify/cli.mjs`，本地与 CI 跑同一条命令；全平台 / Node 24 证据由 `.github/workflows/deep.yml`（夜跑 + tag）提供。设计与取舍见 [`docs/design/ci-and-verify.md`](docs/design/ci-and-verify.md)。
@@ -111,6 +112,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | 斜杠命令目录（`hidden` = 不进菜单、仍可输入；迁移别名） | `src/cli/interactive-commands.ts`、`src/cli/commands/`                                       |
 | 设备风险分级 / 信任 / 审批文案                          | `src/safety/device-risk.ts`、`src/safety/device-trust.ts`、`src/cli/device-safety-prompt.ts` |
 | Hooks（事件 / 阻塞语义 / Stop 完成门 recipe）           | `src/cli/hooks.ts`、`docs/hooks.md`、`docs/hooks/stop-verified-completion.mjs`               |
+| 显式记忆写路径（`/remember`）                           | `src/cli/remember-command.ts`（写 `AGENTS.md`）                                              |
 | 设备任务基准                                            | `bench/device-tasks/`、`scripts/bench-device.mjs`、`scripts/lib/device-bench*.mjs`           |
 | 统一 Task Runtime 协议（状态机/事件/快照）              | `src/contracts/task-runtime.ts`                                                              |
 | 统一 Task Runtime 引擎/存储/裁决/能力发现               | `src/core/task/`（engine、store、verdict、capability、agent-turn）                           |

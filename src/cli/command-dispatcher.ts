@@ -345,6 +345,24 @@ export const COMMANDS: Record<string, CommandConfig> = {
       'Closed loop: run the agent, check with your command, feed failures back (--until)',
   },
 
+  remember: {
+    name: 'remember',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runRememberCommand } = await import('./remember-command.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const workspace = ctx.workspace;
+      if (!workspace) {
+        console.error('[moss] remember could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      const code = await runRememberCommand(ctx.commandArgs, { workspaceDir: workspace });
+      if (code !== 0) process.exitCode = code;
+    },
+    description: 'Explicit memory: append one fact to AGENTS.md (--dry-run previews)',
+  },
+
   device: {
     name: 'device',
     phase: CliPhase.WorkspaceReady,

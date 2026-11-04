@@ -2359,6 +2359,31 @@ export function TuiAppRoot({
         );
         return;
       }
+      if (text === '/remember' || text.startsWith('/remember ')) {
+        const fact = text.slice('/remember'.length).trim();
+        if (fact === '') {
+          printBlock(tui('Remember'), [
+            tui('usage: /remember <fact> — appends one fact to AGENTS.md'),
+            tui('the full-screen shell prints a preview but does not write; run'),
+            tui('  moss remember "<fact>"'),
+            tui('from a shell to review the diff and write it.'),
+          ]);
+          return;
+        }
+        const remember = await import('../remember-command.js');
+        const plan = remember.buildRememberPlan(options.workspaceDir ?? process.cwd(), fact);
+        printBlock(
+          tui('Remember'),
+          'error' in plan
+            ? [plan.error]
+            : [
+                ...remember.renderRememberPreview(plan).split('\n'),
+                '',
+                tui('this shell does not write; run `moss remember "<fact>"` to apply it.'),
+              ]
+        );
+        return;
+      }
       if (text === '/resume' || text.startsWith('/resume ')) {
         const query = text.slice('/resume'.length).trim();
         const sessions = (await options.listSessions?.()) ?? [];

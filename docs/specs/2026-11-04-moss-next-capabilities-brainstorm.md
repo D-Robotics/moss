@@ -251,6 +251,18 @@
 - **成本**：低（显式版）；**风险**：memory 冻结红线。
 - **优先级**：P2（需 owner 决策）。
 
+**进度（2026-11-05，D6 可实施部分已落地）**
+
+- ✅ 显式写路径 `/remember <fact>` / `moss remember "<fact>" [--dry-run]`：写入工作区
+  `AGENTS.md`（Moss 本就作为项目指令自动加载，新会话直接可见），**先预览 diff、默认不写**
+  （TTY 下 `/remember` 需 y 确认），按空白/大小写去重，单条上限 500 字符，写入前校验文件未被并发改动；
+  撤销 = 删掉那一行。
+- 验收：真实跨会话——`moss remember "Device bench: run npm run bench:device -- --target sim"`
+  后**新起一个 `-p` 会话**问"device bench 怎么跑"，回答直接给出 `npm run bench:device -- --target sim`；
+  确定性探针 `remember`（6 条：dry-run 不写、真写建小节、去重、空内容/超长 exit 2、标题只出现一次）。
+- ⬜ 未做（刻意）：自动记忆、记忆过期/蒸馏、subagent 独立记忆——仍受"不做自动写入"的边界约束；
+  TUI 只显示预览并提示用 `moss remember` 落盘（全屏壳不直接写文件）。
+
 ### D7 多模态输入（RDK 场景差异化）
 
 - **问题**：机器人现场最常见的输入是**接线照片、板卡丝印、报错截图、示波器/串口截图**；Moss 现在
