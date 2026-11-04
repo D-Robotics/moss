@@ -33,6 +33,7 @@ import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
 import type { AgentLoopRun } from './agent-loop-run-state.js';
 import type { SkillCatalogPort } from '../../contracts/skill.js';
 import { renderSkillCatalog, type SkillCatalogStats } from '../skills/skill-catalog.js';
+import { loadSkillUsage } from '../skills/skill-usage.js';
 import { createSkillTool } from '../skills/skill-tool.js';
 import { skillScopeAllowsTool } from '../skills/skill-tool-scope.js';
 import {
@@ -495,10 +496,12 @@ export class MossAgent {
       this.lastSkillCatalogStats = undefined;
       return undefined;
     }
-    const rendered = renderSkillCatalog(
-      manifestList,
-      catalog.budgetChars !== undefined ? { budgetChars: catalog.budgetChars } : {}
-    );
+    const workspaceDir = this.config.workspaceDir;
+    const usage = workspaceDir ? loadSkillUsage(workspaceDir) : undefined;
+    const rendered = renderSkillCatalog(manifestList, {
+      ...(catalog.budgetChars !== undefined ? { budgetChars: catalog.budgetChars } : {}),
+      ...(usage ? { usage } : {}),
+    });
     this.lastSkillCatalogStats = rendered.stats;
     return rendered.text;
   }

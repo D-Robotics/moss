@@ -135,7 +135,7 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
 
   if (sub === 'list') {
     const { loadSkillCatalog } = await import('../core/skills/skill-registry.js');
-    const { renderSkillCatalog, SKILL_CATALOG_DEFAULT_BUDGET_CHARS } =
+    const { rankSkillsForCatalog, renderSkillCatalog, SKILL_CATALOG_DEFAULT_BUDGET_CHARS } =
       await import('../core/skills/skill-catalog.js');
     const { loadSkillUsage } = await import('../core/skills/skill-usage.js');
     const skills = loadSkillCatalog([
@@ -154,13 +154,16 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
       return 0;
     }
     const usage = loadSkillUsage(ctx.workspaceDir);
-    const total = renderSkillCatalog(skills);
+    // Same order the catalog budget uses, so the table shows which entries
+    // survive a cut: scope precedence, then recently used first.
+    const ranked = rankSkillsForCatalog(skills, usage);
+    const total = renderSkillCatalog(skills, { usage });
     out(
       zh
         ? '  名称                来源      使用  目录成本  评测  描述'
         : '  name                scope     used  catalog   evals description'
     );
-    for (const skill of skills) {
+    for (const skill of ranked) {
       // Per-skill catalog cost: what the full catalog entry costs for this one
       // skill (the same renderer the prompt uses, so the number is not an estimate).
       const cost = renderSkillCatalog([skill]).stats.renderedChars;

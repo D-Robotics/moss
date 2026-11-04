@@ -122,6 +122,7 @@ import {
   buildEmptySkillsHintLayer,
 } from '../core/skills/skill-registry.js';
 import { renderSkillCatalog } from '../core/skills/skill-catalog.js';
+import { loadSkillUsage } from '../core/skills/skill-usage.js';
 import { includeBundledRdkDocsSkill } from '../core/skills/rdk-docs-skill.js';
 import {
   adoptFileAgents,
@@ -1139,7 +1140,12 @@ export async function runCli(): Promise<void> {
         });
         if (sessionSkills.length === 0) return;
         const active = selectActiveSkills(sessionSkills, touchedPaths());
-        const catalog = renderSkillCatalog(active, skillCatalogBudget());
+        // B10: entries this workspace actually loaded rank first, so a budget
+        // cut drops the least-recently-used skill, not the alphabetically first.
+        const catalog = renderSkillCatalog(active, {
+          ...skillCatalogBudget(),
+          usage: loadSkillUsage(workspace),
+        });
         const note =
           catalog.stats.skills > 0
             ? `skills ${String(catalog.stats.skills)}, ${String(catalog.stats.renderedChars)}/${String(

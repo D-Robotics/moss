@@ -40,6 +40,7 @@ import { stage as subagentPromptStage } from './stages/subagent-prompt-contract.
 import { stage as toolSurfaceStage } from './stages/tool-surface.mjs';
 import { stage as imageBudgetStage } from './stages/image-budget.mjs';
 import { stage as taskLedgerRevealStage } from './stages/task-ledger-reveal.mjs';
+import { stage as skillCatalogUsageStage } from './stages/skill-catalog-usage.mjs';
 import { stage as loopCommandStage } from './stages/loop-command.mjs';
 import { stage as mcpProtocolStage } from './stages/mcp-protocol.mjs';
 import { stage as rememberStage } from './stages/remember.mjs';
@@ -63,6 +64,7 @@ const STAGES = new Map(
     toolSurfaceStage,
     imageBudgetStage,
     taskLedgerRevealStage,
+    skillCatalogUsageStage,
     loopCommandStage,
     mcpProtocolStage,
     rememberStage,
@@ -87,6 +89,7 @@ const FAST_GATE = [
   'tool-surface',
   'image-budget',
   'task-ledger-reveal',
+  'skill-catalog-usage',
   'loop-command',
   'mcp-protocol',
   'remember',

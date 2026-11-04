@@ -17,6 +17,7 @@
  * `omitted`, `truncatedDescriptions` and the chosen `strategy`.
  */
 import type { SkillManifest, SkillScope } from '../../contracts/skill.js';
+import type { SkillUsage } from './skill-usage.js';
 
 /** Total characters the catalog may take in one prompt. Env-overridable by the host. */
 export const SKILL_CATALOG_DEFAULT_BUDGET_CHARS = 8_000;
@@ -33,6 +34,8 @@ export interface SkillCatalogStats {
   omitted: number;
   truncatedDescriptions: number;
   strategy: SkillCatalogStrategy;
+  /** True when at least one skill had recorded use and the order reflects it. */
+  usageAware: boolean;
 }
 
 export interface SkillCatalogResult {
@@ -43,6 +46,13 @@ export interface SkillCatalogResult {
 
 export interface SkillCatalogOptions {
   budgetChars?: number;
+  /**
+   * Local use counters (`.moss/skills-usage.json`). When present, entries a
+   * session actually loaded rank before unused ones inside their scope, most
+   * recent first — the least-recently-used skill is the first to lose its
+   * description or be omitted, instead of whichever name sorts first.
+   */
+  usage?: SkillUsage;
 }
 
 const SCOPE_RANK: Record<SkillScope, number> = {
@@ -67,10 +77,44 @@ function clip(text: string, max: number): string {
   return `${collapsed.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
-function catalogsInRankOrder(skills: readonly SkillManifest[]): SkillManifest[] {
-  return [...skills].sort(
-    (a, b) => SCOPE_RANK[a.scope] - SCOPE_RANK[b.scope] || a.name.localeCompare(b.name)
-  );
+/**
+ * Scope precedence is a declared contract and stays the primary key; usage only
+ * orders entries *inside* a scope. Used entries come first (most recent load
+ * first, then by count), unused ones follow alphabetically. Without usage this
+ * is exactly the old scope-then-name order.
+ */
+function catalogsInRankOrder(
+  skills: readonly SkillManifest[],
+  usage: SkillUsage | undefined
+): SkillManifest[] {
+  return [...skills].sort((a, b) => {
+    const byScope = SCOPE_RANK[a.scope] - SCOPE_RANK[b.scope];
+    if (byScope !== 0) return byScope;
+    const aUse = usage?.[a.name];
+    const bUse = usage?.[b.name];
+    if (aUse && !bUse) return -1;
+    if (!aUse && bUse) return 1;
+    if (aUse && bUse) {
+      const byTime = (bUse.lastUsedAt ?? '').localeCompare(aUse.lastUsedAt ?? '');
+      if (byTime !== 0) return byTime;
+      const byCount = (bUse.count ?? 0) - (aUse.count ?? 0);
+      if (byCount !== 0) return byCount;
+    }
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/** Catalog rank order (scope precedence, then usage, then name). */
+export function rankSkillsForCatalog(
+  skills: readonly SkillManifest[],
+  usage?: SkillUsage
+): SkillManifest[] {
+  return catalogsInRankOrder(skills, usage);
+}
+
+function hasUsage(usage: SkillUsage | undefined, skills: readonly SkillManifest[]): boolean {
+  if (!usage) return false;
+  return skills.some((skill) => usage[skill.name] !== undefined);
 }
 
 function renderEntry(skill: SkillManifest, mode: 'full' | 'compact' | 'name-only'): string {
@@ -109,6 +153,7 @@ export function renderSkillCatalog(
   options: SkillCatalogOptions = {}
 ): SkillCatalogResult {
   const budget = options.budgetChars ?? SKILL_CATALOG_DEFAULT_BUDGET_CHARS;
+  const usageAware = hasUsage(options.usage, skills);
   if (skills.length === 0) {
     return {
       stats: {
@@ -118,10 +163,11 @@ export function renderSkillCatalog(
         omitted: 0,
         truncatedDescriptions: 0,
         strategy: 'full',
+        usageAware: false,
       },
     };
   }
-  const ranked = catalogsInRankOrder(skills);
+  const ranked = rankSkillsForCatalog(skills, options.usage);
   const uncapped = renderText(skills.map((skill) => renderEntry(skill, 'full'))).length;
 
   for (const mode of ['full', 'compact'] as const) {
@@ -136,6 +182,7 @@ export function renderSkillCatalog(
           omitted: 0,
           truncatedDescriptions: countTruncated(ranked, mode),
           strategy: mode,
+          usageAware,
         },
       };
     }
@@ -207,6 +254,7 @@ export function renderSkillCatalog(
       omitted,
       truncatedDescriptions,
       strategy: keptAnyDescription ? 'mixed' : 'name-only',
+      usageAware,
     },
   };
 }
