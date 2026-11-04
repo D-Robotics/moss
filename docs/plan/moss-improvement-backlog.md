@@ -67,6 +67,17 @@
 | B17 | P2     | REPL（非 TUI）里运行中的一轮无法被按键中断：Esc 与 Ctrl+C 都不生效，用户只能等它跑完            | 真实 PTY 探针（见 §3 B17）：慢流 stub + REPL，按 Esc 后 provider 继续发出 95 个 token、无客户端中断、无 Interrupted 提示；Ctrl+C 同样无效                                                                                                                                         | Cursor / Claude Code 的“按 Esc 停止当前生成”是核心手感；TUI 已实现（bench 的 typing-stream-interrupt 场景 PASS，interrupt_ms 46–91ms）                                                                                                    | 真实 PTY 复跑：按 Esc / Ctrl+C 后 provider 侧 2.5s 内新增 token = 0，且出现 Interrupted 提示；REPL 与 TUI 行为一致                                                                                                                                                                                                                                                                                                                                 | ✅ 完成（REPL 运行中 Esc/Ctrl+C 可中断；文案恢复统一口径；真实 PTY 四场景验证）                                                                         |
 | B18 | P2     | 启动慢的大头是模块加载：`dist` 里 511 个 ESM 模块约 480ms，且发生在 `entry` 之前，无法并行化    | 实测：511 个 trivial ESM 模块加载仅 82–90ms；`-p` 墙钟 ~668ms、`entry≈305ms`，其余是模块求值；esbuild 打包 spike 撞到 3 个具体障碍（见 §3 B18）                                                                                                                                   | Cursor / Claude Code 的 CLI 都以打包后的少量文件启动                                                                                                                                                                                      | 本地 stub：`-p` 墙钟中位数 ≤550ms（`entry` ≤150ms）+ 逐子系统延迟求值；单靠打包预计只值 85–120ms                                                                                                                                                                                                                                                                                                                                                   | 已探针（打包代价/收益量化；下一轮按「延迟求值」方向做切片）                                                                                             |
 
+**B18 第三片（2026-11-05）：保留名表不再拖入斜杠命令实现图**
+`cli/commands/custom-commands.ts` 的 `reservedBuiltinNames()` 只为拿命令名，却静态 import 了 `./registry.js`
+（含整套命令实现），使该模块求值 **154ms**；这也让上一片「registry 移出 `-p` 路径」被部分抵消。
+改为用已有的 `INTERACTIVE_COMPLETION_COMMANDS` + 菜单行 + 显式 `/cost`、`/stats`（registry 独有）构造保留名集合，
+只留 `import type { CommandSpec }`。
+**证据**：模块求值 **154ms → 81ms**；保留名集合 **46 个**，对 `registryCommandNames()` 做包含性检查 **无缺失**。
+**诚实结论**：`-p` 的 `entry` 中位数仍在 313–314ms、墙钟 683–731ms（10 次，波动 627–816ms），
+本片**没有**带来可测的 `-p` 改善——它的价值是解除 custom-commands→registry 的静态耦合，让后续真把 registry 移出成为可能。
+**行为回归（真实运行）**：工作区自定义命令 `/hello world` → provider 收到 `CUSTOM-MARKER` 且 `$ARGUMENTS` 展开为 `world`；
+用 `.moss/commands/status.md` 试图覆盖内置 `/status` → provider **没有**收到 `SHADOW-MARKER`，内置 status 正常输出（保留名保护有效）。
+
 **B18 第二片（2026-11-05）：`-p` 不再加载整套斜杠命令图**
 `src/cli/runtime.ts` 为了 oneshot/管道的 `/命令` 分发，静态 import 了 `cli/commands/registry.js`（单测求值 **155–182ms**），
 而这个图只有交互会话（REPL/TUI）需要；`-p` 纯聊天永远走不到。改成 `registryCommandModule()` 的按需 dynamic import，

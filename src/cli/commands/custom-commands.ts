@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { INTERACTIVE_COMMAND_SECTIONS } from '../interactive-commands.js';
+import {
+  INTERACTIVE_COMMAND_SECTIONS,
+  INTERACTIVE_COMPLETION_COMMANDS,
+} from '../interactive-commands.js';
 import { announceCatalogSkip } from '../catalog-skip-notice.js';
 import {
   CATALOG_NAME_RE,
@@ -9,11 +12,16 @@ import {
   skillSlashName,
   type SkillSkipReason,
 } from '../../core/skills/skill-registry.js';
-import { registryCommandNames, type CommandSpec } from './registry.js';
+import type { CommandSpec } from './registry.js';
 
 export function reservedBuiltinNames(): ReadonlySet<string> {
+  // The registry module pulls the whole slash-command implementation graph; the
+  // reserved-name check only needs the names, which the menu/completion tables
+  // already declare. (`/cost` and `/stats` are registry-only, hence explicit.)
   const names = new Set<string>([
-    ...registryCommandNames(),
+    ...INTERACTIVE_COMPLETION_COMMANDS,
+    '/cost',
+    '/stats',
     '/help',
     '/quit',
     '/exit',
