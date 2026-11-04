@@ -29,6 +29,7 @@ export type CliCommand =
   | 'sessions'
   | 'tasks'
   | 'task'
+  | 'review'
   | 'superagent'
   | 'web'
   | 'agent'
@@ -224,6 +225,7 @@ export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'migrate',
   'tasks',
   'task',
+  'review',
   'superagent',
   'sessions',
   'web',
@@ -267,7 +269,6 @@ const INTERACTIVE_ONLY_COMMANDS = new Set<string>([
   'cost',
   'context',
   'permissions',
-  'review',
   'compact',
   'goal',
   'diff',

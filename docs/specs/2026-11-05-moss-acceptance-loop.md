@@ -105,7 +105,13 @@ L3 是**非任务 run 的等价物**，复用同一套"上限 + 证据 + 诚实 
 变成失败的 completion，而不是静默通过。承认 findings（修复说明或未解决清单）随时放行。
 验证：确定性探针 14 条断言（含 3 轮边界）；真实模型运行：植入缺陷 + 指令"不要修复、以 All good 结束"，
 模型 review FAIL 后**拒绝**宣称完成并给出未满足标准与 `calc.js:2`、建议修复，工作区未被改动。
-仍缺：有变更 run 结束后自动触发评审（`review.mode` 配置）。
+**2026-11-05 落地（评审机器状态面）**：`moss review list` / `moss review check`
+（`src/cli/review-commands.ts`）把 `.moss/review.jsonl` 变成可门禁的状态：`check` 不启动模型，
+读最新记录并映射退出码 **0 通过 / 1 有未解决问题 / 2 无评审或 verdict 未知**（未评审 ≠ 通过），
+可直接放进 CI 或循环脚本。真实演示：植入缺陷 → 模型 `review_changes` 落 FAIL 记录 →
+`moss review check` 退出 1 并打印 critical finding 与 fix；修复后复评落 PASS 记录 →
+同一命令退出 0。`moss review list` 展示历史。确定性探针新增 3 条断言（17 总计）。
+仍缺：有变更 run 结束后自动触发评审（`review.mode` 配置）、修复循环直接消费 findings。
 
 ### L4 外部信号闭环（后续，orchestration）
 

@@ -307,6 +307,24 @@ export const COMMANDS: Record<string, CommandConfig> = {
     description: 'Skills: create/list (.moss/skills scaffolding)',
   },
 
+  review: {
+    name: 'review',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runReviewCommand } = await import('./review-commands.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const workspace = ctx.workspace;
+      if (!workspace) {
+        console.error('[moss] review could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      const code = await runReviewCommand(ctx.commandArgs, { workspaceDir: workspace });
+      if (code !== 0) process.exitCode = code;
+    },
+    description: 'Independent review records: list/check (.moss/review.jsonl, CI-ready exit codes)',
+  },
+
   device: {
     name: 'device',
     phase: CliPhase.WorkspaceReady,

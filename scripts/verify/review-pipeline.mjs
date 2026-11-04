@@ -213,6 +213,71 @@ assert.equal(afterTorn.length, 1);
 assert.equal(afterTorn[0].id, 'probe-record');
 ok('torn trailing line is skipped, earlier records survive');
 
+// ── 5. `moss review` command: list/check exit codes ───────────────────────
+
+const reviewCommand = await import(
+  pathToFileURL(path.join(root, 'dist/cli/review-commands.js')).href
+);
+async function captureLog(fn) {
+  const lines = [];
+  const original = console.log;
+  console.log = (...args) => lines.push(args.map(String).join(' '));
+  try {
+    return { code: await fn(), lines };
+  } finally {
+    console.log = original;
+  }
+}
+const commandRepo = await tmpDir('moss-review-cmd-');
+await git(commandRepo, ['init', '-q']);
+const failRecord = {
+  id: 'cmd-fail',
+  createdAt: new Date(Date.now() - 2000).toISOString(),
+  scope: 'working tree + staged changes',
+  depth: 'quick',
+  verdict: 'fail',
+  findings: [
+    {
+      severity: 'critical',
+      file: 'calc.js',
+      line: 2,
+      summary: 'add() returns the difference',
+      fixHint: 'restore a + b',
+    },
+  ],
+  checks: [],
+};
+await review.recordReview(commandRepo, failRecord);
+const emptyRepo = await tmpDir('moss-review-empty-');
+const empty = await captureLog(() =>
+  reviewCommand.runReviewCommand(['check'], { workspaceDir: emptyRepo })
+);
+assert.equal(empty.code, 2, 'no review recorded must not read as a pass');
+const failing = await captureLog(() =>
+  reviewCommand.runReviewCommand(['check'], { workspaceDir: commandRepo })
+);
+assert.equal(failing.code, 1);
+assert.ok(failing.lines.join('\n').includes('critical'));
+ok('moss review check: no record -> 2, unresolved findings -> 1');
+const listedJson = await captureLog(() =>
+  reviewCommand.runReviewCommand(['list', '--json'], { workspaceDir: commandRepo })
+);
+assert.equal(listedJson.code, 0);
+assert.equal(JSON.parse(listedJson.lines.join('\n')).length, 1);
+ok('moss review list --json returns the records as JSON');
+await review.recordReview(commandRepo, {
+  ...failRecord,
+  id: 'cmd-pass',
+  createdAt: new Date().toISOString(),
+  verdict: 'pass',
+  findings: [],
+});
+const passing = await captureLog(() =>
+  reviewCommand.runReviewCommand(['check'], { workspaceDir: commandRepo })
+);
+assert.equal(passing.code, 0);
+ok('moss review check: latest PASS -> 0');
+
 for (const dir of tmpRoots) {
   await fs.rm(dir, { recursive: true, force: true });
 }
