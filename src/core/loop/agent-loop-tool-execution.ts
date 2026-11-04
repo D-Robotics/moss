@@ -43,6 +43,9 @@ import {
   FILE_UNCHANGED_TRUNCATED_STUB,
 } from '../../contracts/file-read-observation.js';
 
+/** Ceiling for attached image payload (base64 chars) in one tool result. */
+const MAX_STRUCTURED_IMAGE_CHARS = 16_000_000;
+
 const log = getRootLogger().child('agent:loop');
 
 export interface AgentLoopToolExecutionMetrics {
@@ -275,17 +278,36 @@ function recordToolOutcome(
   let structuredContent = rawStructuredContent;
   let structuredContentTruncated: number | undefined;
   if (structuredContent && structuredContent.length > 0) {
-    const serialized = JSON.stringify(structuredContent);
-    if (serialized.length > MAX_STRUCTURED_SIZE) {
-      if (structuredContent.every((block) => block.type === 'text')) {
-        structuredContent = undefined;
-      } else {
+    // Images are exempt from the text metadata budget: base64 grows ~1.37× the
+    // file, so a normal screenshot would always exceed MAX_STRUCTURED_SIZE and
+    // be replaced by a notice — silently dropping the picture the tool just read.
+    // The tool that produced the image owns its size limit (read_image: 3 MB);
+    // this bound is only a last-resort ceiling against a pathological result.
+    const imageBlocks = structuredContent.filter((block) => block.type === 'image');
+    const textBlocks = structuredContent.filter((block) => block.type !== 'image');
+    const imageChars = imageBlocks.reduce((sum, block) => sum + (block.data?.length ?? 0), 0);
+    const keptImages = imageChars > MAX_STRUCTURED_IMAGE_CHARS ? [] : imageBlocks;
+    let keptText = textBlocks;
+    if (textBlocks.length > 0) {
+      const serialized = JSON.stringify(textBlocks);
+      if (serialized.length > MAX_STRUCTURED_SIZE) {
         structuredContentTruncated = serialized.length;
-        structuredContent = [
-          { type: 'text', text: structuredContentTruncationNotice(serialized.length) },
-        ];
+        keptText = textBlocks.every((block) => block.type === 'text')
+          ? []
+          : [{ type: 'text', text: structuredContentTruncationNotice(serialized.length) }];
       }
     }
+    if (imageBlocks.length > 0 && keptImages.length === 0) {
+      keptText = [
+        ...keptText,
+        {
+          type: 'text',
+          text: `[image attachment dropped: ${imageChars} base64 chars exceeded ${MAX_STRUCTURED_IMAGE_CHARS}]`,
+        },
+      ];
+    }
+    const combined = [...keptText, ...keptImages];
+    structuredContent = combined.length > 0 ? combined : undefined;
   }
 
   const truncatedResult = truncateToolOutput(call.name, result);

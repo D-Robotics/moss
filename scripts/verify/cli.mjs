@@ -33,6 +33,7 @@ import { stage as verificationGateStage } from './stages/verification-gate.mjs';
 import { stage as reviewPipelineStage } from './stages/review-pipeline.mjs';
 import { stage as compactionHistoryStage } from './stages/compaction-history.mjs';
 import { stage as compactionSummaryStage } from './stages/compaction-summary.mjs';
+import { stage as readImageStage } from './stages/read-image.mjs';
 
 const STAGES = new Map(
   [
@@ -45,6 +46,7 @@ const STAGES = new Map(
     reviewPipelineStage,
     compactionHistoryStage,
     compactionSummaryStage,
+    readImageStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -58,6 +60,7 @@ const FAST_GATE = [
   'review-pipeline',
   'compaction-history',
   'compaction-summary',
+  'read-image',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 

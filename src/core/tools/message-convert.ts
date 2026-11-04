@@ -126,6 +126,24 @@ export function convertMessagesToPi(
             isError: block.is_error ?? false,
             timestamp: msg.timestamp,
           });
+          // Tool results are text-only in the provider type. An image a tool
+          // observed (read_image) still has to reach the model, so it rides in
+          // the user turn right after — the same shape as a pasted image.
+          const attachedImages = (block.structuredContent ?? []).filter(
+            (item): item is { type: 'image'; data: string; mimeType: string; alt?: string } =>
+              item.type === 'image' && typeof item.data === 'string' && Boolean(item.mimeType)
+          );
+          if (attachedImages.length > 0) {
+            result.push({
+              role: 'user',
+              content: attachedImages.map((image) => ({
+                type: 'image' as const,
+                data: image.data,
+                mimeType: image.mimeType,
+              })),
+              timestamp: msg.timestamp,
+            });
+          }
         }
       }
       flushUserContent();
