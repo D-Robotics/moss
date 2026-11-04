@@ -112,15 +112,33 @@ export const todoWriteTool: Tool = {
     if (owned) return owned;
     const raw = Array.isArray(input.todos) ? input.todos : [];
     const todos: TodoItem[] = [];
+    const unknownStatuses: string[] = [];
     for (const item of raw) {
       if (!item || typeof item !== 'object') continue;
       const content = String(item.content ?? '')
         .trim()
         .slice(0, 120);
       if (!content) continue;
-      const status: TodoStatus =
-        item.status === 'in_progress' || item.status === 'completed' ? item.status : 'pending';
+      // Nested item fields never reach `validateToolInputObject` (it checks the
+      // top level only), so `status: "doing"` used to land as `pending` and the
+      // model read the write as applied. A list that was not written verbatim
+      // must say so.
+      const status = item.status;
+      if (status !== 'pending' && status !== 'in_progress' && status !== 'completed') {
+        unknownStatuses.push(
+          `"${String(content)}" (${status === undefined ? 'missing' : JSON.stringify(status)})`
+        );
+        continue;
+      }
       todos.push({ content, status });
+    }
+    if (unknownStatuses.length > 0) {
+      return (
+        'Error: todo_write was not applied — every item needs status pending, in_progress ' +
+        `or completed. Bad status on: ${unknownStatuses.slice(0, 5).join(', ')}` +
+        `${unknownStatuses.length > 5 ? ` and ${String(unknownStatuses.length - 5)} more` : ''}. ` +
+        'Resend the full list with a valid status on every item.'
+      );
     }
     if (todos.length > 50) {
       return 'Error: too many todos (max 50). Split the task or drop completed items from the list.';
