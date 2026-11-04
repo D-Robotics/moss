@@ -35,6 +35,19 @@ stages.
 | `smoke`    | `moss --version`, `--help`, `config --help` with a clean env, PTY startup (Unix)      | build        | 4.3s                         |
 | `examples` | `examples/headless-run.mjs`, `repl-host.mjs`, `custom-tool-approval.mjs` (offline)    | build        | 0.8s                         |
 
+The stages are not a `for` loop: `cli.mjs` schedules them by `requires`, so
+independent work overlaps instead of adding up. `static` and `build` start
+together (`static` reads sources, `build` writes `dist/`), and the post-build
+probe stages run in a pool of `VERIFY_CONCURRENCY` (default 4) once `build`
+finishes. Only `startup-timing` is exclusive — its assertions are millisecond
+thresholds and a busy pool would make the number depend on who else is
+compiling. A failure stops new launches and lets in-flight stages finish, so a
+half-run stage never appears as `ok`.
+`VERIFY_CONCURRENCY=1` runs the same scheduler serially. Measured on 2026-11-05
+on the same machine/worktree, three runs each: serial **42.0s** (41.9/42.0/42.6)
+vs default concurrency **24.6s** (24.3/24.6/25.0) — a stage added to the gate now
+costs overlap, not a full 60s-budget share.
+
 Measured total on 2026-11-04 (8-core Apple laptop, warm node_modules):
 **30.9s** for `npm run verify` (static + build + smoke + examples). The CI job
 enforces `VERIFY_BUDGET_SECONDS=60` on the gate itself; exceeding it fails the

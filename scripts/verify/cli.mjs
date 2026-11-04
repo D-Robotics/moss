@@ -205,10 +205,12 @@ function resolveConcurrency(raw) {
 }
 
 /**
- * PTY and timing stages measure wall clock, so they run alone: a busy pool would
- * flake their thresholds (startup-timing asserts milliseconds; smoke drives a PTY).
+ * The startup-timing stage asserts millisecond thresholds, so it runs alone: a
+ * busy pool would make its measurement depend on who else is compiling. Other
+ * process-starting stages (smoke drives a PTY but checks version/help output)
+ * share the pool.
  */
-const EXCLUSIVE_STAGES = new Set(['smoke', 'startup-timing']);
+const EXCLUSIVE_STAGES = new Set(['startup-timing']);
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
