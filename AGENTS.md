@@ -25,6 +25,11 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 - **本次定向解冻（2026-11-02）**：可选 Super-agent 本地/SDK 接单、授权和工单协调；范围与验收以 `docs/specs/moss-superagent.md` 为准，不引入 DSH 或 Web UI。
 - **维持冻结**：memory（跨会话自动记忆）/ mesh / observability / orchestration /
   web-ui / 插件市场。不要重新引入这些子系统。
+- **2026-11-04 owner 定向解冻**（原话"我觉得都可以做，没有不能做的"）：解除 memory
+  **写路径**（仅显式 `/remember` + diff 确认，不做自动写入）与 **orchestration**（先声明式/脚本式
+  编排，范围与验收见 `docs/specs/2026-11-04-moss-next-capabilities-brainstorm.md` §5.1）；允许
+  **本地**能力包（skills+commands+agents+hooks+MCP 的本地安装/信任/版本），仍不做托管
+  marketplace/registry；web-ui / mesh / observability 维持冻结。
 
 ## 代码规范（必须遵守）
 

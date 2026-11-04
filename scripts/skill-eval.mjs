@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -73,9 +73,39 @@ function resolveSkillDir(target) {
   process.exit(2);
 }
 
+/**
+ * `stream-json` gives us the tool_use blocks; the `result` event carries the
+ * final answer. Both are needed because "the tool was called" and "the answer
+ * says X" are different claims.
+ */
+function parseStream(stdout) {
+  const events = [];
+  for (const line of stdout.split('\n')) {
+    const text = line.trim();
+    if (!text) continue;
+    try {
+      events.push(JSON.parse(text));
+    } catch {
+      // A stray non-JSON line (license notice, crash text) is not an event.
+    }
+  }
+  const toolNames = [];
+  let answer = '';
+  for (const event of events) {
+    if (event.type === 'assistant' && Array.isArray(event.message?.content)) {
+      for (const block of event.message.content) {
+        if (block?.type === 'tool_use' && typeof block.name === 'string')
+          toolNames.push(block.name);
+      }
+    }
+    if (event.type === 'result' && typeof event.result === 'string') answer = event.result;
+  }
+  return { events, answer, toolNames };
+}
+
 function runCli(cli, prompt, cwd, timeoutMs) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [cli, '-p', prompt], {
+    const child = spawn(process.execPath, [cli, '-p', prompt, '--output-format', 'stream-json'], {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
@@ -100,7 +130,8 @@ function runCli(cli, prompt, cwd, timeoutMs) {
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ exitCode: code ?? 1, timedOut, stdout, stderr });
+      const parsed = parseStream(stdout);
+      resolve({ exitCode: code ?? 1, timedOut, stdout, stderr, ...parsed });
     });
     child.on('error', (err) => {
       clearTimeout(timer);
@@ -120,15 +151,63 @@ function writeSetupFiles(workspace, setup) {
   }
 }
 
-function grade(caseDef, run) {
-  const missing = caseDef.expectContains.filter((needle) => !run.stdout.includes(needle));
-  const pass = run.exitCode === 0 && !run.timedOut && missing.length === 0;
+function runPostCondition(command, workspace, timeoutMs) {
+  const result = spawnSync(command, {
+    cwd: workspace,
+    shell: true,
+    timeout: timeoutMs,
+    encoding: 'utf8',
+  });
+  return {
+    command,
+    exitCode: result.status ?? (result.error ? 1 : 1),
+    timedOut: result.error?.code === 'ETIMEDOUT',
+    outputTail: `${result.stdout ?? ''}${result.stderr ?? ''}`.slice(-800),
+  };
+}
+
+/**
+ * Grade one run with every grader the case declares. `pass` is the conjunction:
+ * a case that calls the right tool but answers wrongly still fails.
+ */
+function grade(caseDef, run, workspace) {
+  const graders = [];
+  const answer = run.answer || '';
+  if (caseDef.expectContains.length > 0) {
+    const missing = caseDef.expectContains.filter((needle) => !answer.includes(needle));
+    graders.push({
+      type: 'contains',
+      pass: missing.length === 0,
+      missing,
+    });
+  }
+  if (caseDef.expectRegex.length > 0) {
+    const failures = [];
+    for (const pattern of caseDef.expectRegex) {
+      if (!new RegExp(pattern).test(answer)) failures.push(pattern);
+    }
+    graders.push({ type: 'regex', pass: failures.length === 0, missing: failures });
+  }
+  if (caseDef.expectTools.length > 0) {
+    const missing = caseDef.expectTools.filter((name) => !run.toolNames.includes(name));
+    graders.push({ type: 'tool_called', pass: missing.length === 0, missing });
+  }
+  if (caseDef.postCondition) {
+    const result = runPostCondition(
+      caseDef.postCondition,
+      workspace,
+      caseDef.postConditionTimeoutMs ?? 60_000
+    );
+    graders.push({ type: 'post_condition', pass: result.exitCode === 0, ...result });
+  }
+  const pass = run.exitCode === 0 && !run.timedOut && graders.every((grader) => grader.pass);
   return {
     pass,
     exitCode: run.exitCode,
     timedOut: run.timedOut,
-    missing,
-    outputTail: run.stdout.slice(-1200),
+    graders,
+    calledTools: run.toolNames,
+    answerTail: answer.slice(-1200),
   };
 }
 
@@ -155,9 +234,17 @@ async function main() {
     console.error(`skill-eval: ${skill.name} has no evals/evals.json cases`);
     process.exit(1);
   }
-  const assertable = evals.cases.filter((entry) => entry.expectContains.length > 0);
+  const assertable = evals.cases.filter(
+    (entry) =>
+      entry.expectContains.length > 0 ||
+      entry.expectRegex.length > 0 ||
+      entry.expectTools.length > 0 ||
+      entry.postCondition !== undefined
+  );
   if (assertable.length === 0) {
-    console.error('skill-eval: no case has expect_contains; add mechanical assertions');
+    console.error(
+      'skill-eval: no case has expect_contains/expect_regex/expect_tools/post_condition; add mechanical assertions'
+    );
     process.exit(1);
   }
   const modes = opts.mode === 'both' ? ['with', 'without'] : [opts.mode];
@@ -165,11 +252,15 @@ async function main() {
     console.log(`skill: ${skill.name} (${skillDir})`);
     console.log(`cases: ${String(evals.cases.length)} (${String(assertable.length)} assertable)`);
     for (const entry of evals.cases) {
-      console.log(
-        `  ${entry.id}: expect ${JSON.stringify(entry.expectContains)}${
-          entry.expectContains.length === 0 ? ' (unasserted)' : ''
-        }`
-      );
+      const parts = [
+        entry.expectContains.length > 0 ? `contains ${JSON.stringify(entry.expectContains)}` : '',
+        entry.expectRegex.length > 0 ? `regex ${JSON.stringify(entry.expectRegex)}` : '',
+        entry.expectTools.length > 0 ? `tools ${JSON.stringify(entry.expectTools)}` : '',
+        entry.postCondition !== undefined
+          ? `post_condition ${JSON.stringify(entry.postCondition)}`
+          : '',
+      ].filter(Boolean);
+      console.log(`  ${entry.id}: ${parts.length > 0 ? parts.join(' + ') : '(unasserted)'}`);
     }
     console.log(`modes: ${modes.join(', ')} (not run: --dry-run)`);
     return;
@@ -188,6 +279,9 @@ async function main() {
       id: caseDef.id,
       prompt: caseDef.prompt,
       expectContains: caseDef.expectContains,
+      expectRegex: caseDef.expectRegex,
+      expectTools: caseDef.expectTools,
+      ...(caseDef.postCondition ? { postCondition: caseDef.postCondition } : {}),
     };
     for (const mode of modes) {
       const workspace =
@@ -202,7 +296,7 @@ async function main() {
           fs.cpSync(skillDir, destination, { recursive: true });
         }
         const run = await runCli(cli, caseDef.prompt, workspace, opts.timeoutMs);
-        entry[mode] = grade(caseDef, run);
+        entry[mode] = grade(caseDef, run, workspace);
         if (entry[mode].pass) tally[mode] += 1;
       } finally {
         if (opts.workspace === undefined) fs.rmSync(workspace, { recursive: true, force: true });
@@ -210,12 +304,14 @@ async function main() {
     }
     report.cases.push(entry);
   }
+  const ranWith = modes.includes('with');
+  const ranWithout = modes.includes('without');
   report.summary = {
     cases: assertable.length,
-    withPass: tally.with,
-    withoutPass: tally.without,
-    // A useful skill only improves on the no-skill baseline.
-    delta: tally.with - tally.without,
+    withPass: ranWith ? tally.with : null,
+    withoutPass: ranWithout ? tally.without : null,
+    // A useful skill only improves on the no-skill baseline; delta needs both.
+    delta: ranWith && ranWithout ? tally.with - tally.without : null,
   };
   const reportPath =
     opts.json ?? path.join(repoRoot, 'bench', 'results', `skill-eval-${skill.name}.json`);
@@ -227,14 +323,27 @@ async function main() {
     console.log(`${entry.id}: ${[withMode, withoutMode].filter(Boolean).join(' ')}`);
   }
   console.log(
-    `summary: ${String(tally.with)}/${String(assertable.length)} with-skill, ${String(
-      tally.without
-    )}/${String(assertable.length)} without-skill, report ${reportPath}`
+    [
+      'summary:',
+      ranWith
+        ? `${String(tally.with)}/${String(assertable.length)} with-skill`
+        : 'with-skill not run',
+      ranWithout
+        ? `${String(tally.without)}/${String(assertable.length)} without-skill`
+        : 'without-skill not run',
+      ranWith && ranWithout ? `delta ${String(tally.with - tally.without)}` : 'delta n/a',
+      `report ${reportPath}`,
+    ].join(' ')
   );
   const failing = report.cases.filter((entry) => entry.with && !entry.with.pass);
   if (failing.length > 0) {
     for (const entry of failing) {
-      console.error(`${entry.id}: missing ${JSON.stringify(entry.with.missing)}`);
+      const failed = entry.with.graders.filter((grader) => !grader.pass);
+      console.error(
+        `${entry.id}: ${failed
+          .map((grader) => `${grader.type} missing ${JSON.stringify(grader.missing ?? [])}`)
+          .join('; ')}`
+      );
     }
     process.exit(1);
   }

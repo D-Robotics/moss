@@ -250,7 +250,7 @@ export interface SkillIssue {
 | SK4 core 内置化    | `07b82e5e` | 已实施，SDK example + 真实子代理加载技能    |
 | SK5 作用域与激活   | `020df3ce` | 已实施，`.agents/.claude` 发现 + glob 激活  |
 | SK6 信任与安装     | `3875217b` | 已实施，hash/rev/diff 全部真实跑            |
-| SK7 评估           | 本提交     | 已实施，with/without 真实对比 delta=1       |
+| SK7 评估           | 本提交     | 已实施；2026-11-04 追加四类 grader（D2）    |
 
 ### SK1 契约与解析（core）
 
@@ -299,19 +299,29 @@ export interface SkillIssue {
 ### SK7 评估
 
 - `evals/evals.json` 支持（`src/core/skills/skill-evals.ts`）：接受
-  `{skill_name, evals:[{id,prompt,expected_output,expect_contains}]}` 与 `{cases:[...]}` 两种形态；
-  只有 `expect_contains`（全部子串命中）与 `setup`（预置文件）参与判定，`expected_output` 仅供人读，
-  报告里标注 unasserted——对散文做子串匹配比不做检查更糟。坏文件产出 `evals-invalid` issue，
-  在 `moss skill validate` 与启动告警里出现，但不阻止技能加载。
+  `{skill_name, evals:[{id,prompt,…}]}` 与 `{cases:[...]}` 两种形态；四类机械 grader 可组合：
+  - `expect_contains` / `expectContains`：答案包含全部子串；
+  - `expect_regex`：答案匹配全部正则（构造时校验，坏正则记 `evals-invalid`）；
+  - `expect_tools`：运行中确实调用了全部列出的工具；
+  - `post_condition`：在工作区跑一条命令，退出码 0 才算过（设备探测 / `check.mjs` / 产物存在性），
+    可配 `post_condition_timeout_ms`（默认 60s）。
+    `setup` 预置文件；`expected_output` 仅供人读，报告标注 unasserted——对散文做子串匹配比不做检查更糟。
+    坏文件产出 `evals-invalid` issue，在 `moss skill validate` 与启动告警里出现，但不阻止技能加载。
 - `scripts/skill-eval.mjs <skill-dir|name> [--mode both|with|without] [--json 报告] [--dry-run]`：
-  每个 case 在一次性工作区里跑两次真实 CLI（`dist/cli.js -p`），with 模式把技能复制进
-  `.moss/skills/<name>`；判定 = 退出码 0 且 `expect_contains` 全中。报告含 `withPass/withoutPass/delta`。
-  `--dry-run` 只校验 eval 文件、不调模型。
+  每个 case 在一次性工作区里跑真实 CLI（`dist/cli.js -p --output-format stream-json`），
+  with 模式把技能复制进 `.moss/skills/<name>`；`stream-json` 用来同时拿到 `tool_use` 块（工具判据）
+  与 `result` 事件（最终答案，而不是被 JSON 转义过的 stdout）。判定 = 退出码 0 且所有 grader 通过；
+  报告逐 grader 记录证据（missing / calledTools / 命令退出码），summary 按实际跑过的 mode 报
+  `withPass/withoutPass/delta`（单边模式不再谎报 0）。`--dry-run` 只校验 eval 文件、不调模型。
 - `bench/tasks/skills-*`：`skills-usage`（已有：脚手架→发现→`$ARGUMENTS` 注入）+
   `skills-install-lock`（新增：install --workspace → lock ok → 人为篡改成 DRIFT → 恢复后 lock 仍 ok）。
 - 验收（已完成）：fixture 技能 token-demo 的真实 with/without 运行 → `with` PASS、`without` FAIL、
   `delta=1`，报告 `bench/results/skill-eval-token-demo.json`（不入库）；`skills-install-lock/check.mjs`
   在模拟工作区 PASS，篡改后 FAIL。
+- 验收（2026-11-04 追加，四类 grader）：`/tmp/eval-demo` 的真实 `--mode with` 运行一次通过四个 grader——
+  `contains ["PASS:"]`、`regex ["PASS: Hello from eval demo"]`、`tools ["read_file"]`、
+  `post_condition "test -f .moss/skills/eval-demo/SKILL.md"`（技能确实装进工作区）；报告
+  `bench/results/skill-eval-eval-demo.json` 含每 grader 证据与 `calledTools`。
 - 未做（诚实边界）：rdk-docs bundled 技能的真实 eval 需要 MCP 网络与手册内容，本轮未跑；
   该技能价值判断仍靠 `docs/specs` 的 MCP 边界设计，不用假数据充数。
 

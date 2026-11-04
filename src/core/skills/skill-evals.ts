@@ -9,9 +9,15 @@
  *   { "skill_name": "x", "evals": [ { "id": "…", "prompt": "…", "expected_output": "…" } ] }
  *   { "cases": [ { "id": "…", "prompt": "…", "expect_contains": ["…"] } ] }
  *
- * Assertions are deliberately mechanical (`expect_contains`); a free-text
- * `expected_output` is kept for humans and reported as unasserted, because a
- * substring match on prose is worse than no check at all.
+ * Assertions are deliberately mechanical. Four grader kinds are accepted,
+ * and a case may combine them:
+ *   expect_contains / expectContains : every substring appears in the answer
+ *   expect_regex                     : every pattern matches the answer
+ *   expect_tools                     : every named tool was actually called
+ *   post_condition                   : a command runs in the eval workspace and
+ *                                      must exit 0 (device probe, check.mjs, …)
+ * A free-text `expected_output` is kept for humans and reported as unasserted,
+ * because a substring match on prose is worse than no check at all.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,6 +28,14 @@ export interface SkillEvalCase {
   prompt: string;
   /** Substrings that must appear in the final answer (all of them). */
   expectContains: string[];
+  /** Regular expressions that must match the final answer (all of them). */
+  expectRegex: string[];
+  /** Tool names that must be called during the run (all of them). */
+  expectTools: string[];
+  /** Command run in the eval workspace after the run; exit 0 passes. */
+  postCondition?: string;
+  /** Timeout for `postCondition`, default 60s. */
+  postConditionTimeoutMs?: number;
   /** Files created in the eval workspace before the run. */
   setup: Record<string, string>;
   /** Free-text expectation kept for humans; unasserted. */
@@ -99,9 +113,39 @@ export function loadSkillEvals(skillDir: string): SkillEvals {
     seen.add(id);
     const expectContains =
       asStringList(record.expect_contains) ?? asStringList(record.expectContains) ?? [];
+    const expectRegexRaw = record.expect_regex ?? record.expectRegex;
+    const expectRegex = asStringList(expectRegexRaw) ?? [];
+    if (expectRegexRaw !== undefined && asStringList(expectRegexRaw) === undefined) {
+      push(`case "${id}" has a non-array expect_regex`);
+    }
+    for (const pattern of expectRegex) {
+      try {
+        new RegExp(pattern);
+      } catch (err) {
+        push(
+          `case "${id}" expect_regex ${JSON.stringify(pattern)} is invalid: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      }
+    }
     const expectToolsRaw = record.expect_tools ?? record.expectTools;
+    const expectTools = asStringList(expectToolsRaw) ?? [];
     if (expectToolsRaw !== undefined && asStringList(expectToolsRaw) === undefined) {
       push(`case "${id}" has a non-array expect_tools`);
+    }
+    const postConditionRaw = record.post_condition ?? record.postCondition;
+    const postCondition = asString(postConditionRaw);
+    if (postConditionRaw !== undefined && postCondition === undefined) {
+      push(`case "${id}" has a non-string post_condition`);
+    }
+    const timeoutRaw = record.post_condition_timeout_ms ?? record.postConditionTimeoutMs;
+    const postConditionTimeoutMs =
+      typeof timeoutRaw === 'number' && Number.isFinite(timeoutRaw) && timeoutRaw > 0
+        ? timeoutRaw
+        : undefined;
+    if (timeoutRaw !== undefined && postConditionTimeoutMs === undefined) {
+      push(`case "${id}" has an invalid post_condition_timeout_ms`);
     }
     const setupRaw = asRecord(record.setup) ?? asRecord(record.files);
     const setup: Record<string, string> = {};
@@ -117,6 +161,10 @@ export function loadSkillEvals(skillDir: string): SkillEvals {
       id,
       prompt,
       expectContains,
+      expectRegex,
+      expectTools,
+      ...(postCondition ? { postCondition } : {}),
+      ...(postConditionTimeoutMs ? { postConditionTimeoutMs } : {}),
       setup,
       ...(expectedOutput ? { expectedOutput } : {}),
     });

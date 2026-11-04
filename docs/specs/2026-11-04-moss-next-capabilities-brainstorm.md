@@ -25,11 +25,15 @@
      MCP lazy loading 都在为"schema 税"买单。
    - 多代理收进 **可复用脚本/团队**：`workflows`（脚本持有计划，可重跑、可恢复、可对抗式复核）、
      `agent teams`（共享任务板 + 跨会话消息）。
-3. **Moss 现在最贵的一项固定成本仍然是工具 schema**：实测 46 个注册工具、**41,745 chars ≈ 10.4k tokens**
-   常驻（旧基线 32,950 chars；新增的 `device_*` 占 11,445、`task_*`/`record_*` 占 5,671、
-   `subagent*` 占 5,218）。这比任何 prompt 措辞优化都值钱，是 D3 的直接依据。
-4. **建议的下一波（A 波，1–2 天可交付）**：D3 工具面收敛 2.0 + D4 MCP 协议补全 + D2 评估 grader 升级。
-   三者共同点是：**不改产品哲学、不碰冻结线、全部可用真实运行量化收益**。
+3. **工具 schema 没有想象中贵，但仍有优化空间**。注册表 46 个工具 / 41,745 chars 只是"全部可见"的上界；
+   按真实会话可见规则实测（`toolVisibleForRun`）：**chat 25 工具 / 23,062 chars（≈5.8k tokens）、
+   coding 31 / 28,733（≈7.2k）、device 36 / 34,513（≈8.6k）**。`device_*` 在未配置设备时**已经隐藏**，
+   `task_*`/`record_*` 只在 taskFlow 会话出现，子代理 5 个工具要 `tool_search` 才揭示。所以 D3 不是
+   "把设备工具藏起来"（已经做了），而是**lean 描述、去重、以及对 `todo_write` 做一次是否值得删的实验**；
+   它从 P0 降为 P1。
+4. **建议的下一波（A 波，1–2 天可交付）**：D4 MCP 协议补全 + D2 评估 grader 升级 + D12 hooks 契约对齐。
+   三者共同点是：**不改产品哲学、不碰冻结线、全部可用真实运行量化收益**。D3 改为"先测量再瘦身"，
+   放进 B 波。
 5. **一个需要 owner 决策的分叉**：D1 能力包（plugin-lite）。它是最像参考产品、也最能把 RDK 知识
    打包分发的一步，但它需要明确"本地插件加载"是否越过了「插件市场冻结」的边界（市场=托管/registry，
    本地包≠市场，但需要 owner 确认）。
@@ -40,30 +44,33 @@
 
 ## 1. Moss 现状（本轮实测，不是文件猜测）
 
-| 能力面           | 现状                                                                                                                              | 证据                                                                             |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| 技能             | SK1–SK7 完成；跨客户端目录（`.moss/.agents/.claude` + 用户级）；`globs` 激活；install/update/lock（hash+来源）；with/without eval | `src/core/skills/`、`src/cli/skill-install.ts`、`scripts/skill-eval.mjs`         |
-| 技能目录 symlink | **已修**：18/19 用户技能曾被静默跳过                                                                                              | `src/core/skills/skill-registry.ts`（本轮 `614db704`）                           |
-| 工具面           | 46 注册、41,745 chars；`tool_search` 只揭示 5 个 subagent 工具                                                                    | `dist` 实测；`src/tools/tool-search.ts`、`src/core/tools/deferred-tool-offer.ts` |
-| Hooks            | 11 个事件 + Claude 格式兼容 + 阻塞语义 + `/hooks`                                                                                 | `src/cli/hooks.ts`、`src/cli/hook-event-names.ts`、`src/cli/claude-compat.ts`    |
-| 子代理           | 文件定义（`.moss/.claude/agents`，Claude frontmatter 兼容）、前后台、fan-out、worktree 隔离                                       | `src/core/subagent/agent-file-loader.ts`、`subagent-orchestrator.ts`             |
-| 规则/指令        | `AGENTS.md`/`CLAUDE.md` 祖先链 + 用户级；`.moss/rules` 里 always + `globs` 两类                                                   | `src/cli/project-instructions.ts`、`src/cli/prompt-setup.ts:94-141`              |
-| 规划模式         | 独立 prompt 层 + `exit_plan` 工具 + 批准印章                                                                                      | `src/core/agent/moss-agent.ts`、`src/tools/plan-gate.ts`                         |
-| 权限/安全        | manual/acceptEdits/plan/full、allow/ask/deny glob 规则、设备信任分级、egress allowlist、redaction                                 | `src/cli/approval.ts`、`src/safety/`                                             |
-| 检查点           | `/rewind` 同时回滚文件与对话                                                                                                      | `src/cli/file-checkpoint.ts`、`src/cli/runtime.ts:1645`                          |
-| 会话             | resume/fork/export、JSONL、inbox/steering、context epoch                                                                          | `src/core/session/`                                                              |
-| MCP              | stdio + streamable HTTP + 工具懒加载；**无 resources/prompts/elicitation/OAuth**                                                  | `src/core/mcp/*`（grep 无对应符号）                                              |
-| 插件             | 只做信任扫描（`.moss/plugins`、`.claude/plugins` 的 manifest 识别）；**`moss plugins` 明确未实现**                                | `src/cli/workspace-trust.ts:214-230`、`src/cli/command-dispatcher.ts:702`        |
-| 记忆             | 写路径冻结；读路径完善（层级 + 祖先 + 用户级 + 路径规则）                                                                         | `src/cli/project-instructions.ts`                                                |
-| 多模态           | 消息契约与 provider wire 有 image block，**CLI 无附件入口、无 `read_image` 工具**                                                 | `src/contracts/messages.ts:11`、`src/provider/pi-ai-wire-format.ts:364`          |
-| 执行隔离         | workspace-write 只是文件工具约束；OS sandbox 仅设计稿                                                                             | `docs/design/os-sandbox.md`（Status: design only）                               |
-| 评估/观测        | verify/bench/run_metrics/usage/pricing；技能 eval 只有 with/without + `expect_contains`                                           | `scripts/verify/`、`bench/`、`scripts/skill-eval.mjs`                            |
+| 能力面           | 现状                                                                                                                                                                                    | 证据                                                                                                                                                    |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 技能             | SK1–SK7 完成；跨客户端目录（`.moss/.agents/.claude` + 用户级）；`globs` 激活；install/update/lock（hash+来源）；with/without eval                                                       | `src/core/skills/`、`src/cli/skill-install.ts`、`scripts/skill-eval.mjs`                                                                                |
+| 技能目录 symlink | **已修**：18/19 用户技能曾被静默跳过                                                                                                                                                    | `src/core/skills/skill-registry.ts`（本轮 `614db704`）                                                                                                  |
+| 工具面           | 46 注册 / 41,745 chars（上界）；真实可见面 chat 25 / 23,062、coding 31 / 28,733、device 36 / 34,513 chars；`tool_search` 只揭示 5 个 subagent 工具；设备/任务工具已按配置/taskFlow 门控 | `src/core/agent/session-tool-offer.ts:77`（`toolVisibleForRun`）、`src/tools/tool-search.ts`、`src/core/tools/deferred-tool-offer.ts`；本轮 `dist` 实测 |
+| Hooks            | 11 个事件 + Claude 格式兼容 + 阻塞语义 + `/hooks`                                                                                                                                       | `src/cli/hooks.ts`、`src/cli/hook-event-names.ts`、`src/cli/claude-compat.ts`                                                                           |
+| 子代理           | 文件定义（`.moss/.claude/agents`，Claude frontmatter 兼容）、前后台、fan-out、worktree 隔离                                                                                             | `src/core/subagent/agent-file-loader.ts`、`subagent-orchestrator.ts`                                                                                    |
+| 规则/指令        | `AGENTS.md`/`CLAUDE.md` 祖先链 + 用户级；`.moss/rules` 里 always + `globs` 两类                                                                                                         | `src/cli/project-instructions.ts`、`src/cli/prompt-setup.ts:94-141`                                                                                     |
+| 规划模式         | 独立 prompt 层 + `exit_plan` 工具 + 批准印章                                                                                                                                            | `src/core/agent/moss-agent.ts`、`src/tools/plan-gate.ts`                                                                                                |
+| 权限/安全        | manual/acceptEdits/plan/full、allow/ask/deny glob 规则、设备信任分级、egress allowlist、redaction                                                                                       | `src/cli/approval.ts`、`src/safety/`                                                                                                                    |
+| 检查点           | `/rewind` 同时回滚文件与对话                                                                                                                                                            | `src/cli/file-checkpoint.ts`、`src/cli/runtime.ts:1645`                                                                                                 |
+| 会话             | resume/fork/export、JSONL、inbox/steering、context epoch                                                                                                                                | `src/core/session/`                                                                                                                                     |
+| MCP              | stdio + streamable HTTP + 工具懒加载；**无 resources/prompts/elicitation/OAuth**                                                                                                        | `src/core/mcp/*`（grep 无对应符号）                                                                                                                     |
+| 插件             | 只做信任扫描（`.moss/plugins`、`.claude/plugins` 的 manifest 识别）；**`moss plugins` 明确未实现**                                                                                      | `src/cli/workspace-trust.ts:214-230`、`src/cli/command-dispatcher.ts:702`                                                                               |
+| 记忆             | 写路径冻结；读路径完善（层级 + 祖先 + 用户级 + 路径规则）                                                                                                                               | `src/cli/project-instructions.ts`                                                                                                                       |
+| 多模态           | 消息契约与 provider wire 有 image block，**CLI 无附件入口、无 `read_image` 工具**                                                                                                       | `src/contracts/messages.ts:11`、`src/provider/pi-ai-wire-format.ts:364`                                                                                 |
+| 执行隔离         | workspace-write 只是文件工具约束；OS sandbox 仅设计稿                                                                                                                                   | `docs/design/os-sandbox.md`（Status: design only）                                                                                                      |
+| 评估/观测        | verify/bench/run_metrics/usage/pricing；技能 eval 只有 with/without + `expect_contains`                                                                                                 | `scripts/verify/`、`bench/`、`scripts/skill-eval.mjs`                                                                                                   |
 
 补充实测（本轮）：
 
 - 用户级 `.claude/skills` 19 个 → 修复后 19/19 加载；加上工作区 3 个 = 22 个技能，
   未裁剪 catalog 4,199 chars（≈1k tokens，`strategy=full`）。**技能本身不贵，贵的是工具 schema。**
-- 工具 schema 仍是大头：`device_*` 11,445 / `task_*`+`record_*` 5,671 / `subagent*` 5,218 chars。
+- 工具 schema（真实可见面，按 `toolVisibleForRun` + 未揭示 deferred 计算）：chat 25 工具 / 23,062 chars
+  （≈5.8k tokens）、coding 31 / 28,733、device 36 / 34,513。`device_*` 未配置设备时全部隐藏；
+  coding 面里最大单工具仍是 `search_code` 1,969、`exec` 1,889、`edit_file` 1,511、`web_search` 1,402 chars。
+- 已修：symlink 技能目录（19/19 加载）；工具可见面测量修正（上一版把"注册即可见"当成真实成本）。
 
 ---
 
@@ -163,22 +170,30 @@
   序列正确"的 case；rubric grader 对开放题给出 pass/fail 且有证据行。
 - **成本**：低–中；**风险**：rubric grader 是真实模型调用（成本/波动），默认关闭、CI 只用机械 grader。
 - **优先级**：P0（与 D3 一起做，收益可量化）。
+- **进展（2026-11-04）**：第一版已落地——`expect_regex` / `expect_tools` / `post_condition`（+ contains）
+  四类 grader，`skill-eval.mjs` 改走 `--output-format stream-json` 同时取工具调用与最终答案；
+  真实 `/tmp/eval-demo` 运行 1/1 PASS（四 grader 全过）。rubric judge（第二模型判分）与 `--baseline`
+  缓存仍待做。
 
-### D3 工具面收敛 2.0：把 10.4k tokens 的 schema 税打下来
+### D3 工具面瘦身：lean 描述、去重、砍掉可疑工具
 
-- **问题**：46 个工具全量常驻 41,745 chars；`device_*` 11,445、`task_*`/`record_*` 5,671、
-  `subagent*` 5,218。设备/任务工具在普通编码会话里几乎不用，却每次请求都付费。
-- **参考**：Claude `ToolSearch` + MCP lazy；Cursor 工具收敛；两者都把"工具描述"当缓存/预算问题。
+- **问题（修正后的准确版）**：注册表 46 工具 41,745 chars 是上界，真实可见面 chat ≈5.8k tokens、
+  coding ≈7.2k、device ≈8.6k。设备/任务工具已被配置门控，所以剩下的不是"藏"，而是：
+  ① 单工具描述偏长（`search_code` 1,969、`exec` 1,889、`edit_file` 1,511 chars）；
+  ② 功能重叠（`apply_patch` vs `edit_file` vs `multi_edit`；`todo_write` 是否值得占用上下文——
+  Claude 已对新模型默认关闭 todo 工具，理由正是"定义与提醒占上下文"）；
+  ③ 首次请求里工具之外的大块（系统提示/AGENTS.md/技能 catalog）没有被逐项测过。
+- **参考**：Claude 的 full/lean 两套描述 + 工具搜索；todo 工具被默认移除的公开理由。
 - **落点**：
-  1. `tool_search` 增加 `device`、`task`、`plan` 组；按 goal/环境**预揭示**（例如 `MOSS_DEVICE_HOST`
-     存在或 prompt 提到设备才加载 device 组）；
-  2. 工具描述分层：schema 里放 lean 描述（≤120 chars），完整用法进 `tool_search` 结果或 `help`；
-  3. 测一次"reveal 后首次调用失败率"，避免模型不知道工具存在。
-- **验收**：同一批 `bench/tasks` 成功率的 A/B（全量 vs 收敛）；schema chars 从 41.7k 降到 <25k；
-  probe 断言 group reveal 后工具可调用；`MOSS_PROMPT_LAYERS` 报告工具组状态。
-- **成本**：中（触及 tool-catalog/deferred/提示）；**风险**：模型可能"看不见工具就不会用"，
-  需 bench 对照而不是拍脑袋。
-- **优先级**：P0（最高 ROI）。
+  1. 先加 `/context` 级测量（工具 vs 系统提示 vs catalog vs 对话），**用数据决定**下一步，而不是拍脑袋；
+  2. lean 描述：schema 里留 ≤120 chars 的一句话 + 一行"何时不要用"，长用法进 `tool_search`/`help`；
+  3. 合并/删除实验：`apply_patch` 与 `edit_file` 二选一（用 bench A/B 决定），`todo_write` 做开关
+     （默认关的实验分支），`multi_edit` 若已被 edit_file 覆盖则隐藏；
+  4. 对已揭示组做"按环境预揭示"仅当出现新的条件组，不重复设备/任务已经做过的门控。
+- **验收**：`bench/tasks` 成功率 A/B 不降；工具 schema chars 降 20%+；首请求总 tokens 有前后对比数字；
+  删/合并的工具在旧 transcript 里仍可解析（兼容）。
+- **成本**：中；**风险**：lean 描述可能让模型误用工具，必须 bench 对照；删工具是 semver 级变更（SDK 导出面）。
+- **优先级**：P1（从 P0 降级；先测后改）。
 
 ### D4 MCP 协议补全：resources / prompts / elicitation / OAuth
 
@@ -326,17 +341,17 @@
 
 **波 A（P0，1–2 天，不动冻结线）**
 
-1. D3 工具面收敛 2.0（device/task 组 reveal + lean 描述 + 实测 chars/tokens）
-2. D4 MCP resources/prompts/elicitation（先 mock server 验证，OAuth 单独一档）
-3. D2 grader 升级（tool-called/regex/post_condition + 报告 delta）
+1. D4 MCP resources/prompts/elicitation（先 mock server 验证，OAuth 单独一档）
+2. D2 grader 升级（tool-called/regex/post_condition + 报告 delta）
+3. D12 hooks 契约对齐（exit-code 矩阵、updatedInput、输出 cap）
 
 **波 B（P1，需求确认后）**
 
-4. D10 技能可见性 + D9 规则 4 类
-5. D11 技能运行语义 v2（fork/tool-scope/model/hooks）
-6. D7 多模态（若 RDK 现场调试是产品重点）
-7. D12 hooks 契约对齐（可与任意波并行）
-8. D1 能力包（owner 确认本地包边界后）
+4. D3 工具面瘦身（先 `/context` 测量，再 lean 描述/去重/实验）
+5. D10 技能可见性 + D9 规则 4 类
+6. D11 技能运行语义 v2（fork/tool-scope/model/hooks）
+7. D7 多模态（若 RDK 现场调试是产品重点）
+8. D1 能力包（本地包，无托管市场）
 
 **波 C（需 owner 解冻 / 产品决策）**
 
@@ -344,7 +359,18 @@
 
 ---
 
-## 6. 需要 owner 拍的四个问题
+## 5.1 Owner 决策记录（2026-11-04）
+
+用户原话："我觉得都可以做，没有不能做的。" 据此落定：
+
+| 问题                               | 决策                                                          | 影响                                          |
+| ---------------------------------- | ------------------------------------------------------------- | --------------------------------------------- |
+| 下一波走哪条线                     | 全部方向都可以做，按 P0→P1→P2 推进                            | §5 的三波变成**执行队列**，不再等确认         |
+| D1 本地能力包                      | 允许（本地安装/信任/版本；**不做托管 marketplace/registry**） | D1 可实施；插件市场冻结针对托管侧             |
+| 解冻 orchestration / memory 写路径 | **解冻**                                                      | D5/D6 可实施；仍需在 AGENTS.md 记录范围与验收 |
+| 多模态 D7                          | 进产品路线                                                    | 附件 + `read_image` + 设备截图可做            |
+
+## 6. 需要 owner 拍的四个问题（已由 5.1 回答，保留作记录）
 
 1. **下一波选哪条线？** 我建议波 A（D3+D4+D2）；如果你更关心"技能生态"，则 D1+D2+D10。
 2. **是否解冻 `orchestration`（D5）？** 解冻后可以做声明式/脚本式编排；不解冻则只做单会话子代理。
