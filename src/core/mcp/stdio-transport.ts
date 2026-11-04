@@ -75,6 +75,10 @@ export class McpStdioTransport implements McpTransport {
         code: ErrorCode.TOOL_EXECUTION_FAILED,
         message: `mcp server "${this.config.name}" connection closed`,
         recoverable: false,
+        hint: uiText(
+          'The server process exited or the connection dropped; run `moss mcp list` and retry.',
+          '服务器进程退出或连接断开；用 `moss mcp list` 检查后重试。'
+        ),
       });
     }
     if (this._state === 'connected' || this._state === 'connecting') return;
@@ -86,6 +90,10 @@ export class McpStdioTransport implements McpTransport {
           `mcp stdio 传输「${this.config.name}」已关闭`
         ),
         recoverable: false,
+        hint: uiText(
+          'Start a new session (the transport cannot be reused after close); run `moss mcp list` to check the server.',
+          '请重开一次会话（传输关闭后不能复用）；用 `moss mcp list` 检查服务器。'
+        ),
       });
     }
     const command = this.config.command;
@@ -102,6 +110,10 @@ export class McpStdioTransport implements McpTransport {
           `mcp 服务器「${this.config.name}」：stdio 传输需要 command`
         ),
         recoverable: false,
+        hint: uiText(
+          'Add `"command": "<server>"` (and args) to the server in mcp.json, then retry.',
+          '在 mcp.json 为该服务器补上 `"command": "<命令>"`（及 args）后重试。'
+        ),
       });
     }
     this._state = 'connecting';
@@ -165,6 +177,10 @@ export class McpStdioTransport implements McpTransport {
             message: uiText(
               `mcp server "${this.config.name}" exited during connect (code ${code ?? '?'}${signal ? `, signal ${signal}` : ''})`,
               `mcp 服务器「${this.config.name}」在连接时退出（code ${code ?? '?'}${signal ? `，signal ${signal}` : ''}）`
+            ),
+            hint: uiText(
+              'Check the server command/args and that it speaks MCP over stdio; run `moss mcp list` for its config.',
+              '检查服务器命令/参数以及它是否通过 stdio 使用 MCP；用 `moss mcp list` 查看配置。'
             ),
           })
         );
@@ -295,6 +311,10 @@ export class McpStdioTransport implements McpTransport {
             `mcp 服务器「${this.config.name}」：${msg.error.message}（code ${msg.error.code}）`
           ),
           recoverable: true,
+          hint: uiText(
+            'The MCP server rejected this request; verify the server version and the tool schema it advertises.',
+            'MCP 服务器拒绝了该请求；核对服务器版本及其声明的工具 schema。'
+          ),
         })
       );
       return;
@@ -315,7 +335,12 @@ export class McpStdioTransport implements McpTransport {
             `mcp server "${this.config.name}" is not connected (state: ${this._state})`,
             `mcp 服务器「${this.config.name}」未连接（state: ${this._state}）`
           ),
-          ...(this._lastError ? { hint: this._lastError } : {}),
+          hint:
+            this._lastError ??
+            uiText(
+              'The transport is closed or was never started; run `moss mcp list` and retry in a new session.',
+              '传输已关闭或从未启动；用 `moss mcp list` 检查后重开会话重试。'
+            ),
           recoverable: false,
         })
       );
@@ -443,6 +468,10 @@ export class McpStdioTransport implements McpTransport {
           `mcp 服务器「${this.config.name}」连接已关闭`
         ),
         recoverable: false,
+        hint: uiText(
+          'The server process exited or the connection dropped; run `moss mcp list` and retry.',
+          '服务器进程退出或连接断开；用 `moss mcp list` 检查后重试。'
+        ),
       })
     );
     await this.closedPromise;
@@ -459,6 +488,10 @@ export class McpStdioTransport implements McpTransport {
           `mcp 服务器「${this.config.name}」：${reason}`
         ),
         recoverable: false,
+        hint: uiText(
+          'The MCP server closed the connection; run `moss mcp list` and restart the session.',
+          'MCP 服务器关闭了连接；用 `moss mcp list` 检查后重开会话。'
+        ),
       })
     );
     void this.close();

@@ -108,6 +108,10 @@ export class McpHttpTransport implements McpTransport {
           `mcp 服务器「${this.config.name}」：${this._lastError ?? 'HTTP 配置无效'}`
         ),
         recoverable: false,
+        hint: uiText(
+          'Set `"url"` (http/https) for this server in mcp.json, or use a stdio server (`moss mcp add <name> <command...>`).',
+          '在 mcp.json 为该服务器设置 `"url"`（http/https），或改用 stdio 服务器（`moss mcp add <名称> <命令...>`）。'
+        ),
       });
     }
     if (this._state === 'closed') {
@@ -118,6 +122,10 @@ export class McpHttpTransport implements McpTransport {
           `「${this.config.name}」的 mcp HTTP 传输已关闭`
         ),
         recoverable: false,
+        hint: uiText(
+          'Start a new session (the transport cannot be reused after close); check the server with `moss mcp list`.',
+          '请重开一次会话（传输关闭后不能复用）；用 `moss mcp list` 检查服务器。'
+        ),
       });
     }
     await loadUndici();
@@ -138,7 +146,12 @@ export class McpHttpTransport implements McpTransport {
             `mcp server "${this.config.name}" is not connected (state: ${this._state})`,
             `mcp 服务器「${this.config.name}」未连接（state: ${this._state}）`
           ),
-          ...(this._lastError ? { hint: this._lastError } : {}),
+          hint:
+            this._lastError ??
+            uiText(
+              'The transport is closed or was never started; run `moss mcp list` and retry in a new session.',
+              '传输已关闭或从未启动；用 `moss mcp list` 检查后重开会话重试。'
+            ),
           recoverable: false,
         })
       );
@@ -255,6 +268,10 @@ export class McpHttpTransport implements McpTransport {
           ),
           recoverable: true,
           cause: err,
+          hint: uiText(
+            'The URL is probably not an MCP endpoint: point it at the streamable-HTTP MCP path, or run `moss mcp list` to review it.',
+            '该 URL 多半不是 MCP 端点：请指向 streamable-HTTP 的 MCP 路径，或用 `moss mcp list` 复核配置。'
+          ),
         });
       }
       return this.settleMessage(msg, id, method);
@@ -343,6 +360,10 @@ export class McpHttpTransport implements McpTransport {
           `mcp 服务器「${this.config.name}」在应答前关闭了 SSE 流`
         ),
         recoverable: true,
+        hint: uiText(
+          'The server closed the event stream; retry, and check the server logs with `moss mcp list` for its config.',
+          '服务器关闭了事件流；请重试，并按 `moss mcp list` 显示的配置检查服务器日志。'
+        ),
       });
     } finally {
       // The response arrived — the server may keep the stream open for
@@ -366,6 +387,10 @@ export class McpHttpTransport implements McpTransport {
           `mcp 服务器「${this.config.name}」：${msg.error.message}（code ${msg.error.code}）`
         ),
         recoverable: true,
+        hint: uiText(
+          'The MCP server rejected this request; verify the server version and the tool schema it advertises.',
+          'MCP 服务器拒绝了该请求；核对服务器版本及其声明的工具 schema。'
+        ),
       });
     }
     return msg.result;
