@@ -1,5 +1,7 @@
 # R3 — moss baseline: reusable machinery, integration points, and gaps
 
+> **2026-11-04 架构清理（后续改动）**：`src/cli/tui/input-box.ts`、`src/cli/attachments.ts`、`src/cli/identity.ts`、`src/cli/setup.ts` 已删除（无引用、或功能从未接线）。本文中指向这些文件的行号/哈希仅作历史记录；`@` 提及只插入路径，附件预处理不再存在于 CLI 路径。
+
 Scope: what the moss implementation line already has for an interactive CLI, so the parity work
 **reuses** it instead of rebuilding it. Written by reading current source, not git history.
 
