@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { errorMessage } from '../errors.js';
 import {
   listSubagentTranscripts,
   loadSubagentTranscript,
@@ -1002,6 +1003,8 @@ interface SubagentResumeInput {
   prompt: string;
   maxTurns?: number;
   timeoutMs?: number;
+  /** Wait for a still-running background task to finish, then resume it. */
+  waitForRunning?: boolean;
 }
 
 /**
@@ -1021,6 +1024,7 @@ export const subagentResumeTool: Tool<SubagentResumeInput> = {
     'Pass the taskId returned by background mode or the runId printed in the sub-agent result; omit it (or pass "latest") to continue the most recently stored sub-agent, including one from an earlier session because transcripts live on disk.',
     'The child keeps what it already read and did; the new prompt is appended as the next user message.',
     'Blocks until the follow-up finishes and returns its answer.',
+    "A background task that is still running is waited for first (bounded by that task's own timeout) unless waitForRunning is false.",
     'Not for starting unrelated work (create_subagent) or for a child whose transcript was never stored.',
   ].join(' '),
   metadata: {
@@ -1052,6 +1056,11 @@ export const subagentResumeTool: Tool<SubagentResumeInput> = {
         maximum: MAX_SUBAGENT_TIMEOUT_MS,
         description: 'Max runtime for the follow-up in ms',
       },
+      waitForRunning: {
+        type: 'boolean',
+        description:
+          'When the id is a still-running background task, wait for it to finish before resuming (default true).',
+      },
     },
     required: ['prompt'],
   },
@@ -1077,6 +1086,41 @@ export const subagentResumeTool: Tool<SubagentResumeInput> = {
       requested && requested !== 'latest'
         ? loadSubagentTranscript(ctx.workspaceDir, requested)
         : null;
+    if (!stored && requested && requested !== 'latest' && ctx.asyncTaskRegistry) {
+      // A background task keeps its id from the moment it starts but only saves
+      // a transcript when it finishes; resuming mid-flight used to say "no
+      // stored conversation" while the run was alive and about to store one.
+      const snapshot = ctx.asyncTaskRegistry.status(requested);
+      if (snapshot && !TERMINAL_SUBAGENT_TASK_STATUSES.has(snapshot.status)) {
+        if (input.waitForRunning === false) {
+          return [
+            `Error: sub-agent ${requested} is still ${snapshot.status.toUpperCase()}.`,
+            'Call subagent_resume again with waitForRunning: true (the default) to wait for it, or use subagent_status with wait: true first.',
+          ].join('\n');
+        }
+        try {
+          await ctx.asyncTaskRegistry.wait(requested);
+        } catch (error) {
+          return `Error: waiting for sub-agent ${requested} failed: ${errorMessage(error)}`;
+        }
+        stored = loadSubagentTranscript(ctx.workspaceDir, requested);
+        if (!stored) {
+          return [
+            `Error: sub-agent ${requested} finished but stored no conversation.`,
+            'Its transcript is written when the background run completes; check subagent_status for its summary.',
+          ].join('\n');
+        }
+      }
+    }
+    if (!stored && requested && requested !== 'latest' && ctx.asyncTaskRegistry) {
+      const finished = ctx.asyncTaskRegistry.status(requested);
+      if (finished && TERMINAL_SUBAGENT_TASK_STATUSES.has(finished.status)) {
+        return [
+          `Error: sub-agent ${requested} finished (${finished.status}) but stored no conversation.`,
+          'Its transcript is written when the background run completes; check subagent_status for its summary.',
+        ].join('\n');
+      }
+    }
     if (!stored) {
       const available = listSubagentTranscripts(ctx.workspaceDir);
       if (requested === 'latest' || requested === '') {

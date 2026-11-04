@@ -415,8 +415,22 @@ transcript；会话 2 新进程、provider 只发 `subagent_resume{prompt}`（**
 的 resume 请求 `childResume:true, priorHasTask:true, priorHasAnswer:true`（原任务与 `TOKEN=42` 都从磁盘
 重放）→ 子代理答 `RESUMED:TOKEN=42` → 会话 2 终稿 `DONE2:RESUMED`，exit 0，第二次续跑再落盘 1 份
 （共 2 份）。探针同步扩到 **8 断言**（新增：省略 id/`latest` 取最新、未知 id 列出可续项、空工作区不 spawn）。
-**仍未做**：后台任务续跑（resume 同步阻塞，后台任务要先 `subagent_status(wait:true)`）；
-`fan_out_subagents` 的每任务 transcript 没有单独 id（目前只存主 runId）。
+**已落地（2026-11-05，再补一片 = 运行中的后台任务也能续）**：此前 `subagent_resume` 只认磁盘上已有的
+transcript，而后台任务**从 start 那一刻就有 taskId、却要等结束才写 transcript**，所以对一个正在跑的后台
+任务续跑会报「no stored conversation」，而它其实马上就会产出 transcript。现在：`subagent_resume` 在找不到
+transcript 且传了后台 taskId 时，先查 `ctx.asyncTaskRegistry.status(id)`——
+① 状态非终态（running/queued）：默认 `await registry.wait(id)` 等它结束（边界由该任务自己的 timeoutMs 决定），
+结束后再从磁盘读 transcript 并继续；传新参数 `waitForRunning:false` 则不阻塞，直接返回
+「still RUNNING」+ 下一步提示，绝不误 spawn；
+② 状态终态却没有 transcript：明确报 `finished (<status>) but stored no conversation`（而不是笼统的
+「unknown id」），并提示用 `subagent_status` 看 summary。
+工具描述同步写清「running 的后台任务会先被等待（可用 waitForRunning:false 关闭）」，模型不必自己先
+`subagent_status(wait:true)` 再续。
+**回归门**：verify stage `subagent-resume` 从 8 断言扩到 **10 断言**——新增「用真实
+`InMemoryMossAsyncTaskRegistry` 跑一个活任务：`waitForRunning:false` 得到 still RUNNING 且不 spawn；
+默认路径等任务落盘 transcript 后 spawn，且 priorMessages 就是那次后台跑的对话、scope 继承」以及
+「终态但无 transcript 的 id 明确报错、不静默 spawn」。
+**仍未做**：`fan_out_subagents` 的每任务 transcript 没有单独 id（目前只存主 runId）。
 
 **B12 启动手感（P2）**
 **已落地（2026-11-05，本轮 = H2 补全 + ink 预取）**：① TUI 路径的分段计时补到 `composer`：
