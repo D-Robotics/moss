@@ -695,6 +695,15 @@ export const searchCodeTool: Tool = {
     required: ['pattern'],
   },
   async execute(input, ctx) {
+    // A blank pattern is a zero-length regex: it matches every line of every
+    // file, so the "result" was a dump of the whole workspace. Refuse and name
+    // the shape instead of spending the context budget on it.
+    if (typeof input.pattern !== 'string' || !input.pattern.trim()) {
+      return (
+        'Error: search_code needs a pattern. Nothing was searched — pass the text or regex to find ' +
+        '(e.g. "handleRequest", "TODO"). To match whitespace itself, pass a regex such as "\\\\s".'
+      );
+    }
     // head_limit is the Claude Code Grep name; maxResults is the Moss name.
     const rawLimit = Number(input.head_limit ?? input.maxResults);
     const maxResults = Math.min(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50, 200);

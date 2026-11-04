@@ -211,6 +211,12 @@ export const execTool: Tool = {
         ctx
       );
     }
+    // An empty command spawns a shell that prints nothing, so the result read
+    // as "(no output)" — the same answer as a command that ran and was quiet.
+    // Nothing ran; say so instead of implying a silent success.
+    if (typeof input.command !== 'string' || !input.command.trim()) {
+      return 'Error: exec needs a command. Nothing ran — pass the shell command to execute (e.g. "npm test").';
+    }
     const requestedTimeout = Number(input.timeout_ms);
     const { timeoutMs } = resolveForegroundTimeoutMs(input.timeout_ms);
     const shell = resolveHostShell();

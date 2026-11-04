@@ -173,6 +173,28 @@ test('device tools: dangerous commands are blocked before reaching the device', 
   assert.match(blocked, /^Command blocked:/);
 });
 
+test('device tools: an empty device_exec command says nothing ran', async (t) => {
+  process.env[PASSWORD_ENV] = 'swordfish';
+  const device = await startInProcessSshDevice({ commands: {} });
+  t.after(async () => {
+    await disconnectAllDevices();
+    await device.close();
+  });
+  configureDefaultDeviceTarget({
+    deviceId: 'empty-command-test',
+    kind: 'linux',
+    host: '127.0.0.1',
+    port: device.port,
+    user: 'tester',
+    auth: { method: 'password', passwordEnvVar: PASSWORD_ENV },
+  });
+  const ctx = makeCtx(os.tmpdir());
+  for (const command of ['', '   ']) {
+    const out = await deviceExecTool.execute({ command }, ctx);
+    assert.match(out, /^Error: device_exec needs a command\. Nothing ran/);
+  }
+});
+
 test('device tools: no target configured returns actionable guidance', async () => {
   configureDefaultDeviceTarget(null);
   const prev = { ...process.env };

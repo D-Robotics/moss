@@ -141,6 +141,9 @@ export const deviceExecTool: Tool = {
     const resolved = await connectDefaultDevice('device_exec');
     if (typeof resolved === 'string') return resolved;
     const command = String(input.command ?? '');
+    if (!command.trim()) {
+      return 'Error: device_exec needs a command. Nothing ran on the device — pass the shell command to execute.';
+    }
     const classification = classifyDeviceOperation({
       toolName: 'device_exec',
       sideEffect: 'device_mutation',
