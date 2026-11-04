@@ -5,6 +5,11 @@ OS x 2 Node suite matrix, artifact-based summary gate, date-controlled Windows
 blocking). The behavior spec suite referenced by the old design was removed by
 the repository owner on 2026-11-04; this note describes what is verified now.
 
+Standing decision (2026-11-04, owner request): this repository does not
+reintroduce a behavior spec suite. New checks belong in
+`scripts/verify/stages/` or `bench/`; extend the gate instead of duplicating
+it.
+
 ## Product goal
 
 A gate is worth what its latency is worth. A 30-minute suite on every push is

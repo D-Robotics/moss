@@ -184,7 +184,8 @@ Linux CI 不是 macOS。改 shell 片段、临时目录或 git 路径时按这�
   CLI 启动、示例契约与静态规范，不证明行为回归。
 - 静态检查（format / lint / typecheck）是交付门的一部分，不是每一轮都跑；每一轮跑它既慢又
   会掩盖真实行为验证。
-- 恢复行为测试套件前先与 owner 确认框架与门口径；不要顺手新建 `test/` spec 目录。
+- **不要新增 spec 套件（owner 2026-11-04 明确要求保持现状）。** 不新建 `test/*.spec.mjs`、不引回
+  spec 跑器；需要回归保护时，加 verify stage、可执行探测或 bench 任务。
 - 动态 ESM import 一律 `pathToFileURL(...).href`（Windows 兼容）。
 - `npm pack` 探针必须 `--ignore-scripts`，避免 `prepare` 的构建与共享 `dist/` 竞态。
 - 真实终端检查：`smoke` 覆盖 Unix PTY 启动（Windows 跳过）；tmux / screen / Terminal.app 的体感
