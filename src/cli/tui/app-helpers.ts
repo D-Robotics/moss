@@ -82,6 +82,8 @@ export interface TuiContextInfo {
 export interface TuiSkillCommand {
   name: string;
   description: string;
+  /** Non-fatal frontmatter/resource problems reported by the skill loader. */
+  issues?: number;
 }
 
 export interface TuiNoticeSource {

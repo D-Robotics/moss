@@ -115,7 +115,7 @@ import { CONFIGURED_DEVICE_PROMPT } from '../device/device-probe-prompt.js';
 import { createWebSearchTool } from '../tools/web-search.js';
 import { createWebFetchTool } from '../tools/web-fetch.js';
 import {
-  loadSkills,
+  loadSkillCatalog,
   skillSlashName,
   buildSkillsPromptLayer,
   buildEmptySkillsHintLayer,
@@ -1057,21 +1057,29 @@ export async function runCli(): Promise<void> {
     name: string;
     description: string;
     scope: 'workspace' | 'user';
+    issues: number;
     slashAlias?: string;
   }> = [];
   const sessionContextInfo: { skills?: number; soul?: string; branch?: string } = {};
   {
     const skillDirs = [path.join(workspace, '.moss', 'skills'), path.join(configDir, 'skills')];
+    const skillDirSpecs = [
+      { dir: path.join(workspace, '.moss', 'skills'), scope: 'workspace' as const },
+      { dir: path.join(configDir, 'skills'), scope: 'user' as const },
+    ];
     const announcedSkillSkips = new Set<string>();
-    const baseSkills = loadSkills(skillDirs, {
+    const emitSkillNotice = (line: string) => {
+      if (useTui) emitTuiNotice(line);
+      else console.error(line);
+    };
+    const baseSkills = loadSkillCatalog(skillDirSpecs, {
       onSkip(skip) {
         if (announcedSkillSkips.has(skip.file)) return;
         announcedSkillSkips.add(skip.file);
-        const emit = (line: string) => {
-          if (useTui) emitTuiNotice(line);
-          else console.error(line);
-        };
-        announceCatalogSkip(workspace, skip.file, skip.reason, cliLocale(), emit);
+        announceCatalogSkip(workspace, skip.file, skip.reason, cliLocale(), emitSkillNotice);
+      },
+      onIssue(issue) {
+        emitSkillNotice(`[skill] ${issue.message} (${issue.file})`);
       },
     });
     const sessionSkills = [...baseSkills];
@@ -1102,16 +1110,15 @@ export async function runCli(): Promise<void> {
       loadedSkills.splice(
         0,
         loadedSkills.length,
-        ...sessionSkills.map(({ name, description, file }) => {
-          const scope = file.startsWith(path.join(workspace, '.moss', 'skills'))
-            ? ('workspace' as const)
-            : ('user' as const);
-          const alias = skillSlashName(name);
+        ...sessionSkills.map((skill) => {
+          const scope = skill.scope === 'workspace' ? ('workspace' as const) : ('user' as const);
+          const alias = skillSlashName(skill.name);
           return {
-            name,
-            description,
+            name: skill.name,
+            description: skill.description,
             scope,
-            ...(alias.toLowerCase() !== name.toLowerCase() ? { slashAlias: alias } : {}),
+            issues: skill.issues.length,
+            ...(alias.toLowerCase() !== skill.name.toLowerCase() ? { slashAlias: alias } : {}),
           };
         })
       );

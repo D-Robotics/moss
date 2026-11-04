@@ -4,7 +4,7 @@
  * guide from the 2026-10-09 audit, updated for rdk-docs-mcp 0.3.0's compact
  * search hits and section reads — not the npm package's forum/post skill.
  */
-import type { SkillManifest } from './skill-registry.js';
+import { emptySkillResources, type SkillManifest } from '../../contracts/skill.js';
 
 export const RDK_DOCS_SKILL_NAME = 'rdk-docs';
 
@@ -37,8 +37,16 @@ export function bundledRdkDocsSkill(): SkillManifest {
     name: RDK_DOCS_SKILL_NAME,
     description: 'Look up RDK manual pages; judge snippets and cite the URL.',
     when: 'an RDK board fact is needed',
+    allowedTools: [],
+    metadata: {},
+    globs: [],
+    scope: 'bundled',
+    dir: 'builtin:rdk-docs',
     file: 'builtin:rdk-docs',
     body: RDK_DOCS_SKILL_BODY,
+    resources: emptySkillResources(),
+    issues: [],
+    legacy: false,
   };
 }
 

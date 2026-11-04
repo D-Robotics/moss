@@ -2345,7 +2345,14 @@ export function TuiAppRoot({
           rows.length === 0
             ? [tui('no skills found'), tui('create one: moss skill create <name>')]
             : rows
-                .map((s) => `  ${s.name.padEnd(18)} ${s.description.split('\n')[0] ?? ''}`)
+                .map(
+                  (s) =>
+                    `  ${s.name.padEnd(18)} ${s.description.split('\n')[0] ?? ''}${
+                      s.issues
+                        ? `  (${String(s.issues)} issue(s) — moss skill validate ${s.name})`
+                        : ''
+                    }`
+                )
                 .concat([
                   tui('  ({count} skill(s) · load with the skill tool)', { count: rows.length }),
                 ])

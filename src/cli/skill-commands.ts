@@ -16,6 +16,7 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
       '用法：',
       '  moss skill create <名称>          生成 .moss/skills/<名称>/SKILL.md 脚手架',
       '  moss skill list                   列出已发现的技能（工作区与用户级）',
+      '  moss skill validate <路径>        按 Agent Skills 规范校验一个技能目录',
       '',
       '编辑脚手架，补全 `description` 和正文；下次启动 moss 会自动加载（渐进披露：',
       '只有 `name` 和 `description` 进入提示词；正文由技能工具按 `{参数}` 加载）。',
@@ -32,6 +33,7 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
     'Usage:',
     '  moss skill create <name>          scaffold .moss/skills/<name>/SKILL.md',
     '  moss skill list                   list discovered skills (workspace + user)',
+    '  moss skill validate <path>        validate a skill directory against the Agent Skills spec',
     '',
     'Edit the scaffold, fill in description + body; it appears in the next',
     'session automatically (progressive disclosure: only name + description',
@@ -108,10 +110,11 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
   }
 
   if (sub === 'list') {
-    const { loadSkills } = await import('../core/skills/skill-registry.js');
-    const skills = loadSkills([
-      path.join(ctx.workspaceDir, '.moss', 'skills'),
-      path.join(ctx.configDir, 'skills'),
+    const { loadSkillCatalog } = await import('../core/skills/skill-registry.js');
+    const skills = loadSkillCatalog([
+      { dir: path.join(ctx.workspaceDir, '.moss', 'skills'), scope: 'workspace' },
+      { dir: path.join(ctx.workspaceDir, '.agents', 'skills'), scope: 'shared' },
+      { dir: path.join(ctx.configDir, 'skills'), scope: 'user' },
     ]);
     if (skills.length === 0) {
       out(
@@ -121,13 +124,70 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
       );
       return 0;
     }
-    for (const skill of skills) out(`  ${skill.name.padEnd(18)} ${skill.description}`);
+    for (const skill of skills) {
+      const problems = skill.issues.length > 0 ? `  (${skill.issues.length} issue(s))` : '';
+      out(`  ${skill.name.padEnd(18)} ${skill.scope.padEnd(9)} ${skill.description}${problems}`);
+    }
     out(
       zh
         ? `\n共 ${skills.length} 个技能。会话内用技能工具加载。`
         : `\n${skills.length} skill(s). Load one in-session with the skill tool.`
     );
     return 0;
+  }
+
+  if (sub === 'validate') {
+    const target = argv[1];
+    if (!target) {
+      err(renderSkillUsage(zh));
+      return 2;
+    }
+    const { readSkillManifest } = await import('../core/skills/skill-registry.js');
+    const resolved = path.resolve(ctx.workspaceDir, target);
+    const file =
+      fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
+        ? path.join(resolved, 'SKILL.md')
+        : resolved;
+    if (!fs.existsSync(file)) {
+      err(`moss skill validate: no SKILL.md at ${file}`);
+      return 2;
+    }
+    const parsed = readSkillManifest(file, path.basename(path.dirname(file)), 'workspace');
+    if (parsed.skip) {
+      err(`moss skill validate: not a loadable skill (${parsed.skip.reason}): ${file}`);
+      for (const issue of parsed.issues) err(`  [${issue.code}] ${issue.message}`);
+      return 1;
+    }
+    const skill = parsed.manifest;
+    if (!skill) {
+      err(`moss skill validate: could not parse ${file}`);
+      return 1;
+    }
+    out(`${zh ? '技能' : 'skill'}: ${skill.name}`);
+    out(`${zh ? '来源' : 'source'}: ${skill.scope} ${skill.dir}`);
+    out(`${zh ? '符合规范' : 'spec name'}: ${skill.legacy ? 'no (legacy name)' : 'yes'}`);
+    out(
+      `${zh ? '描述' : 'description'}: ${skill.description.length} chars${
+        skill.description.length > 1024 ? ' (over 1024)' : ''
+      }`
+    );
+    out(`${zh ? '触发' : 'when'}: ${skill.when ?? '-'} | globs: ${skill.globs.join(', ') || '-'}`);
+    out(
+      `${zh ? '资源' : 'resources'}: scripts=${skill.resources.scripts.length} references=${
+        skill.resources.references.length
+      } assets=${skill.resources.assets.length} evals=${skill.resources.evals ? 'yes' : 'no'}`
+    );
+    if (skill.allowedTools.length > 0)
+      out(`${zh ? '声明工具' : 'declared tools'}: ${skill.allowedTools.join(' ')}`);
+    if (skill.issues.length === 0) {
+      out(zh ? '没有问题。' : 'No issues.');
+      return 0;
+    }
+    for (const issue of skill.issues) out(`  [${issue.code}] ${issue.message}`);
+    const fatal = skill.issues.some((issue) =>
+      ['missing-frontmatter', 'malformed-frontmatter'].includes(issue.code)
+    );
+    return fatal ? 1 : 0;
   }
 
   err(renderSkillUsage(zh));

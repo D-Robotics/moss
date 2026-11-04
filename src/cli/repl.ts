@@ -153,7 +153,7 @@ export async function runInteractive(
     sessionKey?: string;
     services?: CliServices;
     /** Discovered skills (name+description) for /skills; omitted when none. */
-    skills?: Array<{ name: string; description: string }>;
+    skills?: Array<{ name: string; description: string; issues?: number }>;
   } = {}
 ) {
   const services = options.services ?? new CliServices();
@@ -456,7 +456,11 @@ export async function runInteractive(
       } else {
         console.error('Skills');
         for (const s of rows)
-          console.error(`  ${s.name.padEnd(18)} ${s.description.split('\n')[0] ?? ''}`);
+          console.error(
+            `  ${s.name.padEnd(18)} ${s.description.split('\n')[0] ?? ''}${
+              s.issues ? `  (${String(s.issues)} issue(s) — moss skill validate ${s.name})` : ''
+            }`
+          );
         console.error(`  (${rows.length} skill(s) · load with the skill tool)`);
       }
       rl.prompt();

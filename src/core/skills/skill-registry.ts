@@ -1,33 +1,49 @@
 /**
- * Lightweight skills (v0.16-S3): SKILL.md files with YAML-ish frontmatter
- * (name / description / when) discovered from `.moss/skills/` (workspace) and
- * `<configDir>/skills/` (user). Progressive disclosure: only the index line
- * (name + description) enters the system prompt; the full body is loaded on
- * demand through the readonly `skill` tool.
+ * Skill discovery and parsing (Agent Skills format).
+ *
+ * Skills live in `<scope>/skills/<name>/SKILL.md`; the body and the optional
+ * `scripts/`, `references/`, `assets/` and `evals/` directories stay out of the
+ * prompt. Only the catalog line (name + description) enters the prompt, and the
+ * model loads the body through the `skill` tool.
+ *
+ * Discovery is explicit about scope: workspace (`.moss/skills`), shared
+ * (`.agents/skills`, the cross-client convention), user (`<configDir>/skills`),
+ * and bundled. Earlier scopes win on name collisions; the loser is reported
+ * instead of vanishing silently.
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  SKILL_BODY_MAX_BYTES,
+  SKILL_DESCRIPTION_MAX_CHARS,
+  SKILL_NAME_MAX_CHARS,
+  SKILL_RESOURCE_MAX_FILES,
+  SKILL_SPEC_NAME_RE,
+  type SkillIssue,
+  type SkillManifest,
+  type SkillResources,
+  type SkillScope,
+} from '../../contracts/skill.js';
+import { asString, asStringList, parseFrontmatter } from './skill-parse.js';
 
-export interface SkillManifest {
-  name: string;
-  description: string;
-  /** Optional hint for when the model should pick this skill. */
-  when?: string;
-  /** Absolute path of the SKILL.md body. Bundled skills may use a sentinel plus `body`. */
-  file: string;
-  /** Inline body. When set, the skill tool does not read `file`. */
-  body?: string;
-}
+export type {
+  SkillManifest,
+  SkillIssue,
+  SkillScope,
+  SkillResources,
+} from '../../contracts/skill.js';
 
 export interface ParsedSkillFile {
   frontmatter: Record<string, string>;
   body: string;
 }
 
-/**
- * Skill and slash-command names. Letters and digits from any script, then
- * `.` `_` `:` `-`. A value that is entirely a `{{…}}` placeholder is not a name.
- */
+/** Spec-conforming name: lowercase letters/digits, hyphen-separated, ≤64. */
+export function isSpecSkillName(name: string): boolean {
+  return name.length <= SKILL_NAME_MAX_CHARS && SKILL_SPEC_NAME_RE.test(name);
+}
+
+/** Legacy catalog-name rule kept for rule files and backwards compatibility. */
 export const CATALOG_NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N}._:-]*$/u;
 
 export type SkillSkipReason = 'placeholder' | 'empty' | 'invalid-name' | 'hidden-dir';
@@ -37,15 +53,19 @@ export interface SkillSkip {
   reason: SkillSkipReason;
 }
 
+export interface SkillDir {
+  dir: string;
+  scope: SkillScope;
+}
+
 export interface LoadSkillsOptions {
   /** Called once per rejected SKILL.md. The caller shows one session notice. */
   onSkip?: (skip: SkillSkip) => void;
+  /** Non-fatal problems (legacy name, over-long description, duplicates, resources). */
+  onIssue?: (issue: SkillIssue) => void;
 }
 
-/**
- * True when the whole value is one unfilled `{{…}}` placeholder.
- * A description that merely mentions `{{var}}` is real text.
- */
+/** True when the whole value is one unfilled `{{…}}` placeholder. */
 const ENTIRE_TEMPLATE_PLACEHOLDER_RE = /^\{\{[^{}]+\}\}$/;
 
 export function containsTemplatePlaceholder(value: string): boolean {
@@ -61,11 +81,7 @@ export function skillSlashName(name: string): string {
   return name.trim().replace(/\s+/g, '-');
 }
 
-/**
- * Why this name/description must not be registered, or undefined when it is a
- * real skill. Placeholder wins over the name pattern so `{{name}}` is reported
- * as an unfilled template, not as a generic bad name.
- */
+/** Why this name/description must not be registered at all (fatal), or undefined. */
 export function skillSkipReason(name: string, description: string): SkillSkipReason | undefined {
   const trimmedName = name.trim();
   const trimmedDescription = description.trim();
@@ -73,29 +89,16 @@ export function skillSkipReason(name: string, description: string): SkillSkipRea
   if (containsTemplatePlaceholder(trimmedName) || containsTemplatePlaceholder(trimmedDescription)) {
     return 'placeholder';
   }
-  if (!CATALOG_NAME_RE.test(trimmedName)) return 'invalid-name';
+  // Spec names are validated separately (legacy names are still loaded with an
+  // issue); only names that cannot even be addressed in the catalog are fatal.
+  if (!CATALOG_NAME_RE.test(trimmedName) && !isSpecSkillName(trimmedName)) return 'invalid-name';
   return undefined;
 }
 
+/** Backwards-compatible flat frontmatter view (rules, slash commands). */
 export function parseSkillFile(text: string): ParsedSkillFile {
-  const normalized = text.replace(/\r\n/g, '\n');
-  if (!normalized.startsWith('---')) return { frontmatter: {}, body: normalized };
-  const end = normalized.indexOf('\n---', 3);
-  if (end === -1) return { frontmatter: {}, body: normalized };
-  const header = normalized.slice(3, end).trim();
-  const body = normalized.slice(end + 4).replace(/^\n+/, '');
-  const frontmatter: Record<string, string> = {};
-  for (const line of header.split('\n')) {
-    const idx = line.indexOf(':');
-    if (idx <= 0) continue;
-    const key = line.slice(0, idx).trim();
-    const value = line
-      .slice(idx + 1)
-      .trim()
-      .replace(/^["']|["']$/g, '');
-    if (key) frontmatter[key] = value;
-  }
-  return { frontmatter, body };
+  const parsed = parseFrontmatter(text);
+  return { frontmatter: parsed.flat, body: parsed.body };
 }
 
 /** `_template` and `.hidden` are authoring scratch, not installed skills. */
@@ -103,35 +106,168 @@ function isHiddenSkillFolder(name: string): boolean {
   return name.startsWith('_') || name.startsWith('.');
 }
 
-function readSkillManifest(
+function withinLimit(file: string, maxBytes: number): boolean {
+  try {
+    return fs.statSync(file).size <= maxBytes;
+  } catch {
+    return false;
+  }
+}
+
+/** List files under one optional resource directory, relative and sorted. */
+function listResourceDir(skillDir: string, sub: string): string[] {
+  const root = path.join(skillDir, sub);
+  try {
+    fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string): void => {
+    if (out.length >= SKILL_RESOURCE_MAX_FILES) return;
+    let dirents: fs.Dirent[];
+    try {
+      dirents = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of dirents.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (out.length >= SKILL_RESOURCE_MAX_FILES) return;
+      if (entry.name.startsWith('.')) continue;
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolute, relative);
+      } else if (entry.isFile()) {
+        out.push(relative);
+      }
+    }
+  };
+  walk(root, '');
+  return out;
+}
+
+export function scanSkillResources(skillDir: string): SkillResources {
+  const resources: SkillResources = {
+    references: listResourceDir(skillDir, 'references'),
+    scripts: listResourceDir(skillDir, 'scripts'),
+    assets: listResourceDir(skillDir, 'assets'),
+    evals: fs.existsSync(path.join(skillDir, 'evals', 'evals.json')),
+  };
+  return resources;
+}
+
+export interface ParsedSkillManifest {
+  manifest?: SkillManifest;
+  skip?: SkillSkip;
+  issues: SkillIssue[];
+}
+
+/** Parse one SKILL.md into a manifest, applying the spec limits. */
+export function readSkillManifest(
   file: string,
   fallbackName: string,
-  onSkip?: (skip: SkillSkip) => void
-): SkillManifest | undefined {
-  let parsed: ParsedSkillFile;
+  scope: SkillScope
+): ParsedSkillManifest {
+  const issues: SkillIssue[] = [];
+  let raw: string;
   try {
-    parsed = parseSkillFile(fs.readFileSync(file, 'utf8'));
+    raw = fs.readFileSync(file, 'utf8');
   } catch {
-    return undefined;
+    return { skip: { file, reason: 'empty' }, issues };
   }
-  const name = (parsed.frontmatter.name ?? fallbackName).trim();
-  const description = (parsed.frontmatter.description ?? '').trim();
+  const parsed = parseFrontmatter(raw);
+  for (const issue of parsed.issues) {
+    issues.push({ code: issue.code, message: issue.message, file });
+  }
+  if (Object.keys(parsed.fields).length === 0) {
+    issues.push({
+      code: 'missing-frontmatter',
+      message: 'SKILL.md has no frontmatter; skill needs at least name and description',
+      file,
+    });
+  }
+  const name = (asString(parsed.fields.name) ?? fallbackName).trim();
+  let description = (asString(parsed.fields.description) ?? '').trim();
   const reason = skillSkipReason(name, description);
-  // `invalid-name` stays in the catalog and the skill tool. Only the slash
-  // surface refuses it, and only when the alias is still not a command name.
   if (reason && reason !== 'invalid-name') {
-    onSkip?.({ file, reason });
-    return undefined;
+    return { skip: { file, reason }, issues };
   }
+  if (!isSpecSkillName(name)) {
+    issues.push({
+      code: 'legacy-name',
+      message: `name "${name}" does not match the spec (lowercase letters/digits, hyphen-separated, ≤${SKILL_NAME_MAX_CHARS}); it stays loadable but is not portable`,
+      file,
+    });
+  }
+  if (description.length > SKILL_DESCRIPTION_MAX_CHARS) {
+    issues.push({
+      code: 'description-too-long',
+      message: `description is ${description.length} chars (spec max ${SKILL_DESCRIPTION_MAX_CHARS}); truncated in the catalog`,
+      file,
+    });
+    description = description.slice(0, SKILL_DESCRIPTION_MAX_CHARS);
+  }
+  const body = parsed.body;
+  if (Buffer.byteLength(body, 'utf8') > SKILL_BODY_MAX_BYTES) {
+    issues.push({
+      code: 'body-too-long',
+      message: `SKILL.md body is over ${SKILL_BODY_MAX_BYTES} bytes; the skill tool will truncate it`,
+      file,
+    });
+  }
+  const dir = path.dirname(file);
+  const resources = scanSkillResources(dir);
+  const metadataField = parsed.fields.metadata;
+  const metadata: Record<string, string> =
+    metadataField && typeof metadataField === 'object' && !Array.isArray(metadataField)
+      ? metadataField
+      : {};
+  for (const sub of ['scripts', 'references', 'assets'] as const) {
+    for (const relative of resources[sub]) {
+      const absolute = path.join(dir, sub, relative);
+      if (!withinLimit(absolute, 1024 * 1024)) {
+        issues.push({
+          code: 'resource-oversize',
+          message: `${sub}/${relative} exceeds 1 MiB and will not be offered to the model`,
+          file,
+        });
+      }
+    }
+  }
+  const when = asString(parsed.fields.when)?.trim();
+  const version = asString(parsed.fields.version) ?? metadata.version;
+  const license = asString(parsed.fields.license);
+  const compatibility = asString(parsed.fields.compatibility);
+  const allowedTools = asStringList(parsed.fields['allowed-tools']);
+  const globs = asStringList(parsed.fields.globs);
   return {
-    name,
-    description,
-    ...(parsed.frontmatter.when ? { when: parsed.frontmatter.when } : {}),
-    file,
+    issues,
+    manifest: {
+      name,
+      description,
+      ...(when ? { when } : {}),
+      ...(version ? { version } : {}),
+      ...(license ? { license } : {}),
+      ...(compatibility ? { compatibility } : {}),
+      allowedTools,
+      metadata,
+      globs,
+      scope,
+      dir,
+      file,
+      resources,
+      issues,
+      legacy: !isSpecSkillName(name),
+    },
   };
 }
 
-function readSkillsFromDir(dir: string, onSkip?: (skip: SkillSkip) => void): SkillManifest[] {
+function readSkillsFromDir(
+  dir: string,
+  scope: SkillScope,
+  options: LoadSkillsOptions
+): SkillManifest[] {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -143,29 +279,30 @@ function readSkillsFromDir(dir: string, onSkip?: (skip: SkillSkip) => void): Ski
     if (!entry.isDirectory()) continue;
     const child = path.join(dir, entry.name);
     const file = path.join(child, 'SKILL.md');
-    // One level only, as main does. A SKILL.md under reference/ or templates/
-    // belongs to the skill that contains it and is not another skill.
-    // `_template` and dot folders are scratch even after the frontmatter is filled in.
+    // One level only: a SKILL.md under references/ belongs to its parent skill.
     if (isHiddenSkillFolder(entry.name)) {
-      if (fs.existsSync(file)) onSkip?.({ file, reason: 'hidden-dir' });
+      if (fs.existsSync(file)) options.onSkip?.({ file, reason: 'hidden-dir' });
       continue;
     }
     if (!fs.existsSync(file)) continue;
-    const skill = readSkillManifest(file, entry.name, onSkip);
-    if (skill) skills.push(skill);
+    const parsed = readSkillManifest(file, entry.name, scope);
+    for (const issue of parsed.issues) options.onIssue?.(issue);
+    if (parsed.skip) {
+      options.onSkip?.(parsed.skip);
+      continue;
+    }
+    if (parsed.manifest) skills.push(parsed.manifest);
   }
   skills.sort((a, b) => a.name.localeCompare(b.name));
   return skills;
 }
 
 /**
- * Load skills from directories, earlier dirs winning on name collisions
- * (workspace before user config). One level of folders only. Unfilled
- * templates and folders named `_…` or `.…` are not registered; `onSkip`
- * names each rejected file once.
+ * Load skills from scoped directories. Earlier entries win on name collisions;
+ * the loser is reported as a `duplicate-name` issue on its own manifest.
  */
-export function loadSkills(
-  dirs: readonly string[],
+export function loadSkillCatalog(
+  dirs: readonly SkillDir[],
   options: LoadSkillsOptions = {}
 ): SkillManifest[] {
   const byName = new Map<string, SkillManifest>();
@@ -177,18 +314,50 @@ export function loadSkills(
         options.onSkip?.(skip);
       }
     : undefined;
-  for (const dir of dirs) {
-    for (const skill of readSkillsFromDir(dir, onSkip)) {
-      if (!byName.has(skill.name)) byName.set(skill.name, skill);
+  const withSkip = { ...options, ...(onSkip ? { onSkip } : {}) };
+  for (const { dir, scope } of dirs) {
+    for (const skill of readSkillsFromDir(dir, scope, withSkip)) {
+      const existing = byName.get(skill.name);
+      if (!existing) {
+        byName.set(skill.name, skill);
+        continue;
+      }
+      const issue: SkillIssue = {
+        code: 'duplicate-name',
+        message: `skill "${skill.name}" (${scope}, ${skill.file}) is shadowed by the ${existing.scope} skill; rename one of them`,
+        file: existing.file,
+      };
+      existing.issues.push(issue);
+      options.onIssue?.(issue);
     }
   }
   return [...byName.values()];
 }
 
+/** Backwards-compatible loader for plain directory lists. */
+export function loadSkills(
+  dirs: readonly string[],
+  options: LoadSkillsOptions = {}
+): SkillManifest[] {
+  return loadSkillCatalog(
+    dirs.map((dir) => ({
+      dir,
+      scope: dir.includes(`${path.sep}.agents${path.sep}`) ? 'shared' : 'user',
+    })),
+    options
+  );
+}
+
+export function findSkill(
+  skills: readonly SkillManifest[],
+  name: string
+): SkillManifest | undefined {
+  return skills.find((s) => s.name === name);
+}
+
 /**
- * Progressive-disclosure index layer for the system prompt. Budget: one line
- * per skill, ~40 tokens each — the body stays out until the skill tool loads
- * it.
+ * Progressive-disclosure catalog layer (unbudgeted; SK2 replaces this with
+ * `renderSkillCatalog`, which reports rendered/uncapped chars and omissions).
  */
 export function buildSkillsPromptLayer(skills: readonly SkillManifest[]): string | undefined {
   if (skills.length === 0) return undefined;
@@ -202,11 +371,7 @@ export function buildSkillsPromptLayer(skills: readonly SkillManifest[]): string
   return lines.join('\n');
 }
 
-/**
- * Prompt layer for the no-skills case: anchors the model to Moss's own skill
- * directories so it answers skill questions from config instead of shelling
- * out to scan other tools' skill folders (~/.claude/skills, ~/.codex/skills).
- */
+/** Prompt layer for the no-skills case: anchors the model to Moss's own directories. */
 export function buildEmptySkillsHintLayer(dirs: readonly string[]): string {
   return [
     '## Available skills',
@@ -214,11 +379,4 @@ export function buildEmptySkillsHintLayer(dirs: readonly string[]): string {
     ...dirs.map((dir) => `- ${path.join(dir, '<name>', 'SKILL.md')}`),
     "Answer skill questions from this list; other tools' skill folders (e.g. ~/.claude/skills) are not loaded by Moss.",
   ].join('\n');
-}
-
-export function findSkill(
-  skills: readonly SkillManifest[],
-  name: string
-): SkillManifest | undefined {
-  return skills.find((s) => s.name === name);
 }
