@@ -162,6 +162,13 @@ TUI 的第二处改名为 `commands`（命令命名空间 + 能力注册构建�
 bench 驱动的探测开销（或接受把验收口径改成 CLI 上报的 composer），而不是继续压产品启动。
 基线对比：B12 立项时同机 `composer_ready` 是 843/737ms，产品侧现在 343–473ms（含本轮 probe/env 延迟化）。
 
+**B12 口径落地（2026-11-05）：bench 报告把「产品首帧」和「驱动开销」拆开**
+`scripts/tui-feel/driver.py` 在 `MOSS_STARTUP_TIMING=1` 时解析 CLI 的 `composer=` 并新增两个 metric：
+`cli_composer_ms`（产品首帧）与 `driver_overhead_ms = composer_ready_ms − cli_composer_ms`（PTY 传输 +
+pyte 解析 + 可见探测）。**真实一次 bench**：`composer_ready_ms=866.7 / cli_composer_ms=474 / driver_overhead_ms=392.7`；
+`774.9 / 374 / 401.0`。**验收口径定为：B12 的 `<600ms` 用 `cli_composer_ms` 判定（当前 374–474ms，达标）；
+`composer_ready_ms` 保留为端到端体感指标，并在报告里始终同时给出驱动开销**，避免把驱动开销当成产品回退。
+
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**

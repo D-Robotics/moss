@@ -5,6 +5,7 @@ import json
 import math
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import time
@@ -196,7 +197,17 @@ def run_scenario(name, size, steps):
                 raw = bytes(session.raw).decode("utf-8", "replace")
                 for line in raw.split("\r\n") + raw.split("\n"):
                     if "[startup] timing:" in line:
-                        result["metrics"]["startup_timing"] = line.split("[startup] timing:")[-1].strip()
+                        timing = line.split("[startup] timing:")[-1].strip()
+                        result["metrics"]["startup_timing"] = timing
+                        # B12: split the product's own first-paint number from the
+                        # driver's PTY/parse/poll overhead, so a composer target is
+                        # judged on one of them instead of a sum nobody names.
+                        m = re.search(r"composer=(\d+)ms", timing)
+                        if m:
+                            cli_composer = int(m.group(1))
+                            result["metrics"]["cli_composer_ms"] = cli_composer
+                            result["metrics"]["driver_overhead_ms"] = round(
+                                result["metrics"]["composer_ready_ms"] - cli_composer, 1)
                         break
             result["composer"] = {"row": composer_bounds(session)[0], "cursor": session.cursor(),
                                   "observed": area_text(session, "composer").rstrip()}
