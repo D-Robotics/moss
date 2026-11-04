@@ -6,6 +6,11 @@ import { resolveDefaultDeviceTarget } from './device-target.js';
 
 export const DEVICE_TOOL_NAMES: readonly string[] = [
   'device_info',
+  // The canonical probe (AGENTS.md: kind=info/processes/resources/…) needs a
+  // device like every other device tool; leaving it off this list declared it in
+  // every prompt, including device-less and plain-Q&A runs, where its only
+  // possible answer is "no device configured". Measured in B05: ~1 KB per turn.
+  'device_probe',
   'device_exec',
   'device_file_read',
   'device_file_list',
