@@ -86,9 +86,36 @@ export function parsePatch(raw: string): ParsedPatch {
 
   if (currentHunk) hunks.push(currentHunk);
   if (hunks.length === 0 && raw.trim().length > 0) {
-    errors.push('未识别到有效的 patch 块。请使用 *** Begin Patch / *** End Patch 格式。');
+    errors.push(
+      'no patch block recognized: use *** Begin Patch / *** End Patch around ' +
+        '*** Update File: <path>, *** Add File: <path> or *** Delete File: <path>'
+    );
   }
   return { hunks, errors };
+}
+
+/**
+ * Why a hunk could not be placed, in terms the model can act on. The previous
+ * message was Chinese-only and printed `[]` for a hunk with no context lines,
+ * which said nothing about what to change.
+ */
+function describeAnchorMiss(contextLines: string[], removes: string[], offset: number): string {
+  const where = `hunk could not be placed after line ${String(offset + 1)}`;
+  if (contextLines.length === 0) {
+    return (
+      `${where}: the hunk has no context lines to anchor it. ` +
+      'Add 2-3 unchanged lines around the change (each prefixed with a space) so the location is unambiguous.'
+    );
+  }
+  const shown = contextLines
+    .slice(0, 3)
+    .map((line) => `"${line}"`)
+    .join(', ');
+  const removed = removes.length > 0 ? ` (first removed line: "${removes[0] ?? ''}")` : '';
+  return (
+    `${where}: context ${shown} does not match the file${removed}. ` +
+    'Re-read the file and rebuild the hunk from its exact text.'
+  );
 }
 
 export function applyUpdateHunk(
@@ -157,7 +184,7 @@ export function applyUpdateHunk(
     if (anchor.index < 0) {
       return {
         result: original,
-        error: `无法在文件中定位上下文行（从偏移 ${offset} 开始）：${JSON.stringify(group.contextLines.slice(0, 3))}`,
+        error: describeAnchorMiss(group.contextLines, group.removes, offset),
       };
     }
 
@@ -168,7 +195,10 @@ export function applyUpdateHunk(
       if (anchor.index < end && insertAt + removeCount > start) {
         return {
           result: original,
-          error: `hunk 重叠：当前锚点 [${anchor.index}, ${insertAt + removeCount}) 与已修改区间 [${start}, ${end}) 重叠`,
+          error:
+            `hunks overlap: anchor [${String(anchor.index)}, ${String(insertAt + removeCount)}) ` +
+            `overlaps the range [${String(start)}, ${String(end)}) this patch already changed. ` +
+            'Send separate patches or merge the hunks.',
         };
       }
     }
@@ -185,7 +215,9 @@ export function applyUpdateHunk(
         if (!matches) {
           return {
             result: original,
-            error: `删除行不匹配 (行 ${actualIdx + 1})：期望 "${expected}"，实际 "${actual}"`,
+            error:
+              `deletion does not match (line ${String(actualIdx + 1)}): expected "${expected}", ` +
+              `actual "${actual}". Re-read the file and rebuild the hunk from its exact text.`,
           };
         }
       }
