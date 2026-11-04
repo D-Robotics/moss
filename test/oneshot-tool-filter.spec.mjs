@@ -107,7 +107,10 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
 }
 
 for (const [prompt, expected] of [
-  ['Run the dev server in the background and inspect logs', ['exec_background', 'exec_logs']],
+  [
+    'Run the dev server in the background and inspect logs',
+    ['exec_background', 'exec_input', 'exec_logs'],
+  ],
   ['Ask several subagents to review this in parallel', ['fan_out_subagents', 'subagent_status']],
   [
     'How is the codebase organized? Explore the architecture overview.',

@@ -233,7 +233,9 @@ export const execBackgroundTool: Tool = {
     let child: ChildProcess;
     try {
       child = spawnProcess(invocation.executable, invocation.args, {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        // stdin is piped so exec_input can drive REPLs and prompts on a
+        // tracked child (Qoder BashInput / Cursor write_shell_stdin).
+        stdio: ['pipe', 'pipe', 'pipe'],
         cwd: ctx.workspaceDir,
         env: withWindowsSystemRoot(hostShellChildEnv(opened.env, shell)),
         detached: process.platform !== 'win32',
@@ -567,9 +569,73 @@ export const execWaitTool: Tool = {
   },
 };
 
+export const execInputTool: Tool = {
+  name: 'exec_input',
+  description:
+    'Write to stdin of a command started with exec(run_in_background). Read the reply with exec_logs. eof: true closes stdin.',
+  metadata: {
+    sideEffectClass: 'local_write',
+    planMode: 'requires_user_confirmation',
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Background process id, e.g. "bg_1"' },
+      text: {
+        type: 'string',
+        description: 'Text for stdin; a newline is appended unless newline: false.',
+      },
+      newline: {
+        type: 'boolean',
+        description: 'Append a newline (default true).',
+      },
+      eof: {
+        type: 'boolean',
+        description: 'Close stdin after writing.',
+      },
+    },
+    required: ['id'],
+  },
+  async execute(input) {
+    const id = typeof input.id === 'string' ? input.id.trim() : '';
+    if (!id) return 'Error: id is required';
+    const proc = backgroundProcesses.get(id);
+    if (!proc)
+      return `Error: no background process with id "${id}". Use exec_logs (no id) to list them.`;
+    if (proc.status !== 'running') {
+      return `${id} is already ${proc.status}; its stdin is closed. Inspect it with exec_logs("${id}").`;
+    }
+    const text = typeof input.text === 'string' ? input.text : '';
+    const eof = input.eof === true;
+    if (!text && !eof) return 'Error: pass text to write, or eof: true to close stdin.';
+    const payload = text ? (input.newline === false ? text : `${text}\n`) : '';
+    const stdin = proc.child.stdin;
+    if (!stdin || stdin.destroyed || !stdin.writable) {
+      return `Error: ${id} has no writable stdin (the process closed it or was not started with a pipe).`;
+    }
+    try {
+      if (payload) {
+        await new Promise<void>((resolve, reject) => {
+          stdin.write(payload, (err) => (err ? reject(err) : resolve()));
+        });
+      }
+      if (eof) stdin.end();
+    } catch (err) {
+      return `Error writing to ${id} stdin: ${errorMessage(err)}. The process may have exited; check exec_logs("${id}").`;
+    }
+    const bytes = Buffer.byteLength(payload, 'utf8');
+    if (!payload) return `Closed stdin on ${id}. Read the rest with exec_logs("${id}").`;
+    return (
+      `Wrote ${bytes} byte(s) to ${id} stdin${eof ? ' and closed stdin' : ''}.` +
+      ` Read the response with exec_logs("${id}").`
+    );
+  },
+};
+
 export const backgroundExecTools: Tool[] = [
   execBackgroundTool,
   execLogsTool,
   execStopTool,
   execWaitTool,
+  execInputTool,
 ];

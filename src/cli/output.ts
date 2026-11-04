@@ -324,7 +324,7 @@ function extractToolTarget(toolName: string, input: unknown): string {
     return '';
   }
 
-  if (toolName === 'exec_stop') {
+  if (toolName === 'exec_stop' || toolName === 'exec_input') {
     const id = obj.id;
     if (typeof id === 'string' || typeof id === 'number') return truncate(String(id), 30);
     return '';

@@ -240,6 +240,7 @@ const ONE_SHOT_SUBAGENT_TOOLS = new Set([
 ]);
 const ONE_SHOT_BACKGROUND_TOOLS = new Set([
   'exec_background',
+  'exec_input',
   'exec_logs',
   'exec_stop',
   'exec_wait',

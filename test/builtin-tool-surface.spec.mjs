@@ -46,6 +46,7 @@ const EXPECTED_MODEL_FACING = [
   'device_temperature',
   'edit_file',
   'exec',
+  'exec_input',
   'exec_logs',
   'exec_stop',
   'exec_wait',
@@ -70,8 +71,11 @@ const EXPECTED_MODEL_FACING = [
 
 /** Baseline recorded in the research doc, before this surface change. */
 const BASELINE_PAYLOAD_BYTES = 25_052;
-/** Ceiling so the next addition has to update the doc and this number on purpose. */
-const PAYLOAD_CEILING_BYTES = 24_000;
+/**
+ * Ceiling so the next addition has to update the doc and this number on purpose.
+ * Raised from 24,000 when `exec_input` (REA addendum) landed: 24,325 measured.
+ */
+const PAYLOAD_CEILING_BYTES = 24_500;
 
 /** Names the CLI installs conditionally (`skill`) — not part of `builtinTools`. */
 const HOST_INSTALLED_TOOL_NAMES = new Set(['skill']);

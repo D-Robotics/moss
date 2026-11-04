@@ -162,7 +162,11 @@ const TOOL_GROUPS: ToolGroupDef[] = [
     ],
   },
   { id: 'web', title: 'Web', prefixes: ['web_'] },
-  { id: 'background', title: 'Background', names: ['exec_background', 'exec_logs', 'exec_stop'] },
+  {
+    id: 'background',
+    title: 'Background',
+    names: ['exec_background', 'exec_logs', 'exec_input', 'exec_stop'],
+  },
   { id: 'other', title: 'Other' },
 ];
 
