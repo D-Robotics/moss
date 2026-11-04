@@ -434,6 +434,56 @@ function buildReviewerTask(params: {
   return lines.join('\n');
 }
 
+const REVIEW_STATE_NAME = 'review-state.json';
+
+/**
+ * The fix-review loop as one object: which attempt this is, how much budget is
+ * left, and what to do next. `.moss/review.jsonl` is the history; this file is
+ * the current state, so TUI / `/review` / scripts read one small file instead of
+ * replaying the log (Bugbot surfaces state, not a run log).
+ */
+export interface ReviewState {
+  updatedAt: string;
+  reviewId: string;
+  depth: ReviewDepth;
+  verdict: ReviewVerdict;
+  attempt: number;
+  maxAttempts: number;
+  attemptsExhausted: boolean;
+  nextAction: string;
+  findings: { total: number; critical: number; important: number; suggestion: number };
+  diffFingerprint?: string;
+  rubricTaskId?: string;
+  rubricCriteria?: number;
+}
+
+export function buildReviewState(record: ReviewRecord): ReviewState {
+  const attemptsExhausted =
+    record.verdict === 'fail' && (record.repairAttempt ?? 1) >= MAX_REPAIR_ATTEMPTS;
+  const counts = { total: record.findings.length, critical: 0, important: 0, suggestion: 0 };
+  for (const finding of record.findings) counts[finding.severity] += 1;
+  const nextAction =
+    record.verdict === 'pass'
+      ? 'proceed: the change passed independent review'
+      : attemptsExhausted
+        ? `stop retrying: ${MAX_REPAIR_ATTEMPTS} distinct diffs failed review; report the blocking findings and ask the user how to proceed`
+        : 'apply the findings, then re-run review_changes on the new diff';
+  return {
+    updatedAt: new Date(record.createdAt || Date.now()).toISOString(),
+    reviewId: record.id,
+    depth: record.depth,
+    verdict: record.verdict,
+    attempt: record.repairAttempt ?? 1,
+    maxAttempts: MAX_REPAIR_ATTEMPTS,
+    attemptsExhausted,
+    nextAction,
+    findings: counts,
+    ...(record.diffFingerprint ? { diffFingerprint: record.diffFingerprint } : {}),
+    ...(record.rubricTaskId ? { rubricTaskId: record.rubricTaskId } : {}),
+    ...(record.rubricCriteria !== undefined ? { rubricCriteria: record.rubricCriteria } : {}),
+  };
+}
+
 /** Append one review record; exported so the deterministic probe needs no model. */
 export async function recordReview(workspaceDir: string, record: ReviewRecord): Promise<string> {
   const runtimeDir = path.join(workspaceDir, '.moss');
@@ -441,6 +491,17 @@ export async function recordReview(workspaceDir: string, record: ReviewRecord): 
   ensureMossRuntimeGitignore(workspaceDir);
   const file = path.join(runtimeDir, REVIEW_LOG_NAME);
   await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
+  // Keep the state projection next to the log; a failure here must not lose the
+  // record that already landed, so it stays best-effort and silent.
+  try {
+    await fs.writeFile(
+      path.join(runtimeDir, REVIEW_STATE_NAME),
+      `${JSON.stringify(buildReviewState(record), null, 2)}\n`,
+      'utf8'
+    );
+  } catch {
+    // The log is authoritative; the projection is a convenience.
+  }
   return path.relative(workspaceDir, file) || REVIEW_LOG_NAME;
 }
 

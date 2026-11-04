@@ -67,6 +67,9 @@ test/lint/build/verify 类命令——否则终稿被拦截**一次**并注入�
 2. `reviewer` 专家以子代理跑在干净上下文里（quick=read-only，deep=verify 可跑只读检查），永远不能写；
 3. reviewer 的合同输出（`VERDICT: PASS|FAIL` + `[Severity] file:line — … — fix: …` + `CHECKS:`）被解析成结构化 findings；
 4. 记录追加到 `.moss/review.jsonl`（内置进 `.moss/.gitignore`），`listReviewRecords` 供修复循环/review 列表读取；
+   每次评审同时把「当前状态」投影到 `.moss/review-state.json`（`buildReviewState`：attempt / maxAttempts /
+   attemptsExhausted / findings 计数 / nextAction / rubric / diffFingerprint）——日志是历史，这个文件是当下状态，
+   TUI / `/review` / 脚本读一个小文件即可，不必重放日志；
 5. verdict 由 findings 计算：任何 critical/important 覆盖 reviewer 自述的 PASS；没有 VERDICT 行则 `unknown`（**不许**把散文当 PASS）。
 
 `/review`（含 `/review <PR#>`）不再把 diff 贴进主会话让主模型自审，改为调同一工具再原样转述结果。

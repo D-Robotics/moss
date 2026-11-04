@@ -169,6 +169,16 @@ pyte 解析 + 可见探测）。**真实一次 bench**：`composer_ready_ms=866.
 `774.9 / 374 / 401.0`。**验收口径定为：B12 的 `<600ms` 用 `cli_composer_ms` 判定（当前 374–474ms，达标）；
 `composer_ready_ms` 保留为端到端体感指标，并在报告里始终同时给出驱动开销**，避免把驱动开销当成产品回退。
 
+**B16 第五片（2026-11-05）：`.moss/review-state.json` 状态投影**
+日志 `.moss/review.jsonl` 是历史，但「现在在第几次尝试、还剩几次、下一步做什么」需要一个当下对象。
+`recordReview` 在追加日志后写 `.moss/review-state.json`（best-effort，失败不影响日志）：
+`{ reviewId, depth, verdict, attempt, maxAttempts: 3, attemptsExhausted, nextAction, findings:{total,critical,important,suggestion},
+diffFingerprint?, rubricTaskId?, rubricCriteria? }`，`nextAction` 三态：`proceed: …` / `apply the findings, then re-run …` /
+`stop retrying: 3 distinct diffs failed review; …`。
+**真实证据（真实 CLI + 脚本化 provider，四个工作区状态）**：FAIL 第 1/2 次 → `attempt 1/2, attemptsExhausted false,
+nextAction "apply the findings…"`；FAIL 第 3 次 → `attempt 3, attemptsExhausted true, nextAction "stop retrying…"`；
+PASS → `verdict pass, findings.total 0, nextAction "proceed…"`。spec 的持久化小节已同步该文件。
+
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**
