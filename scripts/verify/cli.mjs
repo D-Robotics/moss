@@ -29,16 +29,21 @@ import { stage as buildStage } from './stages/build.mjs';
 import { stage as smokeStage } from './stages/smoke.mjs';
 import { stage as examplesStage } from './stages/examples.mjs';
 import { stage as hooksContractStage } from './stages/hooks-contract.mjs';
+import { stage as verificationGateStage } from './stages/verification-gate.mjs';
 
 const STAGES = new Map(
-  [staticStage, buildStage, smokeStage, examplesStage, hooksContractStage].map((stage) => [
-    stage.name,
-    stage,
-  ])
+  [
+    staticStage,
+    buildStage,
+    smokeStage,
+    examplesStage,
+    hooksContractStage,
+    verificationGateStage,
+  ].map((stage) => [stage.name, stage])
 );
 
 const ORDER = [...STAGES.keys()];
-const FAST_GATE = ['static', 'smoke', 'examples', 'hooks-contract'];
+const FAST_GATE = ['static', 'smoke', 'examples', 'hooks-contract', 'verification-gate'];
 const DEFAULT_BUDGET_SECONDS = 60;
 
 const HELP = `Usage: node scripts/verify/cli.mjs [options]

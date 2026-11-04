@@ -47,6 +47,7 @@ import {
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { buildTurnWatchNotice, turnWatchEnabled } from '../../context/turn-watch.js';
 import { createAcceptanceCompletionGate } from '../loop/acceptance-completion-gate.js';
+import { createVerificationCompletionGate } from '../loop/verification-completion-gate.js';
 import { createBackgroundLifecycleGate } from '../loop/background-lifecycle-gate.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
@@ -1681,6 +1682,10 @@ ${result.stderr ?? ''}`.trim();
           ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
         })
       : async () => ({ ok: true as const });
+    // Cursor-style acceptance loop for ordinary coding runs: a run that edited
+    // files but never inspected the result is held once and asked to check or
+    // disclose. Task runs hit the acceptance gate above first.
+    const verificationGate = createVerificationCompletionGate();
     const backgroundLifecycleGate = createBackgroundLifecycleGate({ sessionKey });
     const hostCompletionGate = this.config.completionGate;
     const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
@@ -1689,12 +1694,16 @@ ${result.stderr ?? ''}`.trim();
           if (!background.ok) return background;
           const pre = await acceptanceGate(request);
           if (!pre.ok) return pre;
+          const verified = await verificationGate(request);
+          if (!verified.ok) return verified;
           return hostCompletionGate(request);
         }
       : async (request) => {
           const background = await backgroundLifecycleGate(request);
           if (!background.ok) return background;
-          return acceptanceGate(request);
+          const pre = await acceptanceGate(request);
+          if (!pre.ok) return pre;
+          return verificationGate(request);
         };
 
     const params: AgentLoopParams = {
