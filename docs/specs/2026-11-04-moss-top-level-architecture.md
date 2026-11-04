@@ -302,4 +302,7 @@ W1 工具声明 ──► W2 提示词装配 ──► W3 能力发现（依赖 
 | W5 宿主壳拆分                  | 完成 | `5d24ec8c` + 本轮       | `cli/prompt-setup.ts`（W5a）；`cli/bootstrap.ts` 承载加载期关注点（参数/语言/告警过滤/颜色/日志级别/mock provider/启动配置），`cli/runtime.ts` 承载运行期装配；`cli-main.ts` 2,069 → **13 行**入口 shim；交互面本来就是独立模块（`cli/repl.ts`、`cli/tui/app.ts`，按 TTY 动态 import）                                                                                                     |
 | W6 设备能力合并                | 完成 | `ed010ae8`              | `device_probe(kind=info/processes/resources/temperature/network/cameras/robotics_status)`（派发复用原实现）；7 个空 schema 探针标 `hiddenFromModel`（仍注册，旧 transcript/SDK 按名可达）；配置设备时模型可见工具 45→36；子代理只读 scope 与提示改指 `device_probe`                                                                                                                        |
 
+> Skill 平面的独立设计见 [Skill Library 架构](2026-11-04-moss-skill-library-architecture.md)：目录发现、catalog 预算、
+> 信任与来源、子代理/SDK 供给面、evals，按 SK1–SK7 分波。
+
 **W3 的已知边界**：glob 规则只在"工具触达匹配路径"或"用户消息里出现路径 token"时激活；模型在纯对话轮次不会凭空激活规则（与 Cursor 的 model-decided 类相比，这是有意的确定性取舍——可预测 > 自动嗅探）。
