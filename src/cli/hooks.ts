@@ -154,6 +154,71 @@ interface HookPayload {
   message?: string;
 }
 
+/** Human-readable target for notices (`command` or `url`). */
+function hookTarget(hook: HookCommandConfig): string {
+  if (hook.type === 'http') return hook.url?.trim() || '(http hook without url)';
+  return hook.command?.trim() || '(hook without command)';
+}
+
+/** Run one hook with whichever handler type it declares. */
+function runHook(
+  hook: HookCommandConfig,
+  payload: HookPayload,
+  cwd: string,
+  timeoutMs: number
+): Promise<HookRunResult> {
+  if (hook.type === 'http') return runHookHttp(hook, payload, timeoutMs);
+  return runHookCommand(hook.command ?? '', payload, cwd, timeoutMs);
+}
+
+/**
+ * HTTP handler: POST the same JSON payload the command handler writes to stdin.
+ * The response body takes the place of stdout, so decision parsing is shared:
+ * 2xx -> exit 0 (body may carry `{decision}`, `{reason}`, `{updatedInput}`), any
+ * other status -> that status as the exit code (a blocking event then denies,
+ * fail-closed like a non-zero command hook).
+ */
+async function runHookHttp(
+  hook: HookCommandConfig,
+  payload: HookPayload,
+  timeoutMs: number
+): Promise<HookRunResult> {
+  const url = hook.url?.trim();
+  if (!url) {
+    return {
+      outcome: 'spawn_failed',
+      exitCode: 1,
+      stdout: '',
+      stderr: 'http hook is missing `url`',
+    };
+  }
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(hook.headers ?? {}) },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const text = await res.text();
+    const stdout = text.slice(0, HOOK_OUTPUT_LIMIT_BYTES);
+    if (!res.ok) {
+      return { outcome: 'exit', exitCode: res.status, stdout, stderr: `HTTP ${res.status}` };
+    }
+    return { outcome: 'exit', exitCode: 0, stdout, stderr: '' };
+  } catch (err) {
+    const name = (err as { name?: string }).name;
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      return {
+        outcome: 'timeout',
+        exitCode: 124,
+        stdout: '',
+        stderr: `[hook timed out after ${timeoutMs}ms]`,
+      };
+    }
+    return { outcome: 'spawn_failed', exitCode: 1, stdout: '', stderr: errorMessage(err) };
+  }
+}
+
 function runHookCommand(
   command: string,
   payload: HookPayload,
@@ -239,7 +304,7 @@ function dropIfOnNonToolEvent(
     const spec = hook.if?.trim();
     if (!spec) return true;
     process.stderr.write(
-      `[hooks] ${event} hook \`${hook.command}\`: \`if\` only applies to tool events; hook removed\n`
+      `[hooks] ${event} hook \`${hookTarget(hook)}\`: \`if\` only applies to tool events; hook removed\n`
     );
     return false;
   });
@@ -272,7 +337,7 @@ function createHookIfMatcher(): {
         if (!warned.has(spec)) {
           warned.add(spec);
           process.stderr.write(
-            `[hooks] invalid \`if\` (${spec}); hook \`${hook.command}\` is skipped (rules look like exec(git *) or read_file(.env))\n`
+            `[hooks] invalid \`if\` (${spec}); hook \`${hookTarget(hook)}\` is skipped (rules look like exec(git *) or read_file(.env))\n`
           );
         }
         return false;
@@ -412,15 +477,15 @@ export function formatHookFailure(
     // was treated as deny (PM/UX 2026-10-12).
     const head =
       blocked && result.outcome === 'spawn_failed'
-        ? `已拦截：${name} \`${hook.command}\` 未能启动，已按拒绝处理。`
+        ? `已拦截：${name} \`${hookTarget(hook)}\` 未能启动，已按拒绝处理。`
         : blocked && result.outcome === 'output_too_large'
-          ? `已拦截：${name} \`${hook.command}\` ${why}，无法解析决定，已按拒绝处理。`
+          ? `已拦截：${name} \`${hookTarget(hook)}\` ${why}，无法解析决定，已按拒绝处理。`
           : blocked
             ? `已拦截：${name}${why}。`
             : `${name}${why}，未拦截。`;
     const lines = [
       head,
-      `命令：${hook.command}`,
+      `命令：${hookTarget(hook)}`,
       `配置文件：${where}`,
       ...(detail ? [`错误输出：${detail}`] : []),
     ];
@@ -440,15 +505,15 @@ export function formatHookFailure(
   // O135 (UX): blocked spawn_failed names the command and says treated as deny.
   const head =
     blocked && result.outcome === 'spawn_failed'
-      ? `Blocked: ${event} hook \`${hook.command}\` failed to start; treated as deny.`
+      ? `Blocked: ${event} hook \`${hookTarget(hook)}\` failed to start; treated as deny.`
       : blocked && result.outcome === 'output_too_large'
-        ? `Blocked: ${event} hook \`${hook.command}\` ${why}; its decision cannot be read, treated as deny.`
+        ? `Blocked: ${event} hook \`${hookTarget(hook)}\` ${why}; its decision cannot be read, treated as deny.`
         : blocked
           ? `Blocked: ${event} hook ${why}.`
           : `${event} hook ${why}; not blocking.`;
   const lines = [
     head,
-    `Command: ${hook.command}`,
+    `Command: ${hookTarget(hook)}`,
     `Config: ${where}`,
     ...(detail ? [`stderr: ${detail}`] : []),
   ];
@@ -515,10 +580,10 @@ function promptBlocks(
 
 function timeoutClampedWarning(hook: HookCommandConfig, requested: number): string {
   if (isZhLocale()) {
-    return `警告：钩子「${hook.command}」的超时值 ${requested} 毫秒超过系统上限，已限制为 ${MAX_TIMER_DELAY_MS} 毫秒。`;
+    return `警告：钩子「${hookTarget(hook)}」的超时值 ${requested} 毫秒超过系统上限，已限制为 ${MAX_TIMER_DELAY_MS} 毫秒。`;
   }
   return (
-    `warning: hook "${hook.command}" timeoutMs ${requested} exceeds Node's maximum timer ` +
+    `warning: hook "${hookTarget(hook)}" timeoutMs ${requested} exceeds Node's maximum timer ` +
     `delay; clamped to ${MAX_TIMER_DELAY_MS}ms`
   );
 }
@@ -665,7 +730,7 @@ export function createConfiguredHookCallbacks(
     blocked: boolean
   ): string => {
     const text = formatHookFailure(event, hook, r, blocked);
-    const key = `${event}\u0000${hook.command}\u0000${r.outcome}\u0000${r.exitCode}\u0000${blocked}`;
+    const key = `${event}\u0000${hookTarget(hook)}\u0000${r.outcome}\u0000${r.exitCode}\u0000${blocked}`;
     // In the TUI a blocked call's reason is already in the tool row (and the
     // stderr line would land on top of the status bar), so only headless /
     // piped runs print it.
@@ -690,8 +755,8 @@ export function createConfiguredHookCallbacks(
     if (r.exitCode !== 0 && isAllowDecision(parsed?.decision)) {
       const said = parsed?.decision?.trim().toLowerCase() ?? 'allow';
       return isZhLocale()
-        ? `已拦截：${hookEventZhName(event)}钩子以 exit ${r.exitCode} 退出，已按拒绝处理（忽略其输出中的 ${said}）。钩子：\`${hook.command}\``
-        : `Blocked by ${event} hook: exited with code ${r.exitCode}; treated as deny (ignored the ${said} in its output). Hook: \`${hook.command}\``;
+        ? `已拦截：${hookEventZhName(event)}钩子以 exit ${r.exitCode} 退出，已按拒绝处理（忽略其输出中的 ${said}）。钩子：\`${hookTarget(hook)}\``
+        : `Blocked by ${event} hook: exited with code ${r.exitCode}; treated as deny (ignored the ${said} in its output). Hook: \`${hookTarget(hook)}\``;
     }
     // O91: zh blocked reasons use 「中文名+钩子」, never the bare English id.
     return isZhLocale()
@@ -716,8 +781,8 @@ export function createConfiguredHookCallbacks(
             for (const hook of pre) {
               if (!toolNameMatches(hook, request.tool.name)) continue;
               if (!hookIf.matches(hook, request.tool.name, request.input)) continue;
-              const r = await runHookCommand(
-                hook.command,
+              const r = await runHook(
+                hook,
                 {
                   event: 'PreToolUse',
                   toolName: request.tool.name,
@@ -744,7 +809,7 @@ export function createConfiguredHookCallbacks(
               ) {
                 const reason = parsed?.reason?.trim().slice(0, 500);
                 asks.push({
-                  command: hook.command,
+                  command: hookTarget(hook),
                   ...(hook.source ? { source: hook.source } : {}),
                   ...(reason ? { reason } : {}),
                 });
@@ -782,8 +847,8 @@ export function createConfiguredHookCallbacks(
             for (const hook of hooksForEvent) {
               if (!toolNameMatches(hook, call.name)) continue;
               if (!hookIf.matches(hook, call.name, call.input)) continue;
-              void runHookCommand(
-                hook.command,
+              void runHook(
+                hook,
                 {
                   event,
                   toolName: call.name,
@@ -808,12 +873,7 @@ export function createConfiguredHookCallbacks(
 
   const runSessionStart = async (): Promise<void> => {
     for (const hook of sessionStart) {
-      const r = await runHookCommand(
-        hook.command,
-        { event: 'SessionStart' },
-        cwd,
-        timeoutFor(hook)
-      );
+      const r = await runHook(hook, { event: 'SessionStart' }, cwd, timeoutFor(hook));
       if (r.exitCode !== 0) {
         process.stderr.write(`${hookExitedLine('SessionStart', r.exitCode, r.stderr)}\n`);
       }
@@ -825,8 +885,8 @@ export function createConfiguredHookCallbacks(
     // level (runStopHooks) — visible notice, no continuation, Incomplete.
     try {
       for (const hook of stop) {
-        const r = await runHookCommand(
-          hook.command,
+        const r = await runHook(
+          hook,
           {
             event: 'Stop',
             stopReason: info.stopReason,
@@ -856,8 +916,8 @@ export function createConfiguredHookCallbacks(
     for (const hook of permissionDenied) {
       if (!toolNameMatches(hook, info.toolName)) continue;
       if (!hookIf.matches(hook, info.toolName, info.input)) continue;
-      const r = await runHookCommand(
-        hook.command,
+      const r = await runHook(
+        hook,
         {
           event: 'PermissionDenied',
           toolName: info.toolName,
@@ -875,8 +935,8 @@ export function createConfiguredHookCallbacks(
 
   const runSubagentStart = async (info: { goal: string }): Promise<void> => {
     for (const hook of subagentStart) {
-      const r = await runHookCommand(
-        hook.command,
+      const r = await runHook(
+        hook,
         { event: 'SubagentStart', goal: info.goal },
         cwd,
         timeoutFor(hook)
@@ -889,8 +949,8 @@ export function createConfiguredHookCallbacks(
 
   const runSubagentStop = async (info: SubagentStopHookInfo): Promise<void> => {
     for (const hook of subagentStop) {
-      const r = await runHookCommand(
-        hook.command,
+      const r = await runHook(
+        hook,
         {
           event: 'SubagentStop',
           goal: info.goal,
@@ -911,8 +971,8 @@ export function createConfiguredHookCallbacks(
     const registry = new CompactHookRegistry();
     for (const hook of preCompact) {
       registry.registerPre(async (ctx) => {
-        const r = await runHookCommand(
-          hook.command,
+        const r = await runHook(
+          hook,
           {
             event: 'PreCompact',
             compactReason: ctx.reason,
@@ -928,8 +988,8 @@ export function createConfiguredHookCallbacks(
     }
     for (const hook of postCompact) {
       registry.registerPost(async (ctx) => {
-        const r = await runHookCommand(
-          hook.command,
+        const r = await runHook(
+          hook,
           {
             event: 'PostCompact',
             compactReason: ctx.reason,
@@ -950,8 +1010,8 @@ export function createConfiguredHookCallbacks(
 
   const runSessionEnd = async (info: { reason: string }): Promise<void> => {
     for (const hook of sessionEnd) {
-      const r = await runHookCommand(
-        hook.command,
+      const r = await runHook(
+        hook,
         { event: 'SessionEnd', notificationReason: info.reason },
         cwd,
         timeoutFor(hook)
@@ -964,8 +1024,8 @@ export function createConfiguredHookCallbacks(
 
   const runNotification = async (info: { reason: string; message: string }): Promise<void> => {
     for (const hook of notification) {
-      const r = await runHookCommand(
-        hook.command,
+      const r = await runHook(
+        hook,
         {
           event: 'Notification',
           notificationReason: info.reason,
@@ -987,8 +1047,8 @@ export function createConfiguredHookCallbacks(
     // (fail closed) instead of escaping as a run error.
     try {
       for (const hook of userPrompt) {
-        const r = await runHookCommand(
-          hook.command,
+        const r = await runHook(
+          hook,
           { event: 'UserPromptSubmit', prompt: message },
           cwd,
           timeoutFor(hook)
@@ -1023,8 +1083,8 @@ export function createConfiguredHookCallbacks(
     try {
       for (const hook of permission) {
         if (!toolNameMatches(hook, info.toolName)) continue;
-        const r = await runHookCommand(
-          hook.command,
+        const r = await runHook(
+          hook,
           {
             event: 'PermissionRequest',
             toolName: info.toolName,

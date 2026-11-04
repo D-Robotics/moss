@@ -13,7 +13,8 @@ rules the model cannot override. Configuration lives in the user config
 }
 ```
 
-Each entry is `{ command, matcher?, if?, timeoutMs?, blocking?, format? }`.
+Each entry is `{ command, matcher?, if?, timeoutMs?, blocking?, format? }`, or
+`{ type: "http", url, headers?, … }` for a webhook handler.
 `matcher` narrows tool events to a tool name: `*`, an empty value, or an omitted
 matcher matches every tool; a plain name (`exec`) is an **exact** tool name, and
 `|`/`,` separates alternatives (`exec|exec_logs`); anything containing another
@@ -22,6 +23,14 @@ character is an unanchored JavaScript regex (`^exec`, `mcp__memory__.*` — note
 makes a hook advisory (it runs, but cannot block). `format: "claude"` switches to
 Claude Code's exit-code convention (block only on exit 2) and also accepts
 Claude's tool names (`Bash`, `Edit`, …) in the matcher.
+
+Two handler types: `command` (default) spawns a shell command and writes the JSON
+payload to stdin; `http` POSTs the same JSON to `url` (extra `headers` allowed)
+and treats the response body exactly like command stdout. A 2xx response is a
+success, so `{ "decision": "block" }` in the body blocks; any other status counts
+as a non-zero exit, which for a blocking event denies (fail-closed) and for an
+advisory event is only reported. A webhook hook has no `command` and the `format`
+field only applies to command hooks.
 
 `if` narrows further with permission-rule syntax (`"exec(git *)"`,
 `"read_file(.env)"`), evaluated against the tool name and its primary operand

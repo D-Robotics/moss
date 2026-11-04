@@ -331,7 +331,20 @@ export interface AgentRuntimeConfig {
 export interface HookCommandConfig {
   matcher?: string;
 
-  command: string;
+  /**
+   * Handler type: `command` (default; shell + JSON on stdin) or `http` (POST the
+   * payload as JSON to `url`, the response body is parsed like command stdout).
+   */
+  type?: 'command' | 'http';
+
+  /** Shell command for `type: "command"`; ignored for `http` hooks. */
+  command?: string;
+
+  /** Endpoint for `type: "http"` (http:// or https://). */
+  url?: string;
+
+  /** Extra request headers for `http` hooks (e.g. Authorization). */
+  headers?: Record<string, string>;
 
   timeoutMs?: number;
 
