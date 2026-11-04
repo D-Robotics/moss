@@ -88,6 +88,46 @@ try {
   assert.match(oversize.reason, /over the .* read_image limit/);
   ok('magic bytes and the read_image size budget are enforced before staging');
 
+  // ── 3b. File references: Finder copy, dragged path, browser file URL ───
+
+  assert.equal(
+    clipboard.clipboardPathFromText('file:///tmp/probe%20shot.png'),
+    '/tmp/probe shot.png',
+    'a file:// URL must decode its percent escapes'
+  );
+  assert.equal(
+    clipboard.clipboardPathFromText('"/tmp/probe\\ shot.png"'),
+    '/tmp/probe shot.png',
+    'a quoted drag-and-drop path must lose its quotes and backslash-space escape'
+  );
+  assert.equal(clipboard.clipboardPathFromText('hello world'), null, 'plain text is not a path');
+  assert.equal(
+    clipboard.clipboardPathFromText('C:\\shots\\one.png'),
+    'C:\\shots\\one.png',
+    'a Windows path keeps its separators'
+  );
+  ok('a file:// URL, a quoted dragged path and plain text are told apart');
+
+  const pngFile = path.join(dir, 'probe shot.png');
+  await fsp.writeFile(pngFile, PNG_1X1);
+  const stagedFile = await clipboard.stageClipboardFile({ workspaceDir: dir, filePath: pngFile });
+  assert.equal(stagedFile.ok, true);
+  assert.equal(stagedFile.relPath, first.relPath, 'the same image bytes share one staged file');
+  assert.equal(stagedFile.bytes, PNG_1X1.length);
+  assert.equal(stagedFile.mimeType, 'image/png');
+  const textFile = path.join(dir, 'notes.txt');
+  await fsp.writeFile(textFile, 'not an image');
+  const refusedFile = await clipboard.stageClipboardFile({ workspaceDir: dir, filePath: textFile });
+  assert.equal(refusedFile.ok, false);
+  assert.match(refusedFile.reason, /not a PNG\/JPEG\/GIF\/WebP image/);
+  const missingFile = await clipboard.stageClipboardFile({
+    workspaceDir: dir,
+    filePath: path.join(dir, 'gone.png'),
+  });
+  assert.equal(missingFile.ok, false);
+  assert.match(missingFile.reason, /does not exist/);
+  ok('an existing image file is attached, a non-image and a missing file are refused');
+
   // ── 4. Unsupported platforms explain themselves ────────────────────────
 
   const unsupported = await clipboard.captureClipboardAttachment({
@@ -115,6 +155,19 @@ try {
     const stagedBytes = await fsp.readFile(imageCapture.absolutePath);
     assert.equal(stagedBytes.subarray(1, 4).toString('ascii'), 'PNG');
     ok('a real macOS clipboard image is captured and staged');
+
+    // Finder "Copy" leaves a «class furl» file reference and no image/text.
+    const finderSet = await runProcess(
+      'osascript',
+      ['-e', `set the clipboard to POSIX file "${pngPath}"`],
+      { cwd: dir, timeoutMs: 15_000 }
+    );
+    assert.equal(finderSet.status, 0, `osascript failed: ${finderSet.stderr}`);
+    const finderCapture = await clipboard.captureClipboardAttachment({ workspaceDir: dir });
+    assert.equal(finderCapture.kind, 'image', JSON.stringify(finderCapture));
+    assert.equal(finderCapture.bytes, PNG_1X1.length);
+    assert.equal(finderCapture.mimeType, 'image/png');
+    ok('a real Finder file copy is attached as an image, not reported as empty');
 
     await runProcess('osascript', ['-e', 'set the clipboard to "probe text"'], {
       cwd: dir,

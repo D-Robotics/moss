@@ -142,8 +142,30 @@ bytes:70, mimeType:'image/png'}` 且文件 70 B；把剪贴板换成文本 → �
 clipboard text'}`。随后 `moss -p "Use read_image on @<relPath> and say what you see."`（脚本化 provider
 记录请求体）→ wire 上 `userMentions:true`，工具结果 `toolHasAttachment:true`，请求 `imageParts` 2，
 终稿 `SAW:ATTACHED`，exit 0。
-仍未做：Finder 拖拽/文件路径粘贴只作为文本路径插入（未自动转成附件）；`attachment-refs.ts` 的
-`[Image #n]` chip 解析仍是无人调用的死代码（当前走 `@path` mention，chip 形态需要内联附件管线才值得接）。
+**已落地（2026-11-05，再补一片 = Finder 文件 / 拖拽路径也变成附件）**：Finder 里「拷贝」一个文件，
+剪贴板上只有 `«class furl»` 文件引用——**既没有图片字节也没有文本**，所以上一片的捕获只能报
+「clipboard has no image or text」，Ctrl+V 对 Finder 复制依旧无效（help 承诺的另一半）。
+`clipboard-attachment.ts` 现在补三条读法：
+① macOS `osascript -e 'get POSIX path of (the clipboard as «class furl»)'` 读文件引用；
+② 剪贴板文本是 `file://` URL（浏览器「复制图片地址」）时用 `fileURLToPath` 解码（含 `%20`）；
+③ 终端拖拽插入的路径文本（可能带引号、空格被转义成 `\ `、`~/` 开头、Windows 盘符）由
+`clipboardPathFromText` 还原——纯文本仍走文本插入，不会把普通句子当路径。
+三种来源最终都过同一个新 `stageClipboardFile`：`stat` 存在性与大小（沿用 `read_image` 的 3 MB 预算）、
+读取字节、`detectImageMimeType` 魔数校验，再交给 `stageClipboardImage` 内容寻址落盘；非图片/缺失/超限
+返回具体 reason 并退化回文本插入，不吞掉用户粘贴的内容。
+**真实证据（本机 macOS 真实 Finder 剪贴板）**：`osascript -e 'set the clipboard to POSIX file
+"/tmp/moss-finder/shot one.png"'` 后 `clipboard info` 只有 `«class furl», 38`（说明确实没有图片/文本），
+`captureClipboardAttachment` 返回 `{kind:'image',
+relPath:'.moss/runtime/attachments/c414cd0e204de974.png', bytes:70, mimeType:'image/png'}`，落盘文件 70 B；
+把剪贴板换成文本 `file:///tmp/moss-finder/shot%20one.png` 同样得到该附件。纯函数实测：
+`file://` URL → `/tmp/.../shot one.png`，带引号+转义空格的拖拽路径 → 还原，`hello world` → `null`，
+`C:\shots\one.png` 保留分隔符；`stageClipboardFile` 对文本文件与不存在的文件分别给出
+`not a PNG/JPEG/GIF/WebP image` 与 `does not exist`。
+回归门：verify stage `clipboard-paste` 从 6 断言扩到 **9 断言**（新增文件引用三种形态的解析、同一图片
+字节与剪贴板图片共用一个 staging 文件、非图片/缺失文件拒绝；`MOSS_VERIFY_CLIPBOARD=1` 时新增**真实
+Finder 复制往返**：`set the clipboard to POSIX file` → 捕获得到 `kind:'image'` 70 B，不再报空）。
+仍未做：`attachment-refs.ts` 的 `[Image #n]` chip 解析仍是无人调用的死代码（当前走 `@path` mention，
+chip 形态需要内联附件管线才值得接）。
 
 **B02 压缩可回溯（P0）**
 Moss 的压缩策略本身不弱（`compaction.ts:1137` 还会回读最近 5 个文件），但**摘要之外的历史在上下文里彻底消失**，

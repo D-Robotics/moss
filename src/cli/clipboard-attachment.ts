@@ -14,6 +14,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { READ_IMAGE_MAX_BYTES, detectImageMimeType } from '../tools/read-image-tool.js';
 import { runProcess } from '../utils/run-process.js';
 import { ensureMossRuntimeGitignore } from '../utils/workspace-paths.js';
@@ -144,6 +145,93 @@ async function readClipboardText(platform: NodeJS.Platform): Promise<string | nu
 }
 
 /**
+ * A Finder "Copy" puts a `«class furl»` file URL on the clipboard and no text
+ * and no image bytes, so the drag-a-file path needs its own read. `POSIX path
+ * of` is the one AppleScript coercion that returns a usable path.
+ */
+async function readClipboardFilePath(platform: NodeJS.Platform): Promise<string | null> {
+  if (platform !== 'darwin') return null;
+  const result = await run('osascript', [
+    '-e',
+    'get POSIX path of (the clipboard as «class furl»)',
+  ]);
+  if (!result.ok) return null;
+  const candidate = result.stdout.trim();
+  return candidate.length > 0 ? candidate : null;
+}
+
+/**
+ * Text that is really a file reference: a `file://` URL from a browser "copy
+ * link", or a path a terminal inserts when a file is dragged onto it (spaces
+ * arrive backslash-escaped, and the whole thing may be quoted).
+ */
+export function clipboardPathFromText(text: string): string | null {
+  let value = text.trim();
+  if (value.length === 0 || value.includes('\n')) return null;
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+  if (value.startsWith('file://')) {
+    try {
+      return fileURLToPath(value);
+    } catch {
+      return null;
+    }
+  }
+  // Windows paths keep their separators; only POSIX paths get the terminal's
+  // backslash-escaped forms undone (drag-and-drop escapes spaces as `\ `).
+  if (/^[A-Za-z]:[\\/]/.test(value)) return value;
+  if (value.startsWith('/') || value.startsWith('~/')) {
+    const unescaped = value.replace(/\\ /g, ' ');
+    if (unescaped.startsWith('~/')) return path.join(os.homedir(), unescaped.slice(2));
+    return unescaped;
+  }
+  return null;
+}
+
+/** Stage an existing image file (Finder copy / dragged path) under the same
+ *  content-addressed budget as a clipboard screenshot. */
+export async function stageClipboardFile(options: {
+  workspaceDir: string;
+  filePath: string;
+}): Promise<
+  | { ok: true; relPath: string; absolutePath: string; bytes: number; mimeType: string }
+  | { ok: false; reason: string }
+> {
+  let stats;
+  try {
+    stats = await fs.stat(options.filePath);
+  } catch {
+    return { ok: false, reason: 'clipboard file does not exist' };
+  }
+  if (!stats.isFile()) return { ok: false, reason: 'clipboard file reference is not a file' };
+  if (stats.size > READ_IMAGE_MAX_BYTES) {
+    return {
+      ok: false,
+      reason: `clipboard file is ${stats.size} bytes, over the ${READ_IMAGE_MAX_BYTES} B read_image limit`,
+    };
+  }
+  let bytes: Buffer;
+  try {
+    bytes = await fs.readFile(options.filePath);
+  } catch {
+    return { ok: false, reason: 'clipboard file could not be read' };
+  }
+  const detected = detectImageMimeType(bytes);
+  if (!detected) return { ok: false, reason: 'clipboard file is not a PNG/JPEG/GIF/WebP image' };
+  const staged = await stageClipboardImage({
+    workspaceDir: options.workspaceDir,
+    bytes,
+    mimeType: detected.mimeType,
+  });
+  if (!staged.ok) return staged;
+  return { ...staged, bytes: bytes.length, mimeType: detected.mimeType };
+}
+
+/**
  * Content-addressed staging. Two pastes of the same screenshot share one file,
  * and nothing outside `.moss/runtime/` ever holds a copy.
  */
@@ -207,9 +295,43 @@ export async function captureClipboardAttachment(options: {
       mimeType: detected.mimeType,
     };
   }
+  // A Finder file copy has a file URL but no image bytes and no text: attach it
+  // as an image mention instead of reporting an empty clipboard.
+  const filePath = (await readClipboardFilePath(platform)) ?? null;
+  if (filePath) {
+    const stagedFile = await stageClipboardFile({ workspaceDir: options.workspaceDir, filePath });
+    if (stagedFile.ok) {
+      return {
+        kind: 'image',
+        relPath: stagedFile.relPath,
+        absolutePath: stagedFile.absolutePath,
+        bytes: stagedFile.bytes,
+        mimeType: stagedFile.mimeType,
+      };
+    }
+  }
   const text = (await readClipboardText(platform)) ?? '';
-  if (text.trim().length > 0) return { kind: 'text', text };
-  return { kind: 'empty', reason: 'clipboard has no image or text' };
+  if (text.trim().length > 0) {
+    // A dragged/browser-copied file arrives as text; same treatment as Finder.
+    const fromText = clipboardPathFromText(text);
+    if (fromText) {
+      const stagedText = await stageClipboardFile({
+        workspaceDir: options.workspaceDir,
+        filePath: fromText,
+      });
+      if (stagedText.ok) {
+        return {
+          kind: 'image',
+          relPath: stagedText.relPath,
+          absolutePath: stagedText.absolutePath,
+          bytes: stagedText.bytes,
+          mimeType: stagedText.mimeType,
+        };
+      }
+    }
+    return { kind: 'text', text };
+  }
+  return { kind: 'empty', reason: 'clipboard has no image, file or text' };
 }
 
 /** The mention inserted into the composer; `@` is Moss's file-reference form. */
