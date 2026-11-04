@@ -17,7 +17,7 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
       '用法：',
       '  moss skill create <名称>          生成 .moss/skills/<名称>/SKILL.md 脚手架',
       '  moss skill list                   列出已发现的技能（工作区与用户级）',
-      '  moss skill validate <路径>        按 Agent Skills 规范校验一个技能目录',
+      '  moss skill validate <名称|路径>   按 Agent Skills 规范校验一个技能（名称按发现范围解析）',
       '  moss skill install <源> [--workspace] [--name 名称] [--yes]',
       '                                    从目录 / git URL / npm 包安装并写锁文件',
       '  moss skill update [名称] [--workspace] [--yes]',
@@ -39,7 +39,7 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
     'Usage:',
     '  moss skill create <name>          scaffold .moss/skills/<name>/SKILL.md',
     '  moss skill list                   list discovered skills (workspace + user)',
-    '  moss skill validate <path>        validate a skill directory against the Agent Skills spec',
+    '  moss skill validate <name|path>   validate a skill (a bare name is resolved via discovery scopes)',
     '  moss skill install <source> [--workspace] [--name n] [--yes]',
     '                                    install from a directory / git URL / npm package, write the lockfile',
     '  moss skill update [name] [--workspace] [--yes]',
@@ -200,12 +200,35 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
       err(renderSkillUsage(zh));
       return 2;
     }
-    const { readSkillManifest } = await import('../core/skills/skill-registry.js');
+    const { readSkillManifest, loadSkillCatalog } =
+      await import('../core/skills/skill-registry.js');
     const resolved = path.resolve(ctx.workspaceDir, target);
-    const file =
+    let file =
       fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
         ? path.join(resolved, 'SKILL.md')
         : resolved;
+    // `/skills` tells the user to run `moss skill validate <name>`, and a skill
+    // can live in a user-level dir that is nowhere near the workspace, so a bare
+    // name is resolved through the same discovery scopes the runtime uses
+    // (workspace → shared conventions → user-level) instead of failing with
+    // "no SKILL.md at <workspace>/<name>".
+    if (!fs.existsSync(file) && !target.includes(path.sep) && !target.includes('/')) {
+      const dirs: Array<{ dir: string; scope: 'workspace' | 'shared' | 'user' }> = [
+        { dir: path.join(ctx.workspaceDir, '.moss', 'skills'), scope: 'workspace' },
+        { dir: path.join(ctx.workspaceDir, '.agents', 'skills'), scope: 'shared' },
+        { dir: path.join(ctx.workspaceDir, '.claude', 'skills'), scope: 'shared' },
+        { dir: path.join(ctx.configDir, 'skills'), scope: 'user' },
+        { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
+      ];
+      const found = loadSkillCatalog(dirs).find((skill) => skill.name === target);
+      if (found) file = path.join(found.dir, 'SKILL.md');
+      else {
+        err(`moss skill validate: no skill named "${target}" in:`);
+        for (const d of dirs) err(`  ${d.dir} (${d.scope})`);
+        err('Pass a path instead if the skill lives somewhere else.');
+        return 2;
+      }
+    }
     if (!fs.existsSync(file)) {
       err(`moss skill validate: no SKILL.md at ${file}`);
       return 2;
