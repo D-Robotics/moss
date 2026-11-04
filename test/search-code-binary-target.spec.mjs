@@ -45,3 +45,14 @@ test('a missing pattern in a directory search is not called binary', async (t) =
   const out = await searchCodeTool.execute({ pattern: 'needle' }, ctxFor(dir));
   assert.equal(out, 'No matches found');
 });
+
+test('a UTF-16 file is text: a miss is not reported as binary', async (t) => {
+  const dir = await fixture(t);
+  // "words here" in UTF-16LE with a BOM, so every other byte is NUL.
+  await fs.writeFile(
+    path.join(dir, 'win.txt'),
+    Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('only words here\n', 'utf16le')])
+  );
+  const out = await searchCodeTool.execute({ pattern: 'absent', path: 'win.txt' }, ctxFor(dir));
+  assert.equal(out, 'No matches found');
+});

@@ -7,6 +7,7 @@ import type { Tool } from '../core/tools/tool-types.js';
 import { runProcess, ProcessError } from '../utils/run-process.js';
 import { toolError } from './tool-helpers.js';
 import { resolveReadPath } from '../safety/read-scope.js';
+import { hasUtf16Bom } from '../utils/text-encoding.js';
 import { redactEgress } from '../safety/tool-output-redact.js';
 
 // ── ripgrep availability ────────────────────────────────────────────────────
@@ -514,7 +515,8 @@ function perFileCappedNote(capped: Set<string>, share: number): string {
 /**
  * Offset of the first NUL byte in the first 8 KB of a file, or null for text.
  * ripgrep skips binary files, so a match that exists only inside one came back
- * as "No matches found".
+ * as "No matches found". A UTF-16 BOM means the NULs are text: ripgrep
+ * transcodes those files, so calling them binary would be a false negative.
  */
 async function binaryOffsetAt(file: string): Promise<number | null> {
   try {
@@ -522,7 +524,9 @@ async function binaryOffsetAt(file: string): Promise<number | null> {
     try {
       const buf = Buffer.alloc(8192);
       const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
-      const at = buf.subarray(0, bytesRead).indexOf(0);
+      const head = buf.subarray(0, bytesRead);
+      if (hasUtf16Bom(head)) return null;
+      const at = head.indexOf(0);
       return at >= 0 ? at : null;
     } finally {
       await handle.close();
