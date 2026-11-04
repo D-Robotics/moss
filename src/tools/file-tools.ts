@@ -207,6 +207,7 @@ export const readFileTool: Tool = {
     'Each line is prefixed with a line number and a tab that are NOT file content — do not copy them into edits. ' +
     'An unchanged re-read returns a short stub. Paths outside the workspace are still read; secret-like values are removed.',
   metadata: {
+    classification: { singleCallExempt: true, discovery: true },
     maxResultTokens: 10_000,
     truncationHint: 'the dropped region is not in context — re-read only it with offset/limit',
     sideEffectClass: 'readonly',
@@ -350,6 +351,7 @@ export const writeFileTool: Tool = {
   description:
     'Create or overwrite a workspace file (parent directories are created). Prefer edit_file or multi_edit for existing files. If the path exists, read_file it once this session first.',
   metadata: {
+    classification: { singleCallExempt: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -883,6 +885,7 @@ export const editFileTool: Tool = {
     'Empty new_string deletes the match. Pass edits[] for 2+ replacements: ordered, all-or-nothing, one call. ' +
     'Use write_file for new files and apply_patch for cross-file patches with context hunks.',
   metadata: {
+    classification: { singleCallExempt: true, surgicalEdit: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -1001,6 +1004,7 @@ export const multiEditTool: Tool = {
   description:
     'Apply several edit_file replacements in one call (same match rules, in order, all-or-nothing). Prefer this for 2+ edits.',
   metadata: {
+    classification: { surgicalEdit: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -1034,6 +1038,7 @@ export const moveFileTool: Tool = {
   description:
     'Move or rename a workspace path. overwrite=true requires a prior read_file of an existing destination.',
   metadata: {
+    classification: { singleCallExempt: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -1175,6 +1180,7 @@ export const listDirectoryTool: Tool = {
   description:
     'List a directory (depth default 1, max 5). Directories end with /, symlinks with @. Skips node_modules, .git, and dist. Prefer search_files for globs. A path outside the workspace is still listed.',
   metadata: {
+    classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',
   },

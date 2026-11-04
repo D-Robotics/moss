@@ -242,6 +242,19 @@ export interface ToolMetadata {
    * the model does not re-read the whole thing (Task OS M12 finding #2).
    */
   truncationHint?: string;
+
+  /**
+   * Tool classification for loop-guard/thrash policy. Declared on the tool so a
+   * new tool cannot silently inherit the generic bucket; see `tool-classes.ts`.
+   */
+  classification?: {
+    singleCallExempt?: boolean;
+    discovery?: boolean;
+    surgicalEdit?: boolean;
+    verifyShell?: boolean;
+    fileMutation?: boolean;
+    shellCommand?: boolean;
+  };
 }
 
 export interface Tool<TInput = any> {

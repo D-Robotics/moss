@@ -100,6 +100,7 @@ export const askUserQuestionTool: Tool = {
   description:
     "Ask 1–3 structured questions when the user's answer would change the approach. Do not ask permission to continue a plan you already chose. Put a recommended option first and mark it (Recommended).",
   metadata: {
+    classification: { discovery: true },
     sideEffectClass: 'runtime_state',
     planMode: 'allow',
     retainResult: true,

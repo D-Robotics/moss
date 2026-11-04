@@ -23,6 +23,7 @@ export const runTestsTool: Tool = {
   description:
     'Run one test file or one explicit test command and return pass/fail counts. Pass file for the spec you changed. A call with no file and no command does not start the suite. Pass suite=true only when the user asked for the whole suite or you are delivering.',
   metadata: {
+    classification: { verifyShell: true },
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
     permissionBoundary:

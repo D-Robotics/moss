@@ -93,6 +93,7 @@ export const execBackgroundTool: Tool = {
   description:
     'Start a long-running command and return a handle. Outside /goal it returns after settle_ms. During a goal it waits until exit or timeout_ms unless settle_ms is set or wait is false. Read output with exec_logs; stop with exec_stop. An immediate crash is reported inline.',
   metadata: {
+    classification: { shellCommand: true },
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
