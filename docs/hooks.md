@@ -20,21 +20,22 @@ Code's exit-code convention (block only on exit 2).
 
 ## Events
 
-| Event               | Fires                                             | Blocking semantics                                              |
-| ------------------- | ------------------------------------------------- | --------------------------------------------------------------- |
-| `PreToolUse`        | before a tool runs                                | non-zero exit blocks; exit 0 may return `updatedInput`          |
-| `PostToolUse`       | after a tool runs                                 | advisory (reported, cannot undo the call)                       |
-| `UserPromptSubmit`  | after the user submits, before the run            | non-zero exit (or `{decision:"block"}`) rejects the prompt      |
-| `PermissionRequest` | when an approval prompt would be shown            | `deny` is honored; `allow` is ignored so the user still decides |
-| `PermissionDenied`  | a tool call was denied                            | advisory                                                        |
-| `SessionStart`      | session opens                                     | advisory                                                        |
-| `Stop`              | after every completed run, before it ends         | non-zero exit vetoes the stop → headless exits 9 (Incomplete)   |
-| `SubagentStart`     | before a subagent starts                          | advisory                                                        |
-| `SubagentStop`      | a subagent finished                               | advisory                                                        |
-| `PreCompact`        | before compaction splices the transcript          | advisory                                                        |
-| `PostCompact`       | after compaction                                  | advisory                                                        |
-| `SessionEnd`        | CLI exits                                         | advisory                                                        |
-| `Notification`      | the CLI needs attention (e.g. an approval prompt) | advisory                                                        |
+| Event                | Fires                                             | Blocking semantics                                              |
+| -------------------- | ------------------------------------------------- | --------------------------------------------------------------- |
+| `PreToolUse`         | before a tool runs                                | non-zero exit blocks; exit 0 may return `updatedInput`          |
+| `PostToolUse`        | after a tool runs (success or failure)            | advisory (reported, cannot undo the call)                       |
+| `PostToolUseFailure` | after a tool call that failed (`isError`)         | advisory; same payload as `PostToolUse` with `isError: true`    |
+| `UserPromptSubmit`   | after the user submits, before the run            | non-zero exit (or `{decision:"block"}`) rejects the prompt      |
+| `PermissionRequest`  | when an approval prompt would be shown            | `deny` is honored; `allow` is ignored so the user still decides |
+| `PermissionDenied`   | a tool call was denied                            | advisory                                                        |
+| `SessionStart`       | session opens                                     | advisory                                                        |
+| `Stop`               | after every completed run, before it ends         | non-zero exit vetoes the stop → headless exits 9 (Incomplete)   |
+| `SubagentStart`      | before a subagent starts                          | advisory                                                        |
+| `SubagentStop`       | a subagent finished                               | advisory                                                        |
+| `PreCompact`         | before compaction splices the transcript          | advisory                                                        |
+| `PostCompact`        | after compaction                                  | advisory                                                        |
+| `SessionEnd`         | CLI exits                                         | advisory                                                        |
+| `Notification`       | the CLI needs attention (e.g. an approval prompt) | advisory                                                        |
 
 Hook payloads are JSON on stdin with `event` plus event-specific fields; tool
 events add `toolName`/`toolInput`, and `Stop` adds `stopReason` and the last

@@ -571,6 +571,7 @@ export function createConfiguredHookCallbacks(
 ): ConfiguredHookCallbacks {
   const pre = hooks?.PreToolUse ?? [];
   const post = hooks?.PostToolUse ?? [];
+  const postFailure = hooks?.PostToolUseFailure ?? [];
   const userPrompt = hooks?.UserPromptSubmit ?? [];
   const permission = hooks?.PermissionRequest ?? [];
   const sessionStart = hooks?.SessionStart ?? [];
@@ -699,31 +700,39 @@ export function createConfiguredHookCallbacks(
         };
 
   const onToolResult =
-    post.length === 0
+    post.length === 0 && postFailure.length === 0
       ? undefined
       : (call: ToolCall, result: ToolResult): void => {
-          for (const hook of post) {
-            if (!toolNameMatches(hook, call.name)) continue;
-            void runHookCommand(
-              hook.command,
-              {
-                event: 'PostToolUse',
-                toolName: call.name,
-                input: call.input,
-                result: result.content,
-                isError: Boolean(result.isError),
-              },
-              cwd,
-              timeoutFor(hook)
-            )
-              .then((r) => {
-                if (r.exitCode !== 0) {
-                  process.stderr.write(
-                    `${hookExitedLine('PostToolUse', r.exitCode, r.stderr, call.name)}\n`
-                  );
-                }
-              })
-              .catch(() => {});
+          const failed = Boolean(result.isError);
+          // PostToolUse stays "every call"; PostToolUseFailure is the extra
+          // event for failed calls (Claude Code parity, same payload).
+          const events: HookEventName[] = ['PostToolUse'];
+          if (failed) events.push('PostToolUseFailure');
+          for (const event of events) {
+            const hooksForEvent = event === 'PostToolUse' ? post : postFailure;
+            for (const hook of hooksForEvent) {
+              if (!toolNameMatches(hook, call.name)) continue;
+              void runHookCommand(
+                hook.command,
+                {
+                  event,
+                  toolName: call.name,
+                  input: call.input,
+                  result: result.content,
+                  isError: failed,
+                },
+                cwd,
+                timeoutFor(hook)
+              )
+                .then((r) => {
+                  if (r.exitCode !== 0) {
+                    process.stderr.write(
+                      `${hookExitedLine(event, r.exitCode, r.stderr, call.name)}\n`
+                    );
+                  }
+                })
+                .catch(() => {});
+            }
           }
         };
 

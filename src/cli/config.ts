@@ -353,6 +353,14 @@ export interface HooksConfig {
 
   PostToolUse?: HookCommandConfig[];
 
+  /**
+   * Fires after a tool call that FAILED (isError): a bad path, a refused
+   * command, a timeout. Same payload as PostToolUse (which still fires for
+   * every call, success or failure) plus `isError: true`; advisory like
+   * PostToolUse -- it cannot undo the call. Claude Code has the same event.
+   */
+  PostToolUseFailure?: HookCommandConfig[];
+
   /** Fires when the user submits a prompt, before the run starts. */
   UserPromptSubmit?: HookCommandConfig[];
 
@@ -389,6 +397,7 @@ export interface HooksConfig {
 export const HOOK_EVENT_KEYS = [
   'PreToolUse',
   'PostToolUse',
+  'PostToolUseFailure',
   'UserPromptSubmit',
   'PermissionRequest',
   'PermissionDenied',

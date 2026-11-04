@@ -26,6 +26,7 @@ export type MossHookEventId = keyof HooksConfig;
 export const HOOK_EVENT_ZH_NAMES: Readonly<Record<MossHookEventId, string>> = Object.freeze({
   PreToolUse: '工具使用前',
   PostToolUse: '工具使用后',
+  PostToolUseFailure: '工具使用失败后',
   UserPromptSubmit: '提交用户提示前',
   PermissionRequest: '权限请求时',
   PermissionDenied: '权限被拒时',
@@ -43,6 +44,7 @@ export const HOOK_EVENT_ZH_NAMES: Readonly<Record<MossHookEventId, string>> = Ob
 export const MOSS_HOOK_EVENT_IDS: readonly MossHookEventId[] = Object.freeze([
   'PreToolUse',
   'PostToolUse',
+  'PostToolUseFailure',
   'UserPromptSubmit',
   'PermissionRequest',
   'PermissionDenied',
