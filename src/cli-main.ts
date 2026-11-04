@@ -19,7 +19,7 @@ import {
 } from './cli/approval.js';
 import { subscribeCliInteractionMode } from './cli/interaction-mode.js';
 import { planModeLayer } from './cli/plan-mode-layer.js';
-import { CliPromptLayers, promptLayersDebugEnabled } from './cli/prompt-layers.js';
+import { PromptAssembler, promptLayersDebugEnabled } from './core/prompt/index.js';
 import {
   CliConfigFileError,
   CliConfigWriteError,
@@ -883,7 +883,7 @@ async function main() {
   // or volatile suffix) and its origin spelled out; the registry owns the two
   // arrays the agent takes, and updates them in place so a mode switch or a late
   // MCP handshake reaches existing runs and sub-agents.
-  const promptLayers = new CliPromptLayers();
+  const promptLayers = new PromptAssembler();
   const envLayer = await buildEnvironmentContextLayer(workspace);
   if (envLayer) {
     promptLayers.set({
@@ -1159,8 +1159,7 @@ async function main() {
       model,
       usingBundledDefault: resolvedConfig.usingBundledDefault,
     }),
-    extraPromptLayers: promptLayers.stable,
-    dynamicPromptLayers: promptLayers.dynamic,
+    promptLayers,
     // Plan mode is a session state the core cannot see: expose it so plan-only
     // tools (`exit_plan`) are offered exactly while the mode is `plan`, the way
     // Cursor/Claude Code expose ExitPlanMode only inside plan mode.

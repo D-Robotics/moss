@@ -58,7 +58,12 @@ export interface AgentLoopPromptInput {
    * suffix does not rewrite the cached stable block.
    */
   getSystemPromptParts?: () => { stable: string; dynamic?: string };
-  systemPromptMeta?: { hashShort: string; layerCount: number };
+  systemPromptMeta?: {
+    hashShort: string;
+    layerCount: number;
+    /** Short hashes of host-declared layers, keyed by layer id (W2 attribution). */
+    layerHashes?: Record<string, string>;
+  };
 }
 
 export interface AgentLoopToolInput {

@@ -4,6 +4,7 @@ import type {
   LLMContentBlock,
   LLMStreamEvent,
 } from '../llm/llm-provider.js';
+import type { PromptLayersPort } from '../../contracts/prompt-layer.js';
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { SessionStore } from '../session/session.js';
 import type {
@@ -195,6 +196,14 @@ export interface MossAgentConfig
    * planning (SDK hosts that never plan).
    */
   planModeActive?: () => boolean;
+
+  /**
+   * Declared prompt layers (id/stability/origin). When set, the agent reads the
+   * table every turn instead of the two legacy arrays; a `/mode` switch or a late
+   * MCP handshake reaches runs that already exist. `extraPromptLayers` /
+   * `dynamicPromptLayers` stay supported for SDK hosts.
+   */
+  promptLayers?: PromptLayersPort;
 
   /** Instance-local declarative experts available to sub-agent tools. @beta */
   subagentExperts?: readonly import('../subagent/expert-registry.js').SubagentExpertDefinition[];
@@ -430,6 +439,10 @@ export type MossAgentEvent =
       toolOrderChanges: number;
       /** SHA-256 prefix of the system prompt actually sent on the last model call. */
       systemPromptHashShort?: string;
+      /** Declared prompt layers (agent base + host table) at this turn. */
+      systemPromptLayerCount?: number;
+      /** Per-layer short hashes: which layer changed, not just that the prompt did. */
+      systemPromptLayerHashes?: Record<string, string>;
 
       cacheReadTokens: number;
       cacheCreationTokens: number;

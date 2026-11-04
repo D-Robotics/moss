@@ -1,7 +1,7 @@
 /**
  * Plan-mode prompt text for the dynamic suffix.
  *
- * The layer lives in `CliPromptLayers` under the stable id `mode:plan`, so the
+ * The layer lives in `PromptAssembler` under the stable id `mode:plan`, so the
  * registry — not an index — owns its slot: entering and leaving plan mode
  * replaces one declaration and never grows the suffix, and the stable prefix is
  * untouched (a `/mode` switch must not invalidate the cached prefix).

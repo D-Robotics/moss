@@ -57,6 +57,8 @@ import {
 } from '../loop/follow-up-guard.js';
 import { buildCompactionCheckpointOutline } from '../loop/compact-hooks.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
+import { summarizePromptLayers } from '../prompt/report.js';
+import { hashSystemPromptForTelemetry } from '../../prompts/system-prompt-telemetry.js';
 import { PendingToolAbortStore } from '../loop/pending-tool-aborts.js';
 import { abortable, combineAbortSignals } from './abort.js';
 import type { AgentLoopLlmUsage, AgentLoopParams } from '../loop/agent-loop-types.js';
@@ -330,11 +332,13 @@ export class MossAgent {
     this.approvedPreflightController.releaseRun(runId);
   }
 
-  buildSystemPrompt(options?: {
-    platform?: string;
-    extraContext?: string;
-    omitExtraPromptLayers?: boolean;
-  }): string {
+  /**
+   * The layers the agent itself contributes (persona, language, domain, behavior,
+   * expert catalog, tool-result contract). Split out so the host-declared layer
+   * count and the per-layer telemetry can distinguish "agent prompt" from
+   * "host layers" without re-parsing the joined string.
+   */
+  private buildBaseSystemPromptParts(): string[] {
     const parts: string[] = [];
 
     if (this.config.baseSystemPrompt) {
@@ -370,9 +374,24 @@ export class MossAgent {
     const expertCatalog = buildSubagentExpertCatalog(this.expertRegistry.list());
     if (expertCatalog) parts.push(expertCatalog);
     parts.push(TOOL_RESULT_HANDLING_SECTION);
+    return parts;
+  }
 
-    if (this.config.extraPromptLayers && !options?.omitExtraPromptLayers) {
-      parts.push(...this.config.extraPromptLayers);
+  buildSystemPrompt(options?: {
+    platform?: string;
+    extraContext?: string;
+    omitExtraPromptLayers?: boolean;
+  }): string {
+    const parts = this.buildBaseSystemPromptParts();
+
+    // Host layers: the declared table wins when a host provides one; the two
+    // legacy arrays stay for SDK hosts that never adopted PromptLayersPort.
+    if (!options?.omitExtraPromptLayers) {
+      if (this.config.promptLayers) {
+        parts.push(...this.config.promptLayers.stable);
+      } else if (this.config.extraPromptLayers) {
+        parts.push(...this.config.extraPromptLayers);
+      }
     }
 
     if (options?.extraContext) {
@@ -380,6 +399,21 @@ export class MossAgent {
     }
 
     return parts.filter(Boolean).join('\n\n');
+  }
+
+  /** Per-layer attribution for run_metrics (ids + short hashes). */
+  private buildSystemPromptMeta(stablePrompt: string): {
+    hashShort: string;
+    layerCount: number;
+    layerHashes: Record<string, string>;
+  } {
+    const base = this.buildBaseSystemPromptParts().filter(Boolean);
+    const host = summarizePromptLayers(this.config.promptLayers);
+    return {
+      hashShort: hashSystemPromptForTelemetry(stablePrompt, []).combinedHashShort,
+      layerCount: base.length + host.layerCount,
+      layerHashes: host.layerHashes,
+    };
   }
 
   /**
@@ -396,10 +430,12 @@ export class MossAgent {
       ...(options?.platform ? { platform: options.platform } : {}),
       ...(options?.omitExtraPromptLayers ? { omitExtraPromptLayers: true } : {}),
     });
+    const dynamicLayers =
+      this.config.promptLayers?.dynamic ?? this.config.dynamicPromptLayers ?? [];
     const dynamic =
       options?.omitExtraPromptLayers === true
         ? ''
-        : (this.config.dynamicPromptLayers ?? [])
+        : dynamicLayers
             .filter((layer) => typeof layer === 'string' && layer.trim().length > 0)
             .join('\n\n');
     return {
@@ -1599,6 +1635,7 @@ ${result.stderr ?? ''}`.trim();
       systemPrompt,
       systemPromptParts,
       getSystemPrompt: () => composeRunPrompt().full,
+      systemPromptMeta: this.buildSystemPromptMeta(systemPrompt),
       ...(promptCacheEnabled
         ? {
             getSystemPromptParts: () => {

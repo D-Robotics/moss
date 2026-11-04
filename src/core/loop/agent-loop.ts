@@ -796,6 +796,9 @@ export function runAgentLoop(
           effectiveContextTokens: effMetrics,
           llmCompactionFailureStreak: state.overflowState.llmCompactionFailureStreak,
           systemPromptLayerCount: systemPromptMeta?.layerCount ?? 0,
+          ...(systemPromptMeta?.layerHashes
+            ? { systemPromptLayerHashes: systemPromptMeta.layerHashes }
+            : {}),
           promptCacheEnabled: Boolean(activeSystemPromptParts?.stable),
           promptCacheDebug: prefixDebugEnabled,
           promptCacheStableChars: activeSystemPromptParts?.stable.length ?? 0,
