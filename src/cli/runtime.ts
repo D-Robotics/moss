@@ -155,13 +155,11 @@ import {
 import { chrome, setTuiLocale } from './tui/copy.js';
 import { gitignoreNoticeForWorkspace } from './gitignore-suggestion.js';
 import { getGitBranch } from '../context/environment.js';
-import { disconnectAllDevices } from '../device/device-registry.js';
 import {
   configureDeviceWorkspace,
   projectDeviceHostWithholdsPassword,
   resolveDefaultDeviceTarget,
 } from '../device/device-target.js';
-import { loadDeviceRegistry } from '../device/device-registry-file.js';
 import { buildRuntimeCapabilitiesPrompt } from '../context/runtime-capabilities.js';
 import { buildSoftwareEngineeringPromptQuick } from '../contracts/index.js';
 import type { CliRuntimeStatus } from './onboarding.js';
@@ -965,7 +963,10 @@ export async function runCli(): Promise<void> {
       ...(loadedConfig.ignoredProjectRouting ?? []),
       ...(loadedConfig.droppedProjectPermissions ?? []),
       ...startup.ignoredRoutingEnv,
-      ...(loadDeviceRegistry(workspace).length > 0 ? ['.moss/devices.json'] : []),
+      ...((await import('../device/device-registry-file.js')).loadDeviceRegistry(workspace).length >
+      0
+        ? ['.moss/devices.json']
+        : []),
       ...(summary ? [summary] : []),
     ];
     const line = untrustedFolderLine(parts, isZhLocale());
@@ -1798,7 +1799,7 @@ export async function runCli(): Promise<void> {
         await waitForBackgroundProcesses(stoppedBackgroundIds, 'wait_all', 5_000, { pollMs: 20 });
       }
       await agent.close();
-      await disconnectAllDevices();
+      await (await import('../device/device-registry.js')).disconnectAllDevices();
     } finally {
       // Shut MCP server connections (stdio children) down after the agent is
       // done — closeAll absorbs per-server errors internally.
