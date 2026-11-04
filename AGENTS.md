@@ -43,48 +43,45 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 
 | 命令                                                                             | 用途                                                                                                                                                                                                                      |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run build`                                                                  | 清理并构建到 `dist/`                                                                                                                                                                                                      |
+| `npm run build`                                                                  | 清理并构建到 `dist/`（唯一实现：`node scripts/verify/cli.mjs --stage build --clean`）                                                                                                                                     |
 | `npm run typecheck`                                                              | 全量类型检查                                                                                                                                                                                                              |
 | `npm run lint` / `lint:fix`                                                      | ESLint（0 warning）                                                                                                                                                                                                       |
-| `npm run test`                                                                   | 增量编译 + 4 并发跑全部 `test/*.spec.mjs`（面向 `dist/`；发布/CI 口径）。不是开发的每一轮                                                                                                                                 |
-| `npm run test:filter -- --filter <name>`                                         | 只跑匹配的 spec（不编译；至少匹配 1 个，否则失败）。这条改动已有对应 spec，或那条 spec 是红的，才用                                                                                                                       |
-| `npm run test:serial`                                                            | 增量编译 + 顺序跑全部 spec，只在追偶发失败时用                                                                                                                                                                            |
-| `npm run test:parallel [-- --jobs <n>]`                                          | 与 `npm test` 相同（增量编译 + 默认 4 并发）。`--jobs <n>` 覆盖并发                                                                                                                                                       |
-| `npm run smoke`                                                                  | CLI 冒烟（版本 / 帮助 / PTY 启动）                                                                                                                                                                                        |
-| `npm run check`                                                                  | format:check + lint + typecheck                                                                                                                                                                                           |
-| `npm run verify:quick`                                                           | check + smoke。交付前的检查，不是开发的每一轮                                                                                                                                                                             |
-| `npm run verify`                                                                 | check + test + smoke。交付门，用户要求验证或准备发版时才跑                                                                                                                                                                |
+| `npm run smoke`                                                                  | CLI 冒烟（版本 / 帮助 / config 帮助 / PTY 启动；先 build）                                                                                                                                                                |
+| `npm run examples`                                                               | 三个离线嵌入示例（SDK 契约的活文档；`verify` 会实跑，先 build）                                                                                                                                                           |
+| `npm run check`                                                                  | format:check + lint + typecheck（三者并行；不依赖 `dist/`）                                                                                                                                                               |
+| `npm run verify:quick`                                                           | static + smoke。交付前的轻量检查，不是开发的每一轮                                                                                                                                                                        |
+| `npm run verify`                                                                 | 交付门：static + build + smoke + 3 个 examples。目标 ≤60s；CI 用 `VERIFY_BUDGET_SECONDS=60` 强制预算                                                                                                                      |
 | `npm run bench [-- --task <id> --samples <n>]`                                   | agent 能力基准（`bench/tasks/`，DeepSeek 基准模型，结果落 `bench/results/`，不入库）。默认 3 样本；0-turn 无用量错误自动标记 `harness_flake` 并最多重跑 2 次，耗尽后退出计分分母；baseline/capability gate 拒绝 `<3` 样本 |
 | `npm run bench:ab -- <engine>`                                                   | hard 层 A/B 对照（`best-of-n` / `reasoning-high` / `model-routing`，`--samples <n>` 可调），输出默认开/关建议                                                                                                             |
 | `npm run bench:noise -- <label1> <label2> [...]`                                 | 同 SHA 重复跑聚合成噪声带（`bench/results/noise-band.json`）                                                                                                                                                              |
 | `npm run bench:swe -- [--samples N --concurrency K --label L --filter s --eval]` | SWE-bench Verified 100 实例锁子集（`bench/boards/swebench-instances.json`）：容器内 moss headless 产 patch + 官方 swebench harness 判分；密钥经 `MOSS_BENCH_API_KEY`                                                      |
 | `npm run bench:deepswe -- --tasks <dir> [--samples 8]`                           | DeepSWE v1.1 同模型 harness 对比（经 Pier；已发布分数在 `bench/boards/deepswe-v1.1-harness.json`；默认 1 样本，发布口径 8 样本、temperature 1.0、top_p 0.95）                                                             |
 | `npm run bench:device -- --dry \| --target sim \| --target real`                 | 设备任务成功率（`bench/device-tasks/`）；PASS = Moss 裁决通过且独立探测与证据一致。见 `docs/bench/device-bench.md`                                                                                                        |
-| `MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-terminals`       | P7 真实终端核对（tmux / GNU screen / Terminal.app，先 build）；默认 `npm test` 不跑，缺终端则 skip。见 `docs/cli-parity/tui-real-terminals.md`                                                                            |
 | `npm run bench:tui-feel`                                                         | TUI 体感基准（`scripts/tui-feel/`，PTY + pyte；缺 python/pyte 时跳过）。结果落 `bench/results/`，不入库                                                                                                                   |
+
+`test/*.spec.mjs` 行为套件已于 2026-11-04 由 owner 删除（504 个文件，历史见 git `01a16fd7` 及更早）；仓库当前没有行为 spec 跑器。验证入口只有 `scripts/verify/cli.mjs`，本地与 CI 跑同一条命令；全平台 / Node 24 证据由 `.github/workflows/deep.yml`（夜跑 + tag）提供。设计与取舍见 [`docs/design/ci-and-verify.md`](docs/design/ci-and-verify.md)。
 
 ## SDK 公共面与 semver（v0.13 起）
 
-`src/index.ts` 的导出面（`dist/index.js` / `dist/index.d.ts`）是受 semver 保护的产品契约，由
-`test/sdk-contract.spec.mjs` 快照锁定：
+`src/index.ts` 的导出面（`dist/index.js` / `dist/index.d.ts`）是受 semver 保护的产品契约：
 
-- **minor**：新增导出、既有导出行为向后兼容扩展 → 必须同步更新快照（重跑
-  `node scratch/gen-sdk-contract-spec.mjs`）。
+- **minor**：新增导出、既有导出行为向后兼容扩展。
 - **major（0.x 期间 = 明确的破坏性变更说明）**：删除 / 重命名导出、参数或行为破坏。
-- 故意改公共面时快照更新与代码改动同一个 commit；spec 变红说明改动未被视为契约决策。
-- `examples/` 下三个嵌入示例是契约的活文档，发版前必须实跑通过。
+- 2026-11-04 起不再有 `test/sdk-contract.spec.mjs` 快照（全部 spec 已删除）；改公共面必须在提交说明
+  里显式列出，并保证 `examples/` 三个嵌入示例实跑通过（`npm run verify` 会跑）。
+- `examples/` 下三个嵌入示例是契约的活文档，发版前必须全绿。
 - **发布口径（2026-10-01 起）**：见 [`docs/release-policy.md`](docs/release-policy.md)——main 是滚动线，
-  版本号表示**当前能力级别**；tag 只在 `npm run verify` 全绿 + `examples/` 实跑通过后打，
+  版本号表示**当前能力级别**；tag 只在 `npm run verify` 全绿（static + build + smoke + examples）+ 该 commit 的 deep workflow 全绿后打，
   tag 说明必须写清"跑了什么、没跑什么"；**不为从未验收的中间版本补打 tag**（v0.14.0–v0.20.0 永久不补）。
 
 ## 支持矩阵
 
-| 维度     | 支持                                                                                                                                                                                                        | 验证方式                                 |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Node     | ≥ 22.16.0（CI 钉 22.16.0 与 24 双档）                                                                                                                                                                       | CI `Test` 矩阵                           |
-| 平台     | Linux / macOS / Windows（Windows 无 PTY smoke，其余全量）                                                                                                                                                   | CI `Test` 矩阵                           |
-| provider | deepseek / qwen / openai / anthropic / openai-compatible                                                                                                                                                    | 单测 + 冒烟；真实 key 回归按需人工       |
-| 交互面   | TTY：全屏渲染器为默认（备用屏 + 鼠标 + 应用内滚动）；`MOSS_TUI_RENDERER=inline`、矮终端、dumb、tmux 鼠标关闭或 GNU screen 回退为 primary screen 内联形态；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL | TUI spec 家族 + PTY smoke（macOS/Linux） |
+| 维度     | 支持                                                                                                                                                                                                        | 验证方式                                   |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Node     | ≥ 22.16.0（快车道钉 22.16.0；deep 矩阵覆盖 22.16 三平台 + 24 Linux）                                                                                                                                        | CI `Fast gate` + `Deep verification`       |
+| 平台     | Linux / macOS / Windows（Windows 无 PTY smoke）                                                                                                                                                             | deep 矩阵（同一 verify 命令）              |
+| provider | deepseek / qwen / openai / anthropic / openai-compatible                                                                                                                                                    | 冒烟 + examples；真实 key 回归按需人工     |
+| 交互面   | TTY：全屏渲染器为默认（备用屏 + 鼠标 + 应用内滚动）；`MOSS_TUI_RENDERER=inline`、矮终端、dumb、tmux 鼠标关闭或 GNU screen 回退为 primary screen 内联形态；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL | PTY smoke（macOS/Linux）+ `bench:tui-feel` |
 
 不在表内的组合（其他 Node 大版本、其他 provider 协议）未验证，不支持。
 
@@ -131,8 +128,8 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 - RDK 手册知识（烧录、引脚、TROS / hobot_dnn API、规格）不写进提示或 skill，由 rdk-docs MCP 按需供给
   （`moss mcp add rdk-docs npx -y rdk-docs-mcp@latest`）；提示里只留连接、探测、安全与验收契约。
   落地计划见 `docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`。
-- 单测用 `test/helpers/in-process-ssh-device.mjs`（进程内 ssh2 服务器，真协议握手）；
-  mock 只准用于单测，能力证明必须打真实设备（参照 `scratch/real-device-verify.mjs` 的做法）。
+- 设备链路的能力证明必须打真实设备；进程内 ssh2 夹具随 spec 套件于 2026-11-04 删除，需要时从
+  git 历史取回（参照 `scratch/real-device-verify.mjs` 的做法）。
 
 ## 任务契约 / 证据 / 验收（robotics closed loop P0-1/2/8 + Task OS）
 
@@ -174,18 +171,24 @@ Linux CI 不是 macOS。改 shell 片段、临时目录或 git 路径时按这�
 - **`/tmp` → `/private/tmp`**：`os.tmpdir()` 和 `fs.mkdtemp` 可能给出含 symlink 的路径。git 的 `includeIf gitdir:` 用 git dir 的 realpath 做匹配；子进程的 `cwd` 也要先 `realpath`，否则 macOS `posix_spawn` 会以 `ENOENT` 失败。
 - **TMPDIR**：macOS 的 `TMPDIR` 通常是 `/var/folders/...`（`/var` 同样链到 `/private/var`），不是 `/tmp`。临时文件和 `HOME` 下的缓存目录都可能落在这条 symlink 上。
 
-## 测试约定
+## 验证约定（2026-11-04 起）
 
-- 测试在 `test/*.spec.mjs`，import 构建产物 `dist/`。`npm test` 走 `scripts/build-incremental.mjs`（不删 `dist/`）再以 `--jobs 4` 跑 `scripts/run-package-tests.mjs`。裸 runner 仍默认顺序，供追偶发失败。`npm run build` 才是干净全量。
-- 开发模式是改完就跑这次改动的行为：那条命令、那次探测，或已经锁住这个行为的一条 spec。format、lint、typecheck、`npm run check`、全量 `npm test` / `npm run verify` 是交付门。每一轮都跑它们是错的，也太重。
-- `npm run test:filter -- --filter <模块名>` 只在这条改动已有对应 spec，或那条 spec 是红的时候用。红了就重跑同一条，不要扩成全量。
-- 进程级安全用例：每条命令跑一次。zh/en 与 text/json 只锁在该组第一条上，不要为同一判定再铺语言×格式矩阵。TUI 体感基准不进 `npm test`，走 `npm run bench:tui-feel`。
-- 新增 spec 文件名包含被测模块名，保证 `--filter` 可命中。
-- Bug 修复需要"修复前失败、修复后通过"的回归测试。一条行为一个断言组，不为一句文案加一整份普查。
+- **仓库当前没有行为 spec 套件。** 504 个 `test/*.spec.mjs` 已由 owner 于 2026-11-04 删除（git 历史
+  `01a16fd7` 及更早仍保留）。不要假设 `npm test` / `test:filter` / `test:serial` 存在。
+- **唯一验证入口是 `scripts/verify/cli.mjs`。** `npm run verify` = static + build + smoke + 三个
+  examples；CI 的 `Fast gate`（`.github/workflows/ci.yml`）跑同一条命令，并用
+  `VERIFY_BUDGET_SECONDS=60` 强制 60s 预算。
+- **全平台 / Node 24 证据走 deep workflow**（`.github/workflows/deep.yml`）：夜跑、tag、手动触发，
+  三平台 22.16 + Linux 24 跑同一门，`Deep gate` 聚合为单一状态。tag 发版必须 deep 全绿。
+- **改逻辑后必须真实跑这次改动的行为**：那条命令、那次探测、或对应的 bench。`verify` 只证明编译、
+  CLI 启动、示例契约与静态规范，不证明行为回归。
+- 静态检查（format / lint / typecheck）是交付门的一部分，不是每一轮都跑；每一轮跑它既慢又
+  会掩盖真实行为验证。
+- 恢复行为测试套件前先与 owner 确认框架与门口径；不要顺手新建 `test/` spec 目录。
 - 动态 ESM import 一律 `pathToFileURL(...).href`（Windows 兼容）。
-- 依赖真实终端的检查放在 `MOSS_REAL_TERMINALS=1` 之后（`test/tui-real-terminals.spec.mjs`），默认测试与 CI 系统矩阵不跑。
-- 进程级断言 folder trust / `.env` 路由 / 设备凭据的 spec 不直接跑仓库 `dist/cli.js`（CLI 会加载安装目录祖先的仓库 `.env`），用
-  `test/helpers/isolated-cli-install.mjs`；`npm pack` 探针必须 `--ignore-scripts`，避免 `prepare` 清空共享 `dist/` 与并行 runner 竞态。
+- `npm pack` 探针必须 `--ignore-scripts`，避免 `prepare` 的构建与共享 `dist/` 竞态。
+- 真实终端检查：`smoke` 覆盖 Unix PTY 启动（Windows 跳过）；tmux / screen / Terminal.app 的体感
+  基准走 `npm run bench:tui-feel`（opt-in）。
 
 ## 纪律
 

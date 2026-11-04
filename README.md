@@ -402,16 +402,15 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 ## 质量门与基准
 
 ```bash
-npm run check          # prettier + eslint（0 warning）+ typecheck
-npm run test           # 增量编译 + 4 并发跑全部 test/*.spec.mjs（发布/CI 口径）
-npm run test:filter -- --filter <name>   # 只跑匹配的 spec。改动已有这条 spec，或它是红的，才跑
-npm run test:parallel  # 与 npm test 相同；--jobs <n> 可调
-npm run smoke          # CLI 冒烟：--version / --help / PTY 启动
-npm run verify:quick   # check + smoke。交付前的检查，不是每一轮
-npm run verify         # check + test + smoke —— 交付门，发版前必须全绿
+npm run check          # prettier + eslint（0 warning）+ typecheck，三者并行
+npm run verify:quick   # static + smoke。交付前的轻量检查，不是每一轮
+npm run verify         # static + build + smoke + 3 个 examples —— 交付门，目标 ≤60s
+npm run smoke          # CLI 冒烟：--version / --help / config --help / PTY 启动（先 build）
+npm run examples       # 三个离线嵌入示例（SDK 契约的活文档，先 build）
 
-# 真实终端（tmux / GNU screen / Terminal.app），默认不跑；缺哪个终端就跳过哪项
-npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-terminals
+# 行为 spec 套件已于 2026-11-04 移除（git 历史保留）；全平台 / Node 24 证据由
+# .github/workflows/deep.yml 的夜跑与 tag 矩阵提供。设计见 docs/design/ci-and-verify.md
+
 ```
 
 基准结果留在 `bench/results/`（不入库）：
@@ -422,16 +421,16 @@ npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-
 - `npm run bench:device -- --dry`（或 `--target sim` / `--target real`）：RDK 板卡任务成功率。Moss 裁决通过、且独立探测与证据一致才算 PASS，见 [`docs/bench/device-bench.md`](docs/bench/device-bench.md)
 - `npm run bench:tui-feel`：TUI 体感 · `node scripts/task-os-metrics.mjs`：Task OS 指标（轮次 / 工具 / 成功率）
 
-版本号表示**当前能力级别**：`main` 是滚动线，tag 只在 `verify` 全绿且 `examples/` 实跑通过后打。详见 [`docs/release-policy.md`](docs/release-policy.md)。
+版本号表示**当前能力级别**：`main` 是滚动线，tag 只在 `npm run verify` 全绿（内含 examples）+ 该 commit 的 deep 矩阵全绿后打。详见 [`docs/release-policy.md`](docs/release-policy.md)。
 
 ## 支持矩阵
 
-| 维度     | 支持                                                             | 验证方式                        |
-| -------- | ---------------------------------------------------------------- | ------------------------------- |
-| Node     | ≥ 22.16.0                                                        | CI 双档（22.16 / 24）           |
-| 平台     | Linux / macOS / Windows                                          | CI 矩阵（Windows 无 PTY smoke） |
-| provider | deepseek / qwen / openai / anthropic / openai-compatible         | 单测 + 冒烟                     |
-| 交互面   | TTY：全屏 TUI；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL | TUI spec 家族 + PTY smoke       |
+| 维度     | 支持                                                             | 验证方式                                              |
+| -------- | ---------------------------------------------------------------- | ----------------------------------------------------- |
+| Node     | ≥ 22.16.0                                                        | Fast gate 22.16 + deep 矩阵（22.16 三平台、24 Linux） |
+| 平台     | Linux / macOS / Windows                                          | deep 矩阵（同一 verify 命令，Windows 无 PTY smoke）   |
+| provider | deepseek / qwen / openai / anthropic / openai-compatible         | 冒烟 + examples                                       |
+| 交互面   | TTY：全屏 TUI；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL | PTY smoke（macOS/Linux）+ TUI bench                   |
 
 ## 文档
 
