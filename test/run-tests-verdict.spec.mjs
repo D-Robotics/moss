@@ -63,3 +63,11 @@ test('a node failure is listed once by test name, not three times', () => {
   assert.doesNotMatch(out, /• failing tests:/);
   assert.doesNotMatch(out, /• \[ERR_ASSERTION\]/);
 });
+
+test('a test file that does not exist is not run and is not a failing suite', async () => {
+  const out = await runTestsTool.execute({ file: 'no-such-spec.spec.mjs' }, ctx);
+  assert.match(out, /Test Results: not run/);
+  assert.match(out, /No such test file: no-such-spec\.spec\.mjs\. Nothing was executed\./);
+  assert.match(out, /tests_pass=false/);
+  assert.doesNotMatch(out, /❌|Could not find/);
+});

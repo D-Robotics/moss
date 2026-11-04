@@ -812,6 +812,23 @@ async function planFromInput(
       if (abs !== root && !abs.startsWith(root + path.sep)) {
         return { message: `Test file path escapes workspace: ${fileRaw}` };
       }
+      // A mistyped spec path used to reach node as a test file: node printed
+      // "Could not find ..." and the caller read it as a failing suite. Stat
+      // first, so a wrong path is not mistaken for a red test.
+      const isFile = await fs
+        .stat(abs)
+        .then((s) => s.isFile())
+        .catch(() => false);
+      if (!isFile) {
+        return {
+          message: [
+            'Test Results: not run',
+            'tests_pass=false',
+            `No such test file: ${fileRaw}. Nothing was executed.`,
+            'Find the spec with search_files (or list_directory), then pass its path.',
+          ].join('\n'),
+        };
+      }
       // Direct spawn avoids shell quoting. node --test must not inherit its IPC env.
       if (fileRaw.endsWith('.py')) {
         const bin = pythonBin();
