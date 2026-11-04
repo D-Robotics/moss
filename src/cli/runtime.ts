@@ -1270,7 +1270,8 @@ export async function runCli(): Promise<void> {
     // unprobed 1M default; doctor will tell user to run /model for exact probe.
     // probe runs before the TUI starts so the first turn already has the correct
     // window — doctor and the status-bar will show it immediately.
-    if (resolvedConfig.contextTokensSource === 'unprobed' && resolvedConfig.baseUrl) {
+    const probeContextWindow = async (): Promise<void> => {
+      if (resolvedConfig.contextTokensSource !== 'unprobed' || !resolvedConfig.baseUrl) return;
       try {
         const probed = await resolveContextTokensForModel({
           model: resolvedConfig.model,
@@ -1292,8 +1293,16 @@ export async function runCli(): Promise<void> {
         }
       } catch {
         // Best-effort — keep unprobed default; doctor will surface this.
+      } finally {
+        startupTiming.mark('probe');
       }
-    }
+    };
+    // The probe talks to the provider API with a 4s timeout. Headless needs the
+    // window before the first turn, so it waits; the TUI must paint first and
+    // pick the corrected window up when the probe lands (Cursor/Claude render the
+    // composer before optional remote data).
+    const contextProbe = probeContextWindow();
+    if (!useTui) await contextProbe;
 
     await configuredHooks.runSessionStart();
 

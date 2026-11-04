@@ -660,6 +660,18 @@ MCP 注册表准备之后打点；真实一行变为
 **这次测出的真实大头**：`agent → skills` 之间约 **250ms**（`278 → 530`），即技能发现 + 命令/slash 命名空间 + 文件工具注册；
 下一片该动的是把这块移出「composer 之前」的可达集，而不是继续找 MCP 的模块。
 
+**B12-H1 第一刀（2026-11-05）：TUI 不再等待 provider 上下文窗口探测**。细粒度临时打点定位到
+`agent → skills` 的 ~220ms 里几乎全部是 `resolveContextTokensForModel`（对 provider 的 `/models` 探测，
+`timeoutMs: 4000`），它原本**阻塞在 composer 之前**。改为 `probeContextWindow()` 先启动：
+headless（`-p`）仍然 `await`（第一轮就需要正确的窗口），TUI **不 await**，composer 先画出来，
+探测落地后再更新 `agent.config.contextTokens/maxTokens`（agent 每轮重读，无需重建）；并在命中后打 `probe` 标记。
+**真实 A/B（本地 provider 桩把 `/models` 延迟 800ms，真实 TUI + PTY，`MOSS_STARTUP_TIMING=1`，交替各 3 次）**：
+`composer` 中位数 **1156ms → 356ms**（old 1155/1156/1251 vs new 356/356/362），即把整段探测延迟移出首屏；
+headless 一行仍是 `… mcp=273ms probe=519ms skills=521ms total=521ms`（`-p` 语义不变，窗口仍先探测）。
+`startup-timing` probe 允许 `probe=` 出现在 `skills` 之前且断言 `probe ≤ skills`（4 checks pass）；README 同步。
+**注意**：本机默认 provider 的 `/models` 通常 <100ms，所以日常提升小于该 A/B 的 800ms；结构收益是「慢 provider 不再拖慢首屏」，
+`bench:tui-feel` 的 composer 中位数仍需在本机默认 provider 下复测（本轮未跑，标注为未验证）。
+
 ## 4. 已排除：已落地 / 已澄清（防止重复调研）
 
 | 项                                                  | 为什么不再列                                                                                                                                      |

@@ -39,7 +39,7 @@ const check = async (name, fn) => {
 };
 
 const LINE_RE =
-  /\[startup\] timing: (entry=\d+ms )?(proxy=\d+ms )?config=\d+ms prompt=\d+ms agent=\d+ms mcp=\d+ms skills=\d+ms total=\d+ms/;
+  /\[startup\] timing: (entry=\d+ms )?(proxy=\d+ms )?config=\d+ms prompt=\d+ms agent=\d+ms mcp=\d+ms (probe=\d+ms )?skills=\d+ms total=\d+ms/;
 
 await check('MOSS_STARTUP_TIMING=1 prints a phased startup line', async () => {
   const result = await run({ MOSS_STARTUP_TIMING: '1' });
@@ -66,6 +66,7 @@ await check(
     assert.ok(values.prompt <= values.agent, line);
     assert.ok(values.agent <= values.mcp, line);
     assert.ok(values.mcp <= values.skills, line);
+    if (values.probe !== undefined) assert.ok(values.probe <= values.skills, line);
     assert.ok(values.skills <= values.total, line);
   }
 );
