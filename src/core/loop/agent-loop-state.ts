@@ -47,6 +47,8 @@ export interface AgentLoopMutableState {
   backgroundServerNudgeAttempts: number;
   /** Soft mid-run recovery after a red task_acceptance verdict (repair-loop discipline). */
   taskRepairNudgeAttempts: number;
+  /** One mid-run objective re-anchor for deep tool loops (RunAnchorNudge). */
+  runAnchorNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   /** O13: one-shot reasoning level for the request after a thinking-only turn. */
   reasoningOverrideNextTurn?: 'low' | 'off';
@@ -110,6 +112,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     buildToolsNudgeAttempts: 0,
     backgroundServerNudgeAttempts: 0,
     taskRepairNudgeAttempts: 0,
+    runAnchorNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,

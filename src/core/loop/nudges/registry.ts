@@ -25,6 +25,7 @@ import { evaluateRunTestsToolsNudge } from './run-tests-tools-nudge.js';
 import { evaluateBuildToolsNudge } from './build-tools-nudge.js';
 import { evaluateBackgroundServerNudge } from './background-server-nudge.js';
 import { evaluateTaskRepairNudge } from './task-repair-nudge.js';
+import { evaluateRunAnchorNudge } from './run-anchor-nudge.js';
 import { isNudgeDisabled, type NudgeId } from './disable.js';
 
 /** Inputs the registry needs from the agent loop host. */
@@ -429,6 +430,31 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
       )
     );
   }
+
+  // 15. One objective re-anchor for deep runs: Moss states the goal once in
+  // the opening user message (Qoder re-injects goal_state every turn — 9021
+  // occurrences in the 2026-11-04 mining); this pointer-style reminder covers
+  // the drift without re-serializing state the model already has.
+  push(
+    runNudgeStep(
+      'run-anchor',
+      ctx.buildCorrectionMessage,
+      {
+        get: () => state.runAnchorNudgeAttempts,
+        set: (v) => {
+          state.runAnchorNudgeAttempts = v;
+        },
+      },
+      () =>
+        evaluateRunAnchorNudge({
+          turns: state.turns,
+          totalToolCalls: metrics.totalToolCalls,
+          toolCallsByName: metrics.toolCallsByName,
+          userText: ctx.lastUserText(),
+          attempts: state.runAnchorNudgeAttempts,
+        })
+    )
+  );
 
   return out;
 }

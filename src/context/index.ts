@@ -1,6 +1,15 @@
 export { buildMossDefaultWorkflowPrompt } from './default-workflow.js';
 export { buildGitStatusSnapshot } from './git-status-snapshot.js';
 export {
+  buildTurnWatchNotice,
+  collectTouchedWorkspaceFiles,
+  sessionLastActivityMs,
+  turnWatchEnabled,
+  type TouchedFile,
+  type TurnWatchParams,
+  type TurnWatchResult,
+} from './turn-watch.js';
+export {
   buildRuntimeCapabilitiesPrompt,
   isCodeGraphToolName,
   type RuntimeCapabilitiesPromptOptions,

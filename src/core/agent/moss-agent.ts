@@ -37,6 +37,7 @@ import {
   createInMemoryMossAsyncTaskRegistry,
 } from '../../contracts/index.js';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
+import { buildTurnWatchNotice, turnWatchEnabled } from '../../context/turn-watch.js';
 import { createAcceptanceCompletionGate } from '../loop/acceptance-completion-gate.js';
 import { createBackgroundLifecycleGate } from '../loop/background-lifecycle-gate.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
@@ -145,6 +146,8 @@ export class MossAgent {
   private readonly rootAbortController = new AbortController();
   private disposed = false;
   private closePromise: Promise<void> | undefined;
+  private turnWatchReportedMtimes = new Map<string, number>();
+  private turnWatchLastDate: string | undefined;
   private readonly activeStreamAdvances = new Set<Promise<unknown>>();
   private steeringEngine: SteeringEngine | null = null;
   private readonly remoteCompactProvider: ReturnType<typeof createRemoteCompactProviderFromEnv>;
@@ -1084,6 +1087,19 @@ ${result.stderr ?? ''}`.trim();
     }
     if (options?.taskFlow === false && extraContext) {
       extraContext = omitTaskPhasePrompts(extraContext);
+    }
+    if (turnWatchEnabled()) {
+      const turnWatch = await buildTurnWatchNotice({
+        messages,
+        workspaceDir: path.resolve(this.config.workspaceDir ?? process.cwd()),
+        reportedMtimes: this.turnWatchReportedMtimes,
+        ...(this.turnWatchLastDate !== undefined ? { lastSeenDate: this.turnWatchLastDate } : {}),
+      });
+      this.turnWatchReportedMtimes = turnWatch.reportedMtimes;
+      this.turnWatchLastDate = turnWatch.todayDate;
+      if (turnWatch.notice) {
+        extraContext = extraContext ? `${extraContext}\n\n${turnWatch.notice}` : turnWatch.notice;
+      }
     }
     // Prefix cache matches the messages array from the front. The stable system
     // text stays byte-identical. The dynamic suffix (environment, MCP connect,

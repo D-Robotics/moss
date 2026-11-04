@@ -32,6 +32,7 @@ export const NUDGE_IDS = [
   'build-tools',
   'background-server',
   'task-repair',
+  'run-anchor',
   'reasoning-only',
   'output-continuation',
   'missing-tool-call',
