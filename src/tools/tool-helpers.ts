@@ -98,6 +98,12 @@ export class ToolStateManager {
   private readonly fileReadHash = new Map<string, string>();
   /** O86: paths whose earlier read body left the model context (compaction/elision). */
   private readonly fileReadDropped = new Set<string>();
+  /**
+   * Paths whose read credit was withdrawn because an edit attempt missed
+   * (`old_string` not found, failed multi_edit). Lets the next refusal say
+   * that, instead of claiming the file was never read.
+   */
+  private readonly fileReadInvalidated = new Set<string>();
 
   /**
    * O128 (PM): paths whose last full read_file was cut by the output budget.
@@ -135,6 +141,7 @@ export class ToolStateManager {
       this.fileReadTruncated.set(resolvedPath, truncated);
       this.fileMutatedSinceRead.delete(resolvedPath);
       this.fileReadDropped.delete(resolvedPath);
+      this.fileReadInvalidated.delete(resolvedPath);
       const hash = await hashFile(resolvedPath);
       if (hash) this.fileReadHash.set(resolvedPath, hash);
       else this.fileReadHash.delete(resolvedPath);
@@ -194,6 +201,13 @@ export class ToolStateManager {
     attach?: PartialReadAttach
   ): Promise<string | null> {
     if (!this.hasRecorded(resolvedPath)) {
+      if (this.fileReadInvalidated.has(resolvedPath)) {
+        return (
+          `The last edit attempt on ${displayPath} did not apply, so its read credit was dropped. ` +
+          `Call read_file on ${displayPath} to see the current text (or use the lines quoted in that error), ` +
+          `then retry with an exact old_string match.`
+        );
+      }
       return (
         `You must call read_file on ${displayPath} at least once before editing it. ` +
         `Read the current contents (full file, or omit offset/limit), then retry the edit with an exact old_string match.`
@@ -300,6 +314,7 @@ export class ToolStateManager {
     this.fileMutatedSinceRead.clear();
     this.fileReadHash.clear();
     this.fileReadDropped.clear();
+    this.fileReadInvalidated.clear();
   }
 
   /** O86: earlier read bodies left context; `null` = all paths. */
@@ -333,6 +348,7 @@ export class ToolStateManager {
    * cannot thrash the same unread snapshot (Claude FileEdit discipline).
    */
   invalidateFileState(resolvedPath: string): void {
+    if (this.fileReadState.has(resolvedPath)) this.fileReadInvalidated.add(resolvedPath);
     this.fileReadState.delete(resolvedPath);
     this.fileReadRange.delete(resolvedPath);
     this.fileReadTruncated.delete(resolvedPath);

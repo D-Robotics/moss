@@ -216,8 +216,9 @@ export const readFileTool: Tool = {
       if (reuse === 'truncated') return FILE_UNCHANGED_TRUNCATED_STUB;
       const stat = await fs.stat(filePath);
       if (stat.isDirectory()) {
+        const shown = String(input.path ?? '').trim() || 'the workspace root';
         return (
-          `Error: ${String(input.path ?? '')} is a directory, not a file. ` +
+          `Error: ${shown} is a directory, not a file. ` +
           'Use list_directory to see what is in it.'
         );
       }
@@ -333,6 +334,9 @@ export const writeFileTool: Tool = {
   async execute(input, ctx) {
     try {
       const displayPath = String(input.path ?? '');
+      if (!displayPath.trim()) {
+        return 'Error: write_file needs a path. Nothing was written.';
+      }
       const filePath = await safePath(displayPath, ctx.workspaceDir);
       const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
       if (stale) return `Error: ${stale}`;
@@ -664,6 +668,23 @@ const EDIT_ENTRY_SCHEMA = {
 };
 
 /**
+ * `edits[]` entries declare their own path, but a single-file batch naturally
+ * arrives as `{path, edits: [{old_string, new_string}]}` (Claude Code's Edit
+ * shape). Inherit the top-level path for entries that omit it instead of
+ * rejecting the call with `edits[0].path is required`.
+ */
+function inheritBatchPath(raw: unknown[], fallbackPath: unknown): unknown[] {
+  const fallback = typeof fallbackPath === 'string' ? fallbackPath.trim() : '';
+  if (!fallback) return raw;
+  return raw.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.path === 'string' && record.path.trim()) return entry;
+    return { ...record, path: fallback };
+  });
+}
+
+/**
  * Apply an ordered list of replacements across files, all-or-nothing: every
  * edit is matched in memory first and files are written only when all of them
  * succeeded. Backs `edit_file`'s `edits[]` form and the `multi_edit` alias.
@@ -802,7 +823,8 @@ export const editFileTool: Tool = {
     },
   },
   async execute(input, ctx) {
-    if (Array.isArray(input.edits)) return applyEditBatch(input.edits, ctx, 'edit_file');
+    if (Array.isArray(input.edits))
+      return applyEditBatch(inheritBatchPath(input.edits, input.path), ctx, 'edit_file');
     try {
       const displayPath = String(input.path ?? '');
       if (!displayPath) {
@@ -890,6 +912,10 @@ export const multiEditTool: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
+      path: {
+        type: 'string',
+        description: 'Path for edits entries that omit one (single-file batch)',
+      },
       edits: {
         type: 'array',
         description: 'Ordered list of surgical edits to apply',
@@ -899,7 +925,11 @@ export const multiEditTool: Tool = {
     required: ['edits'],
   },
   async execute(input, ctx) {
-    return applyEditBatch(Array.isArray(input.edits) ? input.edits : [], ctx, 'multi_edit');
+    return applyEditBatch(
+      inheritBatchPath(Array.isArray(input.edits) ? input.edits : [], input.path),
+      ctx,
+      'multi_edit'
+    );
   },
 };
 
@@ -927,6 +957,11 @@ export const moveFileTool: Tool = {
     try {
       const srcDisplay = String(input.source ?? '');
       const destDisplay = String(input.destination ?? '');
+      // An empty path resolves to the workspace root, which turned a missing
+      // argument into a rename of the whole workspace.
+      if (!srcDisplay.trim() || !destDisplay.trim()) {
+        return 'Error: move_file needs both source and destination paths. Nothing was moved.';
+      }
       const src = await safePath(srcDisplay, ctx.workspaceDir);
       const dest = await safePath(destDisplay, ctx.workspaceDir);
       try {
