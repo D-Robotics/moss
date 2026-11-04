@@ -1,4 +1,4 @@
-import { truncateToolOutput } from '../../context/tool-output-truncate.js';
+import { truncateWithRecoveryPath } from '../../context/tool-output-spill.js';
 import { getRootLogger } from '../../logger.js';
 import type { LLMMessage } from '../llm/llm-provider.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
@@ -107,6 +107,8 @@ interface PreflightContext {
 
 interface OutcomeRecordingContext {
   assistantContent: ContentBlock[];
+  /** When set, a truncated result gets a spilled copy so its middle stays readable. */
+  workspaceDir?: string;
   push: (event: MiniAgentEvent) => void;
   toolLoopGuard: ToolLoopGuardState;
   metrics: AgentLoopToolExecutionMetrics;
@@ -310,7 +312,12 @@ function recordToolOutcome(
     structuredContent = combined.length > 0 ? combined : undefined;
   }
 
-  const truncatedResult = truncateToolOutput(call.name, result);
+  const truncatedResult = truncateWithRecoveryPath({
+    toolName: call.name,
+    input: call.input,
+    text: result,
+    workspaceDir: ctx.workspaceDir,
+  });
   const originalInput = ctx.originalInputs.get(call);
   if (
     isFreshObservation(ctx.toolsForRun.find((tool) => tool.name === call.name)) &&
@@ -439,6 +446,7 @@ export async function executeAgentLoopToolCalls(
   for (const call of toolCalls) originalInputs.set(call, stableSerializeToolInput(call.input));
   const recordCtx: OutcomeRecordingContext = {
     assistantContent,
+    workspaceDir: toolCtx.workspaceDir,
     push,
     toolLoopGuard,
     metrics,
