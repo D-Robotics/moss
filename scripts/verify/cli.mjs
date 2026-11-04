@@ -43,6 +43,7 @@ import { stage as taskLedgerRevealStage } from './stages/task-ledger-reveal.mjs'
 import { stage as loopCommandStage } from './stages/loop-command.mjs';
 import { stage as mcpProtocolStage } from './stages/mcp-protocol.mjs';
 import { stage as rememberStage } from './stages/remember.mjs';
+import { stage as startupTimingStage } from './stages/startup-timing.mjs';
 
 const STAGES = new Map(
   [
@@ -65,6 +66,7 @@ const STAGES = new Map(
     loopCommandStage,
     mcpProtocolStage,
     rememberStage,
+    startupTimingStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -88,6 +90,7 @@ const FAST_GATE = [
   'loop-command',
   'mcp-protocol',
   'remember',
+  'startup-timing',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 

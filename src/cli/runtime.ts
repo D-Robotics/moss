@@ -22,6 +22,7 @@ import { errorMessage } from '../errors.js';
 import { noteKnownSecret } from '../safety/known-secrets.js';
 import { buildResumeReplay } from './resume-replay.js';
 import { exitCodeForError, ExitCode } from './exit-codes.js';
+import { createStartupTiming } from './startup-timing.js';
 import { resolveCliAgentRuntimeOptions, deriveMaxOutputTokens } from './agent-runtime.js';
 import {
   createCliToolApprovalHook,
@@ -185,6 +186,7 @@ import {
 } from './bootstrap.js';
 
 export async function runCli(): Promise<void> {
+  const startupTiming = createStartupTiming();
   // O83: install the proxy-aware global dispatcher (HTTPS_PROXY/HTTP_PROXY/
   // NO_PROXY) once, before ANY request — setup probe, model list, doctor,
   // MCP over HTTP — not only when the agent loop starts. Idempotent.
@@ -348,6 +350,7 @@ export async function runCli(): Promise<void> {
     console.error(formatUnsetApiKeyEnv(resolvedConfig.apiKeyEnv));
     process.exit(ExitCode.CONFIG);
   }
+  startupTiming.mark('config');
   if (loadedConfig.blockedProjectBaseUrl) {
     console.error(
       chrome(
@@ -962,6 +965,7 @@ export async function runCli(): Promise<void> {
       else console.error(line);
     }
   }
+  startupTiming.mark('agent');
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
   // User servers stay zero-config = zero overhead. rdk-docs is the one builtin:
@@ -1343,6 +1347,8 @@ export async function runCli(): Promise<void> {
       else console.error(message);
     }
 
+    startupTiming.mark('skills');
+    startupTiming.finish();
     if (oneShotMessage) {
       // Slash-command dispatch in oneshot mode. Previously a prompt like
       // `moss "/review"` or `moss "/skills"` was sent verbatim to the LLM,
@@ -1567,6 +1573,8 @@ export async function runCli(): Promise<void> {
     // v0.17: interactive TTY sessions get the full-screen TUI (ink); non-TTY
     // pipes and MOSS_NO_TUI=1 keep the readline REPL. The TUI is dynamically
     // imported so headless/SDK paths never load ink/react.
+    startupTiming.mark('skills');
+    startupTiming.finish();
     if (useTui) {
       const { runTuiApp } = await import('./tui/app.js');
       const { FileCheckpointStore, checkpointTargetPaths } = await import('./file-checkpoint.js');
