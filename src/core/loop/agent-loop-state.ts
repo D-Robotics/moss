@@ -19,8 +19,6 @@ export interface AgentLoopMutableState {
   missingToolNudgeAttempts: number;
   /** Soft mid-run reminders to open todo_write on multi-step coding (Grok TodoNudge). */
   todoNudgeAttempts: number;
-  /** Soft mid-run reminders to run tests after several edits without verification. */
-  verifyNudgeAttempts: number;
   /** Soft mid-run recovery after a red verification result. */
   redVerifyNudgeAttempts: number;
   /** Soft mid-run recovery after fan_out/create_subagent child failures. */
@@ -98,7 +96,6 @@ export function createInitialLoopState(): AgentLoopMutableState {
     outputLimitHalted: false,
     missingToolNudgeAttempts: 0,
     todoNudgeAttempts: 0,
-    verifyNudgeAttempts: 0,
     redVerifyNudgeAttempts: 0,
     fanOutNudgeAttempts: 0,
     ambiguityNudgeAttempts: 0,

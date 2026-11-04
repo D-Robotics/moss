@@ -159,7 +159,9 @@ assert.match(GOAL_USAGE, /\/goal clear/);
     assert.match(prompt, /deployments\.jsonl/);
   }
   assert.match(quick, /non-finite numbers when the runtime can receive them/);
-  assert.match(quick, /an `exec` that is clearly a test, build, typecheck, or lint/);
+  assert.match(quick, /run the one command that exercises the change/);
+  assert.match(quick, /ship gate/);
+  assert.doesNotMatch(quick, /No evidence means not done/);
 }
 
 assert.equal(resolveLoopMaxIterations({}), 0, 'loop is unlimited by default');

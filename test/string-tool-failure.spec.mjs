@@ -60,7 +60,14 @@ test('isStringToolFailureResult detects common failure encodings', () => {
       'Error: No diagnostic command detected. Checked:\n  - package.json\n'
     ),
     true,
-    'code_diagnostics no-command path is a tool failure'
+    'an Error: prefix is a tool failure'
+  );
+  assert.equal(
+    isStringToolFailureResult(
+      'Diagnostics: not started\nNo command was given, so typecheck and lint were not started.\n'
+    ),
+    false,
+    'a bare diagnostics refusal is not a failure to re-run'
   );
   assert.equal(
     isStringToolFailureResult(

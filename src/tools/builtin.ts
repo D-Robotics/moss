@@ -20,7 +20,6 @@ import { mergeSubagentPatchTool } from './merge-subagent-patch.js';
 import { createWebFetchTool } from './web-fetch.js';
 import { createWebSearchTool } from './web-search.js';
 import { backgroundExecTools } from './background-exec.js';
-import { codeDiagnosticsTool } from './code-diagnostics.js';
 import { harnessTools } from './harness-tools.js';
 import { deviceTools } from './device-tools.js';
 import { evidenceTools } from './evidence-tools.js';
@@ -77,16 +76,15 @@ export { ToolStateManager } from './tool-helpers.js';
 export {
   harnessTools,
   runTestsTool,
-  verifyFixTool,
   summarizeVerificationResult,
   extractVerificationFailurePreview,
 } from './harness-tools.js';
 export { askUserQuestionTool } from './ask-user-question.js';
 
 const EXEC_DESCRIPTION_BASE =
-  'Run a shell command in the workspace (cwd does not persist). Prefer read_file, edit_file, multi_edit, search_files, search_code, run_tests, and verify_fix over cat/sed/find/grep. ' +
+  'Run a shell command in the workspace (cwd does not persist). Prefer read_file, edit_file, search_files, search_code, and run_tests over cat/sed/find/grep. ' +
   'Use absolute paths; do not cd. Chain with && only when the next step must not run if this one fails. ' +
-  'For servers, watchers, or anything that may not exit, set run_in_background or use exec_background, then exec_logs / exec_stop. Before claiming completion, stop what you started unless the user asked it to keep running. ' +
+  'For servers, watchers, or anything that may not exit, set run_in_background, then exec_logs / exec_stop. Before claiming completion, stop what you started unless the user asked it to keep running. ' +
   'Reads outside the workspace are allowed. Secret-like output, including Moss config and keys, is removed. Every MOSS_DEVICE_* value is hidden; a footnote lists names that are set — do not claim a hidden variable is unset.';
 
 export function execToolDescription(shell = resolveHostShell()): string {
@@ -190,7 +188,7 @@ export const execTool: Tool = {
   },
   async execute(input, ctx) {
     // Claude Code Bash parity: run_in_background on the main exec tool so the
-    // model does not have to discover a separate exec_background tool.
+    // model does not have to discover a separate background tool.
     if (input.run_in_background === true) {
       const { execBackgroundTool } = await import('./background-exec.js');
       return execBackgroundTool.execute(
@@ -230,7 +228,7 @@ export const execTool: Tool = {
     if (usesUntrackedShellBackground(commandText, shell.kind)) {
       return (
         'Command blocked: foreground shell backgrounding (`&`, nohup, disown, or start /b) creates a process Moss cannot track or stop. ' +
-        'Re-run with `run_in_background: true` (or exec_background); it returns the id/pid and exec_stop can confirm the process ended.'
+        'Re-run with `run_in_background: true`; it returns the id/pid and exec_stop can confirm the process ended.'
       );
     }
     const redactedWrite = redactedShellWriteRefusal(
@@ -395,7 +393,7 @@ export const execTool: Tool = {
           text +=
             '\n\n[moss] Detected shell file mutation — prior read credit cleared for: ' +
             paths.join(', ') +
-            '. Prefer edit_file/multi_edit/apply_patch; re-read before the next surgical edit.';
+            '. Prefer edit_file/apply_patch; re-read before the next surgical edit.';
         }
       }
       streamer?.flush();
@@ -418,7 +416,7 @@ export const execTool: Tool = {
           ctx.markResultError?.();
           const waited = err.timeoutMs && err.timeoutMs > 0 ? err.timeoutMs : timeoutMs;
           return (
-            `timed out after ${waited}ms (raise timeout_ms or use exec_background)${output ? `\n${output}` : ''}${l3Notice}` +
+            `timed out after ${waited}ms (raise timeout_ms or use run_in_background)${output ? `\n${output}` : ''}${l3Notice}` +
             writebackWarning +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
@@ -463,7 +461,6 @@ import {
   moveFileTool,
   listDirectoryTool,
 } from './file-tools.js';
-import { repoOutlineTool } from './repo-outline.js';
 import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
 import { todoWriteTool } from './todo-tool.js';
@@ -492,7 +489,6 @@ export const builtinTools: Tool[] = [
   multiEditTool,
   moveFileTool,
   listDirectoryTool,
-  repoOutlineTool,
   execTool,
   searchFilesTool,
   searchCodeTool,
@@ -502,7 +498,6 @@ export const builtinTools: Tool[] = [
   webFetchTool,
   webSearchTool,
   applyPatchTool,
-  codeDiagnosticsTool,
   toolSearchTool,
   createSubagentTool,
   mergeSubagentPatchTool,

@@ -11,6 +11,10 @@
  * `findShellProtectedWrites` / `findExecCapableForms`. Revert-red: dropping
  * only the pre-exec gate, only the restore, or only the exit-9 unify each
  * turns the matching cases red.
+ *
+ * Each process command runs once (en, plain text). The first case of a group
+ * also crosses zh/en and text/json. Output-size cases keep 1KB and 1MB, not
+ * the sizes and kinds in between: those repeats were the same exit path.
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -933,61 +937,66 @@ const PROC_BLOCK = [
 ];
 const NULL_IN = IS_WIN ? 'NUL' : '/dev/null';
 
+const PROCESS_AXES_FULL = [
+  ['en', false],
+  ['zh', false],
+  ['en', true],
+  ['zh', true],
+];
+const PROCESS_AXES_ONCE = [['en', false]];
+
 const skipped = [];
+let blockWitness = true;
 for (const p of PROC_BLOCK) {
   if (IS_WIN && p.skipWin) {
     skipped.push(`proc BLOCK ${p.id}: ${p.skipWin}`);
     continue;
   }
   const cmdFor = IS_WIN && p.win ? p.win : p.cmd;
-  for (const lang of ['zh', 'en']) {
-    for (const json of [false, true]) {
-      jobs.push({
-        name: `proc BLOCK [${lang}${json ? '/json' : ''}] ${p.id}: exit 9 被拦, marker absent, hashes=`,
-        fn: async () => {
-          const r = await o152Scenario({
-            lang,
-            json,
-            seed: SEED,
-            modes: MODES,
-            watch: WATCH,
-            prepare: prepareProbes,
-            steps: ({ proj, root }) => {
-              const script = path.join(root, 'o152-pre.sh');
-              return [exec(cmdFor({ proj, script, root }))];
-            },
-            finalText: CLAIM[lang],
-            inspect: ({ root }) => ({
-              markerExists: fs.existsSync(path.join(root, MARKER_NAME)),
-            }),
-          });
-          assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${r.last}`);
-          if (json) {
-            assert.equal(r.result?.subtype, 'error_during_execution');
-            assert.equal(r.result?.is_error, true);
-            assert.equal(
-              resultClaimsDone(r.result?.result),
-              false,
-              String(r.result?.result).slice(0, 200)
-            );
-          } else {
-            assert.match(
-              r.last,
-              lang === 'zh' ? /^未完成.*被拦/ : /^Incomplete.*Blocked by/,
-              r.last
-            );
-          }
-          assert.equal(r.extra?.markerExists, false, 'probe script must not have run');
-          for (const rel of WATCH) {
-            assert.notEqual(r.before[rel].hash, 'ABSENT', rel);
-            assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
-            assert.equal(r.after[rel].mode, r.before[rel].mode, `${rel} mode`);
-          }
-          const blob = r.out + r.err + r.toolResults.join('\n');
-          assert.doesNotMatch(blob, /s3cr3t-o152/);
-        },
-      });
-    }
+  const axes = blockWitness ? PROCESS_AXES_FULL : PROCESS_AXES_ONCE;
+  blockWitness = false;
+  for (const [lang, json] of axes) {
+    jobs.push({
+      name: `proc BLOCK [${lang}${json ? '/json' : ''}] ${p.id}: exit 9 被拦, marker absent, hashes=`,
+      fn: async () => {
+        const r = await o152Scenario({
+          lang,
+          json,
+          seed: SEED,
+          modes: MODES,
+          watch: WATCH,
+          prepare: prepareProbes,
+          steps: ({ proj, root }) => {
+            const script = path.join(root, 'o152-pre.sh');
+            return [exec(cmdFor({ proj, script, root }))];
+          },
+          finalText: CLAIM[lang],
+          inspect: ({ root }) => ({
+            markerExists: fs.existsSync(path.join(root, MARKER_NAME)),
+          }),
+        });
+        assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${r.last}`);
+        if (json) {
+          assert.equal(r.result?.subtype, 'error_during_execution');
+          assert.equal(r.result?.is_error, true);
+          assert.equal(
+            resultClaimsDone(r.result?.result),
+            false,
+            String(r.result?.result).slice(0, 200)
+          );
+        } else {
+          assert.match(r.last, lang === 'zh' ? /^未完成.*被拦/ : /^Incomplete.*Blocked by/, r.last);
+        }
+        assert.equal(r.extra?.markerExists, false, 'probe script must not have run');
+        for (const rel of WATCH) {
+          assert.notEqual(r.before[rel].hash, 'ABSENT', rel);
+          assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
+          assert.equal(r.after[rel].mode, r.before[rel].mode, `${rel} mode`);
+        }
+        const blob = r.out + r.err + r.toolResults.join('\n');
+        assert.doesNotMatch(blob, /s3cr3t-o152/);
+      },
+    });
   }
 }
 
@@ -1064,92 +1073,93 @@ const RESTORE_CASES = [
   },
 ];
 
+let restoreWitness = true;
 for (const c of RESTORE_CASES) {
-  for (const lang of ['zh', 'en']) {
-    for (const json of [false, true]) {
-      jobs.push({
-        name: `proc RESTORE [${lang}${json ? '/json' : ''}] ${c.id}: exit 9, hashes=, git status 0`,
-        fn: async () => {
-          const r = await o152Scenario({
-            lang,
-            json,
-            seed: SEED,
-            modes: MODES,
-            watch: WATCH,
-            ...(c.prepare ? { prepare: c.prepare } : {}),
-            steps: ({ proj, root }) => [exec((IS_WIN && c.win ? c.win : c.cmd)({ proj, root }))],
-            finalText: CLAIM[lang],
-          });
-          // Diagnostics first: on a wrong exit code, show what actually changed
-          // on disk and what the tool saw (EBUSY stack etc.), so a Windows-only
-          // failure is attributable without a local Windows box.
-          const diskDiff = WATCH.filter(
-            (rel) =>
-              r.after[rel].hash !== r.before[rel].hash || r.after[rel].mode !== r.before[rel].mode
-          ).map((rel) => `${rel}: ${r.before[rel].hash}->${r.after[rel].hash}`);
-          // O152 r6 P1-W (CI 39093702948, Windows Node 24.21): rmSync(cwd) throws
-          // EPERM on the cwd itself BEFORE deleting anything — nothing changed,
-          // so exit 0 is the honest outcome there. Two-sided and evidence-gated:
-          // exit 0 is accepted only on Windows, only for RG3, only when no
-          // watched hash/mode moved AND the tool output shows the rm failed.
-          // Any real deletion must be exit 9 + restored (RG3b / RG4 / F9b).
-          const winRg3NoOp =
-            IS_WIN &&
-            c.id === 'RG3 rmSync(cwd)' &&
-            r.code === 0 &&
-            diskDiff.length === 0 &&
-            /\b(EPERM|EBUSY)\b/.test(r.toolResults.join('\n')) &&
-            !/已被修改|modified and restored/i.test(r.toolResults.join('\n'));
-          if (winRg3NoOp) {
-            for (const rel of WATCH) {
-              assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
-              assert.equal(r.after[rel].mode, r.before[rel].mode, `${rel} mode`);
-            }
-            assert.equal(r.gitStatus, 0, 'git status works');
-            skipped.push(
-              `proc RESTORE [${lang}${json ? '/json' : ''}] RG3 exit-9 branch on Windows: rmSync(cwd) failed (EPERM/EBUSY) before deleting anything; asserted exit 0 + every watched hash/mode unchanged instead`
-            );
-            return;
-          }
-          assert.equal(
-            r.code,
-            9,
-            `exit 9, got ${r.code}; last=${r.last}; changed=[${diskDiff.join(', ')}]; tool=${r.toolResults
-              .join('\n')
-              .slice(0, 1500)}`
-          );
-          assert.notEqual(r.code, 7, 'must not be SESSION exit 7');
-          if (json) {
-            assert.equal(r.result?.subtype, 'error_during_execution');
-            assert.equal(
-              resultClaimsDone(r.result?.result),
-              false,
-              String(r.result?.result).slice(0, 200)
-            );
-          } else {
-            assert.match(r.last, lang === 'zh' ? /^未完成/ : /^Incomplete/, r.last);
-            assert.equal(/^未完成|^Incomplete/i.test(r.last), true, r.last);
-          }
+  const axes = restoreWitness ? PROCESS_AXES_FULL : PROCESS_AXES_ONCE;
+  restoreWitness = false;
+  for (const [lang, json] of axes) {
+    jobs.push({
+      name: `proc RESTORE [${lang}${json ? '/json' : ''}] ${c.id}: exit 9, hashes=, git status 0`,
+      fn: async () => {
+        const r = await o152Scenario({
+          lang,
+          json,
+          seed: SEED,
+          modes: MODES,
+          watch: WATCH,
+          ...(c.prepare ? { prepare: c.prepare } : {}),
+          steps: ({ proj, root }) => [exec((IS_WIN && c.win ? c.win : c.cmd)({ proj, root }))],
+          finalText: CLAIM[lang],
+        });
+        // Diagnostics first: on a wrong exit code, show what actually changed
+        // on disk and what the tool saw (EBUSY stack etc.), so a Windows-only
+        // failure is attributable without a local Windows box.
+        const diskDiff = WATCH.filter(
+          (rel) =>
+            r.after[rel].hash !== r.before[rel].hash || r.after[rel].mode !== r.before[rel].mode
+        ).map((rel) => `${rel}: ${r.before[rel].hash}->${r.after[rel].hash}`);
+        // O152 r6 P1-W (CI 39093702948, Windows Node 24.21): rmSync(cwd) throws
+        // EPERM on the cwd itself BEFORE deleting anything — nothing changed,
+        // so exit 0 is the honest outcome there. Two-sided and evidence-gated:
+        // exit 0 is accepted only on Windows, only for RG3, only when no
+        // watched hash/mode moved AND the tool output shows the rm failed.
+        // Any real deletion must be exit 9 + restored (RG3b / RG4 / F9b).
+        const winRg3NoOp =
+          IS_WIN &&
+          c.id === 'RG3 rmSync(cwd)' &&
+          r.code === 0 &&
+          diskDiff.length === 0 &&
+          /\b(EPERM|EBUSY)\b/.test(r.toolResults.join('\n')) &&
+          !/已被修改|modified and restored/i.test(r.toolResults.join('\n'));
+        if (winRg3NoOp) {
           for (const rel of WATCH) {
-            // After wipe+restore, eligible files must match; sample hooks under
-            // .git/hooks/ that git init created may be unrestored (not in seed
-            // snapshot as restore-eligible content when they were only detected
-            // as directory changes). Seeded ones must match.
             assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
             assert.equal(r.after[rel].mode, r.before[rel].mode, `${rel} mode`);
           }
-          assert.equal(r.gitStatus, 0, 'git status works after restore');
-          const blob = r.out + r.err + r.toolResults.join('\n');
-          assert.doesNotMatch(blob, /s3cr3t-o152/);
-          // Notice should mention restore when the command was allowed to run
-          // (L3 path). A pre-exec Blocked: is also fine (stricter).
-          const tools = r.toolResults.join('\n');
-          if (tools && !/^\s*Blocked:/m.test(tools) && !c.id.includes('cwd')) {
-            assert.match(tools, /restored|已还原/i);
-          }
-        },
-      });
-    }
+          assert.equal(r.gitStatus, 0, 'git status works');
+          skipped.push(
+            `proc RESTORE [${lang}${json ? '/json' : ''}] RG3 exit-9 branch on Windows: rmSync(cwd) failed (EPERM/EBUSY) before deleting anything; asserted exit 0 + every watched hash/mode unchanged instead`
+          );
+          return;
+        }
+        assert.equal(
+          r.code,
+          9,
+          `exit 9, got ${r.code}; last=${r.last}; changed=[${diskDiff.join(', ')}]; tool=${r.toolResults
+            .join('\n')
+            .slice(0, 1500)}`
+        );
+        assert.notEqual(r.code, 7, 'must not be SESSION exit 7');
+        if (json) {
+          assert.equal(r.result?.subtype, 'error_during_execution');
+          assert.equal(
+            resultClaimsDone(r.result?.result),
+            false,
+            String(r.result?.result).slice(0, 200)
+          );
+        } else {
+          assert.match(r.last, lang === 'zh' ? /^未完成/ : /^Incomplete/, r.last);
+          assert.equal(/^未完成|^Incomplete/i.test(r.last), true, r.last);
+        }
+        for (const rel of WATCH) {
+          // After wipe+restore, eligible files must match; sample hooks under
+          // .git/hooks/ that git init created may be unrestored (not in seed
+          // snapshot as restore-eligible content when they were only detected
+          // as directory changes). Seeded ones must match.
+          assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
+          assert.equal(r.after[rel].mode, r.before[rel].mode, `${rel} mode`);
+        }
+        assert.equal(r.gitStatus, 0, 'git status works after restore');
+        const blob = r.out + r.err + r.toolResults.join('\n');
+        assert.doesNotMatch(blob, /s3cr3t-o152/);
+        // Notice should mention restore when the command was allowed to run
+        // (L3 path). A pre-exec Blocked: is also fine (stricter).
+        const tools = r.toolResults.join('\n');
+        if (tools && !/^\s*Blocked:/m.test(tools) && !c.id.includes('cwd')) {
+          assert.match(tools, /restored|已还原/i);
+        }
+      },
+    });
   }
 }
 
@@ -1210,54 +1220,69 @@ for (const lang of ['zh', 'en']) {
 }
 
 // ── O152 r5 A / acceptance #12 (F9b): L3 result is independent of output size ─
-const BIG_OUT = [
-  ['1KB', 1024],
-  ['10KB', 10 * 1024],
-  ['1MB', 1024 * 1024],
-];
+function pushF9b(name, { script, lang, json }) {
+  jobs.push({
+    name,
+    fn: async () => {
+      const r = await o152Scenario({
+        lang,
+        json,
+        seed: SEED,
+        modes: MODES,
+        watch: WATCH,
+        steps: () => [exec(script)],
+        finalText: CLAIM[lang],
+      });
+      assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${String(r.last).slice(0, 200)}`);
+      if (json) {
+        assert.equal(r.result?.subtype, 'error_during_execution');
+        assert.equal(resultClaimsDone(r.result?.result), false);
+      } else {
+        assert.match(r.last, /^未完成/, r.last.slice(0, 200));
+        assert.match(r.last, /已被修改，已还原|未还原/, r.last.slice(0, 300));
+      }
+      for (const rel of WATCH) {
+        assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
+      }
+      assert.equal(r.gitStatus, 0, 'git status works after restore');
+    },
+  });
+}
+
 const F9B_KINDS = [
   { id: 'modified .git/config', act: `require('fs').writeFileSync('.g'+'it/config','x')` },
   { id: 'deleted .env', act: `require('fs').rmSync('.e'+'nv')` },
   { id: 'whole .git deleted', act: `require('fs').rmSync('.g'+'it',{recursive:true,force:true})` },
 ];
-for (const [size, n] of BIG_OUT) {
-  for (const k of F9B_KINDS) {
-    for (const [lang, json] of [
-      ['zh', false],
-      ['en', true],
-    ]) {
-      jobs.push({
-        name: `proc F9b [${lang}${json ? '/json' : ''}] ${size} output then ${k.id}: exit 9`,
-        fn: async () => {
-          const r = await o152Scenario({
-            lang,
-            json,
-            seed: SEED,
-            modes: MODES,
-            watch: WATCH,
-            steps: () => [exec(`node -e "process.stdout.write('x'.repeat(${n}));${k.act}"`)],
-            finalText: CLAIM[lang],
-          });
-          assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${String(r.last).slice(0, 200)}`);
-          if (json) {
-            assert.equal(r.result?.subtype, 'error_during_execution');
-            assert.equal(resultClaimsDone(r.result?.result), false);
-          } else {
-            assert.match(r.last, /^未完成/, r.last.slice(0, 200));
-            assert.match(r.last, /已被修改，已还原|未还原/, r.last.slice(0, 300));
-          }
-          for (const rel of WATCH) {
-            assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
-          }
-          assert.equal(r.gitStatus, 0, 'git status works after restore');
-        },
-      });
-    }
+const sizeKind = F9B_KINDS[0];
+for (const [size, n] of [
+  ['1KB', 1024],
+  ['1MB', 1024 * 1024],
+]) {
+  const axes =
+    size === '1MB'
+      ? [
+          ['zh', false],
+          ['en', true],
+        ]
+      : [['zh', false]];
+  for (const [lang, json] of axes) {
+    pushF9b(`proc F9b [${lang}${json ? '/json' : ''}] ${size} output then ${sizeKind.id}: exit 9`, {
+      script: `node -e "process.stdout.write('x'.repeat(${n}));${sizeKind.act}"`,
+      lang,
+      json,
+    });
   }
 }
+for (const k of F9B_KINDS.slice(1)) {
+  pushF9b(`proc F9b [zh] 1KB output then ${k.id}: exit 9`, {
+    script: `node -e "process.stdout.write('x'.repeat(1024));${k.act}"`,
+    lang: 'zh',
+    json: false,
+  });
+}
 
-// PM r6 C: acceptance #12 also covers large stderr, a long thrown stack and
-// a non-zero exit — every one exit 9 with the change restored.
+// PM r6 C: large stderr, a long thrown stack, and a non-zero exit still exit 9.
 const F9B_SHAPES = [
   { id: '1MB stderr', tail: `process.stderr.write('e'.repeat(1024*1024))` },
   {
@@ -1267,40 +1292,17 @@ const F9B_SHAPES = [
   { id: 'non-zero exit', tail: `process.stdout.write('x'.repeat(4096));process.exit(3)` },
 ];
 for (const sh of F9B_SHAPES) {
-  for (const k of F9B_KINDS) {
-    for (const [lang, json] of [
-      ['zh', false],
-      ['en', true],
-    ]) {
-      jobs.push({
-        name: `proc F9b [${lang}${json ? '/json' : ''}] ${sh.id} after ${k.id}: exit 9`,
-        fn: async () => {
-          const r = await o152Scenario({
-            lang,
-            json,
-            seed: SEED,
-            modes: MODES,
-            watch: WATCH,
-            steps: () => [exec(`node -e "${k.act};${sh.tail}"`)],
-            finalText: CLAIM[lang],
-          });
-          assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${String(r.last).slice(0, 200)}`);
-          if (json) {
-            assert.equal(r.result?.subtype, 'error_during_execution');
-            assert.equal(resultClaimsDone(r.result?.result), false);
-          } else {
-            assert.match(r.last, /^未完成/, r.last.slice(0, 200));
-            assert.match(r.last, /已被修改，已还原|未还原/, r.last.slice(0, 300));
-          }
-          for (const rel of WATCH) {
-            assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
-          }
-          assert.equal(r.gitStatus, 0, 'git status works after restore');
-        },
-      });
-    }
-  }
+  pushF9b(`proc F9b [zh] ${sh.id} after ${sizeKind.id}: exit 9`, {
+    script: `node -e "${sizeKind.act};${sh.tail}"`,
+    lang: 'zh',
+    json: false,
+  });
 }
+pushF9b(`proc F9b [en/json] ${F9B_SHAPES[2].id} after ${sizeKind.id}: exit 9`, {
+  script: `node -e "${sizeKind.act};${F9B_SHAPES[2].tail}"`,
+  lang: 'en',
+  json: true,
+});
 
 // ── P1-W: a protected file readable before, unreadable after → reported ──
 jobs.push({
@@ -1459,8 +1461,11 @@ function prepareGreen({ proj }) {
   );
 }
 
+let greenWitness = true;
 for (const g of PROC_GREEN) {
-  for (const lang of ['zh', 'en']) {
+  const langs = greenWitness ? ['zh', 'en'] : ['en'];
+  greenWitness = false;
+  for (const lang of langs) {
     jobs.push({
       name: `proc GREEN [${lang}] ${g.id}: exit 0 完成`,
       fn: async () => {
@@ -1494,7 +1499,11 @@ for (const g of PROC_GREEN) {
   }
 }
 
-await runAll(jobs, 4);
+// 8 lanes: the jobs are child-process bound (~50% CPU, ~50% spawn/IO wait),
+// so one spec worker with 4 lanes left 6+ cores idle while this file was the
+// suite's critical path. 8 lanes cut the standalone wall ~40% on a 10-core
+// box without changing any assertion.
+await runAll(jobs, 8);
 fs.rmSync(base, { recursive: true, force: true });
 for (const s of skipped) console.log(`# SKIP ${s}`);
 console.log(`\n${pass} passed, ${failures.length} failed, ${skipped.length} skipped`);

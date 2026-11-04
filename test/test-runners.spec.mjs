@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { runTestsTool, verifyFixTool } from '../dist/tools/harness-tools.js';
+import { runTestsTool } from '../dist/tools/harness-tools.js';
 import { planTestRunners, renderCommandResult } from '../dist/tools/test-runners.js';
 
 const RED = /Test Results:\s*❌|Verify Fix:\s*❌/;
@@ -360,7 +360,7 @@ test('a real unittest discover run is tests_pass=true', async () => {
         'import unittest\n\nclass MathTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(1 + 1, 2)\n\nif __name__ == "__main__":\n    unittest.main()\n',
     },
     async (dir) => {
-      const output = await runTestsTool.execute({}, ctx(dir));
+      const output = await runTestsTool.execute({ suite: true }, ctx(dir));
       assert.match(output, pytestImportable() ? /pytest/ : /unittest discover/);
       assert.match(output, /tests_pass=true/, output);
       assert.doesNotMatch(output, /tests_pass=false/);
@@ -428,7 +428,7 @@ test('a PATH pytest shim without importable pytest falls back to unittest', asyn
           'import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertEqual(1, 1)\n',
       },
       async (dir) => {
-        const output = await runTestsTool.execute({ timeout_ms: 20000 }, ctx(dir));
+        const output = await runTestsTool.execute({ suite: true, timeout_ms: 20000 }, ctx(dir));
         assert.match(output, /unittest discover/, output);
         assert.match(output, /tests_pass=true/, output);
         assert.doesNotMatch(output, /not run|No module named pytest/);
@@ -451,7 +451,7 @@ test('unittest under tests/ runs without __init__.py', async () => {
         'import unittest\n\nclass T(unittest.TestCase):\n    def test_1(self):\n        pass\n',
     },
     async (dir) => {
-      const output = await runTestsTool.execute({ timeout_ms: 20000 }, ctx(dir));
+      const output = await runTestsTool.execute({ suite: true, timeout_ms: 20000 }, ctx(dir));
       assert.match(output, /tests_pass=true/, output);
       assert.doesNotMatch(output, /NO TESTS|Ran 0 tests/);
     }
@@ -466,7 +466,7 @@ test('a timed-out run reports timeout only', async () => {
         'import unittest, time\n\nclass T(unittest.TestCase):\n    def test_hang(self):\n        time.sleep(30)\n',
     },
     async (dir) => {
-      const output = await runTestsTool.execute({ timeout_ms: 5000 }, ctx(dir));
+      const output = await runTestsTool.execute({ suite: true, timeout_ms: 5000 }, ctx(dir));
       assert.match(output, /timed out/, output);
       assert.match(output, /tests_pass=false/);
       assert.doesNotMatch(output, /Process exited with code/);
@@ -537,19 +537,11 @@ test('missing pytest beside npm is not a red verify', async () => {
       const saved = process.env.PATH;
       process.env.PATH = [bin, saved].filter(Boolean).join(path.delimiter);
       try {
-        const output = await runTestsTool.execute({}, ctx(dir));
+        const output = await runTestsTool.execute({ suite: true }, ctx(dir));
         assert.match(output, /pytest not installed/);
         assert.match(output, /overall tests_pass=true/);
         assert.match(output, /Command: npm test/);
         assert.equal(RED.test(output), false, output);
-        const verify = await verifyFixTool.execute(
-          { build_command: '', typecheck_command: '' },
-          ctx(dir)
-        );
-        assert.match(verify, /pytest not installed/);
-        assert.doesNotMatch(verify, /ISSUES FOUND/);
-        assert.doesNotMatch(verify, /❌/);
-        assert.match(verify, /ALL PASSED/);
       } finally {
         process.env.PATH = saved;
       }
@@ -557,9 +549,29 @@ test('missing pytest beside npm is not a red verify', async () => {
   );
 });
 
+test('a bare run_tests does not start the suite', async () => {
+  await withDir(
+    {
+      'package.json': JSON.stringify({
+        scripts: { test: 'node -e "setTimeout(() => {}, 60000)"' },
+      }),
+    },
+    async (dir) => {
+      const started = Date.now();
+      const output = await runTestsTool.execute({ timeout_ms: 5000 }, ctx(dir));
+      assert.ok(Date.now() - started < 2000, 'bare run_tests must return without running npm test');
+      assert.match(output, /not started/);
+      assert.match(output, /suite=true/);
+      assert.doesNotMatch(output, /Command: npm test/);
+      assert.doesNotMatch(output, /timed out/);
+      assert.doesNotMatch(output, /❌/);
+    }
+  );
+});
+
 test('run_tests with no runner points at exec', async () => {
   await withDir({}, async (dir) => {
-    const output = await runTestsTool.execute({}, ctx(dir));
+    const output = await runTestsTool.execute({ suite: true }, ctx(dir));
     assert.match(output, /tests_pass=false/);
     assert.match(output, /exec/);
     assert.equal(output.includes('NO TESTS EXECUTED'), false);
@@ -573,7 +585,7 @@ test(
   { skip: !hasBin('make') },
   async () => {
     await withDir({ Makefile: 'test:\n\t@echo suite-ok\n' }, async (dir) => {
-      const output = await runTestsTool.execute({}, ctx(dir));
+      const output = await runTestsTool.execute({ suite: true }, ctx(dir));
       assert.match(output, /Command: make test/);
       assert.match(output, /exit 0, counts unknown/);
       assert.match(output, /tests_pass=false/);
@@ -597,7 +609,7 @@ test('make is skipped when npm matches, and one budget stops the next runner', a
       }),
     },
     async (dir) => {
-      const skipped = await runTestsTool.execute({}, ctx(dir));
+      const skipped = await runTestsTool.execute({ suite: true }, ctx(dir));
       assert.match(skipped, /Command: npm test/);
       assert.match(skipped, /skipped: make test/);
       assert.match(skipped, /overall tests_pass=true/);
@@ -607,7 +619,7 @@ test('make is skipped when npm matches, and one budget stops the next runner', a
         JSON.stringify({ scripts: { test: 'node -e "setTimeout(()=>{}, 30000)"' } })
       );
       await fs.writeFile(path.join(dir, 'go.mod'), 'module example.com/demo\n\ngo 1.22\n');
-      const budget = await runTestsTool.execute({ timeout_ms: 5000 }, ctx(dir));
+      const budget = await runTestsTool.execute({ suite: true, timeout_ms: 5000 }, ctx(dir));
       assert.match(budget, /not run \(timeout budget\): go test -json \.\/\.\.\./);
       assert.doesNotMatch(budget, /overall tests_pass=true/);
     }
@@ -653,38 +665,6 @@ test('quoted explicit Node test commands preserve real passing and failing outco
   }
 });
 
-test('verify_fix labels a step the budget never started as not run', async () => {
-  await withDir({}, async (dir) => {
-    const output = await verifyFixTool.execute(
-      {
-        build_command: 'node -e "process.exit(0)"',
-        typecheck_command: 'node -e "setTimeout(()=>{}, 30000)"',
-        test_command: 'node -e "process.exit(1)"',
-        timeout_ms: 5000,
-      },
-      ctx(dir)
-    );
-    assert.match(output, /Tests: not run/);
-    assert.doesNotMatch(output, /Tests: ❌ FAIL/);
-    assert.match(output, /Typecheck: ❌ FAIL/);
-  });
-});
-
-test('verify_fix does not paint an unparsed exit 0 as FAIL or ALL PASSED', async () => {
-  await withDir({}, async (dir) => {
-    const output = await verifyFixTool.execute(
-      { build_command: '', typecheck_command: '', test_command: "printf 'suite-ok\\n'" },
-      ctx(dir)
-    );
-    assert.match(output, /Verify Fix: exit 0, counts unknown/);
-    assert.match(output, /Tests: exit 0, counts unknown/);
-    assert.equal(RED.test(output), false);
-    assert.doesNotMatch(output, /ALL PASSED/);
-    assert.doesNotMatch(output, /Test Failures/);
-    assert.doesNotMatch(output, /verification is red/);
-  });
-});
-
 function pathWithout(names) {
   const parts = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
   return parts
@@ -704,21 +684,12 @@ test('missing go is not run and not a red verify', async () => {
     const saved = process.env.PATH;
     process.env.PATH = pathWithout(['go']);
     try {
-      const output = await runTestsTool.execute({}, ctx(dir));
+      const output = await runTestsTool.execute({ suite: true }, ctx(dir));
       assert.match(output, /Test Results: not run/);
       assert.match(output, /go not installed/);
       assert.equal(RED.test(output), false, output);
       assert.doesNotMatch(output, /exit 127/);
       assert.doesNotMatch(output, /❌/);
-      const verify = await verifyFixTool.execute(
-        { build_command: '', typecheck_command: '' },
-        ctx(dir)
-      );
-      assert.match(verify, /not run/);
-      assert.match(verify, /go not installed/);
-      assert.equal(RED.test(verify), false, verify);
-      assert.doesNotMatch(verify, /ISSUES FOUND/);
-      assert.doesNotMatch(verify, /❌/);
     } finally {
       process.env.PATH = saved;
     }
@@ -727,7 +698,7 @@ test('missing go is not run and not a red verify', async () => {
 
 test('missing jest is not run', async () => {
   await withDir({ 'package.json': JSON.stringify({ scripts: { test: 'jest' } }) }, async (dir) => {
-    const output = await runTestsTool.execute({}, ctx(dir));
+    const output = await runTestsTool.execute({ suite: true }, ctx(dir));
     assert.match(output, /Test Results: not run/);
     assert.match(output, /jest not installed/);
     assert.equal(RED.test(output), false, output);
@@ -744,7 +715,7 @@ test('pytest repo reports tests_pass=true', { skip: !pytestImportable() }, async
       'tests/test_hello.py': 'def test_adds():\n    assert 1 + 1 == 2\n',
     },
     async (dir) => {
-      const output = await runTestsTool.execute({}, ctx(dir));
+      const output = await runTestsTool.execute({ suite: true }, ctx(dir));
       assert.match(output, /tests_pass=true/);
       assert.match(output, /pytest/);
       assert.equal(output.includes('NO TESTS EXECUTED'), false);
@@ -761,7 +732,7 @@ test('a go module with no tests is not a pass', { skip: !hasBin('go', ['version'
       'demo.go': 'package demo\n',
     },
     async (dir) => {
-      const output = await runTestsTool.execute({}, ctx(dir));
+      const output = await runTestsTool.execute({ suite: true }, ctx(dir));
       assert.match(output, /go test -json/);
       assert.match(output, /no tests/);
       assert.match(output, /tests_pass=false/);

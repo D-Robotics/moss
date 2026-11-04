@@ -10,11 +10,13 @@
  * into every nudge file.
  */
 
+import { EXEC_TOOL_NAME_SET, VERIFY_TOOL_NAME_SET } from '../tools/tool-catalog.js';
+
 /** Tool names that represent command execution (used by ~21 nudge files). */
-export const EXEC_TOOLS = new Set(['exec', 'exec_background']);
+export const EXEC_TOOLS: ReadonlySet<string> = EXEC_TOOL_NAME_SET;
 
 /** Dedicated verification tools that may already cover a domain check. */
-export const VERIFY_TOOLS = new Set(['run_tests', 'verify_fix', 'code_diagnostics']);
+export const VERIFY_TOOLS: ReadonlySet<string> = VERIFY_TOOL_NAME_SET;
 
 /** Session message shape used by nudge request interfaces. */
 export type NudgeMessage = { role?: string; content?: unknown };
@@ -61,7 +63,7 @@ export function collectExecCommands(messages: NudgeMessage[] | undefined): strin
 /**
  * Count how many tool calls (by name) match any name in `names`.
  */
-export function countBySet(byName: Record<string, number>, names: Set<string>): number {
+export function countBySet(byName: Record<string, number>, names: ReadonlySet<string>): number {
   let n = 0;
   for (const [name, count] of Object.entries(byName)) {
     if (names.has(name)) n += count;

@@ -225,7 +225,6 @@ import {
 } from './renderer.js';
 import { installTuiLogSink } from './terminal-io.js';
 import { noteFrameHeight } from './frame-invariant.js';
-import { needsTestHint, type VerifyHintState } from '../verify-hint.js';
 import { createRunCompletionTracker, noteRunCompletionEvent } from '../run-completion.js';
 import { formatOutcomeLine, resolveRunOutcome } from '../run-outcome.js';
 import {
@@ -1304,7 +1303,6 @@ export function TuiAppRoot({
       const startedAt = runStartedAtRef.current;
       runStartedAtRef.current = undefined;
       const halted = controller.signal.aborted;
-      const unverified = !halted && needsTestHint(store.run as VerifyHintState);
       // Capture final answer before endRun clears the live buffer (O98 TUI line).
       const finalText = [
         ...store.rows
@@ -1340,9 +1338,6 @@ export function TuiAppRoot({
           const text = entry.text.trim();
           if (text) appendRow(store, 'summary', text);
         }
-      }
-      if (unverified) {
-        appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
       }
       const runtimeSettled = await settleRuntime(halted);
       if (runtimeSettled && startedAt !== undefined) appendTaskVerdictIfAny(startedAt);
@@ -1596,11 +1591,7 @@ export function TuiAppRoot({
         } finally {
           abortRef.current = undefined;
           const halted = controller.signal.aborted;
-          const unverifiedTask = !halted && needsTestHint(store.run as VerifyHintState);
           endRun(store, halted);
-          if (unverifiedTask) {
-            appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
-          }
           const runtimeSettled = await settleRuntime(halted);
           if (runtimeSettled) appendTaskVerdictIfAny(runStartedAtRef.current ?? 0);
           runStartedAtRef.current = undefined;

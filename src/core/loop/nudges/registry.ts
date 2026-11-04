@@ -11,7 +11,6 @@
 import type { Message } from '../../session/session-jsonl.js';
 import type { AgentLoopMutableState } from '../agent-loop-state.js';
 import { evaluateTodoNudge } from './todo-nudge.js';
-import { evaluateVerifyNudge } from './verify-nudge.js';
 import { evaluateRedVerifyNudge } from './red-verify-nudge.js';
 import { evaluateFanOutNudge } from './fan-out-nudge.js';
 import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
@@ -129,30 +128,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
     )
   );
 
-  // 2. Soft mid-run verification reminder after several edits with no tests.
-  push(
-    runNudgeStep(
-      'verify',
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.verifyNudgeAttempts,
-        set: (v) => {
-          state.verifyNudgeAttempts = v;
-        },
-      },
-      () =>
-        evaluateVerifyNudge({
-          turns: state.turns,
-          totalToolCalls: metrics.totalToolCalls,
-          toolCallsByName: metrics.toolCallsByName,
-          userText: ctx.lastUserText(),
-          attempts: state.verifyNudgeAttempts,
-        })
-    )
-  );
-
-  // 3. After a red verification result, force fix-then-rerun (VerifyNudge
-  // alone is silenced once any verify tool has been called).
+  // 2. After a red test result, fix and re-run that same command.
   push(
     runNudgeStep(
       'red-verify',

@@ -88,8 +88,6 @@ export {
   applyPatchTool,
 } from './tools/builtin.js';
 
-export { codeDiagnosticsTool } from './tools/code-diagnostics.js';
-
 export {
   deviceTools,
   deviceInfoTool,

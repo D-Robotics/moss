@@ -19,6 +19,7 @@ export async function recordHarnessSuiteEvidence(input: {
   taskId?: string;
   /** True only inside a goal/task engine turn. */
   taskTurn?: boolean;
+  /** `verify_fix` stays accepted so evidence files written before the merge still parse. */
   source: 'run_tests' | 'verify_fix' | 'acceptance_command';
   testsPassed?: boolean;
   buildPassed?: boolean;

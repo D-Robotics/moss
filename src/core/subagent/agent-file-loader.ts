@@ -23,13 +23,7 @@ import {
 } from './expert-registry.js';
 
 const EXPERT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const READ_ONLY_TOOLS = new Set([
-  'read_file',
-  'list_directory',
-  'search_files',
-  'search_code',
-  'memory_read',
-]);
+const READ_ONLY_TOOLS = new Set(['read_file', 'list_directory', 'search_files', 'search_code']);
 
 /** Tools that mutate the workspace or a device. Omitted `tools` inherits these. */
 export const FILE_AGENT_WRITE_TOOLS: ReadonlySet<string> = new Set([
@@ -42,7 +36,6 @@ export const FILE_AGENT_WRITE_TOOLS: ReadonlySet<string> = new Set([
   'move_file',
   'apply_patch',
   'run_tests',
-  'verify_fix',
   'device_exec',
   'device_file_write',
   'device_deploy',
@@ -56,8 +49,6 @@ const AGENT_TOOL_IDS = new Set<string>([
   'web_fetch',
   'web_search',
   'todo_write',
-  'code_diagnostics',
-  'repo_outline',
   'skill',
   'ask_user_question',
   'device_info',

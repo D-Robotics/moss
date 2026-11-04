@@ -30,7 +30,7 @@ import { resolveHostShell } from '../dist/utils/host-shell.js';
     { command: 'sleep 2', timeout_ms: 200 },
     { workspaceDir, sessionKey: 'timeout', abortSignal: new AbortController().signal }
   );
-  assert.match(text, /timed out after 200ms \(raise timeout_ms or use exec_background\)/);
+  assert.match(text, /timed out after 200ms \(raise timeout_ms or use run_in_background\)/);
   assert.doesNotMatch(text, /exit 1/);
   assert.doesNotMatch(text, /Command failed/);
   assert.doesNotMatch(text, /exit null/);

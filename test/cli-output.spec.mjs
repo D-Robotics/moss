@@ -208,8 +208,36 @@ console.log('[PASS] CLI oneshot turn_start noise suppression');
 
   assert.doesNotMatch(
     stderrChunks.join(''),
-    /did not run the project's tests/,
-    'successful run_tests tool suppresses the false missing-test warning'
+    /did not run the changed behavior|没有跑这次改动的行为/,
+    'successful run_tests tool suppresses the missing-behavior note'
+  );
+}
+
+{
+  const stderrChunks = [];
+  const renderer = createCliRunRenderer({
+    detailMode: 'progress',
+    interactive: false,
+    workspaceDir: process.cwd(),
+    stdout: { write: () => {} },
+    stderr: {
+      write: (value) => {
+        stderrChunks.push(String(value));
+      },
+      isTTY: false,
+    },
+  });
+  renderer.handle({
+    type: 'tool_start',
+    toolCallId: 'edit-1',
+    toolName: 'edit_file',
+    input: { path: 'src/example.js' },
+  });
+  renderer.handle({ type: 'done', result: { stopReason: 'end_turn' } });
+  assert.doesNotMatch(
+    stderrChunks.join(''),
+    /did not run the changed behavior|没有跑这次改动的行为|npm test/,
+    'an edit does not grow a verification footer'
   );
 }
 

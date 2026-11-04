@@ -96,7 +96,6 @@ const SNAPSHOT = [
   'classifyLlmError',
   'classifyProviderError',
   'classifyTaskKind',
-  'codeDiagnosticsTool',
   'combineAbortSignals',
   'configureDefaultDeviceTarget',
   'configureRootLogger',

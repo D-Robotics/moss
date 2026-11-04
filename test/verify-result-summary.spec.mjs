@@ -48,42 +48,22 @@ import {
 }
 
 {
-  const text =
-    'Verify Fix: ✅ ALL PASSED\n' +
-    'Build: ✅ pass | Typecheck: ✅ pass | Tests: ✅ pass\n' +
-    'Duration: 3000ms\n';
-  const s = summarizeVerificationResult('verify_fix', text);
-  assert.ok(s);
-  assert.match(s, /ALL PASSED/i);
-  assert.match(s, /build pass|tsc pass|tests pass/i);
+  // A bare tsc/build line is not a verification verdict the row can summarize.
+  const text = 'Build: ✅ pass | Typecheck: ✅ pass | Tests: ✅ pass\n';
+  assert.equal(summarizeVerificationResult('exec', text), null);
 }
 
 {
-  const text =
-    'Verify Fix: ❌ ISSUES FOUND\n' +
-    'Build: ✅ pass | Typecheck: ❌ FAIL | Tests: ⏭ skipped\n' +
-    'Duration: 900ms\n' +
-    '\n--- Typecheck Errors ---\nerror TS2322: Type string is not assignable\n';
-  const s = summarizeVerificationResult('verify_fix', text);
-  assert.ok(s);
-  assert.match(s, /ISSUES FOUND/i);
-  assert.match(s, /tsc FAIL|typecheck/i);
-}
-
-{
-  const clean = summarizeVerificationResult(
-    'code_diagnostics',
-    'No diagnostics found.\nCommand: tsc --noEmit\n'
+  // Retired names must not fabricate a verdict line now that only run_tests
+  // produces one (docs/design/tool-surface-rea.md).
+  assert.equal(
+    summarizeVerificationResult('verify_fix', 'Verify Fix: ❌ ISSUES FOUND\nBuild: ✅ pass\n'),
+    null
   );
-  assert.ok(clean);
-  assert.match(clean, /clean|No diagnostics/i);
-
-  const issues = summarizeVerificationResult(
-    'code_diagnostics',
-    '3 errors\nsrc/a.ts:1:1 - error TS1005\n'
+  assert.equal(
+    summarizeVerificationResult('code_diagnostics', '3 errors\nsrc/a.ts:1:1 - error TS1005\n'),
+    null
   );
-  assert.ok(issues);
-  assert.match(issues, /3 issue|3 errors|error TS1005/i);
 }
 
 {
@@ -116,13 +96,13 @@ import {
 }
 
 {
-  const verify =
-    'Verify Fix: ❌ ISSUES FOUND\n' +
-    'Build: ✅ pass | Typecheck: ❌ FAIL | Tests: ⏭ skipped\n' +
+  const typecheck =
+    'Test Results: ❌ 1 FAILED\n' +
+    'Command: npm test\n' +
     '\n--- Typecheck Errors ---\n' +
     "src/cli/tui.ts(1,1): error TS1005: ',' expected.\n" +
     'src/cli/tui.ts(2,1): error TS1109: Expression expected.\n';
-  const lines = extractVerificationFailurePreview('verify_fix', verify, 4);
+  const lines = extractVerificationFailurePreview('run_tests', typecheck, 4);
   assert.ok(lines.length >= 1);
   assert.match(lines[0], /TS1005|tui\.ts/);
 }

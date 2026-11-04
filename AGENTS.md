@@ -46,13 +46,14 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | `npm run build`                                                                  | 清理并构建到 `dist/`                                                                                                                                                                                                      |
 | `npm run typecheck`                                                              | 全量类型检查                                                                                                                                                                                                              |
 | `npm run lint` / `lint:fix`                                                      | ESLint（0 warning）                                                                                                                                                                                                       |
-| `npm run test`                                                                   | 构建 + 顺序运行 `test/*.spec.mjs`（面向 `dist/`；发布/CI 口径）                                                                                                                                                           |
-| `npm run test:filter -- --filter <name>`                                         | 只跑匹配的 spec（至少匹配 1 个，否则失败）                                                                                                                                                                                |
-| `npm run test:parallel [-- --jobs <n>]`                                          | 构建 + 并行运行全部 spec（默认 4 并发；runner 也支持 `node scripts/run-package-tests.mjs --jobs <n>`），本地提速用，失败汇总与串行一致                                                                                    |
+| `npm run test`                                                                   | 增量编译 + 4 并发跑全部 `test/*.spec.mjs`（面向 `dist/`；发布/CI 口径）。不是开发的每一轮                                                                                                                                 |
+| `npm run test:filter -- --filter <name>`                                         | 只跑匹配的 spec（不编译；至少匹配 1 个，否则失败）。这条改动已有对应 spec，或那条 spec 是红的，才用                                                                                                                       |
+| `npm run test:serial`                                                            | 增量编译 + 顺序跑全部 spec，只在追偶发失败时用                                                                                                                                                                            |
+| `npm run test:parallel [-- --jobs <n>]`                                          | 与 `npm test` 相同（增量编译 + 默认 4 并发）。`--jobs <n>` 覆盖并发                                                                                                                                                       |
 | `npm run smoke`                                                                  | CLI 冒烟（版本 / 帮助 / PTY 启动）                                                                                                                                                                                        |
 | `npm run check`                                                                  | format:check + lint + typecheck                                                                                                                                                                                           |
-| `npm run verify:quick`                                                           | check + smoke，日常快速反馈；不替代交付前 `verify`                                                                                                                                                                        |
-| `npm run verify`                                                                 | check + test + smoke，交付前必须绿                                                                                                                                                                                        |
+| `npm run verify:quick`                                                           | check + smoke。交付前的检查，不是开发的每一轮                                                                                                                                                                             |
+| `npm run verify`                                                                 | check + test + smoke。交付门，用户要求验证或准备发版时才跑                                                                                                                                                                |
 | `npm run bench [-- --task <id> --samples <n>]`                                   | agent 能力基准（`bench/tasks/`，DeepSeek 基准模型，结果落 `bench/results/`，不入库）。默认 3 样本；0-turn 无用量错误自动标记 `harness_flake` 并最多重跑 2 次，耗尽后退出计分分母；baseline/capability gate 拒绝 `<3` 样本 |
 | `npm run bench:ab -- <engine>`                                                   | hard 层 A/B 对照（`best-of-n` / `reasoning-high` / `model-routing`，`--samples <n>` 可调），输出默认开/关建议                                                                                                             |
 | `npm run bench:noise -- <label1> <label2> [...]`                                 | 同 SHA 重复跑聚合成噪声带（`bench/results/noise-band.json`）                                                                                                                                                              |
@@ -175,9 +176,12 @@ Linux CI 不是 macOS。改 shell 片段、临时目录或 git 路径时按这�
 
 ## 测试约定
 
-- 测试在 `test/*.spec.mjs`，import 构建产物 `dist/`，由 `scripts/run-package-tests.mjs` 默认顺序执行（`--jobs <n>` 可并行）。
+- 测试在 `test/*.spec.mjs`，import 构建产物 `dist/`。`npm test` 走 `scripts/build-incremental.mjs`（不删 `dist/`）再以 `--jobs 4` 跑 `scripts/run-package-tests.mjs`。裸 runner 仍默认顺序，供追偶发失败。`npm run build` 才是干净全量。
+- 开发模式是改完就跑这次改动的行为：那条命令、那次探测，或已经锁住这个行为的一条 spec。format、lint、typecheck、`npm run check`、全量 `npm test` / `npm run verify` 是交付门。每一轮都跑它们是错的，也太重。
+- `npm run test:filter -- --filter <模块名>` 只在这条改动已有对应 spec，或那条 spec 是红的时候用。红了就重跑同一条，不要扩成全量。
+- 进程级安全用例：每条命令跑一次。zh/en 与 text/json 只锁在该组第一条上，不要为同一判定再铺语言×格式矩阵。TUI 体感基准不进 `npm test`，走 `npm run bench:tui-feel`。
 - 新增 spec 文件名包含被测模块名，保证 `--filter` 可命中。
-- Bug 修复需要"修复前失败、修复后通过"的回归测试。
+- Bug 修复需要"修复前失败、修复后通过"的回归测试。一条行为一个断言组，不为一句文案加一整份普查。
 - 动态 ESM import 一律 `pathToFileURL(...).href`（Windows 兼容）。
 - 依赖真实终端的检查放在 `MOSS_REAL_TERMINALS=1` 之后（`test/tui-real-terminals.spec.mjs`），默认测试与 CI 系统矩阵不跑。
 - 进程级断言 folder trust / `.env` 路由 / 设备凭据的 spec 不直接跑仓库 `dist/cli.js`（CLI 会加载安装目录祖先的仓库 `.env`），用
@@ -187,7 +191,7 @@ Linux CI 不是 macOS。改 shell 片段、临时目录或 git 路径时按这�
 
 - 改代码前先做结构导航（符号/调用关系），读真实源码确认，不从文件名猜行为。
 - 只做必须做的改动，匹配现有风格；修一个 bug 时 grep 同类形状。
-- 行为验证优先于静态检查：逻辑改动后实际运行 CLI 验证一次。
+- 行为验证优先于静态检查：逻辑改动后跑这次改动的行为。不要用 typecheck、lint 或全量测试代替那次运行，也不要每一轮都跑它们。
 - 报告真实命令与结果；没有观察到 post-condition 就不报成功。
 
 ## 会话与工作区纪律（2026-10-01）

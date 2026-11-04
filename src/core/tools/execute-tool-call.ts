@@ -124,7 +124,7 @@ export function isStringToolFailureResult(text: string | undefined): boolean {
   if (/❌\s+\d+\s+FAILED\b/i.test(head)) return true;
   if (/❌\s+ISSUES FOUND\b/i.test(head)) return true;
   if (/(?:^|\n)\s*(?:Build|Typecheck|Tests):\s*❌\s*FAIL\b/i.test(head)) return true;
-  // code_diagnostics: "Result: FAIL" is its own status line near the top
+  // A verification command's "Result: FAIL" is its own status line near the top
   if (/(?:^|\n)\s*Result:\s*FAIL\b/i.test(head)) return true;
   // create_subagent / subagent_status / fan_out child failure banners
   if (/\[Sub-agent[^\]]*\]\s*FAILED/i.test(head)) return true;

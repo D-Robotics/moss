@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { Tool } from '../core/tools/tool-types.js';
+import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { ErrorCode, wrapAsMoss } from '../errors.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import {
@@ -564,12 +564,130 @@ function withSpanEnding(text: string, ending: '\n' | '\r\n' | null): string {
   return text;
 }
 
+/** Input shape shared by `edit_file`, `edit_file.edits[]` and the `multi_edit` alias. */
+const EDIT_ENTRY_SCHEMA = {
+  type: 'object',
+  properties: {
+    path: { type: 'string', description: 'File path relative to workspace root' },
+    old_string: {
+      type: 'string',
+      description: 'Exact text to replace (must be unique unless replace_all)',
+    },
+    new_string: { type: 'string', description: 'Replacement text' },
+    replace_all: {
+      type: 'boolean',
+      description: 'Replace every occurrence in this file (default false)',
+    },
+  },
+  required: ['path', 'old_string', 'new_string'],
+};
+
+/**
+ * Apply an ordered list of replacements across files, all-or-nothing: every
+ * edit is matched in memory first and files are written only when all of them
+ * succeeded. Backs `edit_file`'s `edits[]` form and the `multi_edit` alias.
+ */
+async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string): Promise<string> {
+  try {
+    if (raw.length === 0) return 'Error: edits array is empty.';
+    if (raw.length > 40)
+      return `Error: too many edits (max 40). Split into smaller ${toolName} batches.`;
+
+    // Load each unique file once; apply edits in order into memory.
+    type FileBuf = { displayPath: string; filePath: string; content: string; original: string };
+    const buffers = new Map<string, FileBuf>();
+    const summaries: string[] = [];
+
+    for (let i = 0; i < raw.length; i++) {
+      const item = raw[i] as Record<string, unknown>;
+      const displayPath = String(item?.path ?? '');
+      if (!displayPath) return `Error: edits[${i}].path is required.`;
+      const oldStr = String(item?.old_string ?? '');
+      const newStr = String(item?.new_string ?? '');
+      const replaceAll = item?.replace_all === true;
+
+      let buf = buffers.get(displayPath);
+      if (!buf) {
+        const filePath = await safePath(displayPath, ctx.workspaceDir);
+        let content: string;
+        try {
+          content = await fs.readFile(filePath, 'utf-8');
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+            return `Error: edits[${i}] file does not exist: ${displayPath}. Use write_file first.`;
+          }
+          throw err;
+        }
+        const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
+        if (stale) return `Error: edits[${i}] ${stale}`;
+        const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
+          toolName,
+          workspaceDir: ctx.workspaceDir,
+        });
+        if (unread) return `Error: edits[${i}] ${unread}`;
+        buf = { displayPath, filePath, content, original: content };
+        buffers.set(displayPath, buf);
+      }
+
+      const result = applyPreciseEditToContent(buf.content, {
+        oldString: oldStr,
+        newString: newStr,
+        replaceAll,
+      });
+      if (!result.ok) {
+        // Drop prior-read credit for every file already staged in this batch
+        // so the model re-reads before retrying (all-or-nothing: nothing written).
+        for (const b of buffers.values()) {
+          globalToolStateManager.invalidateFileState(b.filePath);
+        }
+        globalToolStateManager.invalidateFileState(buf.filePath);
+        const missExtra = /old_string not found/i.test(result.error)
+          ? ''
+          : '\nNext step: call `read_file` on this path and retry with exact current text.';
+        return (
+          `Error: edits[${i}] on ${displayPath}: ${result.error}${missExtra}\n` +
+          'No files were written (all-or-nothing).'
+        );
+      }
+      const redactedEdit = redactedPlaceholderEditError(oldStr, newStr);
+      if (redactedEdit) {
+        return (
+          `Error: edits[${i}] on ${displayPath}: ${redactedEdit}\n` +
+          'No files were written (all-or-nothing).'
+        );
+      }
+      buf.content = result.content;
+      const preview = formatCompactEditPreview(oldStr, newStr, 6);
+      summaries.push(
+        `  [${i + 1}] ${displayPath}: ${result.occurrences} replacement(s) [${result.matchMode}]` +
+          (preview ? `\n${preview}` : '')
+      );
+    }
+
+    // Commit all files only after every edit succeeded.
+    for (const buf of buffers.values()) {
+      if (buf.content === buf.original) continue;
+      await atomicWriteFile(buf.filePath, buf.content);
+      await globalToolStateManager.recordMutation(buf.filePath);
+    }
+
+    return (
+      `Applied ${raw.length} edit(s) across ${buffers.size} file(s) (all-or-nothing commit).\n` +
+      summaries.join('\n') +
+      '\nVerify with tests instead of re-reading every file.'
+    );
+  } catch (err) {
+    throw toolError(`Error applying ${toolName}`, err);
+  }
+}
+
 export const editFileTool: Tool = {
   name: 'edit_file',
   description:
-    'Replace one exact unique string in an existing file. read_file it first. ' +
+    'Replace exact strings in existing files. read_file first. ' +
     'old_string must match whitespace exactly and be unique unless replace_all. Do not include read_file line-number prefixes. ' +
-    'Empty new_string deletes the match. Use write_file for new files and multi_edit for several replacements.',
+    'Empty new_string deletes the match. Pass edits[] for 2+ replacements: ordered, all-or-nothing, one call. ' +
+    'Use write_file for new files and apply_patch for cross-file patches with context hunks.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -577,7 +695,7 @@ export const editFileTool: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'File path relative to workspace root' },
+      path: { type: 'string', description: 'File path relative to workspace root (single edit)' },
       old_string: {
         type: 'string',
         description: 'Exact text to replace — must be unique in the file unless replace_all is set',
@@ -590,14 +708,26 @@ export const editFileTool: Tool = {
         type: 'boolean',
         description: 'Replace every occurrence instead of requiring a unique match (default false)',
       },
+      edits: {
+        type: 'array',
+        description:
+          'Batch form: ordered replacements across one or more files, applied all-or-nothing. When set, path/old_string/new_string are ignored.',
+        items: EDIT_ENTRY_SCHEMA,
+      },
     },
-    required: ['path', 'old_string', 'new_string'],
   },
   async execute(input, ctx) {
+    if (Array.isArray(input.edits)) return applyEditBatch(input.edits, ctx, 'edit_file');
     try {
       const displayPath = String(input.path ?? '');
-      const oldStr = String(input.old_string ?? '');
-      const newStr = String(input.new_string ?? '');
+      if (!displayPath) {
+        return 'Error: path is required for a single edit (or pass edits[] for a batch).';
+      }
+      if (typeof input.old_string !== 'string' || typeof input.new_string !== 'string') {
+        return 'Error: old_string and new_string are required for a single edit (or pass edits[] for a batch).';
+      }
+      const oldStr = input.old_string;
+      const newStr = input.new_string;
       const filePath = await safePath(displayPath, ctx.workspaceDir);
       let content: string;
       try {
@@ -658,6 +788,11 @@ export const editFileTool: Tool = {
   },
 };
 
+/**
+ * Compatibility alias. Kept registered for hosts and transcripts recorded
+ * before the merge; the model is offered `edit_file` instead
+ * (`docs/design/tool-surface-rea.md`, "Keep / merge / remove").
+ */
 export const multiEditTool: Tool = {
   name: 'multi_edit',
   description:
@@ -672,119 +807,13 @@ export const multiEditTool: Tool = {
       edits: {
         type: 'array',
         description: 'Ordered list of surgical edits to apply',
-        items: {
-          type: 'object',
-          properties: {
-            path: { type: 'string', description: 'File path relative to workspace root' },
-            old_string: {
-              type: 'string',
-              description: 'Exact text to replace (must be unique unless replace_all)',
-            },
-            new_string: { type: 'string', description: 'Replacement text' },
-            replace_all: {
-              type: 'boolean',
-              description: 'Replace every occurrence in this file (default false)',
-            },
-          },
-          required: ['path', 'old_string', 'new_string'],
-        },
+        items: EDIT_ENTRY_SCHEMA,
       },
     },
     required: ['edits'],
   },
   async execute(input, ctx) {
-    try {
-      const raw = Array.isArray(input.edits) ? input.edits : [];
-      if (raw.length === 0) return 'Error: edits array is empty.';
-      if (raw.length > 40)
-        return 'Error: too many edits (max 40). Split into smaller multi_edit batches.';
-
-      // Load each unique file once; apply edits in order into memory.
-      type FileBuf = { displayPath: string; filePath: string; content: string; original: string };
-      const buffers = new Map<string, FileBuf>();
-      const summaries: string[] = [];
-
-      for (let i = 0; i < raw.length; i++) {
-        const item = raw[i] as Record<string, unknown>;
-        const displayPath = String(item?.path ?? '');
-        if (!displayPath) return `Error: edits[${i}].path is required.`;
-        const oldStr = String(item?.old_string ?? '');
-        const newStr = String(item?.new_string ?? '');
-        const replaceAll = item?.replace_all === true;
-
-        let buf = buffers.get(displayPath);
-        if (!buf) {
-          const filePath = await safePath(displayPath, ctx.workspaceDir);
-          let content: string;
-          try {
-            content = await fs.readFile(filePath, 'utf-8');
-          } catch (err) {
-            if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-              return `Error: edits[${i}] file does not exist: ${displayPath}. Use write_file first.`;
-            }
-            throw err;
-          }
-          const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
-          if (stale) return `Error: edits[${i}] ${stale}`;
-          const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
-            toolName: 'multi_edit',
-            workspaceDir: ctx.workspaceDir,
-          });
-          if (unread) return `Error: edits[${i}] ${unread}`;
-          buf = { displayPath, filePath, content, original: content };
-          buffers.set(displayPath, buf);
-        }
-
-        const result = applyPreciseEditToContent(buf.content, {
-          oldString: oldStr,
-          newString: newStr,
-          replaceAll,
-        });
-        if (!result.ok) {
-          // Drop prior-read credit for every file already staged in this batch
-          // so the model re-reads before retrying (all-or-nothing: nothing written).
-          for (const b of buffers.values()) {
-            globalToolStateManager.invalidateFileState(b.filePath);
-          }
-          globalToolStateManager.invalidateFileState(buf.filePath);
-          const missExtra = /old_string not found/i.test(result.error)
-            ? ''
-            : '\nNext step: call `read_file` on this path and retry with exact current text.';
-          return (
-            `Error: edits[${i}] on ${displayPath}: ${result.error}${missExtra}\n` +
-            'No files were written (all-or-nothing).'
-          );
-        }
-        const redactedEdit = redactedPlaceholderEditError(oldStr, newStr);
-        if (redactedEdit) {
-          return (
-            `Error: edits[${i}] on ${displayPath}: ${redactedEdit}\n` +
-            'No files were written (all-or-nothing).'
-          );
-        }
-        buf.content = result.content;
-        const preview = formatCompactEditPreview(oldStr, newStr, 6);
-        summaries.push(
-          `  [${i + 1}] ${displayPath}: ${result.occurrences} replacement(s) [${result.matchMode}]` +
-            (preview ? `\n${preview}` : '')
-        );
-      }
-
-      // Commit all files only after every edit succeeded.
-      for (const buf of buffers.values()) {
-        if (buf.content === buf.original) continue;
-        await atomicWriteFile(buf.filePath, buf.content);
-        await globalToolStateManager.recordMutation(buf.filePath);
-      }
-
-      return (
-        `Applied ${raw.length} edit(s) across ${buffers.size} file(s) (all-or-nothing commit).\n` +
-        summaries.join('\n') +
-        '\nVerify with tests instead of re-reading every file.'
-      );
-    } catch (err) {
-      throw toolError('Error applying multi_edit', err);
-    }
+    return applyEditBatch(Array.isArray(input.edits) ? input.edits : [], ctx, 'multi_edit');
   },
 };
 

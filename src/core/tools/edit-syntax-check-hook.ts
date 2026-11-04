@@ -63,7 +63,7 @@ async function checkOne(
  * learns immediately that an edit broke syntax — without spending a whole
  * verification turn. TypeScript and other extensions are skipped: there is
  * no fast single-file checker without the project toolchain; those stay
- * covered by code_diagnostics / run_tests.
+ * covered by run_tests or an explicit exec command.
  */
 export function createEditSyntaxCheckHook(): PostToolUseHook {
   return {

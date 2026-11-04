@@ -33,7 +33,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const REGISTRY = [
   { id: 'todo', needle: 'have not used `todo_write`', counter: 'todoNudgeAttempts' },
-  { id: 'verify', needle: 'without running verification', counter: 'verifyNudgeAttempts' },
   { id: 'red-verify', needle: 'verification result is RED', counter: 'redVerifyNudgeAttempts' },
   { id: 'fan-out', needle: 'FAILED or empty children', counter: 'fanOutNudgeAttempts' },
   { id: 'ambiguity', needle: 'multi-interpretation', counter: 'ambiguityNudgeAttempts' },

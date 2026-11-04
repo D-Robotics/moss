@@ -18,7 +18,6 @@ export const MOSS_DISABLE_NUDGES_ENV = 'MOSS_DISABLE_NUDGES';
  */
 export const NUDGE_IDS = [
   'todo',
-  'verify',
   'red-verify',
   'fan-out',
   'ambiguity',

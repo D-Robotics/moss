@@ -60,7 +60,7 @@ interface RunPlan {
   direct: DirectSpawn | null;
 }
 
-type Plan = { message: string } | { skip: true } | RunPlan;
+type Plan = { message: string } | RunPlan;
 
 const childEnv = (): Record<string, string> => ({ ...process.env }) as Record<string, string>;
 
@@ -530,7 +530,7 @@ function formatCounts(
   }
   if (!pass && !empty) {
     output +=
-      '\nNext step: fix the failing tests (minimal surgical edits), then re-run `run_tests` or `verify_fix`. ' +
+      '\nNext step: fix the failing tests (minimal surgical edits), then re-run `run_tests`. ' +
       'Do not report done while tests are red.\n';
   } else if (empty && !timedOut) {
     output +=
@@ -672,17 +672,6 @@ async function spawnOne(
   }
 }
 
-const skippedOutcome = (): SuiteOutcome => ({
-  text: '',
-  passed: false,
-  unknown: false,
-  noTests: false,
-  skipped: true,
-  notRun: false,
-  note: '',
-  result: blank(''),
-});
-
 async function executePlan(
   ctx: ToolContext,
   plan: RunPlan,
@@ -758,14 +747,6 @@ async function executePlan(
   };
 }
 
-function explicitField(
-  input: Record<string, unknown> | undefined,
-  field: string
-): string | undefined {
-  if (!input || !Object.prototype.hasOwnProperty.call(input, field)) return undefined;
-  return String(input[field] ?? '').trim();
-}
-
 function noRunnerMessage(): string {
   return [
     'Test Results: no runner detected',
@@ -775,18 +756,28 @@ function noRunnerMessage(): string {
   ].join('\n');
 }
 
+function wantsSuite(input: Record<string, unknown> | undefined): boolean {
+  return input?.suite === true;
+}
+
+/** Bare run_tests must not start pytest / npm test / go test / cargo test. */
+function suiteNotStartedMessage(): string {
+  return [
+    'Test Results: not started',
+    'tests_pass=false',
+    'No file or command was given, so the suite was not started.',
+    'Pass file for the one spec you changed, or command for one explicit test command.',
+    'Pass suite=true only when the user asked to run the whole suite or you are delivering.',
+  ].join('\n');
+}
+
 async function planFromInput(
   ctx: ToolContext,
   input: Record<string, unknown> | undefined,
-  source: 'run' | 'verify',
   deadline: number
 ): Promise<Plan> {
   const env = childEnv();
-  if (source === 'verify') {
-    const explicit = explicitField(input, 'test_command');
-    if (explicit === '') return { skip: true };
-    if (explicit) return { commands: [explicit], skipped: [], env, direct: null };
-  } else {
+  {
     const fileRaw = input?.file ? String(input.file).trim() : '';
     if (fileRaw) {
       const root = path.resolve(ctx.workspaceDir);
@@ -819,13 +810,14 @@ async function planFromInput(
     if (input?.command) {
       return { commands: [String(input.command).trim()], skipped: [], env, direct: null };
     }
+    if (!wantsSuite(input)) return { message: suiteNotStartedMessage() };
   }
   const detected = await planTestRunners(ctx.workspaceDir, () => pytestImportable(ctx, deadline));
   if (detected.run.length === 0) {
     if (detected.skipped.some((line) => line.includes('pytest not installed'))) {
       return { commands: [], skipped: detected.skipped, env, direct: null };
     }
-    return source === 'verify' ? { skip: true } : { message: noRunnerMessage() };
+    return { message: noRunnerMessage() };
   }
   return { commands: detected.run, skipped: detected.skipped, env, direct: null };
 }
@@ -838,18 +830,7 @@ export async function runWorkspaceTests(
   timeoutMs: number
 ): Promise<string> {
   const deadline = Date.now() + timeoutMs;
-  const plan = await planFromInput(ctx, input, 'run', deadline);
+  const plan = await planFromInput(ctx, input, deadline);
   if (!isRunPlan(plan)) return 'message' in plan ? plan.message : noRunnerMessage();
   return (await executePlan(ctx, plan, Math.max(0, deadline - Date.now()))).text;
-}
-
-export async function runVerifyTests(
-  ctx: ToolContext,
-  input: Record<string, unknown> | undefined,
-  timeoutMs: number
-): Promise<SuiteOutcome> {
-  const deadline = Date.now() + timeoutMs;
-  const plan = await planFromInput(ctx, input, 'verify', deadline);
-  if (!isRunPlan(plan)) return skippedOutcome();
-  return executePlan(ctx, plan, Math.max(0, deadline - Date.now()));
 }

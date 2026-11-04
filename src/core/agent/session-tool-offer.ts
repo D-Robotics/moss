@@ -12,6 +12,7 @@
  */
 import type { ToolContext } from '../tools/tool-types.js';
 import { deviceTargetConfigured, isDeviceToolName } from '../../device/device-tool-offer.js';
+import { isLegacyAliasToolName } from '../tools/tool-catalog.js';
 
 /** Task ledger. Hidden when taskFlow is false; kept when taskFlow is unset. */
 const TASK_LEDGER_TOOL_NAMES = new Set([
@@ -80,6 +81,9 @@ export function toolVisibleForRun(
     requiresUserQuestion?: boolean;
   } = {}
 ): boolean {
+  // Compatibility aliases stay registered for hosts and old transcripts but are
+  // never offered: each one duplicates a canonical tool the model already has.
+  if (isLegacyAliasToolName(toolName)) return false;
   const deviceConfigured = options.deviceConfigured ?? deviceTargetConfigured();
   if (isDeviceToolName(toolName) && !deviceConfigured) return false;
   if (options.taskFlow === false && TASK_LEDGER_TOOL_NAMES.has(toolName)) return false;

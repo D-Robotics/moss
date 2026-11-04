@@ -28,7 +28,8 @@ export const evaluateRunTestsToolsNudge = defineToolsNudge({
   extraUserExempt: (user) =>
     /(?:不要跑测试|跳过测试|skip\s+tests?|no\s+tests?|only\s+(?:docs?|copy|文案))/iu.test(user),
   correction:
-    '[System] The user asked to run tests, and tools have already run without `run_tests` / `verify_fix` / `code_diagnostics` ' +
+    '[System] The user asked to run tests, and tools have already run without `run_tests` ' +
     '(or a test-shaped `exec` such as `npm test`). ' +
-    'Run the suite now and report the real output — do not invent pass/fail results.',
+    'Call `run_tests` with `suite=true` or an explicit `command`. A bare call does not start the suite. ' +
+    'Report the real output — do not invent pass/fail results.',
 });

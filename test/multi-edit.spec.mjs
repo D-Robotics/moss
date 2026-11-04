@@ -110,3 +110,49 @@ test('edit_file still works via shared applyPreciseEditToContent', async (t) => 
   assert.match(out, /Edited d\.ts/);
   assert.equal(await fs.readFile(path.join(dir, 'd.ts'), 'utf8'), 'hello moss\n');
 });
+
+test('edit_file is the canonical batch surface (edits[] merges the old multi_edit)', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-edit-batch-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'e.ts'), 'const a = 1;\nconst b = 2;\n');
+  await markRead(dir, 'e.ts');
+
+  const out = await editFileTool.execute(
+    {
+      edits: [
+        { path: 'e.ts', old_string: 'const a = 1;', new_string: 'const a = 11;' },
+        { path: 'e.ts', old_string: 'const b = 2;', new_string: 'const b = 22;' },
+      ],
+    },
+    ctx(dir)
+  );
+  assert.match(out, /Applied 2 edit/);
+  assert.equal(await fs.readFile(path.join(dir, 'e.ts'), 'utf8'), 'const a = 11;\nconst b = 22;\n');
+});
+
+test('edit_file rejects a call that fits neither the single nor the batch shape', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-edit-bad-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'f.ts'), 'x\n');
+  await markRead(dir, 'f.ts');
+
+  const noPath = await editFileTool.execute({ old_string: 'x', new_string: 'y' }, ctx(dir));
+  assert.match(noPath, /path is required/);
+  const noStrings = await editFileTool.execute({ path: 'f.ts' }, ctx(dir));
+  assert.match(noStrings, /old_string and new_string are required/);
+  assert.equal(await fs.readFile(path.join(dir, 'f.ts'), 'utf8'), 'x\n');
+});
+
+test('multi_edit stays a working alias of the merged edit surface', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-alias-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'g.ts'), 'alpha\n');
+  await markRead(dir, 'g.ts');
+
+  const out = await multiEditTool.execute(
+    { edits: [{ path: 'g.ts', old_string: 'alpha', new_string: 'beta' }] },
+    ctx(dir)
+  );
+  assert.match(out, /Applied 1 edit/);
+  assert.equal(await fs.readFile(path.join(dir, 'g.ts'), 'utf8'), 'beta\n');
+});

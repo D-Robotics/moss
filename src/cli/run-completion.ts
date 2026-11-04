@@ -22,6 +22,7 @@
  */
 import type { MossAgentEvent } from '../core/index.js';
 import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
+import { EDIT_TOOL_NAME_SET } from '../core/tools/tool-catalog.js';
 import { parseProtectedPathModMarker } from '../safety/protected-path-snapshot.js';
 import { ExitCode } from './exit-codes.js';
 import path from 'node:path';
@@ -265,7 +266,7 @@ const BLOCK_LABEL: Record<SafetyBlockKind, { en: string; zh: string }> = {
  */
 /** O128: which successful tools resolve each gate-type block. Exec never does. */
 const RESOLVING_TOOLS: Partial<Record<SafetyBlockKind, Set<string>>> = {
-  'partial-read': new Set(['edit_file', 'multi_edit', 'apply_patch', 'write_file']),
+  'partial-read': new Set(EDIT_TOOL_NAME_SET),
   'truncated-write': new Set(['edit_file', 'multi_edit', 'apply_patch']),
 };
 

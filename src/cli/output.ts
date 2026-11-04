@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import type { MossAgentEvent } from '../core/index.js';
 import { redactSensitiveData } from '../safety/redact.js';
@@ -8,6 +7,7 @@ import { ui } from './ui.js';
 import { diffLinesForApproval } from './approval-detail.js';
 import { DIFF_PREVIEW_LINES } from './tui/transcript.js';
 import { summarizeVerificationResult } from '../tools/harness-tools.js';
+import { EDIT_TOOL_NAME_SET, EXEC_LIKE_TOOL_NAME_SET } from '../core/tools/tool-catalog.js';
 import {
   extractCommandFailurePreview,
   extractCommandOutputPreview,
@@ -29,7 +29,6 @@ import {
   OUTPUT_LIMIT_EXHAUSTED_NOTICE,
   tui,
 } from './tui/copy.js';
-import { noteToolForVerifyHint } from './verify-hint.js';
 import {
   createRunProgressTracker,
   formatProgressOutcomeLine,
@@ -39,27 +38,9 @@ import {
   type RunProgressTracker,
 } from './run-progress.js';
 
-const CODE_EDIT_TOOLS = new Set([
-  'write_file',
-  'edit_file',
-  'multi_edit',
-  'apply_patch',
-  'move_file',
-]);
+const CODE_EDIT_TOOLS = new Set([...EDIT_TOOL_NAME_SET, 'move_file']);
 
-const EXEC_LIKE_TOOLS = new Set(['exec', 'exec_background', 'device_exec']);
-
-function discoverableTestCommand(workspaceDir: string | undefined): string | null {
-  if (!workspaceDir) return null;
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(workspaceDir, 'package.json'), 'utf8'));
-    const test = pkg?.scripts?.test;
-    if (typeof test === 'string' && test.trim() && !/no test specified/i.test(test)) {
-      return 'npm test';
-    }
-  } catch {}
-  return null;
-}
+const EXEC_LIKE_TOOLS = EXEC_LIKE_TOOL_NAME_SET;
 
 export type CliDetailMode = 'quiet' | 'progress' | 'verbose';
 
@@ -87,11 +68,8 @@ interface RendererState {
   toolInputs: Map<string, Record<string, unknown>>;
   /** Lines printed for in-progress tools — so we can overwrite them on tool_end. */
   toolLineIds: Map<string, number>;
-  /** Whether any JS/TS files were edited (to avoid false-positive npm test hints for Python/docs). */
-  editedJsTs: boolean;
   /** O114: last surfaced error text, so the footer can name an upstream stall. */
   lastErrorText?: string;
-  ranTests: boolean;
   /** Buffer for the current answer segment — flushed on segment end. */
   answerBuffer: string;
   /** True when deltas were already written live (avoid double-print on flush). */
@@ -386,12 +364,10 @@ function extractToolTarget(toolName: string, input: unknown): string {
     return '';
   }
 
-  if (toolName === 'code_diagnostics' || toolName === 'run_tests' || toolName === 'verify_fix') {
+  if (toolName === 'run_tests') {
     const cmd = obj.command ?? obj.test_command ?? obj.build_command;
     if (typeof cmd === 'string' && cmd.trim()) return truncate(cmd, 40);
-    if (toolName === 'run_tests') return 'npm test';
-    if (toolName === 'verify_fix') return 'build+typecheck+tests';
-    return '';
+    return 'npm test';
   }
 
   if (toolName === 'plan') {
@@ -469,8 +445,6 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   const state: RendererState = {
     answerOpen: false,
     answerStarted: false,
-    editedJsTs: false,
-    ranTests: false,
     thinkingOpen: false,
     thinkingNoted: false,
     toolStartTimes: new Map(),
@@ -660,11 +634,6 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           const label = target ? `${event.toolName}(${target})` : event.toolName;
           spinner?.start(isZhLocale() ? `正在调用 ${label}` : `Calling ${label}`);
         }
-        noteToolForVerifyHint(
-          state,
-          event.toolName,
-          event.input as Record<string, unknown> | undefined
-        );
         if (!isQuiet) {
           breakAnswerForStatus();
           // CC-style: ⏺ tool_name (target) — yellow dot while in progress
@@ -731,22 +700,14 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           let targetStr = target ? ` ${ui.dim(`(${target})`)}` : '';
           // Prefer structured verification summary on the completed line so
           // edit→verify feedback is visible without --verbose.
-          if (
-            typeof event.result === 'string' &&
-            (event.toolName === 'run_tests' ||
-              event.toolName === 'verify_fix' ||
-              event.toolName === 'code_diagnostics')
-          ) {
+          if (typeof event.result === 'string' && event.toolName === 'run_tests') {
             const summary = summarizeVerificationResult(event.toolName, event.result);
             if (summary) {
               targetStr = ` ${ui.dim(`(${summary})`)}`;
             }
           } else if (
             typeof event.result === 'string' &&
-            (event.toolName === 'exec' ||
-              event.toolName === 'device_exec' ||
-              event.toolName === 'docker_exec' ||
-              event.toolName === 'exec_background')
+            EXEC_LIKE_TOOL_NAME_SET.has(event.toolName)
           ) {
             if (statusKind === 'fail') {
               const tail = extractCommandFailurePreview(event.result, 1)[0];
@@ -1065,15 +1026,6 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
               isZhLocale()
                 ? `${mark('fail')} 可用 ${ui.bold('moss resume --last')}（或 ${ui.bold('moss --continue')}）继续。`
                 : `${mark('fail')} Continue with ${ui.bold('moss resume --last')} (or ${ui.bold('moss --continue')}).`
-            );
-          }
-        } else if (!isQuiet && state.editedJsTs && !state.ranTests) {
-          // Only suggest npm test when JS/TS files were edited — avoid false
-          // positives when the agent only writes Python, docs, or other files.
-          const testCmd = discoverableTestCommand(options.workspaceDir);
-          if (testCmd) {
-            stderrLine(
-              `${mark()} note: edited JS/TS files but did not run the project's tests — run ${ui.bold(testCmd)} to confirm the change works.`
             );
           }
         }

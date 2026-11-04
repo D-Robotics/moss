@@ -32,8 +32,8 @@ test('quick prompt carries the one-line contract', () => {
   assert.match(p, /SPEC-AUDIT\.md/, 'canonical report file named');
   assert.match(
     p,
-    /Finish every requirement and verify it before stopping/,
-    'persistence: implement and verify before stopping'
+    /Format, lint, typecheck, and the full suite are the ship gate, not the per-edit loop\. Finish every requirement before stopping\./,
+    'persistence: ship gate stated, every requirement finished before stopping'
   );
   assert.match(
     p,

@@ -144,7 +144,6 @@ const TOOL_GROUPS: ToolGroupDef[] = [
       'search_files',
       'search_code',
       'run_tests',
-      'verify_fix',
       'todo_write',
       'ask_user_question',
     ],
@@ -163,7 +162,6 @@ const TOOL_GROUPS: ToolGroupDef[] = [
     ],
   },
   { id: 'web', title: 'Web', prefixes: ['web_'] },
-  { id: 'dev', title: 'Development', names: ['code_diagnostics'] },
   { id: 'background', title: 'Background', names: ['exec_background', 'exec_logs', 'exec_stop'] },
   { id: 'other', title: 'Other' },
 ];

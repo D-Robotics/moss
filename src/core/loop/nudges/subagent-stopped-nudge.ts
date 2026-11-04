@@ -82,10 +82,7 @@ export function evaluateSubagentStoppedNudge(
 ): SubagentStoppedNudgeResult {
   if (request.attempts >= SUBAGENT_STOPPED_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if ((request.toolCallsByName.subagent_stop ?? 0) === 0) return { fire: false };
-  if (
-    (request.toolCallsByName.run_tests ?? 0) > 0 ||
-    (request.toolCallsByName.verify_fix ?? 0) > 0
-  ) {
+  if ((request.toolCallsByName.run_tests ?? 0) > 0) {
     return { fire: false };
   }
   if (!hasRecentSubagentStop(request.messages)) return { fire: false };
@@ -94,7 +91,7 @@ export function evaluateSubagentStoppedNudge(
     fire: true,
     correction:
       '[System] You stopped a background sub-agent (`subagent_stop`). That cancels the child — it is **not** proof the task is fixed.\n' +
-      'Next: re-run the child to completion, run `run_tests`/`verify_fix` yourself, or explicitly treat the work as cancelled/incomplete. ' +
+      'Next: re-run the child to completion, run `run_tests` yourself, or explicitly treat the work as cancelled/incomplete. ' +
       'Do not invent a successful fix from a stopped sub-agent.',
   };
 }

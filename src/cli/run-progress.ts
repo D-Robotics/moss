@@ -15,6 +15,7 @@
  * outcome vocabulary here.
  */
 import type { MossAgentEvent } from '../core/index.js';
+import { EXEC_LIKE_TOOL_NAME_SET } from '../core/tools/tool-catalog.js';
 import {
   createRunCompletionTracker,
   formatOutcomeLine,
@@ -61,7 +62,7 @@ export interface CreateRunProgressTrackerOptions {
   clock?: RunProgressClock;
 }
 
-const EXEC_LIKE = new Set(['exec', 'device_exec', 'docker_exec', 'exec_background']);
+const EXEC_LIKE = EXEC_LIKE_TOOL_NAME_SET;
 
 function defaultClock(): RunProgressClock {
   return {

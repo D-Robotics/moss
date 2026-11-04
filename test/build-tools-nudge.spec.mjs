@@ -22,14 +22,14 @@ import { evaluateBuildToolsNudge } from '../dist/core/loop/nudges/build-tools-nu
     attempts: 0,
   });
   assert.equal(r.fire, true);
-  assert.match(r.correction, /build|tsc|verify_fix/i);
+  assert.match(r.correction, /build|tsc/i);
 }
 
-// Already ran verify_fix
+// Already ran the canonical verification tool
 {
   const r = evaluateBuildToolsNudge({
     userText: 'build the package',
-    toolCallsByName: { verify_fix: 1 },
+    toolCallsByName: { run_tests: 1 },
     totalToolCalls: 1,
     attempts: 0,
   });

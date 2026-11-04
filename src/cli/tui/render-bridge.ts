@@ -11,7 +11,6 @@ import {
   unknownPriceMessage,
 } from '../model-pricing.js';
 import type { ModelPrice, UsageSlice } from '../model-pricing.js';
-import { noteToolForVerifyHint, type VerifyHintState } from '../verify-hint.js';
 import {
   chatInterruptNoticeLine,
   interruptNoticeLine,
@@ -108,9 +107,6 @@ export interface TuiRunState {
   committedText?: string;
   /** Every prose segment committed to the transcript this run (turn end, tool boundary). */
   flushed?: string[];
-  /** This run edited a JS/TS file and has not run a test or diagnostics tool. */
-  editedJsTs?: boolean;
-  ranTests?: boolean;
   /** In-flight device_* tool-call ids. The live region says "waiting for device", not "gateway". */
   deviceCallIds?: Set<string>;
   /** This run is /goal or moss task, so Esc may mention `/goal resume`. */
@@ -562,7 +558,6 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         ids.add(event.toolCallId);
         store.run.deviceCallIds = ids;
       }
-      noteToolForVerifyHint(store.run as VerifyHintState, event.toolName, event.input);
       if (event.toolName === 'todo_write' && Array.isArray(event.input.todos)) {
         store.todos = toTodos(event.input.todos);
       }

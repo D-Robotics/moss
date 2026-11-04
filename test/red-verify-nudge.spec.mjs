@@ -142,7 +142,7 @@ function sessionWithRunTests(resultText, opts = {}) {
 
 console.log('[PASS] red-verify-nudge');
 
-// Red run_tests then green code_diagnostics — still treat as red wave
+// Red run_tests then green bare tsc — still treat as red wave
 {
   const messages = [
     { role: 'user', content: 'fix the login bug' },
@@ -167,24 +167,26 @@ console.log('[PASS] red-verify-nudge');
     },
     {
       role: 'assistant',
-      content: [{ type: 'tool_use', id: 'tu_d', name: 'code_diagnostics', input: {} }],
+      content: [
+        { type: 'tool_use', id: 'tu_tsc', name: 'exec', input: { command: 'npx tsc --noEmit' } },
+      ],
     },
     {
       role: 'user',
       content: [
         {
           type: 'tool_result',
-          tool_use_id: 'tu_d',
-          name: 'code_diagnostics',
-          content: 'Result: PASS\nExit: 0\nDiagnostics: none\n',
+          tool_use_id: 'tu_tsc',
+          name: 'exec',
+          content: 'exit_code: 0\n',
         },
       ],
     },
   ];
   const r = evaluateRedVerifyNudge({ messages, attempts: 0 });
-  assert.equal(r.fire, true, 'diagnostics green must not clear red run_tests wave');
+  assert.equal(r.fire, true, 'a green typecheck must not clear a red run_tests wave');
   assert.equal(r.toolName, 'run_tests');
-  assert.match(r.correction, /runtime verification|code_diagnostics|tsc/i);
+  assert.match(r.correction, /runtime verification|tsc|run_tests/i);
 }
 
 // Red then green run_tests — no fire, reset

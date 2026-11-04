@@ -13,19 +13,26 @@ import {
 const registry = createSpawnProfileRegistryFromDefaults();
 const verify = resolveSpawnToolSet('verify', registry);
 assert.ok(verify, 'verify scope returns a set');
-for (const name of ['run_tests', 'verify_fix', 'code_diagnostics', 'exec', 'todo_write']) {
+for (const name of ['run_tests', 'exec', 'todo_write']) {
   assert.ok(verify.has(name), `verify scope includes ${name}`);
 }
 // Must not silently include write tools (verify is not full)
+assert.equal(verify.has('multi_edit'), false, 'verify does not carry the hidden edit alias');
+assert.equal(
+  verify.has('exec_background'),
+  false,
+  'verify does not carry the hidden background alias'
+);
 assert.equal(verify.has('write_file'), false, 'verify is not full write scope');
 assert.equal(verify.has('edit_file'), false, 'verify is not full edit scope');
 
 const explore = resolveSpawnToolSet('explore', registry);
 assert.ok(explore);
 assert.equal(explore.has('run_tests'), false, 'explore stays read-only for tests');
-assert.ok(explore.has('load_skill'), 'explore can load skill bodies after discovery');
-assert.ok(explore.has('skillhub_search'), 'explore can search skill marketplace');
-assert.ok(explore.has('memory_read'), 'explore uses real memory_read (not memory_search)');
+assert.ok(explore.has('skill'), 'explore can load skill bodies after discovery');
+assert.equal(explore.has('load_skill'), false, 'phantom load_skill alias removed');
+assert.equal(explore.has('skillhub_search'), false, 'phantom skill-marketplace name removed');
+assert.equal(explore.has('memory_read'), false, 'memory is frozen: no memory tool exists');
 assert.equal(explore.has('find_skills'), false, 'dead find_skills alias removed');
 assert.equal(explore.has('memory_search'), false, 'dead memory_search alias removed');
 assert.equal(explore.has('web_extract'), false, 'dead web_extract alias removed');
@@ -36,8 +43,8 @@ assert.ok(explore.has('device_file_read'), 'explore includes device_file_read');
 const plan = resolveSpawnToolSet('plan', registry);
 assert.ok(plan);
 assert.ok(plan.has('todo_write'), 'plan scope includes todo_write for multi-step plans');
-assert.ok(plan.has('plan'), 'plan scope uses real tool name plan (not create_plan)');
-assert.ok(plan.has('plan_step'), 'plan scope uses real tool name plan_step (not update_plan)');
+assert.equal(plan.has('plan'), false, 'no builtin plan tool exists; todo_write is the checklist');
+assert.equal(plan.has('plan_step'), false, 'no builtin plan_step tool exists');
 assert.equal(plan.has('create_plan'), false, 'dead create_plan alias removed');
 assert.equal(plan.has('update_plan'), false, 'dead update_plan alias removed');
 

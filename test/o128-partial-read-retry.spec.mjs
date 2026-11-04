@@ -34,15 +34,14 @@ const NEXT_ZH = '下一步：先完整读取 `notes.txt` 再编辑';
 const REFUSED_CASES = [
   { id: 'identical-resend', steps: [partialRead, edit, edit, edit] },
   {
-    id: 'changed-params+multi_edit',
+    id: 'changed-params+edit-batch',
     steps: [
       partialRead,
       edit,
       { name: 'edit_file', args: { path: 'notes.txt', old_string: 'O97', new_string: 'O97x' } },
       {
-        name: 'multi_edit',
+        name: 'edit_file',
         args: {
-          path: 'notes.txt',
           edits: [{ path: 'notes.txt', old_string: OLD, new_string: NEW }],
         },
       },

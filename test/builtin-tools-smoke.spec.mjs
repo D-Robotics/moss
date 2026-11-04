@@ -11,7 +11,6 @@ import {
   searchCodeTool,
   searchFilesTool,
 } from '../dist/tools/builtin.js';
-import { codeDiagnosticsTool } from '../dist/tools/code-diagnostics.js';
 import { execBackgroundTool, execLogsTool, execStopTool } from '../dist/tools/background-exec.js';
 import { setKillEscalationMsForTests } from '../dist/core/tools/background-process-registry.js';
 import { globalToolStateManager } from '../dist/tools/tool-helpers.js';
@@ -464,19 +463,6 @@ test('move_file changes the filesystem and protects existing destinations', asyn
     /Moved/
   );
   assert.equal(await fs.readFile(path.join(dir, 'target.txt'), 'utf8'), 'zeta');
-});
-
-test('code_diagnostics runs a real workspace command and reports failures', async (t) => {
-  const dir = await fixture();
-  t.after(() => fs.rm(dir, { recursive: true, force: true }));
-  await fs.writeFile(path.join(dir, 'ok.js'), "console.log('ok');\n");
-  await fs.writeFile(path.join(dir, 'fail.js'), 'process.exit(2);\n');
-
-  assert.match(await codeDiagnosticsTool.execute({ command: 'node ok.js' }, ctx(dir)), /ok/);
-  assert.match(
-    await codeDiagnosticsTool.execute({ command: 'node fail.js' }, ctx(dir)),
-    /failed|exit/i
-  );
 });
 
 test('apply_patch changes real files atomically and rejects workspace escape', async (t) => {

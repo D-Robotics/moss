@@ -403,11 +403,12 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 
 ```bash
 npm run check          # prettier + eslint（0 warning）+ typecheck
-npm run test           # build + 顺序跑全部 test/*.spec.mjs（发布/CI 口径）
-npm run test:parallel  # build + 全部 spec，默认 4 并发（本地提速；--jobs <n> 可调）
+npm run test           # 增量编译 + 4 并发跑全部 test/*.spec.mjs（发布/CI 口径）
+npm run test:filter -- --filter <name>   # 只跑匹配的 spec。改动已有这条 spec，或它是红的，才跑
+npm run test:parallel  # 与 npm test 相同；--jobs <n> 可调
 npm run smoke          # CLI 冒烟：--version / --help / PTY 启动
-npm run verify:quick   # check + smoke，日常快速反馈（不替代完整 verify）
-npm run verify         # check + test + smoke —— 发版前必须全绿
+npm run verify:quick   # check + smoke。交付前的检查，不是每一轮
+npm run verify         # check + test + smoke —— 交付门，发版前必须全绿
 
 # 真实终端（tmux / GNU screen / Terminal.app），默认不跑；缺哪个终端就跳过哪项
 npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-terminals
