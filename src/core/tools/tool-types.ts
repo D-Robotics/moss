@@ -255,6 +255,13 @@ export interface ToolMetadata {
     fileMutation?: boolean;
     shellCommand?: boolean;
   };
+
+  /**
+   * Registered (SDK hosts and old transcripts still resolve the name) but not
+   * offered to the model. Used when one newer tool subsumes several old ones and
+   * the old names must keep working.
+   */
+  hiddenFromModel?: boolean;
 }
 
 export interface Tool<TInput = any> {

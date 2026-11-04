@@ -83,11 +83,14 @@ export function toolVisibleForRun(
     requiresUserQuestion?: boolean;
     /** True while the interaction mode is `plan` (the mode, not a tool flag). */
     planMode?: boolean;
+    /** Registered but subsumed by a newer tool; never offered to the model. */
+    hiddenFromModel?: boolean;
   } = {}
 ): boolean {
   // Compatibility aliases stay registered for hosts and old transcripts but are
   // never offered: each one duplicates a canonical tool the model already has.
   if (isLegacyAliasToolName(toolName)) return false;
+  if (options.hiddenFromModel === true) return false;
   // The plan-exit action is part of plan mode, not a global tool: offering it
   // in normal mode invites a call that cannot open anything.
   if (isPlanOnlyToolName(toolName) && options.planMode !== true) return false;

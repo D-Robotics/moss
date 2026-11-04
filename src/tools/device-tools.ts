@@ -89,6 +89,7 @@ export const deviceInfoTool: Tool = {
     '\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    hiddenFromModel: true,
     classification: { discovery: true },
     sideEffectClass: 'readonly',
     transientRetry: true,
@@ -399,6 +400,7 @@ export const deviceProcessesTool: Tool = {
     'List the top processes on the configured device (pid, user, CPU%, MEM%, RSS, command), sorted by CPU.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    hiddenFromModel: true,
     classification: { discovery: true },
     sideEffectClass: 'readonly',
     transientRetry: true,
@@ -428,6 +430,7 @@ export const deviceResourcesTool: Tool = {
     'Report memory, load average, and per-mount disk usage on the configured device.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    hiddenFromModel: true,
     classification: { discovery: true },
     sideEffectClass: 'readonly',
     transientRetry: true,
@@ -457,6 +460,7 @@ export const deviceTemperatureTool: Tool = {
     'Read thermal zones (°C) from /sys/class/thermal on the configured device — the first check when diagnosing throttling or stability issues.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    hiddenFromModel: true,
     classification: { discovery: true },
     sideEffectClass: 'readonly',
     transientRetry: true,
@@ -599,6 +603,7 @@ export const deviceRoboticsStatusTool: Tool = {
     'ROS commands themselves run through device_exec after verifying and sourcing <installation>/setup.bash (for example, `test -f /opt/tros/setup.bash && source /opt/tros/setup.bash`). If that file is absent, check the TROS manual and cite its page URL.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    hiddenFromModel: true,
     classification: { discovery: true },
     sideEffectClass: 'readonly',
     transientRetry: true,
@@ -628,6 +633,7 @@ export const deviceNetworkTool: Tool = {
     'Report the network state of the configured device: interfaces with link state, global addresses (inet/inet6), and the default route. First stop when diagnosing connectivity to a robot.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    hiddenFromModel: true,
     classification: { discovery: true },
     sideEffectClass: 'readonly',
     transientRetry: true,
@@ -657,6 +663,7 @@ export const deviceCamerasTool: Tool = {
     'Enumerate v4l2 camera devices on the configured device (/sys/class/video4linux names + /dev/video* nodes). On RDK boards sensor names appear here — use before any camera/pipeline debugging.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    hiddenFromModel: true,
     classification: { discovery: true },
     sideEffectClass: 'readonly',
     transientRetry: true,
@@ -680,6 +687,57 @@ export const deviceCamerasTool: Tool = {
   },
 };
 
+// One model-facing observation tool instead of seven empty-schema probes. The old
+// names stay registered (subagent scopes, truncation budgets, old transcripts and
+// SDK hosts reference them by name) but are no longer offered to the model.
+const DEVICE_PROBES = {
+  info: deviceInfoTool,
+  processes: deviceProcessesTool,
+  resources: deviceResourcesTool,
+  temperature: deviceTemperatureTool,
+  network: deviceNetworkTool,
+  cameras: deviceCamerasTool,
+  robotics_status: deviceRoboticsStatusTool,
+} as const;
+
+type DeviceProbeKind = keyof typeof DEVICE_PROBES;
+const DEVICE_PROBE_KINDS = Object.keys(DEVICE_PROBES) as DeviceProbeKind[];
+
+export const deviceProbeTool: Tool = {
+  name: 'device_probe',
+  description:
+    'Read-only device observation over SSH. kind=info connects and reports identity/system facts (call this first); ' +
+    'processes/resources/temperature/network/cameras/robotics_status return one structured snapshot each. ' +
+    'Use these before device_exec for standard observation; they are readonly, parallel-safe and retried on transport errors.\n' +
+    DEVICE_PROBE_FIRST +
+    '\n' +
+    DEVICE_TOOLS_DESCRIPTION_NOTE,
+  metadata: {
+    classification: { discovery: true, singleCallExempt: true },
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+    maxResultTokens: 6_000,
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      kind: {
+        type: 'string',
+        enum: DEVICE_PROBE_KINDS,
+        description: 'Which observation to read. info is the connectivity probe.',
+      },
+    },
+    required: ['kind'],
+  },
+  async execute(input, ctx) {
+    const kind = typeof input.kind === 'string' ? input.kind.trim() : '';
+    if (!DEVICE_PROBE_KINDS.includes(kind as DeviceProbeKind)) {
+      return `Error: device_probe kind must be one of ${DEVICE_PROBE_KINDS.join('|')}.`;
+    }
+    return DEVICE_PROBES[kind as DeviceProbeKind].execute({}, ctx);
+  },
+};
+
 export const deviceTools: Tool[] = [
   deviceInfoTool,
   deviceExecTool,
@@ -693,4 +751,5 @@ export const deviceTools: Tool[] = [
   deviceRoboticsStatusTool,
   deviceNetworkTool,
   deviceCamerasTool,
+  deviceProbeTool,
 ];

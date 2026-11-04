@@ -11,17 +11,7 @@ const CORE_READ_TOOLS = ['read_file', 'list_directory', 'search_files', 'search_
 
 // Read-only device tools a host may register; kept as names so scoped
 // sub-agents can use them when the host wires device support.
-const DEVICE_READ_TOOLS = [
-  'device_file_read',
-  'device_file_list',
-  'device_info',
-  'device_temperature',
-  'device_resources',
-  'device_processes',
-  'device_network',
-  'device_cameras',
-  'device_robotics_status',
-];
+const DEVICE_READ_TOOLS = ['device_probe', 'device_file_read', 'device_file_list'];
 
 const WEB_TOOLS = ['web_search', 'web_fetch'];
 
@@ -158,7 +148,7 @@ export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
         '',
         'You are a **read-only** explorer of code and environments:',
         '- Forbidden: `write` `edit` `exec` `device_exec` `memory_save`, any device-side **write/delegate/flash** tools (removed from this session).',
-        '- Use `read_file` `list_directory` `search_code` to understand the workspace; when a device is connected, use `device_file_*` / `device_info` / `device_*` diagnostics in **read-only** mode.',
+        '- Use `read_file` `list_directory` `search_code` to understand the workspace; when a device is connected, use `device_probe` (kind=info/processes/resources/temperature/network/cameras/robotics_status) and `device_file_*` in **read-only** mode.',
         '- Use available Web tools (for example `web_fetch`; `web_search` only when registered) for official documentation; parallelize independent reads and searches.',
         '- **Do not** create migration TODOs during exploration; final reply: concise findings with file paths and command references.',
         '',
@@ -167,7 +157,7 @@ export function buildSubagentPromptAddon(scope: SpawnToolScope): string {
         '',
         '你是代码与环境的**只读**探索者：',
         '- 禁止：`write` `edit` `exec` `device_exec` `memory_save`、任何形式的设备端**委派/写技能/写文件**/刷机类工具（本会话已裁剪工具列表）。',
-        '- 使用 `read_file` `list_directory` `search_code` 理解工作区；已连接设备时用 `device_file_*` / `device_info` / `device_*` 诊断等**只读**手段核对设备端状态。',
+        '- 使用 `read_file` `list_directory` `search_code` 理解工作区；已连接设备时用 `device_probe`（kind=info/processes/resources/temperature/network/cameras/robotics_status）与 `device_file_*` 等**只读**手段核对设备端状态。',
         '- 需要官方说明时用实际可用的 Web 工具（例如 `web_fetch`；只有注册了 `web_search` 才使用它）；无依赖的检索与多文件读取尽量**并行**。',
         '- **不要**在探索阶段写实施总结以外的「待办迁移」；最终回复：简明发现与引用路径/命令要点。',
       ].join('\n') +

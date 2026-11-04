@@ -225,3 +225,7 @@ listed so the next pass does not rediscover them as new.
 The two adopted rows are implemented in `src/tools/builtin.ts` (exec) and `src/tools/file-tools.ts`
 (`applyPreciseEditToContent`), and locked by `test/exec-events.spec.mjs`,
 `test/multi-edit.spec.mjs` and `test/builtin-tool-surface.spec.mjs`.
+
+## 2026-11-04 设备面收敛
+
+七个空 schema 只读探针（`device_info/processes/resources/temperature/network/cameras/robotics_status`）合并为 `device_probe(kind=…)`；旧名仍注册（`hiddenFromModel`），供子代理 scope、截断预算、旧 transcript 与 SDK 按名解析。模型可见工具数 45→36（配置设备时）。

@@ -1209,6 +1209,7 @@ ${result.stderr ?? ''}`.trim();
         deviceConfigured: options?.deviceConfigured,
         userQuestions,
         requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
+        hiddenFromModel: tool.metadata?.hiddenFromModel === true,
         planMode: this.config.planModeActive?.() === true,
       }) &&
       (options?.toolFilter?.(tool) ?? true);
