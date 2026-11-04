@@ -182,33 +182,30 @@ def active_stub_stream(events):
 def run_scenario(name, size, steps):
     cols, rows = size["cols"], size["rows"]
     result = {"name": name, "cols": cols, "rows": rows, "status": "passed", "metrics": {}, "steps": []}
-    extra_env = {"MOSS_LANG": "en", "MOSS_NO_TUI": "0"}
-    if os.environ.get("MOSS_STARTUP_TIMING"):
-        extra_env["MOSS_STARTUP_TIMING"] = os.environ["MOSS_STARTUP_TIMING"]
+    # Always capture the CLI's phased line: the report then explains a slow
+    # composer instead of forcing a second run to find out.
+    extra_env = {"MOSS_LANG": "en", "MOSS_NO_TUI": "0", "MOSS_STARTUP_TIMING": "1"}
     with Session(cols=cols, rows=rows, initial_pump=0, isolated_env=True,
                  extra_env=extra_env) as session:
         try:
             ready_at = wait_for(session, lambda: composer_ready(session) and input_ready(session), 20,
                                 "visible composer, cursor and raw PTY input", poll_interval=0.005)
             result["metrics"]["composer_ready_ms"] = elapsed_ms(session.spawn_started_ns, ready_at)
-            # B12: the CLI's own phased line, when the caller opted in, so a
-            # slow phase can be located instead of guessed at.
-            if os.environ.get("MOSS_STARTUP_TIMING"):
-                raw = bytes(session.raw).decode("utf-8", "replace")
-                for line in raw.split("\r\n") + raw.split("\n"):
-                    if "[startup] timing:" in line:
-                        timing = line.split("[startup] timing:")[-1].strip()
-                        result["metrics"]["startup_timing"] = timing
-                        # B12: split the product's own first-paint number from the
-                        # driver's PTY/parse/poll overhead, so a composer target is
-                        # judged on one of them instead of a sum nobody names.
-                        m = re.search(r"composer=(\d+)ms", timing)
-                        if m:
-                            cli_composer = int(m.group(1))
-                            result["metrics"]["cli_composer_ms"] = cli_composer
-                            result["metrics"]["driver_overhead_ms"] = round(
-                                result["metrics"]["composer_ready_ms"] - cli_composer, 1)
-                        break
+            # B12: the CLI's own phased line locates a slow phase without a rerun,
+            # and its `composer=` splits the product's first paint from the
+            # driver's PTY/parse/poll overhead.
+            raw = bytes(session.raw).decode("utf-8", "replace")
+            for line in raw.split("\r\n") + raw.split("\n"):
+                if "[startup] timing:" in line:
+                    timing = line.split("[startup] timing:")[-1].strip()
+                    result["metrics"]["startup_timing"] = timing
+                    m = re.search(r"composer=(\d+)ms", timing)
+                    if m:
+                        cli_composer = int(m.group(1))
+                        result["metrics"]["cli_composer_ms"] = cli_composer
+                        result["metrics"]["driver_overhead_ms"] = round(
+                            result["metrics"]["composer_ready_ms"] - cli_composer, 1)
+                    break
             result["composer"] = {"row": composer_bounds(session)[0], "cursor": session.cursor(),
                                   "observed": area_text(session, "composer").rstrip()}
             previous = None

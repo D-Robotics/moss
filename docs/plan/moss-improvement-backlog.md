@@ -169,6 +169,12 @@ pyte 解析 + 可见探测）。**真实一次 bench**：`composer_ready_ms=866.
 `774.9 / 374 / 401.0`。**验收口径定为：B12 的 `<600ms` 用 `cli_composer_ms` 判定（当前 374–474ms，达标）；
 `composer_ready_ms` 保留为端到端体感指标，并在报告里始终同时给出驱动开销**，避免把驱动开销当成产品回退。
 
+**B12 复测 + bench 默认捕获相位（2026-11-05）**：`bench:tui-feel` 现在**默认**给被测 CLI 设
+`MOSS_STARTUP_TIMING=1` 并把相位行写进每个场景的 `metrics.startup_timing`（以前只有调用者自己设环境变量才有，
+慢首帧要复跑一次才能定位）。**真实复测（同机，两次场景）**：`composer_ready_ms` 863.2 / 657.0，
+`cli_composer_ms` **466 / 345**，`driver_overhead_ms` 397.2 / 312.0 —— `cli_composer_ms` 仍稳定 **<600ms**，
+B12 的产品侧口径持续达标；端到端指标的波动几乎全部来自驱动开销。
+
 **B16 第五片（2026-11-05）：`.moss/review-state.json` 状态投影**
 日志 `.moss/review.jsonl` 是历史，但「现在在第几次尝试、还剩几次、下一步做什么」需要一个当下对象。
 `recordReview` 在追加日志后写 `.moss/review-state.json`（best-effort，失败不影响日志）：
