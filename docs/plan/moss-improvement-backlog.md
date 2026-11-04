@@ -364,6 +364,17 @@ main-headless 13,524→**12,710 chars**（≈−203 tokens，−6.0%）、main-t
 （`review_changes` 以 "Clean-context read-only review…" 开头），默认模式仍是 "Run an independent review…" 与
 "Run a shell command…" 的完整版；`allShorter` 为 true，两次 run 都 exit 0（`subagent_resume` 在 headless 场景
 本身是 deferred，未在场，符合预期）。
+**自动启用（2026-11-05，第三片）：按上下文窗口自动选档，不必让用户记得设 flag**。参照 Cursor/Claude Code
+「小窗口自动降描述」的做法：`shouldLeanToolDescriptions({ contextWindowTokens })` 在窗口 ≤
+**64,000 tokens**（`LEAN_TOOL_AUTO_CONTEXT_TOKENS`）时自动用 lean 档；`MOSS_LEAN_TOOLS` 仍是显式覆盖
+（`=1` 强制 lean、`=0` 强制全长，即使窗口很小），未设时走自动判定。接线点两处：agent loop 的
+`buildProviderToolDeclarations(toolsForRun, { contextWindowTokens: effectiveContextTokens })` 与
+`context-report`（报告与实际声明一致）。
+**真实 CLI + 脚本化 provider（4 次真实 run，记录 wire 请求体）**：`agent.contextTokens=32000` → `exec`
+描述是 lean 短版；`200000` → 全长版；`32000` + `MOSS_LEAN_TOOLS=0` → 全长版；`200000` +
+`MOSS_LEAN_TOOLS=1` → lean 短版；四次 exit 0。
+**回归门**：`measure-tool-surface.mjs --check` 新增 5 条自动档断言（32k→lean、200k→full、flag 两向强制、
+32k 声明字符数严格小于 200k）。
 **仍未做**：lean 档对弱模型/小窗口模型的实际得分影响仍需 `npm run bench` A/B（本机无 `MOSS_BENCH_API_KEY`，
 按 bench-unverified 处理）；`device_cameras`(502)/`device_network`(497) 等更短的工具收益小，暂不做。
 

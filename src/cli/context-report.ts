@@ -263,7 +263,9 @@ export async function buildFreshSessionContextReport(
         requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
       })
   );
-  const declarations = buildProviderToolDeclarations(offered);
+  const declarations = buildProviderToolDeclarations(offered, {
+    contextWindowTokens: contextTokens,
+  });
   const tools = declarations.map((tool) => {
     const payload = JSON.stringify({
       name: tool.name,

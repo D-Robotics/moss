@@ -79,14 +79,43 @@ function compactSchemaNode(node: unknown): unknown {
 }
 
 const TRUTHY_ENV = new Set(['1', 'true', 'yes', 'on']);
+const FALSEY_ENV = new Set(['0', 'false', 'no', 'off']);
 
-/** Lean surface mode: `MOSS_LEAN_TOOLS=1` (read at call time so a probe can flip it). */
+const envFlag = (value: string | undefined): boolean | undefined => {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (TRUTHY_ENV.has(normalized)) return true;
+  if (FALSEY_ENV.has(normalized)) return false;
+  return undefined;
+};
+
+/**
+ * Lean surface mode: `MOSS_LEAN_TOOLS=1` forces it, `=0` forces the full surface
+ * off even for small context windows, unset means "decide from the context
+ * window" (`shouldLeanToolDescriptions`). Read at call time so probes can flip
+ * it and so a long-lived process is not stuck on the first read.
+ */
 export function leanToolDescriptionsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return TRUTHY_ENV.has(
-    String(env.MOSS_LEAN_TOOLS ?? '')
-      .trim()
-      .toLowerCase()
-  );
+  return envFlag(env.MOSS_LEAN_TOOLS) === true;
+}
+
+/** Context window at or below which the lean surface turns on by itself. */
+export const LEAN_TOOL_AUTO_CONTEXT_TOKENS = 64_000;
+
+/**
+ * Cursor/Claude Code ship reduced tool descriptions for small windows rather
+ * than relying on users to set a flag: every declaration is paid per turn, so a
+ * 32k/64k window feels the cost much more than a 200k one.
+ */
+export function shouldLeanToolDescriptions(params: {
+  contextWindowTokens?: number;
+  env?: NodeJS.ProcessEnv;
+}): boolean {
+  const forced = envFlag((params.env ?? process.env).MOSS_LEAN_TOOLS);
+  if (forced !== undefined) return forced;
+  const window = params.contextWindowTokens;
+  return typeof window === 'number' && window > 0 && window <= LEAN_TOOL_AUTO_CONTEXT_TOKENS;
 }
 
 export function toolDescriptionForModel(
@@ -99,8 +128,11 @@ export function toolDescriptionForModel(
   return tool.description;
 }
 
-export function buildProviderToolDeclarations(toolsForRun: Tool[]): ProviderToolDeclaration[] {
-  const lean = leanToolDescriptionsEnabled();
+export function buildProviderToolDeclarations(
+  toolsForRun: Tool[],
+  options: { contextWindowTokens?: number } = {}
+): ProviderToolDeclaration[] {
+  const lean = shouldLeanToolDescriptions(options);
   return [...toolsForRun].sort(compareToolName).map((tool) => ({
     name: tool.name,
     description: toolDescriptionForModel(tool, lean),
@@ -458,7 +490,9 @@ export async function prepareTurnContext(
     ? ({ ...(modelDef as object), reasoning: true } as typeof modelDef)
     : modelDef;
   const piMessages = convertMessagesToPi(messagesForModel, modelDefForMessageConversion);
-  const piTools = buildProviderToolDeclarations(toolsForRun);
+  const piTools = buildProviderToolDeclarations(toolsForRun, {
+    contextWindowTokens: effectiveContextTokens,
+  });
 
   if (prefixDebugEnabled) {
     const currentToolNames = piTools.map((t) => t.name);

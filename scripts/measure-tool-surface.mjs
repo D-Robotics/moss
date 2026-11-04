@@ -23,7 +23,9 @@ const load = async (relative) => import(pathToFileURL(path.join(root, 'dist', re
 
 const { builtinTools } = await load('tools/builtin.js');
 const { toolVisibleForRun } = await load('core/agent/session-tool-offer.js');
-const { buildProviderToolDeclarations } = await load('core/loop/agent-loop-context-prep.js');
+const { buildProviderToolDeclarations, shouldLeanToolDescriptions } = await load(
+  'core/loop/agent-loop-context-prep.js'
+);
 const { isDeferredToolName } = await load('core/tools/deferred-tool-offer.js');
 const { SPAWN_TOOL_SCOPE_SETS } = await load('core/subagent/spawn-profile.js');
 const { DEVICE_TOOL_NAMES } = await load('device/device-tool-offer.js');
@@ -228,6 +230,31 @@ function check() {
   const leanChars = leanDeclarations.reduce((sum, entry) => sum + entry.description.length, 0);
   if (leanChars >= plainChars) {
     throw new Error(`lean surface is not smaller (${leanChars} vs ${plainChars} chars)`);
+  }
+
+  // B08 auto tier: small context windows get the lean surface without a flag
+  // (Cursor/Claude Code ship reduced descriptions per window), the flag still
+  // forces either side, and the chosen surface is the one really declared.
+  const leanChosen = (options) => buildProviderToolDeclarations(builtinTools, options);
+  const charsOf = (declarations) => declarations.reduce((sum, e) => sum + e.description.length, 0);
+  if (!shouldLeanToolDescriptions({ contextWindowTokens: 32_000, env: {} })) {
+    throw new Error('a 32k context window must select the lean surface');
+  }
+  if (shouldLeanToolDescriptions({ contextWindowTokens: 200_000, env: {} })) {
+    throw new Error('a 200k context window must keep the full surface');
+  }
+  if (shouldLeanToolDescriptions({ contextWindowTokens: 32_000, env: { MOSS_LEAN_TOOLS: '0' } })) {
+    throw new Error('MOSS_LEAN_TOOLS=0 must force the full surface');
+  }
+  if (
+    !shouldLeanToolDescriptions({ contextWindowTokens: 200_000, env: { MOSS_LEAN_TOOLS: '1' } })
+  ) {
+    throw new Error('MOSS_LEAN_TOOLS=1 must force the lean surface');
+  }
+  const smallChars = charsOf(leanChosen({ contextWindowTokens: 32_000 }));
+  const bigChars = charsOf(leanChosen({ contextWindowTokens: 200_000 }));
+  if (smallChars >= bigChars) {
+    throw new Error(`a 32k window must declare fewer chars (${smallChars} vs ${bigChars})`);
   }
 
   const scope = new Map(result.scopes.map((entry) => [entry.id, entry]));
