@@ -49,6 +49,7 @@ import { stage as mcpProtocolStage } from './stages/mcp-protocol.mjs';
 import { stage as rememberStage } from './stages/remember.mjs';
 import { stage as startupTimingStage } from './stages/startup-timing.mjs';
 import { stage as skillForkStage } from './stages/skill-fork.mjs';
+import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
 
 const STAGES = new Map(
   [
@@ -77,6 +78,7 @@ const STAGES = new Map(
     rememberStage,
     startupTimingStage,
     skillForkStage,
+    contextSurfaceStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -106,6 +108,7 @@ const FAST_GATE = [
   'remember',
   'startup-timing',
   'skill-fork',
+  'context-surface',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 
