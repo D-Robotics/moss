@@ -344,7 +344,12 @@
 - 验收：mock server 三个工具（`echo` / 5,000 字符描述 `bigdesc` / `deferred_one`）+
   registry 探针（alwaysLoad 注册、defer 不在 catalog、描述恰好 4,096）+ 真实 `-p` 会话
   （不 search 直接调 `mcp__mock__echo` → `ECHO:hi`）。
-- ⬜ 仍缺：prompts（`prompts/list`/`prompts/get` 与 `/` 命令映射）、elicitation、OAuth、
+- ✅ MCP **prompts**：客户端新增 `prompts/list`（分页 + 缓存 + method-not-found → 空）与
+  `prompts/get`；每个已连接服务器注册 `mcp__<server>__prompts` 元工具（无 name 列模板、有 name
+  按字符串参数展开，返回 role + 文本块）。
+- 验收：mock server（`greet{topic}` 模板）+ 真实 `-p` 会话，模型列出后展开 `greet{topic:robots}`
+  → 精确得到 `Write a haiku about robots`。
+- ⬜ 仍缺：prompts 映射成 `/` 斜杠命令（当前走元工具）、elicitation、OAuth、
   resources 订阅 / `@uri` 直接引用。
 
 ### 可选/低优先（列入但不推荐立刻做）

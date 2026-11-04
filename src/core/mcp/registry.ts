@@ -46,6 +46,8 @@ interface ServerEntry {
   searchTool: Tool;
   /** Per-server `resources/list` + `resources/read` meta-tool (D4). */
   resourceTool: Tool;
+  /** Per-server `prompts/list` + `prompts/get` meta-tool (D4). */
+  promptTool: Tool;
   /** Real tools created on demand, keyed by wire name (stable identity so the
    *  post-first-call schema upgrade mutates the registered object). */
   realTools: Map<string, Tool>;
@@ -190,6 +192,7 @@ export class McpToolRegistry {
         status,
         searchTool: registry.buildSearchTool(client),
         resourceTool: registry.buildResourceTool(client),
+        promptTool: registry.buildPromptTool(client),
         realTools: new Map(),
         descriptors: [],
         config,
@@ -279,7 +282,11 @@ export class McpToolRegistry {
    * the search meta-tool when its wire name is not already a server tool.
    */
   private exposedToolCount(entry: ServerEntry): number {
-    const names = new Set<string>([entry.searchTool.name, entry.resourceTool.name]);
+    const names = new Set<string>([
+      entry.searchTool.name,
+      entry.resourceTool.name,
+      entry.promptTool.name,
+    ]);
     for (const descriptor of entry.descriptors) {
       names.add(mcpToolWireName(entry.status.name, descriptor.name));
     }
@@ -340,6 +347,7 @@ export class McpToolRegistry {
       // rebuild the wire tools so future calls hit the new connection.
       entry.searchTool = this.buildSearchTool(client);
       entry.resourceTool = this.buildResourceTool(client);
+      entry.promptTool = this.buildPromptTool(client);
       entry.realTools.clear();
       entry.status.state = 'connected';
       entry.connectedOnce = true;
@@ -369,7 +377,7 @@ export class McpToolRegistry {
           e.status.state === 'connecting' ||
           e.status.state === 'connected'
       )
-      .flatMap((e) => [e.searchTool, e.resourceTool]);
+      .flatMap((e) => [e.searchTool, e.resourceTool, e.promptTool]);
   }
 
   getSearchTool(serverName: string): Tool | undefined {
@@ -464,6 +472,7 @@ export class McpToolRegistry {
     if (entry.status.state !== 'connected') return undefined;
     if (wireName === entry.searchTool.name) return entry.searchTool;
     if (wireName === entry.resourceTool.name) return entry.resourceTool;
+    if (wireName === entry.promptTool.name) return entry.promptTool;
     const existing = entry.realTools.get(wireName);
     if (existing) return existing;
     const descriptor = entry.descriptors.find(
@@ -645,6 +654,94 @@ export class McpToolRegistry {
    * Resources are read-only context the server publishes (docs, device state),
    * so this tool is readonly and never requires approval.
    */
+  /**
+   * D4: per-server prompts meta-tool. With no name it lists prompt templates;
+   * with a name it expands one through `prompts/get` (arguments are strings).
+   */
+  private buildPromptTool(client: McpClient): Tool {
+    const declared = mcpPromptToolDeclaration(client.name);
+    return {
+      name: declared.name,
+      description: declared.description,
+      metadata: {
+        sideEffectClass: 'readonly',
+        planMode: 'allow',
+        permissionBoundary: 'Expands an MCP prompt template; no server-side mutation.',
+        retainResult: true,
+      },
+      inputSchema: declared.inputSchema,
+      execute: async (
+        input: { name?: string; arguments?: Record<string, string> },
+        ctx: ToolContext
+      ) => {
+        const entry = this.entryFor(client.name);
+        let liveClient = entry?.client ?? client;
+        if (entry && (entry.status.state === 'deferred' || entry.status.state === 'connecting')) {
+          this.ensureStarted(entry);
+          await entry.ready;
+        }
+        if (entry && entry.status.state !== 'connected') {
+          if (!entry.connectedOnce) throw this.serverDidNotStart(client.name, entry.status.error);
+          if (!(await this.reconnect(entry))) {
+            throw new MossError({
+              code: ErrorCode.TOOL_EXECUTION_FAILED,
+              message: uiText(
+                `mcp prompts on "${client.name}" are not callable: server state is "${entry.status.state}".`,
+                `「${client.name}」的提示词不可调用：服务器状态为「${entry.status.state}」。`
+              ),
+              recoverable: true,
+            });
+          }
+          liveClient = entry.client;
+        }
+        const name = typeof input?.name === 'string' ? input.name.trim() : '';
+        if (!name) {
+          const prompts = await liveClient.listPrompts({ signal: ctx.abortSignal });
+          if (prompts.length === 0) {
+            return `MCP server "${client.name}" exposes no prompts.`;
+          }
+          const lines = prompts.map((prompt) => {
+            const args = (prompt.arguments ?? [])
+              .map((arg) => `${arg.name}${arg.required ? '' : '?'}`)
+              .join(', ');
+            const suffix = args ? ` (${args})` : '';
+            return `- ${prompt.name}${suffix}${prompt.description ? ` — ${prompt.description}` : ''}`;
+          });
+          return `MCP server "${client.name}" prompts (${prompts.length}):\n${lines.join('\n')}\n\nCall again with name="<prompt>" and arguments={...} to expand one.`;
+        }
+        const args: Record<string, string> = {};
+        if (
+          input?.arguments &&
+          typeof input.arguments === 'object' &&
+          !Array.isArray(input.arguments)
+        ) {
+          for (const [key, value] of Object.entries(input.arguments)) {
+            if (typeof value === 'string') args[key] = value;
+            else if (value !== undefined && value !== null) args[key] = String(value);
+          }
+        }
+        const result = await liveClient.getPrompt(name, args, { signal: ctx.abortSignal });
+        if (result.messages.length === 0) {
+          return `MCP prompt "${name}" returned no messages.`;
+        }
+        return result.messages
+          .map((message) => {
+            const blocks = Array.isArray(message.content) ? message.content : [message.content];
+            const text = blocks
+              .map((block) => {
+                if (block.type === 'text') return block.text;
+                if (block.type === 'image')
+                  return `[image ${block.mimeType}, ${block.data.length} base64 chars]`;
+                return '[resource content]';
+              })
+              .join('\n');
+            return `${message.role}:\n${text}`;
+          })
+          .join('\n\n');
+      },
+    };
+  }
+
   private buildResourceTool(client: McpClient): Tool {
     const declared = mcpResourceToolDeclaration(client.name);
     const prepare = async (ctx: ToolContext): Promise<{ client: McpClient }> => {
@@ -829,6 +926,40 @@ export function capToolDescription(
 ): string {
   if (description.length <= max) return description;
   return `${description.slice(0, max - 1)}…`;
+}
+
+/**
+ * Schema of the per-server prompts meta-tool (D4). Lists prompt templates with
+ * no name; expands one prompt with a name + string arguments.
+ */
+export function mcpPromptToolDeclaration(serverName: string): {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: 'object';
+    properties: {
+      name: { type: 'string'; description: string };
+      arguments: { type: 'object'; description: string; additionalProperties: { type: 'string' } };
+    };
+  };
+} {
+  return {
+    name: `${mcpServerWirePrefix(serverName)}prompts`,
+    description:
+      `List or expand MCP prompts on "${serverName}". Call with no name to list the ` +
+      'server prompt templates; call with name + arguments to get the prompt messages.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Prompt name to expand; omit to list prompts.' },
+        arguments: {
+          type: 'object',
+          description: 'String arguments for the prompt template.',
+          additionalProperties: { type: 'string' },
+        },
+      },
+    },
+  };
 }
 
 /**

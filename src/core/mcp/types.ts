@@ -150,6 +150,31 @@ export interface McpReadResourceResult {
   contents: McpResourceContent[];
 }
 
+/**
+ * One MCP prompt template from `prompts/list` (D4). Prompts are server-provided
+ * messages with arguments; they are invoked explicitly, never auto-selected.
+ */
+export interface McpPromptDescriptor {
+  name: string;
+  description?: string;
+  arguments?: { name: string; description?: string; required?: boolean }[];
+}
+
+export type McpPromptContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mimeType: string }
+  | { type: 'resource'; resource: unknown };
+
+export interface McpPromptMessage {
+  role: 'user' | 'assistant';
+  content: McpPromptContentBlock | McpPromptContentBlock[];
+}
+
+export interface McpGetPromptResult {
+  description?: string;
+  messages: McpPromptMessage[];
+}
+
 /** Options accepted by transport-level request calls. */
 export interface McpTransportRequestOptions {
   timeoutMs?: number;

@@ -8,6 +8,10 @@ import { MossError, ErrorCode } from '../../errors.js';
 import { uiText } from '../../utils/ui-language.js';
 import { getRootLogger } from '../../logger.js';
 import type {
+  McpGetPromptResult,
+  McpPromptDescriptor,
+  McpPromptContentBlock,
+  McpPromptMessage,
   McpReadResourceResult,
   McpResourceContent,
   McpResourceDescriptor,
@@ -68,6 +72,7 @@ export class McpClient {
   private transport: McpTransport;
   private toolsCache: McpToolDescriptor[] | null = null;
   private resourcesCache: McpResourceDescriptor[] | null = null;
+  private promptsCache: McpPromptDescriptor[] | null = null;
   private initialized = false;
   private initPromise: Promise<void> | null = null;
   private closing = false;
@@ -211,6 +216,51 @@ export class McpClient {
     return parseReadResourceResult(result);
   }
 
+  /**
+   * `prompts/list` with cursor pagination and a session cache (D4). "Method not
+   * found" means the server has no prompts; that maps to an empty list.
+   */
+  async listPrompts(
+    opts: { refresh?: boolean; signal?: AbortSignal } = {}
+  ): Promise<McpPromptDescriptor[]> {
+    if (!opts.refresh && this.promptsCache) return this.promptsCache;
+    const prompts: McpPromptDescriptor[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    try {
+      do {
+        const result = await this.transport.request('prompts/list', cursor ? { cursor } : {}, {
+          timeoutMs: this.requestTimeoutMs,
+          signal: opts.signal,
+        });
+        const page = parsePromptsListResult(result);
+        prompts.push(...page.prompts);
+        cursor = page.nextCursor;
+        pages += 1;
+      } while (cursor && pages < 100);
+    } catch (err) {
+      if (!isMethodNotFound(err)) throw err;
+      this.promptsCache = [];
+      return this.promptsCache;
+    }
+    this.promptsCache = prompts;
+    return prompts;
+  }
+
+  /** `prompts/get` — expand one prompt template with arguments. */
+  async getPrompt(
+    name: string,
+    args: Record<string, string>,
+    opts: { timeoutMs?: number; signal?: AbortSignal } = {}
+  ): Promise<McpGetPromptResult> {
+    const result = await this.transport.request(
+      'prompts/get',
+      { name, arguments: args },
+      { timeoutMs: opts.timeoutMs ?? this.requestTimeoutMs, signal: opts.signal }
+    );
+    return parseGetPromptResult(result);
+  }
+
   getCachedTools(): McpToolDescriptor[] | undefined {
     return this.toolsCache ?? undefined;
   }
@@ -275,6 +325,48 @@ function parseResourcesListResult(value: unknown): {
     : [];
   const nextCursor = typeof raw.nextCursor === 'string' ? raw.nextCursor : undefined;
   return { resources, ...(nextCursor ? { nextCursor } : {}) };
+}
+
+function parsePromptsListResult(value: unknown): {
+  prompts: McpPromptDescriptor[];
+  nextCursor?: string;
+} {
+  if (typeof value !== 'object' || value === null) return { prompts: [] };
+  const raw = value as { prompts?: unknown; nextCursor?: unknown };
+  const prompts: McpPromptDescriptor[] = Array.isArray(raw.prompts)
+    ? raw.prompts.filter(
+        (p): p is McpPromptDescriptor =>
+          typeof p === 'object' &&
+          p !== null &&
+          typeof (p as { name?: unknown }).name === 'string' &&
+          (p as { name: string }).name.length > 0
+      )
+    : [];
+  const nextCursor = typeof raw.nextCursor === 'string' ? raw.nextCursor : undefined;
+  return { prompts, ...(nextCursor ? { nextCursor } : {}) };
+}
+
+function parseGetPromptResult(value: unknown): McpGetPromptResult {
+  if (typeof value !== 'object' || value === null) return { messages: [] };
+  const raw = value as { description?: unknown; messages?: unknown };
+  const messages: McpPromptMessage[] = Array.isArray(raw.messages)
+    ? raw.messages.flatMap((item): McpPromptMessage[] => {
+        if (typeof item !== 'object' || item === null) return [];
+        const message = item as { role?: unknown; content?: unknown };
+        const role = message.role === 'assistant' ? 'assistant' : 'user';
+        const content = message.content;
+        const blocks: McpPromptContentBlock[] = Array.isArray(content)
+          ? (content as McpPromptContentBlock[])
+          : content && typeof content === 'object'
+            ? [content as McpPromptContentBlock]
+            : [];
+        return [{ role, content: blocks }];
+      })
+    : [];
+  return {
+    ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
+    messages,
+  };
 }
 
 function parseReadResourceResult(value: unknown): McpReadResourceResult {
