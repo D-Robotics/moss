@@ -426,16 +426,23 @@ Ctrl+C 必须停流、上方向键 `\x1b[A` **不得**停流（防止把转义�
 **§2 的 18 条到此没有真正的未做项**，B01 是唯一「部分完成」（贴图仍要模型再 `read_image` 一次）。
 这意味着队列需要**新鲜条目**；本轮据此新增两条来自真实代码扫描的候选（见下），下一轮从 B19 开始。
 
+**B19 证据（2026-11-05，已实跑）**：用 stub 掉的 `fetch` 触发 6 条失败路径（Brave 401 / Bocha 429 / Exa 503 /
+Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲染成 `message` 换行 `→ hint`，例如：
+
+- `web_search: Brave returned HTTP 401` → `Brave rejected the credential: set BRAVE_API_KEY (or pass the key explicitly), then retry.`
+- `web_search: provider timed out after 300ms` → 建议检查网络/代理（`HTTP(S)_PROXY` / `NO_PROXY`）、用 `web_fetch` 兜底、或配置 provider key。
+  文案单例化在 `SEARCH_TRANSPORT_GUIDANCE` 与 `searchHttpStatusHint()`，避免各 backend 各自漂移。
+
 **B08 证据（2026-11-05，dist 实测）**：`readFileTool.description` 含
 `Not for directories (list_directory), images or screenshots (read_image), or finding unknown matches across files (search_code).`，
 `metadata.leanDescription` 同样带否定段 —— 即「何时不要用」的档位早已在默认面与 lean 面都存在。
 
 **新增候选（2026-11-05，来自 `new MossError` 全量扫描：114 处，仅 44 处带 `hint:`）**
 
-| ID  | 优先级 | 改进点                                                                                | 现状证据                                                                                                                                                                                          | 验收探针                                                                                                                        | 状态 |
-| --- | ------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| B19 | P2     | `web_search` 系列失败只报「超时/HTTP 状态」，不给下一步（换 backend / 设 key / 重试） | `tools/web-search/http.ts:92-101`（`provider timed out after Nms`、`provider request failed: …`，`recoverable: true` 但无 hint）、`backends-api.ts:31/97/159`（`returned HTTP <status>` 无 hint） | 无 key / 断网下触发一次 `web_search`，断言模型可见的错误文本含「下一步」句（换 backend 或设 `MOSS_SEARCH_*` key）；zh/en 各一次 | 待做 |
-| B20 | P2     | 用户可感知的 CLI 报错里仍有约 70 处 `new MossError` 没有 `hint`，失败后没有下一步     | 扫描 `grep -rn "new MossError({" src/cli src/tools src/core`：114 处，带 `hint:` 44 处                                                                                                            | 逐条挑「用户可达」的错误实际触发一次，断言 stderr 含可执行下一步；先补 CLI 入口类（config/workspace/permission）                | 待做 |
+| ID  | 优先级 | 改进点                                                                                | 现状证据                                                                                                                                                                                                                    | 验收探针                                                                                                         | 状态       |
+| --- | ------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------- |
+| B19 | P2     | `web_search` 系列失败只报「超时/HTTP 状态」，不给下一步（换 backend / 设 key / 重试） | **已修（2026-11-05）**：`tools/web-search/http.ts` 新增 `SEARCH_TRANSPORT_GUIDANCE` + `searchHttpStatusHint()`；`fetchWithTimeout` 的超时/请求失败、`backends-api.ts` 的 Brave/Bocha/Exa HTTP 状态与非 JSON 响应都带 `hint` | 已实跑：stub 掉 `fetch` 触发 6 条失败路径，全部渲染为 `message\n→ hint`（证据见本节末）                          | **已验收** |
+| B20 | P2     | 用户可感知的 CLI 报错里仍有约 70 处 `new MossError` 没有 `hint`，失败后没有下一步     | 扫描 `grep -rn "new MossError({" src/cli src/tools src/core`：114 处，带 `hint:` 44 处                                                                                                                                      | 逐条挑「用户可达」的错误实际触发一次，断言 stderr 含可执行下一步；先补 CLI 入口类（config/workspace/permission） | 待做       |
 
 **B09 探针（2026-11-05，已实跑）**：对 `dist` 直接调用 `truncateWithRecoveryPath({toolName:"read_file", text: 20000 行长文本, workspaceDir: 临时工作区})`，
 其中第 15001 行埋了 `THE-ELIDED-REGION-MARKER`。结果：可见结果被截到 **16,424 字符**、带

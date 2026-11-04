@@ -5,7 +5,7 @@
 
 import { MossError, ErrorCode } from '../../errors.js';
 import type { WebSearchBackend, WebSearchResult } from './types.js';
-import { coerceString, fetchWithTimeout, stripTags } from './http.js';
+import { coerceString, fetchWithTimeout, searchHttpStatusHint, stripTags } from './http.js';
 
 /** Brave Search API backend (requires an API key). */
 export function createBraveSearch(apiKey: string): WebSearchBackend {
@@ -36,6 +36,7 @@ export function createBraveSearch(apiKey: string): WebSearchBackend {
               ? ErrorCode.PROVIDER_RATE_LIMITED
               : ErrorCode.PROVIDER_UPSTREAM_ERROR,
         message: `web_search: Brave returned HTTP ${status}`,
+        hint: searchHttpStatusHint(status, 'Brave', 'BRAVE_API_KEY'),
         recoverable: status === 429 || status >= 500,
       });
     }
@@ -46,6 +47,7 @@ export function createBraveSearch(apiKey: string): WebSearchBackend {
       throw new MossError({
         code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
         message: 'web_search: Brave returned non-JSON response',
+        hint: 'The provider returned markup instead of JSON (often a block page or an outage): retry, or switch providers via the web_search `provider` option.',
         recoverable: true,
       });
     }
@@ -102,6 +104,7 @@ export function createBochaSearch(apiKey: string): WebSearchBackend {
               ? ErrorCode.PROVIDER_RATE_LIMITED
               : ErrorCode.PROVIDER_UPSTREAM_ERROR,
         message: `web_search: Bocha returned HTTP ${status}`,
+        hint: searchHttpStatusHint(status, 'Bocha', 'BOCHA_API_KEY'),
         recoverable: status === 429 || status >= 500,
       });
     }
@@ -112,6 +115,7 @@ export function createBochaSearch(apiKey: string): WebSearchBackend {
       throw new MossError({
         code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
         message: 'web_search: Bocha returned non-JSON response',
+        hint: 'The provider returned markup instead of JSON (often a block page or an outage): retry, or switch providers via the web_search `provider` option.',
         recoverable: true,
       });
     }
@@ -164,6 +168,7 @@ export function createExaSearch(apiKey: string): WebSearchBackend {
               ? ErrorCode.PROVIDER_RATE_LIMITED
               : ErrorCode.PROVIDER_UPSTREAM_ERROR,
         message: `web_search: Exa returned HTTP ${status}`,
+        hint: searchHttpStatusHint(status, 'Exa', 'EXA_API_KEY'),
         recoverable: status === 429 || status >= 500,
       });
     }
@@ -174,6 +179,7 @@ export function createExaSearch(apiKey: string): WebSearchBackend {
       throw new MossError({
         code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
         message: 'web_search: Exa returned non-JSON response',
+        hint: 'The provider returned markup instead of JSON (often a block page or an outage): retry, or switch providers via the web_search `provider` option.',
         recoverable: true,
       });
     }
