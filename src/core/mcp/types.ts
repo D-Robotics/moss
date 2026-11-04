@@ -58,6 +58,20 @@ export interface McpServerConfig {
    * sets this so a prompt is not blocked on npx.
    */
   deferStart?: boolean;
+
+  /**
+   * Tool names registered into the prompt at connect instead of waiting for
+   * `mcp__<server>__search` (D4). Use for the one or two tools an agent needs
+   * on every turn; matches exact names or `prefix*`.
+   */
+  alwaysLoadTools?: string[];
+
+  /**
+   * Tool names hidden from capability discovery (the catalog that auto-reveals
+   * tools per task). They stay searchable by hand; the point is to keep a
+   * rarely-used or token-heavy tool from being auto-installed (D4).
+   */
+  deferTools?: string[];
 }
 
 /** A tool as reported by the server's `tools/list`. */

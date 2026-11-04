@@ -235,6 +235,13 @@ export class McpToolRegistry {
       await entry.client.connect();
       const tools = await entry.client.listTools();
       entry.descriptors = tools;
+      // D4: alwaysLoadTools are installed before the first turn, so a
+      // "must always be callable" tool costs one schema, not a search step.
+      for (const descriptor of tools) {
+        if (matchesToolPattern(entry.config.alwaysLoadTools, descriptor.name)) {
+          this.ensureRealTool(entry.client, descriptor);
+        }
+      }
       entry.status.state = 'connected';
       entry.connectedOnce = true;
       entry.status.toolCount = this.exposedToolCount(entry);
@@ -323,6 +330,11 @@ export class McpToolRegistry {
       });
       await client.connect();
       entry.descriptors = await client.listTools();
+      for (const descriptor of entry.descriptors) {
+        if (matchesToolPattern(entry.config.alwaysLoadTools, descriptor.name)) {
+          this.ensureRealTool(client, descriptor);
+        }
+      }
       entry.client = client;
       // The search tool and any revealed real tools captured the old client;
       // rebuild the wire tools so future calls hit the new connection.
@@ -377,11 +389,12 @@ export class McpToolRegistry {
     for (const entry of this.entries) {
       if (entry.status.state !== 'connected') continue;
       for (const descriptor of entry.descriptors) {
+        if (matchesToolPattern(entry.config.deferTools, descriptor.name)) continue;
         catalog.push({
           server: entry.status.name,
           tool: descriptor.name,
           wireName: mcpToolWireName(entry.status.name, descriptor.name),
-          description: descriptor.description ?? '',
+          description: capToolDescription(descriptor.description ?? ''),
         });
       }
     }
@@ -526,7 +539,7 @@ export class McpToolRegistry {
     if (existing) return wireName;
 
     const firstLine =
-      firstDescriptionLine(descriptor.description) ||
+      capToolDescription(firstDescriptionLine(descriptor.description)) ||
       `MCP tool "${descriptor.name}" on server "${client.name}"`;
 
     const tool: Tool = {
@@ -769,7 +782,9 @@ export class McpToolRegistry {
         const lines: string[] = [];
         for (const t of matched) {
           const wireName = this.ensureRealTool(liveClient, t);
-          const desc = (t.description ?? '(no description)').split('\n')[0] ?? '';
+          const desc = capToolDescription(
+            (t.description ?? '(no description)').split('\n')[0] ?? ''
+          );
           lines.push(
             `- ${wireName}: ${desc}${wireName.endsWith(`__${t.name}`) ? '' : ` (server tool: ${t.name})`}`
           );
@@ -785,6 +800,35 @@ export class McpToolRegistry {
       },
     };
   }
+}
+
+/**
+ * D4: `alwaysLoadTools` / `deferTools` matcher. Exact names, plus `prefix*`
+ * and a bare `*` (which matches everything — useful for a tiny server).
+ */
+export function matchesToolPattern(
+  patterns: readonly string[] | undefined,
+  toolName: string
+): boolean {
+  if (!patterns || patterns.length === 0) return false;
+  return patterns.some((pattern) => {
+    const trimmed = pattern.trim();
+    if (!trimmed) return false;
+    if (trimmed === '*') return true;
+    if (trimmed.endsWith('*')) return toolName.startsWith(trimmed.slice(0, -1));
+    return trimmed === toolName;
+  });
+}
+
+/** Description budget for one MCP tool in the prompt/catalog (D4). */
+export const MAX_MCP_TOOL_DESCRIPTION_CHARS = 4096;
+
+export function capToolDescription(
+  description: string,
+  max = MAX_MCP_TOOL_DESCRIPTION_CHARS
+): string {
+  if (description.length <= max) return description;
+  return `${description.slice(0, max - 1)}…`;
 }
 
 /**

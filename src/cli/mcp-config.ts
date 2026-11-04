@@ -72,6 +72,18 @@ function expandServerEntry(
   if (typeof raw.requestTimeoutMs === 'number' && Number.isFinite(raw.requestTimeoutMs)) {
     config.requestTimeoutMs = raw.requestTimeoutMs;
   }
+  const toolList = (value: unknown): string[] | undefined => {
+    if (!Array.isArray(value)) return undefined;
+    const names = value
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    return names.length > 0 ? names : undefined;
+  };
+  const alwaysLoadTools = toolList(raw.alwaysLoadTools);
+  if (alwaysLoadTools) config.alwaysLoadTools = alwaysLoadTools;
+  const deferTools = toolList(raw.deferTools);
+  if (deferTools) config.deferTools = deferTools;
   if (typeof raw.url === 'string') config.url = expandString(raw.url);
   if (raw.headers && typeof raw.headers === 'object' && !Array.isArray(raw.headers)) {
     const expandedHeaders: Record<string, string> = {};

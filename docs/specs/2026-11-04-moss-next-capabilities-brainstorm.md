@@ -338,8 +338,14 @@
   有 uri 读内容，readonly 免审批）。
 - 验收：本地 mock stdio MCP server（`initialize`/`tools/list`/`resources/list`/`resources/read`）+ 真实
   `-p` 会话，模型列资源后按 `mock://hello` 读回 **`RESOURCE-CONTENT-42`**（exact content）。
+- ✅ per-tool `alwaysLoadTools` / `deferTools`（mcp.json 字段，支持精确名与 `prefix*`）：
+  alwaysLoad 在连接时直接注册成真实工具（不花一次 search）；defer 从能力发现 catalog 排除
+  （仍可手动 search）。工具描述统一截断到 **4,096 字符**。
+- 验收：mock server 三个工具（`echo` / 5,000 字符描述 `bigdesc` / `deferred_one`）+
+  registry 探针（alwaysLoad 注册、defer 不在 catalog、描述恰好 4,096）+ 真实 `-p` 会话
+  （不 search 直接调 `mcp__mock__echo` → `ECHO:hi`）。
 - ⬜ 仍缺：prompts（`prompts/list`/`prompts/get` 与 `/` 命令映射）、elicitation、OAuth、
-  per-tool `alwaysLoad`/`defer`、描述长度上限、resources 的 `@uri` 直接引用与订阅。
+  resources 订阅 / `@uri` 直接引用。
 
 ### 可选/低优先（列入但不推荐立刻做）
 
