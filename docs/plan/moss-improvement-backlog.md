@@ -95,6 +95,21 @@ readline REPL 每次启动 history 为空，Up 只能回到本次会话。现在
   **结论**：撤回「REPL 有 bug」的推论，产品代码无需改动。**教训已写进探针约定**：子进程要访问本地 stub 时，
   stub 必须与阻塞等待隔离（独立进程/线程），不要在托管 stub 的进程里用同步等待跑驱动器。
 
+**B18 第五片（2026-11-05）：子命令帮助不再把命令模块拖进每次启动**
+`cli/subcommand-help.ts` 静态 import 了 10 个命令模块的 usage 渲染器（config/device/mcp/setup/loop/review/skill/task/tasks/update），
+而它被 `bootstrap.ts` 引用，于是**每一个** `moss` 进程都加载这些模块及其工具注册表（`review-tools`、`task-run`、`device-commands`…），
+包括根本不看帮助的 `-p` 运行。改成 `renderSubcommandHelp` 为 async，只在 `moss <cmd> --help` 时按命令 `await import()` 对应模块。
+**真实证据（`module.registerHooks` 逐模块计数，不再用 CPU-profile 采样估算）**：
+
+- 启动期 eager 模块总数 **393 → 371**（dist **368 → 346**，`node_modules` 25 未变）；
+- 11 个子命令 `--help` 输出逐条抽查仍正常（config/device/mcp/skill/review/loop/tasks/task/update/setup/trust/uninstall 首行如上）；
+- `moss --help` 根帮助、`-h -v` 语义不变；`npm run verify` PASS in 37.4s（含 CLI smoke）；
+- 图加载墙钟中位在 204–215ms 间波动（本机噪声 ±40ms，22 个模块的差异低于噪声，因此以模块计数为准）。
+
+**B18 测量方法更正（2026-11-05）**：第四片当时写的「启动期 node_modules 64 → 7」来自 CPU-profile 采样（只统计出现调用帧的模块），
+绝对值偏低。用 `module.registerHooks` 逐模块记录后，真实 eager 计数为 393 模块（dist 368 + node_modules 25）；
+`ssh2`/`turndown`/`domino` 确实已不在列表里（结论方向不变），但绝对数字以本节为准。
+
 **B18 第四片（2026-11-05）：把 ssh2 / turndown 移出启动图**
 启动图 CPU profile（`--cpu-prof` + 按文件聚合）显示，没有任何设备、也没抓网页的 `moss -p` 仍然加载了
 64 个 `node_modules` 模块，其中 **ssh2 一整个 CJS 树（27 模块：tweetnacl/asn1/bcrypt-pbkdf/…）** 与

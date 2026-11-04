@@ -150,7 +150,7 @@ configureRootLogger({
 // Subcommand-specific --help: show that command's usage, options, and examples,
 // not the root banner. `moss --help` (command === 'chat') stays the root help.
 if (parsedArgs.help && parsedArgs.command !== 'chat') {
-  const subcommandHelp = renderSubcommandHelp(parsedArgs.command);
+  const subcommandHelp = await renderSubcommandHelp(parsedArgs.command);
   if (subcommandHelp) {
     console.log(subcommandHelp);
     process.exit(0);

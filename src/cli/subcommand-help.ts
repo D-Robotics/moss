@@ -4,16 +4,6 @@
  */
 import { fileURLToPath } from 'node:url';
 import { isZhLocale } from './cli-locale.js';
-import { renderConfigHelp } from './config-commands.js';
-import { renderDeviceUsage } from './device-commands.js';
-import { renderMcpUsage } from './mcp-commands.js';
-import { renderSetupHelp } from './setup-wizard.js';
-import { renderLoopUsage } from './loop-command.js';
-import { renderReviewUsage } from './review-commands.js';
-import { renderSkillUsage } from './skill-commands.js';
-import { renderTaskCliUsage } from './task-run.js';
-import { renderTasksUsage } from './tasks-commands.js';
-import { findMossPackageRoot, readMossPackage, renderUpdateHelp } from './update-command.js';
 
 export function superagentHelp(zh = isZhLocale()): string {
   return [
@@ -344,20 +334,37 @@ function uninstallHelp(zh: boolean): string {
   ].join('\n');
 }
 
-function updateHelp(zh: boolean): string {
+async function updateHelp(zh: boolean): Promise<string> {
+  const { findMossPackageRoot, readMossPackage, renderUpdateHelp } =
+    await import('./update-command.js');
   const root = findMossPackageRoot(fileURLToPath(import.meta.url));
   return renderUpdateHelp(zh, readMossPackage(root));
 }
 
-/** Help for a registered subcommand, or null when `command` is not one. */
-export function renderSubcommandHelp(command: string, zh: boolean = isZhLocale()): string | null {
+/**
+ * Help for a registered subcommand, or null when `command` is not one.
+ *
+ * B18: each command's usage renderer is imported on demand. Ten command modules
+ * (and their tool registries: review-tools, task-run, device-commands, …) used
+ * to be pulled into every `moss` process just because the help table mentioned
+ * them; `-p` runs pay none of that now, and `moss <cmd> --help` still pays one
+ * module.
+ */
+export async function renderSubcommandHelp(
+  command: string,
+  zh: boolean = isZhLocale()
+): Promise<string | null> {
   switch (command) {
-    case 'setup':
+    case 'setup': {
+      const { renderSetupHelp } = await import('./setup-wizard.js');
       return renderSetupHelp(zh);
+    }
     case 'auth':
       return authHelp(zh);
-    case 'config':
+    case 'config': {
+      const { renderConfigHelp } = await import('./config-commands.js');
       return renderConfigHelp(zh);
+    }
     case 'doctor':
       return doctorHelp(zh);
     case 'update':
@@ -370,16 +377,26 @@ export function renderSubcommandHelp(command: string, zh: boolean = isZhLocale()
       return resumeHelp(zh);
     case 'fork':
       return forkHelp(zh);
-    case 'mcp':
+    case 'mcp': {
+      const { renderMcpUsage } = await import('./mcp-commands.js');
       return renderMcpUsage(zh);
-    case 'device':
+    }
+    case 'device': {
+      const { renderDeviceUsage } = await import('./device-commands.js');
       return renderDeviceUsage(zh);
-    case 'skill':
+    }
+    case 'skill': {
+      const { renderSkillUsage } = await import('./skill-commands.js');
       return renderSkillUsage(zh);
-    case 'review':
+    }
+    case 'review': {
+      const { renderReviewUsage } = await import('./review-commands.js');
       return renderReviewUsage(zh);
-    case 'loop':
+    }
+    case 'loop': {
+      const { renderLoopUsage } = await import('./loop-command.js');
       return renderLoopUsage(zh);
+    }
     case 'plugins':
       return removed('plugins', zh, {
         en: 'The plugin subsystem is not implemented in this build.',
@@ -390,12 +407,16 @@ export function renderSubcommandHelp(command: string, zh: boolean = isZhLocale()
         en: 'The migrate subsystem is not implemented in this build.',
         zh: '这个构建没有迁移子系统。',
       });
-    case 'tasks':
+    case 'tasks': {
+      const { renderTasksUsage } = await import('./tasks-commands.js');
       return renderTasksUsage(zh);
+    }
     case 'superagent':
       return superagentHelp(zh);
-    case 'task':
+    case 'task': {
+      const { renderTaskCliUsage } = await import('./task-run.js');
       return renderTaskCliUsage(zh);
+    }
     case 'sessions':
       return sessionsHelp(zh);
     case 'web':
