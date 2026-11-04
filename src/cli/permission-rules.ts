@@ -165,9 +165,11 @@ export function parsePermissionRuleSpec(
 
 /**
  * Primary-operand extraction table (pure data mapping, design §3.1):
- * exec/device_exec → command; file tools → path; device_deploy → remote_path;
- * move_file → source; apply_patch → the patch's first file path; everything
- * else → undefined (only the tool name can match).
+ * exec/device_exec/run_tests → command; file and path-bearing read tools
+ * (read_image, list_directory, search_files, search_code) → path;
+ * device_deploy → remote_path; move_file → source; apply_patch → the patch's
+ * first file path; web_fetch → url; everything else → undefined (only the tool
+ * name can match).
  */
 export function extractRuleOperand(
   toolName: string,
@@ -195,6 +197,22 @@ export function extractRuleOperand(
   if (toolName === 'move_file') {
     const s = input.source ?? input.src;
     return typeof s === 'string' ? s : undefined;
+  }
+  // Read-only tools with a primary path are matched by that path, exactly like the
+  // file tools above. Without this, `deny read_image(./secret.png)` or
+  // `deny list_directory(./private)` parsed fine yet never matched anything.
+  if (
+    toolName === 'read_image' ||
+    toolName === 'list_directory' ||
+    toolName === 'search_files' ||
+    toolName === 'search_code'
+  ) {
+    const p = input.path ?? input.file_path ?? input.filepath;
+    return typeof p === 'string' ? p : undefined;
+  }
+  if (toolName === 'run_tests') {
+    const command = input.command;
+    return typeof command === 'string' ? command : undefined;
   }
   if (toolName === 'web_fetch') {
     const url = input.url;
