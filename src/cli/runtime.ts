@@ -192,6 +192,7 @@ export async function runCli(): Promise<void> {
   // NO_PROXY) once, before ANY request — setup probe, model list, doctor,
   // MCP over HTTP — not only when the agent loop starts. Idempotent.
   await ensureKeepAliveDispatcherInstalled();
+  startupTiming.mark('proxy');
   // REPL, one-shot, and the cancel line share the TUI dictionary. The full-screen
   // shell sets the same flag again from its own entry.
   setTuiLocale(isZhLocale());

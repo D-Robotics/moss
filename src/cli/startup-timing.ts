@@ -29,7 +29,12 @@ export function startupTimingEnabled(env: NodeJS.ProcessEnv = process.env): bool
 export function createStartupTiming(env: NodeJS.ProcessEnv = process.env): StartupTiming {
   const enabled = startupTimingEnabled(env);
   const start = performance.now();
-  const phases: Array<{ label: string; ms: number }> = [];
+  // Node's own boot + module-graph load happens before this file runs; uptime
+  // at first mark is the only honest measure of it, and it is a real part of
+  // the user-perceived startup.
+  const phases: Array<{ label: string; ms: number }> = enabled
+    ? [{ label: 'entry', ms: Math.round(process.uptime() * 1000) }]
+    : [];
   let printed = false;
   return {
     enabled,

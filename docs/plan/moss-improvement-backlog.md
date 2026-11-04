@@ -411,6 +411,15 @@ config/agent/skills 全部做完之后才加载——现在 `runCli` 在判定�
 （另一轮 879 / 762，噪声内），仍 **> 600 目标**。bench 与进程内口径的缺口（bench 740–920 vs 进程内
 354–557）经分段行确认发生在 **app 首次 commit 之后到 PTY 判定 composer+raw 输入就绪之间**（约
 200–380ms，含 node 进程启动与 PTY 就绪），不在 CLI 已插桩的 phase 里。
+**分段再细化（本轮补充，`entry`/`proxy` 两段）**：`MOSS_STARTUP_TIMING=1` 现在在 `config` 之前多打
+`entry=<进程 uptime>` 与 `proxy=<ensureKeepAliveDispatcherInstalled 耗时>`。实测 TUI（3 次）：
+`entry=288–354ms`（= Node 启动 + `dist/cli.js` 静态 import 图，**占 bench 数字约 1/3**）、`proxy=51–74ms`
+（`import('undici')`）、`config` 累计 234–346（配置工作实际 ~180）、`agent` +38、`skills` +12、
+`composer` +72。这解释了 bench 与进程内口径的缺口：bench 740–920 ≈ entry 288 + composer 356 + PTY 轮询；
+已验证 **修 entry 只能靠把 CLI 静态 import 图改成懒加载**（本轮试过「去掉 `core/index.js` barrel + 动态
+预取 `tools/builtin.js`」，`import('./dist/cli/runtime.js')` 仍 263ms、composer 无改善，故已回滚，不留
+未验证的复杂度）。`proxy` 的 51–74ms 与 config 并行化理论可行但需先确认首个网络请求点，下一轮评估。
+
 **下一步候选（H1）**：把这段"首次 commit → PTY 就绪"的 200–380ms 定位出来（`composer` 后加
 `frame-written` / `raw-mode` 两个 mark，或直接测 node 冷启动占比），再决定是否值得把 composer 骨架渲染
 前移到 ink 之外；`ink` 预取本身可再提前到 `runCli` 第一行（当前在 args/phase 解析后，损失约 10–20ms）。

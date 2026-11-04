@@ -38,7 +38,8 @@ const check = async (name, fn) => {
   }
 };
 
-const LINE_RE = /\[startup\] timing: config=\d+ms agent=\d+ms skills=\d+ms total=\d+ms/;
+const LINE_RE =
+  /\[startup\] timing: (entry=\d+ms )?(proxy=\d+ms )?config=\d+ms agent=\d+ms skills=\d+ms total=\d+ms/;
 
 await check('MOSS_STARTUP_TIMING=1 prints a phased startup line', async () => {
   const result = await run({ MOSS_STARTUP_TIMING: '1' });
@@ -55,6 +56,8 @@ await check('the marks are monotonic (config <= agent <= skills <= total)', asyn
   const values = Object.fromEntries(
     [...line.matchAll(/(\w+)=(\d+)ms/g)].map((match) => [match[1], Number(match[2])])
   );
+  // `entry` is process uptime at first mark, not a delta on the phase clock.
+  if (values.entry !== undefined) assert.ok(values.entry > 0, line);
   assert.ok(values.config <= values.agent, line);
   assert.ok(values.agent <= values.skills, line);
   assert.ok(values.skills <= values.total, line);
