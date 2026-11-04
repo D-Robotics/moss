@@ -94,7 +94,11 @@ readline REPL 每次启动 history 为空，Up 只能回到本次会话。现在
 3. **排除 context 探测**：H7 那个「unroutable baseUrl + 直读会话文件」的探针证明用户消息已进入本回合；
    本轮又在配置里显式钉住 `contextTokens: 200000 / maxOutputTokens: 8192`（跳过启动期 `/models` 探测），
    依旧 0 请求 —— 不是 probe 卡住。
-   **尚未定位**：REPL 在 `turn_start` 之后、provider 调用之前有一步 await 永不返回。下一轮建议的定位手段：
+   **本轮追加定位（临时 `MOSS_TURN_TRACE` 打点，跑完已回滚）**：打点依次打印
+   `runOneShot:enter` → `before-git-snapshot` → `before-streamChat` → `loop:turn_start` → `loop:before-prepareTurnContext`
+   → `loop:before-executeLlmTurn`（+93ms）后**再无输出**，stub 侧连 TCP 连接都没有（`server.on('connection')` 零事件）。
+   即卡点在 `executeLlmTurn` 内部、真正发起请求之前，不是 REPL 外壳、不是 `prepareTurnContext`、也不是 provider 之前的
+   git/CLI 准备。**尚未定位**：`executeLlmTurn` 内部（`src/core/loop/agent-loop-llm-call.ts`）哪一步 await 永不返回。下一轮建议的定位手段：
    `node --inspect` + inspector 的 `Runtime.getPromiseDetails`/async stack，或在 `runOneShot` 与 `streamChat` 之间
    临时插桩（`MOSS_TURN_TRACE=1`）看最后一个打点停在哪；不要在未定位前当成「REPL 不能聊天」的结论——
    `-p`、TUI、管道三条路径都正常，这一条只影响 `MOSS_NO_TUI=1` 的 readline 交互面，属于 P1（非 P0）。
