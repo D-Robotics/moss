@@ -5,10 +5,17 @@
  * "checked" fails the fast gate instead of only showing up in a model run.
  */
 import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
 import {
   evaluateVerificationCompletionGate,
   createVerificationCompletionGate,
 } from '../../dist/core/loop/verification-completion-gate.js';
+
+const root = path.resolve(import.meta.dirname, '../..');
+const { resolveCliConfig } = await import(
+  pathToFileURL(path.join(root, 'dist/cli/config.js')).href
+);
 
 let toolUseId = 0;
 function call(name, input = {}) {
@@ -275,6 +282,30 @@ const reviewedInsteadOfRead = await createVerificationCompletionGate({
 });
 check('a recorded review counts as checking the change', () => {
   assert.equal(reviewedInsteadOfRead.ok, true);
+});
+
+// ── P0-b escape valve ─────────────────────────────────────────────────────
+
+const disabledGate = createVerificationCompletionGate({ enabled: false });
+const disabledDecision = await disabledGate(autoUnreviewed);
+check('verificationGate=false turns the whole gate into a no-op', () => {
+  assert.equal(disabledDecision.ok, true);
+});
+
+const defaultConfig = resolveCliConfig({}, {});
+check('the completion gate is on by default', () => {
+  assert.equal(defaultConfig.verificationGate, true);
+  assert.equal(defaultConfig.verificationGateSource, 'default');
+});
+const envOff = resolveCliConfig({ MOSS_VERIFICATION_GATE: '0' }, {});
+check('MOSS_VERIFICATION_GATE=0 disables it and is visible as an env source', () => {
+  assert.equal(envOff.verificationGate, false);
+  assert.equal(envOff.verificationGateSource, 'env');
+});
+const configOff = resolveCliConfig({}, { verificationGate: false });
+check('a config file can disable it', () => {
+  assert.equal(configOff.verificationGate, false);
+  assert.equal(configOff.verificationGateSource, 'config');
 });
 
 const failed = cases.filter((entry) => !entry.ok);

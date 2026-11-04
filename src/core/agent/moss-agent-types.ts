@@ -169,6 +169,9 @@ export interface MossAgentConfig
   /** Independent-review policy; `auto` makes the loop require a review after edits. */
   reviewMode?: 'off' | 'manual' | 'auto';
 
+  /** L1 completion gate switch; `false` disables it (default true). */
+  verificationGate?: boolean;
+
   /** v0.10 W4: reasoning budget policy. Default 'adaptive'. */
   reasoningBudget?: 'off' | 'adaptive' | 'high';
 

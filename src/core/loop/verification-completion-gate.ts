@@ -252,8 +252,13 @@ const REVIEW_REPAIR_LIMIT = 3;
  *   "done" over a critical finding.
  */
 export function createVerificationCompletionGate(
-  options: { reviewMode?: 'off' | 'manual' | 'auto' } = {}
+  options: { reviewMode?: 'off' | 'manual' | 'auto'; enabled?: boolean } = {}
 ): NonNullable<AgentLoopExtensions['completionGate']> {
+  if (options.enabled === false) {
+    // P0-b escape valve: a host that turns the gate off gets a no-op, not a
+    // silent partial gate (the review/auto rules ride on the same switch).
+    return async () => ({ ok: true as const });
+  }
   // The loop counts gate attempts across ALL rules; firing rule after rule with
   // retryLimit 1 would end the run after the first pair. Our internal counters
   // bound each rule (auto once, unverified once, review three times, then ok),

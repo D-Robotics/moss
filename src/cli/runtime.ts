@@ -847,6 +847,7 @@ export async function runCli(): Promise<void> {
     ...(hasRunBudget ? { budget: runBudget } : {}),
     ...(bestOfN ? { bestOfN } : {}),
     ...(resolvedConfig.reviewMode ? { reviewMode: resolvedConfig.reviewMode } : {}),
+    ...(resolvedConfig.verificationGate === false ? { verificationGate: false } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
     ...(modelTiers ? { modelTiers } : {}),
     subagentExperts: fileAgents.agents,

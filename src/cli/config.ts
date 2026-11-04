@@ -180,6 +180,11 @@ export interface ConfigFile {
    * Env: MOSS_REVIEW_MODE.
    */
   review?: { mode?: 'off' | 'manual' | 'auto' };
+  /**
+   * L1 completion gate (did you check your own change?). `false` turns it off;
+   * default true. Env: MOSS_VERIFICATION_GATE (0/false/off disables).
+   */
+  verificationGate?: boolean;
   hooks?: HooksConfig;
   /** Network egress policy for web tools (hostname allowlist). */
   net?: { allowHosts?: string[] };
@@ -1586,6 +1591,9 @@ export interface ResolvedCliConfig {
   profileSource: string;
   /** Resolved independent-review policy (undefined = manual default). */
   reviewMode?: 'off' | 'manual' | 'auto';
+  /** Resolved L1 completion gate switch (default true). */
+  verificationGate: boolean;
+  verificationGateSource: 'env' | 'config' | 'default';
   provider: CliProviderPreset;
   providerSource: string;
   apiKey: string;
@@ -2478,6 +2486,24 @@ export function resolveCliConfig(
     reviewModeRaw === 'off' || reviewModeRaw === 'manual' || reviewModeRaw === 'auto'
       ? reviewModeRaw
       : undefined;
+  const verificationGateEnv = String(env.MOSS_VERIFICATION_GATE ?? '')
+    .trim()
+    .toLowerCase();
+  const verificationGateFromEnv =
+    verificationGateEnv === ''
+      ? undefined
+      : !(
+          verificationGateEnv === '0' ||
+          verificationGateEnv === 'false' ||
+          verificationGateEnv === 'off'
+        );
+  const verificationGate = verificationGateFromEnv ?? activeConfig.verificationGate ?? true;
+  const verificationGateSource: 'env' | 'config' | 'default' =
+    verificationGateFromEnv !== undefined
+      ? 'env'
+      : activeConfig.verificationGate !== undefined
+        ? 'config'
+        : 'default';
   const envBestOfN = envBudgetNum('MOSS_BEST_OF_N');
   const bestOfN =
     envBestOfN !== undefined && envBestOfN >= 2
@@ -2660,6 +2686,8 @@ export function resolveCliConfig(
     ...(runBudget ? { budget: runBudget } : {}),
     ...(bestOfN !== undefined ? { bestOfN } : {}),
     ...(reviewMode !== undefined ? { reviewMode } : {}),
+    verificationGate,
+    verificationGateSource,
     ...(reasoningBudget ? { reasoningBudget } : {}),
     reasoningBudgetSource,
     ...(invalidReasoningBudgetEnv ? { invalidReasoningBudgetEnv } : {}),

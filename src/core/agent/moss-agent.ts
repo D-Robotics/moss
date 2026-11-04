@@ -1689,6 +1689,7 @@ ${result.stderr ?? ''}`.trim();
     // disclose. Task runs hit the acceptance gate above first.
     const verificationGate = createVerificationCompletionGate({
       ...(this.config.reviewMode ? { reviewMode: this.config.reviewMode } : {}),
+      ...(this.config.verificationGate === false ? { enabled: false } : {}),
     });
     const backgroundLifecycleGate = createBackgroundLifecycleGate({ sessionKey });
     // B04: a plan-mode turn that did real work must end with an submitted plan

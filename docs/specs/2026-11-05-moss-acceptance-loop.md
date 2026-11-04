@@ -124,6 +124,24 @@ L3 是**非任务 run 的等价物**，复用同一套"上限 + 证据 + 诚实 
 同一命令退出 0。`moss review list` 展示历史。确定性探针新增 3 条断言（17 总计）。
 仍缺：有变更 run 结束后自动触发评审（`review.mode` 配置）、修复循环直接消费 findings。
 
+### P0-b 逃生阀与可见性（已落地）
+
+`verificationGate`（顶层配置键，或 `MOSS_VERIFICATION_GATE=0|false|off`）为整个完成门（L1 未验证 +
+review-FAIL + auto 规则）提供宿主开关：关闭后门变成 no-op，而不是静默半开。`review.mode`
+（`off|manual|auto`，或 `MOSS_REVIEW_MODE`）单独控制评审策略。两者都出现在 `moss config show --json`
+（`reviewMode` / `verificationGate` / `verificationGateSource`），`moss config --help` 与
+`moss config env` 也列出键名与语义。
+
+真实对照（同一句 prompt"创建 a.txt，不要读回"）：
+
+| 配置                      | 结果                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| `verificationGate: false` | 只有 `write_file`，**exit 0**（门关闭，不拦截）                                        |
+| 默认（门开启）            | 被拦一次并注入"你改了文件但没检查"的纠正（模型随后选择诚实说明"工具回执不是独立检查"） |
+| `review.mode=off`         | 不再要求评审；`manual` 默认保持旧行为                                                  |
+
+确定性探针 `verification-gate` 扩到 **23 条断言**（门开关 no-op、默认开启、env/config 来源解析）。
+
 ### P2-b Stop hook 完成门（已落地）
 
 [`docs/hooks/stop-verified-completion.mjs`](hooks/stop-verified-completion.mjs) 是用户可安装的完成门：
@@ -177,7 +195,7 @@ headless 会话（不共享对话状态），再用用户给的命令验收；�
 | 片   | 内容                                               | 验收证据                                   | 状态                                                                 |
 | ---- | -------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------- |
 | P0-a | L1 完成门 + 确定性探针（verify stage）             | 探针断言 5 种输入；真实 `-p` 三组对照      | L1 已落地；探针待补                                                  |
-| P0-b | L1 逃生阀 `verificationGate` + `/config` 可见      | 关闭后复现场景不拦截                       | 待做                                                                 |
+| P0-b | L1 逃生阀 `verificationGate` + `/config` 可见      | 关闭后复现场景不拦截                       | 已落地（探针 + 真实三组 + `config show`）                            |
 | P1-a | reviewer 子代理 + 结构化 findings + `/review` 接入 | 植入缺陷 diff 必须被发现；干净 diff 不编造 | 已落地（含 `review.mode=auto`、untracked 文件、`moss review check`） |
 | P1-b | L3 有界修复循环（上限 3，日志）                    | 两轮修复场景；三轮失败诚实清单             | 已落地（守护 + 3 轮边界）                                            |
 | P2-a | `moss loop --until`（本地 CI 式闭环）              | 失败→修复→通过的循环记录                   | 已落地（mock 探针 + 真实模型 2 轮修复）                              |
