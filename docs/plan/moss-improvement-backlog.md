@@ -30,6 +30,10 @@
 「现状」一列写的是**按当前代码应当得到的结果**——先跑一次确认它确实如所述，再动手改。若现状与描述不符，
 先更新本文件（证据优先于条目）。
 
+**探针约定（补充）**：任何「子进程访问本地 stub」的验证，stub 必须跑在**不会被驱动器阻塞**的地方
+（独立进程或线程）；禁止在托管 stub 的进程里用 `execFileSync` / 同步等待跑 PTY 驱动——那样得到的「0 请求」
+是探针噪声，不是产品行为（H8 的教训，2026-11-05）。
+
 **新增条目模板**：`ID | 优先级 | 改进点 | 现状证据(文件:行) | 参考实现 | 验收探针 | 状态` 一行 + §3 里
 2–4 行说明（为什么现在、最小切片、风险）。一个条目只解决一个可独立验收的切片。
 
@@ -74,43 +78,22 @@ readline REPL 每次启动 history 为空，Up 只能回到本次会话。现在
 **真实证据（PTY，`MOSS_NO_TUI=1`）**：
 
 - 跨会话召回+提交：预置 `.moss/prompt-history.jsonl` 为 `seeded-prompt-from-session-one`，新会话里按 Up 再回车，
-  该会话的 `.moss/sessions/cli-*.jsonl` 首条 `role:"user"` 的 content 正是 \*\*`seeded-prompt-from-session-one
+  该会话的 `.moss/sessions/cli-*.jsonl` 首条 `role:"user"` 的 content 正是 `seeded-prompt-from-session-one` 加上
+  `<turn-context>` 环境段（说明召回进入 readline、回车把它提交给了这一轮）；
+- 写入侧：同法输入 `remember-this-prompt` 后，工作区 `.moss/prompt-history.jsonl` 出现 `{"text":"remember-this-prompt"}`。
+- 该轮用不可路由 baseUrl（`127.0.0.1:9`）当 provider，判定只读会话文件、不依赖 stub 回包。REPL 与 stub 的正常往返
+  另由 H8 结论里的非阻塞 stub 探针证明。
 
-<turn-context>…`\*\*
-（说明召回进入 readline、回车把它提交给了这一轮）；
+**H8 已结案（2026-11-05）：不是产品 bug，是探针把 stub 的事件循环堵死了**
+曾经连续三轮怀疑「REPL 里 `Working` 且 provider 收到 0 个请求」是产品缺陷，逐层打点到了 transport 的
+`before-fetch`（URL 正确），最后发现是**探针缺陷**：
 
-- 写入侧：上一轮同法输入 `remember-this-prompt` 后，工作区 `.moss/prompt-history.jsonl` 出现 `{"text":"remember-this-prompt"}`。
-  **探针备注**：本轮用不可路由 baseUrl（`127.0.0.1:9`）作为 provider，让判定不依赖 stub 是否回包——用户消息在请求前已落盘，
-  所以断言直接读会话文件即可。
-  **H8 待查（2026-11-05）：交互 REPL 的回合卡在 `Working`，provider 一次都没被请求**
-  上一轮作为 H7 的旁证首次看到：同一份 `config.json`（本地 stub、`permissions.defaultMode=full`）下，
-  `-p "say hi"` 能正常打到 stub，但**交互 REPL** 里输入普通提示（不带斜杠）后一直显示 `Working Ns`，
-  stub 侧收到 **0** 个请求。本轮补了三组对照，结论是「**先于 H7 改动就存在**」：
-
-1. **回滚基线对照**：把 `src/cli/repl.ts` 换回 H7 之前的版本（`git show HEAD~1:src/cli/repl.ts`）重新 build 再跑，
-   仍然是 0 个请求 —— 不是 H7 引入的回归；
-2. **`sample <pid>` 采样**（macOS，hang 3s 时）：主线程 1597/1597 个样本停在
-   `node::SpinEventLoopInternal` —— **事件循环空转，等一个不会 resolve 的 Promise**，不是死循环也不是网络重试；
-3. **排除 context 探测**：H7 那个「unroutable baseUrl + 直读会话文件」的探针证明用户消息已进入本回合；
-   本轮又在配置里显式钉住 `contextTokens: 200000 / maxOutputTokens: 8192`（跳过启动期 `/models` 探测），
-   依旧 0 请求 —— 不是 probe 卡住。
-   **本轮追加定位（临时 `MOSS_TURN_TRACE` 打点，跑完已回滚）**：打点依次打印
-   `runOneShot:enter` → `before-git-snapshot` → `before-streamChat` → `loop:turn_start` → `loop:before-prepareTurnContext`
-   → `loop:before-executeLlmTurn`（+93ms）后**再无输出**，stub 侧连 TCP 连接都没有（`server.on('connection')` 零事件）。
-   即卡点在 `executeLlmTurn` 内部、真正发起请求之前，不是 REPL 外壳、不是 `prepareTurnContext`、也不是 provider 之前的
-   git/CLI 准备。**再进一步（本轮）**：把 `executeLlmTurn` 之后的等待点用行为实验钉住——
-4. REPL 的 `/status` 显示 `model: fake-model-marker (openai-compatible)`，说明**配置确实被 REPL 读到**（不是「REPL 忽略 config」）；
-5. 给 REPL 设 `MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS=3000` 后再提交：3s 时打点触发
-   `retrying (attempt 1)…` → `Error: No response from the model within 3s (no streaming output…)` → `⏺ Incomplete`，
-   即挂起发生在「等第一个 stream chunk」的 await 上（`abortable(iterator.next(), streamSignal)`），
-   **但同一时刻 stub 侧 `server.on('connection')` 仍然是 0** —— 请求连 TCP 都没建立。
-6. 这条超时路径本身就是可用的逃生阀：用户不会永远卡 `Working`，45s（默认）后会给出可行动错误文案。
-   **尚未定位**：为什么 provider 在建立连接前就停住（不是 `abortable` 本身、不是 config、不是 REPL 外壳）。
-   下一轮建议的定位手段（比打点更直接）：在 provider `streamFn` 内部（`src/provider/pi-ai-*`）打点
-   `resolveApiKey`/`resolveModel`/`fetch` 三段，或直接对 REPL 子进程 `node --inspect` 取 async stack。
-   `node --inspect` + inspector 的 `Runtime.getPromiseDetails`/async stack，或在 `runOneShot` 与 `streamChat` 之间
-   临时插桩（`MOSS_TURN_TRACE=1`）看最后一个打点停在哪；不要在未定位前当成「REPL 不能聊天」的结论——
-   `-p`、TUI、管道三条路径都正常，这一条只影响 `MOSS_NO_TUI=1` 的 readline 交互面，属于 P1（非 P0）。
+- 所有 stub 都跑在 Node 驱动进程里，而驱动用 `execFileSync('python3', ...)` **同步**跑 PTY 脚本 ——
+  父进程事件循环被阻塞，stub 无法 accept/解析连接，子进程自然等不到响应（3s first-chunk 超时也是这个原因）；
+- 把 stub 改成**不阻塞**的形式（Python `ThreadingHTTPServer` + 线程跑 stub，PTY 循环在主线程）后，REPL 立刻正常：
+  `/v1/chat/completions` 收到请求（25,699 字节），界面显示 `pong`，随后 `Completed: run finished`。
+  **结论**：撤回「REPL 有 bug」的推论，产品代码无需改动。**教训已写进探针约定**：子进程要访问本地 stub 时，
+  stub 必须与阻塞等待隔离（独立进程/线程），不要在托管 stub 的进程里用同步等待跑驱动器。
 
 **B18 第三片（2026-11-05）：保留名表不再拖入斜杠命令实现图**
 `cli/commands/custom-commands.ts` 的 `reservedBuiltinNames()` 只为拿命令名，却静态 import 了 `./registry.js`
