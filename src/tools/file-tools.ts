@@ -207,6 +207,8 @@ export const readFileTool: Tool = {
     'Each line is prefixed with a line number and a tab that are NOT file content — do not copy them into edits. ' +
     'An unchanged re-read returns a short stub. Paths outside the workspace are still read; secret-like values are removed.',
   metadata: {
+    maxResultTokens: 10_000,
+    truncationHint: 'the dropped region is not in context — re-read only it with offset/limit',
     sideEffectClass: 'readonly',
     planMode: 'allow',
     // O122: execute() must run so a full re-read registers (its own unchanged stub saves tokens).
@@ -348,6 +350,7 @@ export const writeFileTool: Tool = {
   description:
     'Create or overwrite a workspace file (parent directories are created). Prefer edit_file or multi_edit for existing files. If the path exists, read_file it once this session first.',
   metadata: {
+    maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },
@@ -880,6 +883,7 @@ export const editFileTool: Tool = {
     'Empty new_string deletes the match. Pass edits[] for 2+ replacements: ordered, all-or-nothing, one call. ' +
     'Use write_file for new files and apply_patch for cross-file patches with context hunks.',
   metadata: {
+    maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },
@@ -997,6 +1001,7 @@ export const multiEditTool: Tool = {
   description:
     'Apply several edit_file replacements in one call (same match rules, in order, all-or-nothing). Prefer this for 2+ edits.',
   metadata: {
+    maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },
@@ -1029,6 +1034,7 @@ export const moveFileTool: Tool = {
   description:
     'Move or rename a workspace path. overwrite=true requires a prior read_file of an existing destination.',
   metadata: {
+    maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },

@@ -1,35 +1,40 @@
-const BASE_TOOL_OUTPUT_LIMITS: Record<string, number> = {
-  device_exec: 6_000,
-  device_file_read: 10_000,
-  // The model-facing name is `read_file`; `read` never existed as a tool, and
-  // keying the budget on it silently fell back to the 4k default for every
-  // read_file result (found in the 2026-11-04 architecture audit, B8).
-  read_file: 10_000,
-  // O97: a partial-read rejection from these tools can carry the full file
-  // (read_file's view). Give them the same budget as `read` so a ~20k-char
-  // source file arrives whole instead of with its middle cut out. Normal
-  // edit/write results are a few hundred chars and never get near it.
-  write_file: 10_000,
-  edit_file: 10_000,
-  multi_edit: 10_000,
-  move_file: 10_000,
-  apply_patch: 10_000,
-  web_search: 2_250,
-  web_fetch: 8_000,
-  device_diagnose: 3_000,
-  exec: 4_500,
-};
+/**
+ * Per-tool output budget, installed from the tool's own declaration
+ * (`ToolMetadata.maxResultTokens` / `truncationHint`) instead of a name table.
+ *
+ * Why a runtime registry and not a `Record<string, number>` here: this module is
+ * the inner context layer and must not import tool implementations. Declarations
+ * live on the tools; `installToolOutputDeclarations` (core/tools) copies them in
+ * once at module init. A tool whose name changes, or a new tool, cannot fall out
+ * of sync — the exact bug that made `read_file` run with the 4k default (audit
+ * B8). Hosts that build their own tools keep the public
+ * `registerToolOutputLimits` escape hatch.
+ */
+type ToolOutputDeclaration = { maxTokens: number; hint?: string };
 
-let _extraToolOutputLimits: Record<string, number> = {};
+const _declarations = new Map<string, ToolOutputDeclaration>();
+
+export function registerToolOutputDeclarations(
+  specs: ReadonlyArray<{ name: string; maxTokens?: number; hint?: string }>
+): void {
+  for (const spec of specs) {
+    if (spec.maxTokens === undefined && spec.hint === undefined) continue;
+    const existing = _declarations.get(spec.name);
+    _declarations.set(spec.name, {
+      maxTokens: spec.maxTokens ?? existing?.maxTokens ?? DEFAULT_LIMIT_TOKENS,
+      ...((spec.hint ?? existing?.hint) ? { hint: spec.hint ?? existing?.hint } : {}),
+    });
+  }
+}
 
 export function registerToolOutputLimits(limits: Record<string, number>): void {
-  _extraToolOutputLimits = { ..._extraToolOutputLimits, ...limits };
+  registerToolOutputDeclarations(
+    Object.entries(limits).map(([name, maxTokens]) => ({ name, maxTokens }))
+  );
 }
 
 function getToolOutputLimitTokens(toolName: string): number {
-  return (
-    _extraToolOutputLimits[toolName] ?? BASE_TOOL_OUTPUT_LIMITS[toolName] ?? DEFAULT_LIMIT_TOKENS
-  );
+  return _declarations.get(toolName)?.maxTokens ?? DEFAULT_LIMIT_TOKENS;
 }
 
 const DEFAULT_LIMIT_TOKENS = 4_000;
@@ -38,19 +43,6 @@ const BYTES_PER_TOKEN = 4;
 function estimateTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, 'utf8') / BYTES_PER_TOKEN);
 }
-
-/**
- * Per-tool recovery hint appended to the elision notice. The dropped middle is
- * gone from context, so the notice must say how to fetch just that slice —
- * otherwise the model re-reads the whole thing and burns a turn (Task OS M12
- * finding #2: 2-3 blind re-read turns per coding run).
- */
-const TRUNCATION_RECOVERY_HINTS: Record<string, string> = {
-  read_file: 'the dropped region is not in context — re-read only it with offset/limit',
-  device_file_read: 'the dropped region is not in context — page it with offset/limit',
-  exec: 'output was cut — narrow the command (grep/head/tail) to the slice you need',
-  device_exec: 'output was cut — narrow the remote command to the slice you need',
-};
 
 /**
  * True when `truncateToolOutput` would drop part of this output. Tool
@@ -86,7 +78,7 @@ export function truncateToolOutput(toolName: string, output: string): string {
   const head = output.slice(0, headEnd);
   const tail = output.slice(tailStart);
   const droppedTokens = estimateTokens(output.slice(headEnd, tailStart));
-  const hint = TRUNCATION_RECOVERY_HINTS[toolName];
+  const hint = _declarations.get(toolName)?.hint;
   const notice = `…${droppedTokens} tokens truncated${hint ? ` (${hint})` : ''}…`;
 
   let truncated = `${head}\n\n${notice}\n\n${tail}`;

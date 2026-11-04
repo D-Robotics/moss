@@ -156,6 +156,8 @@ export const execTool: Tool = {
     return execToolDescription();
   },
   metadata: {
+    maxResultTokens: 4_500,
+    truncationHint: 'output was cut — narrow the command (grep/head/tail) to the slice you need',
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
@@ -549,6 +551,7 @@ import { todoWriteTool } from './todo-tool.js';
 import { askUserQuestionTool } from './ask-user-question.js';
 import { exitPlanTool } from './plan-gate.js';
 import { toolSearchTool } from './tool-search.js';
+import { installToolOutputDeclarations } from '../core/tools/tool-output-declarations.js';
 
 /** QA #149 F1: detection never breaks the exec result; on any error, keep the exit-code wording. */
 function isWindowsMissingCommand(stderr: string): boolean {
@@ -592,6 +595,10 @@ export const builtinTools: Tool[] = [
   ...evidenceTools,
   ...taskTools,
 ];
+
+// Declared output budgets/hints are installed once, from the tools themselves;
+// the truncation layer reads this registry instead of a name-keyed table.
+installToolOutputDeclarations(builtinTools);
 
 export function registerBuiltinTools(agent: { tools: { register: (tool: Tool) => void } }): void {
   for (const tool of builtinTools) {

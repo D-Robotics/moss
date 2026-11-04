@@ -45,6 +45,7 @@ export const applyPatchTool: Tool = {
   description:
     'Apply an add/update/delete patch. Hunks are checked before any write; a failed apply restores files. read_file existing targets first.',
   metadata: {
+    maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },

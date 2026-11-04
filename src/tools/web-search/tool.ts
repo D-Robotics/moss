@@ -283,6 +283,7 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
       'query_keyword_groups (up to 5) runs parallel sub-searches in one call. ' +
       'allowed_domains / blocked_domains filter hosts. Avoid site: and boolean operators; keyless backends reject them.',
     metadata: {
+      maxResultTokens: 2_250,
       sideEffectClass: 'readonly',
       planMode: 'allow',
       transientRetry: true,

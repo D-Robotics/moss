@@ -116,6 +116,8 @@ export const deviceExecTool: Tool = {
     '- Destructive or lockout-risk commands (reboot/shutdown, flashing, rm of system paths, writes to /boot or /etc, network changes, package removal, systemctl stop/disable/mask, ssh or account edits) stay gated even in full mode until the user confirms or opts into device trust.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    maxResultTokens: 6_000,
+    truncationHint: 'output was cut — narrow the remote command to the slice you need',
     sideEffectClass: 'device_mutation',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
@@ -219,7 +221,12 @@ export const deviceFileReadTool: Tool = {
   description:
     'Read a text file from the configured device over SFTP. Returns the file content (use device_exec for binaries or huge files).\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
-  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  metadata: {
+    maxResultTokens: 10_000,
+    truncationHint: 'the dropped region is not in context — page it with offset/limit',
+    sideEffectClass: 'readonly',
+    transientRetry: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {
