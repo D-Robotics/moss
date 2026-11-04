@@ -47,6 +47,16 @@ class Semaphore {
   }
 }
 
+/**
+ * B20: device exec/sftp failures are recoverable, so they carry the next step
+ * instead of only the raw ssh2 message. Kept as one bilingual constant so every
+ * runtime failure on the device connection says the same thing.
+ */
+const DEVICE_RUNTIME_FAILURE_HINT = {
+  en: 'Re-check the device with device_probe (reachability, command exists), then retry; a dropped connection is re-established automatically.',
+  zh: '先用 device_probe 复查设备连通性与命令是否存在，再重试；连接断开时重试会自动重连。',
+} as const;
+
 interface SshAuth {
   username: string;
   password?: string;
@@ -236,6 +246,7 @@ export class SshDeviceConnection implements DeviceConnection {
                     `Device exec failed on ${this.target.deviceId}: ${err.message}`,
                     `设备 ${this.target.deviceId} 执行失败：${err.message}`
                   ),
+                  hint: uiText(DEVICE_RUNTIME_FAILURE_HINT.en, DEVICE_RUNTIME_FAILURE_HINT.zh),
                   recoverable: true,
                   context: { deviceId: this.target.deviceId, command },
                 })
@@ -284,6 +295,7 @@ export class SshDeviceConnection implements DeviceConnection {
                     `Device exec stream error on ${this.target.deviceId}: ${streamErr.message}`,
                     `设备 ${this.target.deviceId} 执行流错误：${streamErr.message}`
                   ),
+                  hint: uiText(DEVICE_RUNTIME_FAILURE_HINT.en, DEVICE_RUNTIME_FAILURE_HINT.zh),
                   recoverable: true,
                   context: { deviceId: this.target.deviceId, command },
                 })
@@ -307,6 +319,7 @@ export class SshDeviceConnection implements DeviceConnection {
                     `SFTP session failed on ${this.target.deviceId}: ${err.message}`,
                     `设备 ${this.target.deviceId} 的 SFTP 会话失败：${err.message}`
                   ),
+                  hint: uiText(DEVICE_RUNTIME_FAILURE_HINT.en, DEVICE_RUNTIME_FAILURE_HINT.zh),
                   recoverable: true,
                   context: { deviceId: this.target.deviceId },
                 })
@@ -342,6 +355,10 @@ export class SshDeviceConnection implements DeviceConnection {
           message: uiText(
             `Cannot stat ${remotePath} on ${this.target.deviceId}: ${err instanceof Error ? err.message : String(err)}`,
             `无法读取 ${this.target.deviceId} 上 ${remotePath} 的状态：${err instanceof Error ? err.message : String(err)}`
+          ),
+          hint: uiText(
+            'Confirm the path exists on the device (device_file_list lists directories), then retry.',
+            '确认该路径在设备上存在（device_file_list 可列目录），再重试。'
           ),
           recoverable: true,
         });

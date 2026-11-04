@@ -35,6 +35,19 @@ function shortPath(value: string): string {
   return value;
 }
 
+/**
+ * B20: a sandbox rejection is recoverable, so it must say how. Two shapes:
+ * the caller asked for a path outside the workspace (use a path inside it, or
+ * widen permissions), or a symlink made the real target ambiguous.
+ */
+const SANDBOX_ESCAPE_HINT =
+  'Tools may only touch paths inside the workspace: use a workspace-relative path, copy the file in first, ' +
+  'or ask the user to widen permissions (permissions.defaultMode: "full" or --full-access) and retry.';
+
+const SANDBOX_WIDEN_HINT =
+  'A symlink makes the real target ambiguous inside the workspace sandbox: point the tool at the resolved path ' +
+  'inside the workspace, or ask the user to widen permissions (permissions.defaultMode: "full" or --full-access).';
+
 async function assertNoSymlink(relative: string, root: string): Promise<void> {
   if (!relative) {
     return;
@@ -49,6 +62,7 @@ async function assertNoSymlink(relative: string, root: string): Promise<void> {
         throw new MossError({
           code: ErrorCode.TOOL_NOT_ALLOWED,
           message: `Path contains symlink: ${current}`,
+          hint: SANDBOX_WIDEN_HINT,
         });
       }
     } catch (err) {
@@ -68,6 +82,7 @@ async function assertRootIsNotSymlink(root: string): Promise<void> {
       throw new MossError({
         code: ErrorCode.TOOL_NOT_ALLOWED,
         message: `Sandbox root is a symlink: ${root}`,
+        hint: SANDBOX_WIDEN_HINT,
       });
     }
   } catch (err) {
@@ -113,6 +128,7 @@ export function resolveSandboxPath(params: {
   throw new MossError({
     code: ErrorCode.TOOL_NOT_ALLOWED,
     message: `Path escapes workspace (${shortPath(path.resolve(params.root))}): ${params.filePath}`,
+    hint: SANDBOX_ESCAPE_HINT,
   });
 }
 
@@ -133,6 +149,7 @@ export async function assertSandboxPath(params: {
       throw new MossError({
         code: ErrorCode.TOOL_NOT_ALLOWED,
         message: `path escapes sandbox after realpath resolution: ${params.filePath}`,
+        hint: SANDBOX_ESCAPE_HINT,
       });
     }
   } catch (err) {

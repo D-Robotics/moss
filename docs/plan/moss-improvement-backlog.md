@@ -426,6 +426,14 @@ Ctrl+C 必须停流、上方向键 `\x1b[A` **不得**停流（防止把转义�
 **§2 的 18 条到此没有真正的未做项**，B01 是唯一「部分完成」（贴图仍要模型再 `read_image` 一次）。
 这意味着队列需要**新鲜条目**；本轮据此新增两条来自真实代码扫描的候选（见下），下一轮从 B19 开始。
 
+**B20 证据（2026-11-05 首片，已实跑）**：`dist` 直接触发四条真实失败路径，全部渲染成 `message` + `→ hint`：
+
+- 沙箱逃逸（`../outside.txt`）→ `Tools may only touch paths inside the workspace: use a workspace-relative path, copy the file in first, or ask the user to widen permissions (permissions.defaultMode: "full" or --full-access) and retry.`
+- 工作区内符号链接指向 `/etc/hosts` → 提示指向 realpath 或放宽权限；
+- 设备 exec 失败（伪连接注入 ssh2 错误）→ `Re-check the device with device_probe (reachability, command exists), then retry; a dropped connection is re-established automatically.`；
+- 设备 `readFile` stat 失败 → `Confirm the path exists on the device (device_file_list lists directories), then retry.`
+  修的过程中发现并修掉一个真 bug：`uiText(en, zh)` 的参数顺序被写反（3 处 hint 曾输出中文而 message 是英文），已统一为与 message 同语言。
+
 **B19 证据（2026-11-05，已实跑）**：用 stub 掉的 `fetch` 触发 6 条失败路径（Brave 401 / Bocha 429 / Exa 503 /
 Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲染成 `message` 换行 `→ hint`，例如：
 
@@ -439,10 +447,10 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 
 **新增候选（2026-11-05，来自 `new MossError` 全量扫描：114 处，仅 44 处带 `hint:`）**
 
-| ID  | 优先级 | 改进点                                                                                | 现状证据                                                                                                                                                                                                                    | 验收探针                                                                                                         | 状态       |
-| --- | ------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------- |
-| B19 | P2     | `web_search` 系列失败只报「超时/HTTP 状态」，不给下一步（换 backend / 设 key / 重试） | **已修（2026-11-05）**：`tools/web-search/http.ts` 新增 `SEARCH_TRANSPORT_GUIDANCE` + `searchHttpStatusHint()`；`fetchWithTimeout` 的超时/请求失败、`backends-api.ts` 的 Brave/Bocha/Exa HTTP 状态与非 JSON 响应都带 `hint` | 已实跑：stub 掉 `fetch` 触发 6 条失败路径，全部渲染为 `message\n→ hint`（证据见本节末）                          | **已验收** |
-| B20 | P2     | 用户可感知的 CLI 报错里仍有约 70 处 `new MossError` 没有 `hint`，失败后没有下一步     | 扫描 `grep -rn "new MossError({" src/cli src/tools src/core`：114 处，带 `hint:` 44 处                                                                                                                                      | 逐条挑「用户可达」的错误实际触发一次，断言 stderr 含可执行下一步；先补 CLI 入口类（config/workspace/permission） | 待做       |
+| ID  | 优先级 | 改进点                                                                                | 现状证据                                                                                                                                                                                                                                                                                                                            | 验收探针                                                                                                      | 状态       |
+| --- | ------ | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------- |
+| B19 | P2     | `web_search` 系列失败只报「超时/HTTP 状态」，不给下一步（换 backend / 设 key / 重试） | **已修（2026-11-05）**：`tools/web-search/http.ts` 新增 `SEARCH_TRANSPORT_GUIDANCE` + `searchHttpStatusHint()`；`fetchWithTimeout` 的超时/请求失败、`backends-api.ts` 的 Brave/Bocha/Exa HTTP 状态与非 JSON 响应都带 `hint`                                                                                                         | 已实跑：stub 掉 `fetch` 触发 6 条失败路径，全部渲染为 `message\n→ hint`（证据见本节末）                       | **已验收** |
+| B20 | P2     | 用户可感知的报错里仍有约 70 处 `new MossError` 没有 `hint`（失败后没有下一步）        | **进行中（2026-11-05 首片）**：本轮补了「工作区沙箱拒绝」4 处（`safety/sandbox-paths.ts`：逃逸/realpath 逃逸/路径含符号链接/根是符号链接）+「设备运行时失败」3 处（`device/ssh-device-connection.ts`：exec 失败、exec 流错误、SFTP 会话失败）+「设备读文件 stat 失败」1 处，共 8 处；扫描基线 114 处 `new MossError` / 44 处带 hint | 已实跑：见本节末 B20 证据；剩余候选（MCP stdio/http 传输 12 处、`execute-tool-call` 超时/取消若干）留待下一片 | 进行中     |
 
 **B09 探针（2026-11-05，已实跑）**：对 `dist` 直接调用 `truncateWithRecoveryPath({toolName:"read_file", text: 20000 行长文本, workspaceDir: 临时工作区})`，
 其中第 15001 行埋了 `THE-ELIDED-REGION-MARKER`。结果：可见结果被截到 **16,424 字符**、带
