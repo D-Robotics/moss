@@ -315,6 +315,15 @@
 - **成本**：低；**风险**：改语义会影响现有 hook 用户，需要新增配置开关或严格向后兼容。
 - **优先级**：P1（与 D5/D11 相比，这是"确定性控制层"最便宜的质量提升）。
 
+**进度（2026-11-04）**
+
+- ✅ `updatedInput`：PreToolUse hook 可整对象改写工具输入（moss 原生与 Claude 兼容两种形态），
+  改写后用新输入重跑策略检查（不能绕过 deny），执行边界再校验 schema。真实 CLI 运行验证
+  （hook 把 `write_file{path:original.txt}` 改成 `rewritten.txt`，落地文件内容来自 hook）。
+- ✅ `SubagentStart` 事件：spawn 子代理前触发，payload `{event, goal}`；真实运行验证
+  （`create_subagent` 前 hook 收到 goal，子代理返回 4）。
+- ⬜ 仍缺：`PermissionDenied`、决策优先级/exit-code 的 probe 契约表、可选 `failClosed`。
+
 ### 可选/低优先（列入但不推荐立刻做）
 
 - D13 定时/循环任务（`/loop`、cron）：参考有 scheduled tasks；Moss `/goal` 已覆盖大部分，先观察。

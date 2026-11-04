@@ -241,6 +241,9 @@ export interface MossAgentConfig
     summary: string;
   }) => Promise<void>;
 
+  /** Fired right before a spawned sub-agent starts. Failures are absorbed. */
+  subagentStartHook?: (info: { sessionKey: string; goal: string }) => Promise<void>;
+
   enableSteering?: boolean;
 
   replaceDefaultSteeringRules?: boolean;

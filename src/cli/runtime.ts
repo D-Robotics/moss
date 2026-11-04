@@ -648,6 +648,7 @@ export async function runCli(): Promise<void> {
   // that have no access to this wiring — install them as the module runner.
   setLifecycleHookRunner({
     runStop: (info) => configuredHooks.runStop(info),
+    runSubagentStart: (info) => configuredHooks.runSubagentStart(info),
     runSubagentStop: (info) => configuredHooks.runSubagentStop(info),
     runNotification: (info) => configuredHooks.runNotification(info),
   });
@@ -839,6 +840,7 @@ export async function runCli(): Promise<void> {
     subagentExperts: fileAgents.agents,
     subagentExpertNotices: fileAgents.notices,
     ...(compactHookRegistry ? { compactHooks: compactHookRegistry } : {}),
+    subagentStartHook: (info) => configuredHooks.runSubagentStart(info),
     subagentStopHook: (info) => configuredHooks.runSubagentStop(info),
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".

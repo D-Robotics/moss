@@ -346,6 +346,9 @@ export interface HooksConfig {
   /** Fires after each completed agent run; a blocking non-zero exit vetoes the stop. */
   Stop?: HookCommandConfig[];
 
+  /** Fires when a subagent is spawned, before it starts. */
+  SubagentStart?: HookCommandConfig[];
+
   /** Fires when a spawned subagent finishes its task. */
   SubagentStop?: HookCommandConfig[];
 
@@ -369,6 +372,7 @@ export const HOOK_EVENT_KEYS = [
   'PermissionRequest',
   'SessionStart',
   'Stop',
+  'SubagentStart',
   'SubagentStop',
   'PreCompact',
   'PostCompact',

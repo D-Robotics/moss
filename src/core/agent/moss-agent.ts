@@ -1465,6 +1465,14 @@ ${result.stderr ?? ''}`.trim();
       }
       spawnedCount++;
       const childRunId = `${runId}/sub-${crypto.randomUUID().slice(0, 8)}`;
+      try {
+        await this.config.subagentStartHook?.({
+          sessionKey: `subagent:${childRunId}`,
+          goal: params.task,
+        });
+      } catch {
+        /* host hook failures never fail the sub-agent result */
+      }
       const timeoutMs = params.timeoutMs ?? 120_000;
       let overrideContextTokens: number | undefined;
       if (params.model && this.config.resolveModelContextTokens) {
