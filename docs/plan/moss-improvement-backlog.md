@@ -96,6 +96,18 @@ acceptance criteria 与评审是断开的，模型只能凭自觉手填。Cursor
 **诚实说明**：该 e2e 进程 exit 9 来自既有的「无文件变更」完成门提示（`Incomplete: no files were modified`），
 与本改动无关；rubric 传递本身的五条断言全部为真。
 
+**B16 第二片（同一轮）：同一个 diff 不重复评审（Bugbot 的「状态而不是再来一次」）**。此前
+description 写着「At most once per change」但代码里没有任何去重，模型重复调用会再花一个子代理。现在
+`ReviewRecord.diffFingerprint`（`sha256(diff)` 前 16 位）+ `findRepeatedReview(records, fingerprint, depth)`
+让「同一 diff、同一 depth」的重复调用直接返回**已记录的评审结果**（前缀 `This change is already reviewed…
+(no new sub-agent was spent)`），文件一改 hash 变化就重新评审。
+**真实证据（`-p` + 脚本化 provider，统计 reviewer 请求次数）**：同一 diff 连调两次 → `reviewerCalls=1`、
+第二次工具结果含 `already reviewed`、`.moss/review.jsonl` 只有一条记录且带 16 位 fingerprint；
+随后 `read_file` + `write_file` 改动文件再评审 → `reviewerCalls=2`，两条记录 fingerprint 不同
+（`94ee02afb9a4f0f4` vs `30192c1d1d1a9b58`），run exit 0。
+**回归门**：`review-pipeline` probe 新增 1 条（22 checks）：fingerprint 稳定/对内容敏感、按 depth 区分、
+未知 hash 返回 undefined。
+
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**

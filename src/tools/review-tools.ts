@@ -18,7 +18,7 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { ensureMossRuntimeGitignore } from '../utils/workspace-paths.js';
@@ -63,6 +63,8 @@ export interface ReviewRecord {
   checks: string[];
   diffLines: number;
   truncated: boolean;
+  /** Hash of the reviewed diff: the same change is never reviewed twice. */
+  diffFingerprint?: string;
   /** Acceptance rubric the review was graded against, when it came from the task ledger. */
   rubricTaskId?: string;
   rubricCriteria?: number;
@@ -457,6 +459,28 @@ export async function listReviewRecords(workspaceDir: string, limit = 20): Promi
   return limit > 0 ? records.slice(-limit) : records;
 }
 
+/** Stable identity of a reviewed change, so a repeated call cannot buy a second review. */
+export function reviewDiffFingerprint(diff: string): string {
+  return createHash('sha256').update(diff).digest('hex').slice(0, 16);
+}
+
+/**
+ * An identical diff reviewed at the same depth is already reviewed: returning
+ * the recorded outcome (Bugbot's "state, not another run") saves a sub-agent and
+ * stops the model from claiming a fresh pass it did not get.
+ */
+export function findRepeatedReview(
+  records: readonly ReviewRecord[],
+  fingerprint: string,
+  depth: ReviewDepth
+): ReviewRecord | undefined {
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (record.diffFingerprint === fingerprint && record.depth === depth) return record;
+  }
+  return undefined;
+}
+
 function findingLine(finding: ReviewFinding): string {
   const location = finding.line === undefined ? finding.file : `${finding.file}:${finding.line}`;
   return `  [${finding.severity}] ${location} — ${finding.summary}${
@@ -571,6 +595,24 @@ export const reviewChangesTool: Tool<ReviewChangesInput> = {
         : 'Nothing to review: the working tree and index are clean. Make the change first, then review.';
     }
 
+    const fingerprint = reviewDiffFingerprint(collected.diff);
+    let previous: ReviewRecord | undefined;
+    try {
+      previous = findRepeatedReview(
+        await listReviewRecords(ctx.workspaceDir, 50),
+        fingerprint,
+        depth
+      );
+    } catch {
+      previous = undefined;
+    }
+    if (previous) {
+      return (
+        `This change is already reviewed at depth=${depth} (no new sub-agent was spent).\n` +
+        formatReviewResult(previous, path.join('.moss', REVIEW_LOG_NAME)) +
+        '\nFix the blocking findings, then call review_changes again — the diff hash changes once the files change.'
+      );
+    }
     const explicitCriteria = input.criteria?.trim();
     const rubric = explicitCriteria ? undefined : await loadTaskAcceptanceRubric(ctx.workspaceDir);
     const criteriaText = explicitCriteria || rubric?.text;
@@ -610,6 +652,7 @@ export const reviewChangesTool: Tool<ReviewChangesInput> = {
       checks: parsed.checks,
       diffLines: collected.totalLines,
       truncated: collected.truncated,
+      diffFingerprint: fingerprint,
       reviewerSuccess: result.success,
       ...(rubric ? { rubricTaskId: rubric.taskId, rubricCriteria: rubric.criteria } : {}),
       ...(result.runId ? { reviewerRunId: result.runId } : {}),

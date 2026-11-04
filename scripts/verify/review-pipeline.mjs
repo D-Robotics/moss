@@ -339,6 +339,21 @@ const emptyRubricRepo = await tmpDir('moss-review-rubric-empty-');
 assert.equal(await loadTaskAcceptanceRubric(emptyRubricRepo), undefined);
 ok('no task ledger means no implicit rubric (the reviewer falls back to correctness/security)');
 
+// ── 8. Identical diffs are not reviewed twice ─────────────────────────────
+
+const { reviewDiffFingerprint, findRepeatedReview } = review;
+const fingerprint = reviewDiffFingerprint('diff --git a/x b/x\n+one\n');
+assert.equal(fingerprint, reviewDiffFingerprint('diff --git a/x b/x\n+one\n'));
+assert.notEqual(fingerprint, reviewDiffFingerprint('diff --git a/x b/x\n+two\n'));
+const fpRecords = [
+  { id: 'r1', depth: 'quick', diffFingerprint: fingerprint },
+  { id: 'r2', depth: 'deep', diffFingerprint: fingerprint },
+];
+assert.equal(findRepeatedReview(fpRecords, fingerprint, 'quick')?.id, 'r1');
+assert.equal(findRepeatedReview(fpRecords, fingerprint, 'deep')?.id, 'r2');
+assert.equal(findRepeatedReview(fpRecords, 'other', 'quick'), undefined);
+ok('review dedupe keys on the diff fingerprint and the review depth');
+
 for (const dir of tmpRoots) {
   await fs.rm(dir, { recursive: true, force: true });
 }
