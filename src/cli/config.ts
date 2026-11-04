@@ -344,6 +344,14 @@ export interface HookCommandConfig {
    */
   format?: 'claude';
 
+  /**
+   * Tool events only: narrow with permission-rule syntax (`exec(git *)`,
+   * `read_file(.env)`). Claude Code semantics: on non-tool events a hook with
+   * `if` never runs; a malformed spec skips the hook (with one notice) rather
+   * than matching every call.
+   */
+  if?: string;
+
   /** Config file this hook came from (set at load time; shown in failure notices). */
   source?: string;
 }

@@ -771,6 +771,7 @@ export async function runCli(): Promise<void> {
         // Fire-and-forget: the deny verdict must not wait on a logging hook.
         void configuredHooks.runPermissionDenied({
           toolName: req.tool.name,
+          input: req.input,
           ...(decision.reason ? { reason: decision.reason } : {}),
         });
       }

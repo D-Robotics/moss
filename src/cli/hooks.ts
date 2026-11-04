@@ -5,6 +5,12 @@ import { claudeToolInput, claudeToolName, hookMatcherMatches } from './claude-co
 import { redactEgress } from '../safety/tool-output-redact.js';
 import { CompactHookRegistry } from '../core/loop/compact-hooks.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
+import {
+  extractRuleOperand,
+  matchPermissionRule,
+  parsePermissionRuleSpec,
+  type PermissionRule,
+} from './permission-rules.js';
 import { errorMessage } from '../errors.js';
 import { DEFAULT_MAX_BUFFER, ProcessError, runProcess } from '../utils/run-process.js';
 import { resolveCommandHead } from '../utils/resolve-executable.js';
@@ -217,6 +223,63 @@ function runHookCommand(
 
 function toolNameMatches(hook: HookCommandConfig, toolName: string): boolean {
   return hookMatcherMatches(hook.matcher, toolName, hook.format === 'claude');
+}
+
+/**
+ * `if` on a NON-tool event never runs (Claude Code: "on other events a hook
+ * with if never runs"). Dropping it at construction keeps every lifecycle loop
+ * simple; say so once instead of silently ignoring the field.
+ */
+function dropIfOnNonToolEvent(
+  event: MossHookEventId,
+  hooks: readonly HookCommandConfig[]
+): readonly HookCommandConfig[] {
+  if (hooks.length === 0) return hooks;
+  const kept = hooks.filter((hook) => {
+    const spec = hook.if?.trim();
+    if (!spec) return true;
+    process.stderr.write(
+      `[hooks] ${event} hook \`${hook.command}\`: \`if\` only applies to tool events; hook removed\n`
+    );
+    return false;
+  });
+  return kept;
+}
+
+/** `if` matcher: permission-rule spec evaluated against the tool call. */
+function createHookIfMatcher(): {
+  matches: (
+    hook: HookCommandConfig,
+    toolName: string,
+    input: Record<string, unknown> | undefined
+  ) => boolean;
+} {
+  const cache = new Map<string, PermissionRule | undefined>();
+  const warned = new Set<string>();
+  return {
+    matches(hook, toolName, input) {
+      const spec = hook.if?.trim();
+      if (!spec) return true;
+      if (!cache.has(spec)) {
+        try {
+          cache.set(spec, parsePermissionRuleSpec(spec, 'workspace'));
+        } catch {
+          cache.set(spec, undefined);
+        }
+      }
+      const rule = cache.get(spec);
+      if (!rule) {
+        if (!warned.has(spec)) {
+          warned.add(spec);
+          process.stderr.write(
+            `[hooks] invalid \`if\` (${spec}); hook \`${hook.command}\` is skipped (rules look like exec(git *) or read_file(.env))\n`
+          );
+        }
+        return false;
+      }
+      return matchPermissionRule(rule, toolName, extractRuleOperand(toolName, input ?? {}));
+    },
+  };
 }
 
 function claudePayload(
@@ -523,7 +586,11 @@ export interface ConfiguredHookCallbacks {
   runStop: (info: StopHookInfo) => Promise<StopHookResult>;
 
   runSubagentStart: (info: { goal: string }) => Promise<void>;
-  runPermissionDenied: (info: { toolName: string; reason?: string }) => Promise<void>;
+  runPermissionDenied: (info: {
+    toolName: string;
+    reason?: string;
+    input?: Record<string, unknown>;
+  }) => Promise<void>;
   runSubagentStop: (info: SubagentStopHookInfo) => Promise<void>;
 
   /** SessionEnd: fires once when the CLI session is shutting down. */
@@ -572,18 +639,19 @@ export function createConfiguredHookCallbacks(
   const pre = hooks?.PreToolUse ?? [];
   const post = hooks?.PostToolUse ?? [];
   const postFailure = hooks?.PostToolUseFailure ?? [];
-  const userPrompt = hooks?.UserPromptSubmit ?? [];
-  const permission = hooks?.PermissionRequest ?? [];
-  const sessionStart = hooks?.SessionStart ?? [];
-  const stop = hooks?.Stop ?? [];
   const permissionDenied = hooks?.PermissionDenied ?? [];
-  const subagentStart = hooks?.SubagentStart ?? [];
-  const subagentStop = hooks?.SubagentStop ?? [];
-  const preCompact = hooks?.PreCompact ?? [];
-  const postCompact = hooks?.PostCompact ?? [];
-  const sessionEnd = hooks?.SessionEnd ?? [];
-  const notification = hooks?.Notification ?? [];
+  const userPrompt = dropIfOnNonToolEvent('UserPromptSubmit', hooks?.UserPromptSubmit ?? []);
+  const permission = dropIfOnNonToolEvent('PermissionRequest', hooks?.PermissionRequest ?? []);
+  const sessionStart = dropIfOnNonToolEvent('SessionStart', hooks?.SessionStart ?? []);
+  const stop = dropIfOnNonToolEvent('Stop', hooks?.Stop ?? []);
+  const subagentStart = dropIfOnNonToolEvent('SubagentStart', hooks?.SubagentStart ?? []);
+  const subagentStop = dropIfOnNonToolEvent('SubagentStop', hooks?.SubagentStop ?? []);
+  const preCompact = dropIfOnNonToolEvent('PreCompact', hooks?.PreCompact ?? []);
+  const postCompact = dropIfOnNonToolEvent('PostCompact', hooks?.PostCompact ?? []);
+  const sessionEnd = dropIfOnNonToolEvent('SessionEnd', hooks?.SessionEnd ?? []);
+  const notification = dropIfOnNonToolEvent('Notification', hooks?.Notification ?? []);
   const cwd = opts.workspaceDir;
+  const hookIf = createHookIfMatcher();
 
   // O88: one terminal notice per (event, hook, kind) per user turn; repeats
   // within the turn are folded into the first. The tool result always carries
@@ -647,6 +715,7 @@ export function createConfiguredHookCallbacks(
             let updatedInput: Record<string, unknown> | undefined;
             for (const hook of pre) {
               if (!toolNameMatches(hook, request.tool.name)) continue;
+              if (!hookIf.matches(hook, request.tool.name, request.input)) continue;
               const r = await runHookCommand(
                 hook.command,
                 {
@@ -712,6 +781,7 @@ export function createConfiguredHookCallbacks(
             const hooksForEvent = event === 'PostToolUse' ? post : postFailure;
             for (const hook of hooksForEvent) {
               if (!toolNameMatches(hook, call.name)) continue;
+              if (!hookIf.matches(hook, call.name, call.input)) continue;
               void runHookCommand(
                 hook.command,
                 {
@@ -781,14 +851,17 @@ export function createConfiguredHookCallbacks(
   const runPermissionDenied = async (info: {
     toolName: string;
     reason?: string;
+    input?: Record<string, unknown>;
   }): Promise<void> => {
     for (const hook of permissionDenied) {
       if (!toolNameMatches(hook, info.toolName)) continue;
+      if (!hookIf.matches(hook, info.toolName, info.input)) continue;
       const r = await runHookCommand(
         hook.command,
         {
           event: 'PermissionDenied',
           toolName: info.toolName,
+          ...(info.input ? { input: info.input } : {}),
           ...(info.reason ? { reason: info.reason.slice(0, 500) } : {}),
         },
         cwd,
