@@ -5,6 +5,7 @@ import { isZhLocale, uiText } from './cli-locale.js';
 import { formatSessionTimestamp } from './repl-chrome.js';
 import type { LLMMessage } from '../core/llm/llm-provider.js';
 import type { SessionStore, SessionMeta } from '../core/session/session.js';
+import type { MossAgent } from '../core/agent/moss-agent.js';
 import type { TaskCommandContext } from './task-run.js';
 
 /** A single `sessions search` match: enough to locate and resume the session. */
@@ -323,6 +324,25 @@ export const COMMANDS: Record<string, CommandConfig> = {
       if (code !== 0) process.exitCode = code;
     },
     description: 'Independent review records: list/check (.moss/review.jsonl, CI-ready exit codes)',
+  },
+
+  loop: {
+    name: 'loop',
+    phase: CliPhase.AgentReady,
+    handler: async (ctx) => {
+      const { runLoopCommand } = await import('./loop-command.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const workspace = ctx.workspace as string | undefined;
+      const agent = ctx.agent as MossAgent | undefined;
+      if (!workspace || !agent) {
+        console.error('[moss] loop could not resolve the workspace/agent.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      process.exitCode = await runLoopCommand(ctx.commandArgs, { agent, workspaceDir: workspace });
+    },
+    description:
+      'Closed loop: run the agent, check with your command, feed failures back (--until)',
   },
 
   device: {

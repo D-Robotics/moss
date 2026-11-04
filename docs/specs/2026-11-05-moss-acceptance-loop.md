@@ -124,6 +124,18 @@ L3 是**非任务 run 的等价物**，复用同一套"上限 + 证据 + 诚实 
 同一命令退出 0。`moss review list` 展示历史。确定性探针新增 3 条断言（17 总计）。
 仍缺：有变更 run 结束后自动触发评审（`review.mode` 配置）、修复循环直接消费 findings。
 
+### L4 外部信号闭环（P2-a 已落地）
+
+`moss loop --until "<cmd>" [--max N] "<prompt>"`（`src/cli/loop-command.ts`）：每轮跑一次**全新**
+headless 会话（不共享对话状态），再用用户给的命令验收；命令 exit 0 即成功并退出 0，失败则把检查输出
+尾部（静默检查则直接给出命令本身）拼进下一轮 prompt，最多 N 轮（默认 3，上限 20）后以 exit 1 结束。
+只有命令能判成功——模型自述永远不算。
+
+真实模型验证（`grep -q ready report.txt && test -f version.txt`）：第 1 轮只建了 `report.txt`，检查失败；
+第 2 轮拿到"静默检查 + 命令"反馈后补 `version.txt`，检查通过、exit 0。反例：检查命令无输出且不可诊断时，
+模型拒绝编造改动，2 轮后 exit 1 并打印命令输出尾部。确定性探针 `scripts/verify/loop-command.mjs`
+（verify stage `loop-command`，5 条断言；`--mock` 提供者，无模型调用）。
+
 ### L4 外部信号闭环（后续，orchestration）
 
 **契约**：把"继续闭环"的燃料从模型意愿换成外部信号：
@@ -157,7 +169,7 @@ L3 是**非任务 run 的等价物**，复用同一套"上限 + 证据 + 诚实 
 | P0-b | L1 逃生阀 `verificationGate` + `/config` 可见      | 关闭后复现场景不拦截                       | 待做                                                                 |
 | P1-a | reviewer 子代理 + 结构化 findings + `/review` 接入 | 植入缺陷 diff 必须被发现；干净 diff 不编造 | 已落地（含 `review.mode=auto`、untracked 文件、`moss review check`） |
 | P1-b | L3 有界修复循环（上限 3，日志）                    | 两轮修复场景；三轮失败诚实清单             | 已落地（守护 + 3 轮边界）                                            |
-| P2-a | `moss loop --until`（本地 CI 式闭环）              | 失败→修复→通过的循环记录                   | 待做                                                                 |
+| P2-a | `moss loop --until`（本地 CI 式闭环）              | 失败→修复→通过的循环记录                   | 已落地（mock 探针 + 真实模型 2 轮修复）                              |
 | P2-b | Stop hook recipe（用户可插拔完成门）               | 示例 hook 拦截未验证终稿                   | 待做                                                                 |
 
 ## 6. 与既有文档的关系

@@ -8,6 +8,7 @@ import { renderConfigHelp } from './config-commands.js';
 import { renderDeviceUsage } from './device-commands.js';
 import { renderMcpUsage } from './mcp-commands.js';
 import { renderSetupHelp } from './setup-wizard.js';
+import { renderLoopUsage } from './loop-command.js';
 import { renderReviewUsage } from './review-commands.js';
 import { renderSkillUsage } from './skill-commands.js';
 import { renderTaskCliUsage } from './task-run.js';
@@ -377,6 +378,8 @@ export function renderSubcommandHelp(command: string, zh: boolean = isZhLocale()
       return renderSkillUsage(zh);
     case 'review':
       return renderReviewUsage(zh);
+    case 'loop':
+      return renderLoopUsage(zh);
     case 'plugins':
       return removed('plugins', zh, {
         en: 'The plugin subsystem is not implemented in this build.',

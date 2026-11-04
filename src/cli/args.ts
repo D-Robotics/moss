@@ -30,6 +30,7 @@ export type CliCommand =
   | 'tasks'
   | 'task'
   | 'review'
+  | 'loop'
   | 'superagent'
   | 'web'
   | 'agent'
@@ -226,6 +227,7 @@ export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'tasks',
   'task',
   'review',
+  'loop',
   'superagent',
   'sessions',
   'web',

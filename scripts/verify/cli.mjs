@@ -36,6 +36,7 @@ import { stage as compactionSummaryStage } from './stages/compaction-summary.mjs
 import { stage as readImageStage } from './stages/read-image.mjs';
 import { stage as planEndStage } from './stages/plan-end.mjs';
 import { stage as rulesActivationStage } from './stages/rules-activation.mjs';
+import { stage as loopCommandStage } from './stages/loop-command.mjs';
 
 const STAGES = new Map(
   [
@@ -51,6 +52,7 @@ const STAGES = new Map(
     readImageStage,
     planEndStage,
     rulesActivationStage,
+    loopCommandStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -67,6 +69,7 @@ const FAST_GATE = [
   'read-image',
   'plan-end',
   'rules-activation',
+  'loop-command',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 
