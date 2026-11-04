@@ -315,6 +315,11 @@ export interface SkillIssue {
 - 未做（诚实边界）：rdk-docs bundled 技能的真实 eval 需要 MCP 网络与手册内容，本轮未跑；
   该技能价值判断仍靠 `docs/specs` 的 MCP 边界设计，不用假数据充数。
 
+## 7.1 后续方向
+
+SK1–SK7 之后的能力缺口（能力包/评估升级/工具面收敛/MCP 补全/编排/多模态等）见
+[`2026-11-04-moss-next-capabilities-brainstorm.md`](./2026-11-04-moss-next-capabilities-brainstorm.md)。
+
 ## 8. 明确不做
 
 - 托管 skill 市场 / 远程 registry 服务（维护成本与供应链责任，超出冻结范围）。
