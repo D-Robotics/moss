@@ -15,6 +15,9 @@ for (const [message, expectedReminder] of [
   ['Do not install dependencies unless I confirm. Read fixture.txt.', true],
   ['Do not not install dependencies. Read fixture.txt.', true],
   ['不执行命令、不要不安装依赖。读取fixture.txt。', true],
+  ['不要安装依赖然后安装依赖。', true],
+  ['Do not install dependencies then run npm install.', true],
+  ['Do not never install dependencies.', true],
 ]) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-install-nudge-'));
   const observed = [];
