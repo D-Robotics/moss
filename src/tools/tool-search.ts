@@ -1,5 +1,29 @@
-import { TOOL_SEARCH_NAME, deferredToolGroupNames } from '../core/tools/deferred-tool-offer.js';
+import {
+  TOOL_SEARCH_NAME,
+  deferredToolGroupNames,
+  SUBAGENT_DEFERRED_TOOLS,
+} from '../core/tools/deferred-tool-offer.js';
 import type { Tool } from '../core/tools/tool-types.js';
+
+/** Tool names per deferred group, for resolving a free-text query. */
+const GROUP_TOOLS: Record<string, readonly string[]> = {
+  subagent: SUBAGENT_DEFERRED_TOOLS,
+};
+
+/**
+ * Claude Code's `ToolSearch` takes `query`, so a model trained there emits
+ * `{query: "subagent tools"}`. Moss takes `group`; without this the undeclared
+ * key is dropped and the call answers `unknown tool group ""`.
+ */
+function groupFromQuery(query: string): string | null {
+  const q = query.toLowerCase();
+  if (!q) return null;
+  for (const group of deferredToolGroupNames()) {
+    if (q.includes(group.toLowerCase())) return group;
+    if (GROUP_TOOLS[group]?.some((name) => q.includes(name.toLowerCase()))) return group;
+  }
+  return null;
+}
 
 /**
  * One short meta-tool for the deferred sub-agent family. The five schemas
@@ -28,9 +52,21 @@ export const toolSearchTool: Tool = {
     required: ['group'],
   },
   async execute(input, ctx) {
-    const group = typeof input.group === 'string' ? input.group.trim() : '';
     if (!ctx.revealDeferredTools) {
       return 'Error: deferred tools are not available in this context.';
+    }
+    const groups = deferredToolGroupNames();
+    const requested = typeof input.group === 'string' ? input.group.trim() : '';
+    const query = typeof input.query === 'string' ? input.query.trim() : '';
+    const group = requested || groupFromQuery(query) || '';
+    if (!group) {
+      const usage = groups
+        .map((name) => `${name} (${(GROUP_TOOLS[name] ?? []).join(', ')})`)
+        .join('; ');
+      return (
+        `Error: pass group to load deferred tools. Groups: ${usage}.` +
+        (query ? ` Nothing matched query "${query}".` : '')
+      );
     }
     return ctx.revealDeferredTools(group);
   },
