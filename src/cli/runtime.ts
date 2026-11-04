@@ -846,6 +846,7 @@ export async function runCli(): Promise<void> {
     ...(safetyMode === 'full-access' ? {} : { execWriteRoots: [workspace] }),
     ...(hasRunBudget ? { budget: runBudget } : {}),
     ...(bestOfN ? { bestOfN } : {}),
+    ...(resolvedConfig.reviewMode ? { reviewMode: resolvedConfig.reviewMode } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
     ...(modelTiers ? { modelTiers } : {}),
     subagentExperts: fileAgents.agents,

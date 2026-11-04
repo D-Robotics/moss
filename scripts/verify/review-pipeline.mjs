@@ -278,6 +278,24 @@ const passing = await captureLog(() =>
 assert.equal(passing.code, 0);
 ok('moss review check: latest PASS -> 0');
 
+// ── 6. Untracked files are part of the diff ───────────────────────────────
+
+const untrackedRepo = await tmpDir('moss-review-untracked-');
+await git(untrackedRepo, ['init', '-q']);
+await fs.writeFile(path.join(untrackedRepo, 'notes.txt'), 'hello\n');
+const untrackedDiff = await review.collectReviewDiff(untrackedRepo);
+assert.ok(
+  untrackedDiff.diff.includes('+++ b/notes.txt'),
+  'a new untracked file must appear in the diff'
+);
+assert.ok(untrackedDiff.diff.includes('+hello'), 'untracked file content must be shown');
+assert.match(untrackedDiff.scopeLabel, /untracked/);
+ok('untracked new files are rendered into the review diff');
+await fs.writeFile(path.join(untrackedRepo, 'blob.bin'), Buffer.from([0, 1, 2, 0]));
+const binaryDiff = await review.collectReviewDiff(untrackedRepo);
+assert.ok(binaryDiff.diff.includes('untracked binary file: blob.bin'));
+ok('untracked binary files are named but not dumped');
+
 for (const dir of tmpRoots) {
   await fs.rm(dir, { recursive: true, force: true });
 }

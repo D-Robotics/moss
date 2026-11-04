@@ -37,6 +37,9 @@ const CHECK_TOOLS = new Set([
   'grep',
   'glob',
   'task_acceptance',
+  // An independent review reads the changed code; a recorded review is
+  // evidence that the change was examined, so it satisfies the check rule too.
+  'review_changes',
   'record_evidence',
   'device_probe',
   'device_file_read',
@@ -155,7 +158,7 @@ export interface VerificationGateDecision {
   reason: string;
   correction?: string;
   /** Which rule fired; the wrapper bounds the two rules differently. */
-  kind?: 'unverified-change' | 'review-fail';
+  kind?: 'unverified-change' | 'review-fail' | 'missing-review';
 }
 
 function findUnresolvedReviewFailure(calls: readonly RecordedCall[]): RecordedCall | undefined {
@@ -166,6 +169,34 @@ function findUnresolvedReviewFailure(calls: readonly RecordedCall[]): RecordedCa
     else if (REVIEW_PASS_RE.test(call.resultText)) failure = undefined;
   }
   return failure;
+}
+
+/**
+ * `review.mode: auto` — after a run that changed files, the loop requires one
+ * review_changes call before the final answer. Kept separate from the evidence
+ * rule: no review call means no review happened, which is the whole point.
+ */
+export function evaluateAutoReviewRequirement(
+  request: { messages: readonly Message[] },
+  mode: 'off' | 'manual' | 'auto' | undefined
+): VerificationGateDecision {
+  if (mode !== 'auto') return { ok: true, reason: 'auto review is not enabled' };
+  const calls = collectCalls(request.messages);
+  if (!calls.some((call) => MUTATION_TOOLS.has(call.name))) {
+    return { ok: true, reason: 'no file mutations in this run' };
+  }
+  if (calls.some((call) => call.name === 'review_changes')) {
+    return { ok: true, reason: 'the change was reviewed' };
+  }
+  return {
+    ok: false,
+    kind: 'missing-review',
+    reason: 'files were changed but the change was never reviewed',
+    correction:
+      'This session has review.mode=auto: before finishing, call review_changes on the working-tree diff ' +
+      '(pass the acceptance criteria when you have them) and address a failing verdict. If a review really ' +
+      'cannot run here, say so explicitly in the final answer.',
+  };
 }
 
 export function evaluateVerificationCompletionGate(request: {
@@ -220,12 +251,29 @@ const REVIEW_REPAIR_LIMIT = 3;
  *   own retry ceiling turns it into a failed completion rather than a silent
  *   "done" over a critical finding.
  */
-export function createVerificationCompletionGate(): NonNullable<
-  AgentLoopExtensions['completionGate']
-> {
+export function createVerificationCompletionGate(
+  options: { reviewMode?: 'off' | 'manual' | 'auto' } = {}
+): NonNullable<AgentLoopExtensions['completionGate']> {
+  // The loop counts gate attempts across ALL rules; firing rule after rule with
+  // retryLimit 1 would end the run after the first pair. Our internal counters
+  // bound each rule (auto once, unverified once, review three times, then ok),
+  // so one generous ceiling keeps the loop from throwing early.
+  const GATE_RETRY_CEILING = 6;
   let verificationBlocked = false;
   let reviewBlocks = 0;
+  let autoReviewBlocked = false;
   return async (request) => {
+    const autoReview = evaluateAutoReviewRequirement(request, options.reviewMode);
+    if (!autoReview.ok) {
+      if (autoReviewBlocked) return { ok: true as const };
+      autoReviewBlocked = true;
+      return {
+        ok: false as const,
+        reason: autoReview.reason,
+        ...(autoReview.correction ? { correction: autoReview.correction } : {}),
+        retryLimit: GATE_RETRY_CEILING,
+      };
+    }
     const decision = evaluateVerificationCompletionGate(request);
     if (decision.ok) return { ok: true as const };
     if (decision.kind === 'review-fail') {
@@ -237,7 +285,7 @@ export function createVerificationCompletionGate(): NonNullable<
         ok: false as const,
         reason: decision.reason,
         ...(decision.correction ? { correction: decision.correction } : {}),
-        retryLimit: REVIEW_REPAIR_LIMIT,
+        retryLimit: GATE_RETRY_CEILING,
       };
     }
     if (verificationBlocked) return { ok: true as const };
@@ -246,7 +294,7 @@ export function createVerificationCompletionGate(): NonNullable<
       ok: false as const,
       reason: decision.reason,
       ...(decision.correction ? { correction: decision.correction } : {}),
-      retryLimit: 1,
+      retryLimit: GATE_RETRY_CEILING,
     };
   };
 }

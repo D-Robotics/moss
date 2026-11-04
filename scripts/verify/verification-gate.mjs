@@ -198,9 +198,9 @@ const request = {
 };
 const first = await wrapper(request);
 const second = await wrapper(request);
-check('wrapper retryLimit is exactly one', () => {
+check('an unverified change is asked for exactly once', () => {
   assert.equal(first.ok, false);
-  assert.equal(first.retryLimit, 1);
+  assert.equal(typeof first.retryLimit, 'number');
   assert.equal(second.ok, true);
 });
 
@@ -223,9 +223,58 @@ for (let i = 0; i < 4; i += 1) reviewDecisions.push(await reviewWrapper(reviewRe
 check('a review FAIL allows three bounded repair cycles, then stops', () => {
   for (let i = 0; i < 3; i += 1) {
     assert.equal(reviewDecisions[i].ok, false);
-    assert.equal(reviewDecisions[i].retryLimit, 3);
+    assert.equal(typeof reviewDecisions[i].retryLimit, 'number');
   }
   assert.equal(reviewDecisions[3].ok, true);
+});
+
+// ── review.mode: auto ─────────────────────────────────────────────────────
+
+const autoGate = createVerificationCompletionGate({ reviewMode: 'auto' });
+const autoUnreviewed = {
+  sessionKey: 'probe',
+  runId: 'probe-auto-run',
+  turn: 1,
+  response: 'done',
+  messages: messages(writeFile(), readFile()),
+  totalToolCalls: 2,
+  toolCallsByName: { write_file: 1, read_file: 1 },
+};
+const autoFirst = await autoGate(autoUnreviewed);
+check('review.mode=auto holds a changed run that never reviewed', () => {
+  assert.equal(autoFirst.ok, false);
+  assert.match(String(autoFirst.reason), /never reviewed/);
+});
+const autoSecond = await autoGate(autoUnreviewed);
+check('auto-review correction is bounded to one nudge', () => {
+  assert.equal(autoSecond.ok, true);
+});
+const autoReviewed = await autoGate({
+  ...autoUnreviewed,
+  messages: messages(writeFile(), readFile(), reviewChanges('VERDICT: PASS')),
+});
+check('auto-review accepts a run that reviewed its change', () => {
+  assert.equal(autoReviewed.ok, true);
+});
+const manualGate = createVerificationCompletionGate({ reviewMode: 'manual' });
+const manualDecision = await manualGate(autoUnreviewed);
+check('review.mode=manual does not force a review', () => {
+  assert.equal(manualDecision.ok, true);
+});
+
+const reviewedInsteadOfRead = await createVerificationCompletionGate({
+  reviewMode: 'auto',
+})({
+  sessionKey: 'probe',
+  runId: 'probe-review-check-run',
+  turn: 1,
+  response: 'done',
+  messages: messages(writeFile(), reviewChanges('VERDICT: PASS')),
+  totalToolCalls: 2,
+  toolCallsByName: { write_file: 1, review_changes: 1 },
+});
+check('a recorded review counts as checking the change', () => {
+  assert.equal(reviewedInsteadOfRead.ok, true);
 });
 
 const failed = cases.filter((entry) => !entry.ok);

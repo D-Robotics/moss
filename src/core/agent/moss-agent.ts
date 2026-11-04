@@ -1686,7 +1686,9 @@ ${result.stderr ?? ''}`.trim();
     // Cursor-style acceptance loop for ordinary coding runs: a run that edited
     // files but never inspected the result is held once and asked to check or
     // disclose. Task runs hit the acceptance gate above first.
-    const verificationGate = createVerificationCompletionGate();
+    const verificationGate = createVerificationCompletionGate({
+      ...(this.config.reviewMode ? { reviewMode: this.config.reviewMode } : {}),
+    });
     const backgroundLifecycleGate = createBackgroundLifecycleGate({ sessionKey });
     const hostCompletionGate = this.config.completionGate;
     const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate

@@ -105,6 +105,17 @@ L3 是**非任务 run 的等价物**，复用同一套"上限 + 证据 + 诚实 
 变成失败的 completion，而不是静默通过。承认 findings（修复说明或未解决清单）随时放行。
 验证：确定性探针 14 条断言（含 3 轮边界）；真实模型运行：植入缺陷 + 指令"不要修复、以 All good 结束"，
 模型 review FAIL 后**拒绝**宣称完成并给出未满足标准与 `calc.js:2`、建议修复，工作区未被改动。
+**2026-11-05 落地（`review.mode=auto` + 新建文件进 diff）**：`review.mode`（`off|manual|auto`，
+配置 `review.mode` 或 `MOSS_REVIEW_MODE`，默认 manual）让"改过文件但没评审"的 run 被拦一次，要求
+`review_changes`；同一规则只提醒一次（用户明确要求跳过时模型需在终稿说明）。
+同时修掉一个真实缺陷：**untracked 新文件此前不进 `git diff HEAD`**，评审对"只新建了一个文件"的
+改动会答"Nothing to review"；现在未跟踪文本文件以合成 add-diff 注入（二进制只记文件名，预算内截断），
+无 HEAD 的空仓库回退到 `git diff`。
+真实运行（`review.mode=auto` + 只新建 `notes.txt`）：模型被拦一次 → 调用 `review_changes`（含未跟踪
+文件，diffLines 19）→ PASS 记录 → `moss review check` 退出 0；反向对照：指令"不要评审"时模型**拒绝**
+自己决定跳过并在终稿说明冲突，循环结束不再纠缠。确定性探针：`verification-gate` 19 条（含 auto 一次
+提醒/已评审通过/手动不强制/评审算检查）、`review-pipeline` 19 条（含 untracked/二进制/无 HEAD）。
+
 **2026-11-05 落地（评审机器状态面）**：`moss review list` / `moss review check`
 （`src/cli/review-commands.ts`）把 `.moss/review.jsonl` 变成可门禁的状态：`check` 不启动模型，
 读最新记录并映射退出码 **0 通过 / 1 有未解决问题 / 2 无评审或 verdict 未知**（未评审 ≠ 通过），
@@ -140,14 +151,14 @@ L3 是**非任务 run 的等价物**，复用同一套"上限 + 证据 + 诚实 
 
 ## 5. 实施切片与验收
 
-| 片   | 内容                                               | 验收证据                                   | 状态                   |
-| ---- | -------------------------------------------------- | ------------------------------------------ | ---------------------- |
-| P0-a | L1 完成门 + 确定性探针（verify stage）             | 探针断言 5 种输入；真实 `-p` 三组对照      | L1 已落地；探针待补    |
-| P0-b | L1 逃生阀 `verificationGate` + `/config` 可见      | 关闭后复现场景不拦截                       | 待做                   |
-| P1-a | reviewer 子代理 + 结构化 findings + `/review` 接入 | 植入缺陷 diff 必须被发现；干净 diff 不编造 | 已落地（自动触发待做） |
-| P1-b | L3 有界修复循环（上限 3，日志）                    | 两轮修复场景；三轮失败诚实清单             | 待做                   |
-| P2-a | `moss loop --until`（本地 CI 式闭环）              | 失败→修复→通过的循环记录                   | 待做                   |
-| P2-b | Stop hook recipe（用户可插拔完成门）               | 示例 hook 拦截未验证终稿                   | 待做                   |
+| 片   | 内容                                               | 验收证据                                   | 状态                                                                 |
+| ---- | -------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------- |
+| P0-a | L1 完成门 + 确定性探针（verify stage）             | 探针断言 5 种输入；真实 `-p` 三组对照      | L1 已落地；探针待补                                                  |
+| P0-b | L1 逃生阀 `verificationGate` + `/config` 可见      | 关闭后复现场景不拦截                       | 待做                                                                 |
+| P1-a | reviewer 子代理 + 结构化 findings + `/review` 接入 | 植入缺陷 diff 必须被发现；干净 diff 不编造 | 已落地（含 `review.mode=auto`、untracked 文件、`moss review check`） |
+| P1-b | L3 有界修复循环（上限 3，日志）                    | 两轮修复场景；三轮失败诚实清单             | 已落地（守护 + 3 轮边界）                                            |
+| P2-a | `moss loop --until`（本地 CI 式闭环）              | 失败→修复→通过的循环记录                   | 待做                                                                 |
+| P2-b | Stop hook recipe（用户可插拔完成门）               | 示例 hook 拦截未验证终稿                   | 待做                                                                 |
 
 ## 6. 与既有文档的关系
 

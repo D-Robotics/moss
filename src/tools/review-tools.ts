@@ -204,6 +204,70 @@ export interface CollectDiffOptions {
   paths?: readonly string[];
 }
 
+/**
+ * A new file is invisible to `git diff HEAD` until it is staged, yet it is
+ * often the entire change ("created notes.txt") — an untracked-only review used
+ * to answer "nothing to review" and silently skip the work. Render untracked
+ * text files as synthetic add-diffs so the reviewer sees them too.
+ */
+async function collectUntrackedDiff(
+  workspaceDir: string,
+  paths: readonly string[] | undefined,
+  budget: number
+): Promise<string> {
+  let listed: { exitCode: number; stdout: string };
+  try {
+    listed = await runGit(['ls-files', '--others', '--exclude-standard', '-z'], {
+      cwd: workspaceDir,
+      timeout: 15_000,
+    });
+  } catch {
+    return '';
+  }
+  if (listed.exitCode !== 0) return '';
+  const files = listed.stdout.split('\0').filter((entry) => entry !== '');
+  const wanted =
+    paths && paths.length > 0 ? files.filter((f) => paths.some((p) => f.startsWith(p))) : files;
+  const blocks: string[] = [];
+  let used = 0;
+  for (const file of wanted) {
+    if (used >= budget) {
+      blocks.push(`[untracked files omitted: review budget of ${budget} characters reached]`);
+      break;
+    }
+    const absolute = path.join(workspaceDir, file);
+    let content: Buffer;
+    try {
+      content = await fs.readFile(absolute);
+    } catch {
+      continue;
+    }
+    if (content.includes(0)) {
+      blocks.push(`[untracked binary file: ${file} (not shown)]`);
+      continue;
+    }
+    const text = content.toString('utf8');
+    const lines = text.split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    const body = lines.map((line) => `+${line}`).join('\n');
+    const block = [
+      `diff --git a/${file} b/${file}`,
+      'new file mode 100644',
+      '--- /dev/null',
+      `+++ b/${file}`,
+      `@@ -0,0 +1,${lines.length} @@`,
+      body,
+    ].join('\n');
+    if (used + block.length > budget) {
+      blocks.push(`[untracked file ${file} omitted: review budget reached]`);
+      break;
+    }
+    blocks.push(block);
+    used += block.length;
+  }
+  return blocks.join('\n');
+}
+
 export async function collectReviewDiff(
   workspaceDir: string,
   options: CollectDiffOptions = {}
@@ -232,7 +296,16 @@ export async function collectReviewDiff(
     diff = result.stdout;
     scopeLabel = `GitHub PR #${options.prNumber}`;
   } else {
-    const args = ['--no-pager', 'diff', 'HEAD'];
+    // A repository with no commit yet has no HEAD to diff against; fall back to
+    // the worktree-vs-index diff so a first change is still reviewable.
+    const headProbe = await runGit(['rev-parse', '--verify', 'HEAD'], {
+      cwd: workspaceDir,
+      timeout: 10_000,
+    }).catch(() => undefined);
+    const args =
+      headProbe && headProbe.exitCode === 0
+        ? ['--no-pager', 'diff', 'HEAD']
+        : ['--no-pager', 'diff'];
     if (options.paths && options.paths.length > 0) args.push('--', ...options.paths);
     let result: { exitCode: number; stdout: string; stderr: string };
     try {
@@ -258,7 +331,12 @@ export async function collectReviewDiff(
       throw new Error(`git diff HEAD failed (exit ${result.exitCode}): ${clip(stderr, 300)}`);
     }
     diff = result.stdout;
+    const untracked = await collectUntrackedDiff(workspaceDir, options.paths, MAX_DIFF_CHARS);
     scopeLabel = 'working tree + staged changes';
+    if (untracked !== '') {
+      diff = diff === '' ? untracked : `${diff}\n${untracked}`;
+      scopeLabel = 'working tree + staged changes (including untracked files)';
+    }
   }
   const totalLines = diff.split('\n').length;
   const truncated = diff.length > MAX_DIFF_CHARS;

@@ -173,6 +173,13 @@ export interface ConfigFile {
   promptCache?: PromptCacheConfig | boolean;
   guardrails?: GuardrailsConfig;
   agent?: AgentRuntimeConfig;
+  /**
+   * Independent-review policy. `manual` (default) = only when the model or the
+   * user asks; `auto` = after a run that changed files, the loop requires a
+   * review_changes call before the final answer; `off` = never ask.
+   * Env: MOSS_REVIEW_MODE.
+   */
+  review?: { mode?: 'off' | 'manual' | 'auto' };
   hooks?: HooksConfig;
   /** Network egress policy for web tools (hostname allowlist). */
   net?: { allowHosts?: string[] };
@@ -1577,6 +1584,8 @@ export interface ResolvedPermissionsView {
 export interface ResolvedCliConfig {
   profile: CliConfigProfile;
   profileSource: string;
+  /** Resolved independent-review policy (undefined = manual default). */
+  reviewMode?: 'off' | 'manual' | 'auto';
   provider: CliProviderPreset;
   providerSource: string;
   apiKey: string;
@@ -2462,6 +2471,13 @@ export function resolveCliConfig(
     envBudgetNum('MOSS_BUDGET_MAX_TURNS') ?? activeConfig.agent?.budget?.maxTurns;
   const budgetMaxWallMs =
     envBudgetNum('MOSS_BUDGET_MAX_WALL_MS') ?? activeConfig.agent?.budget?.maxWallMs;
+  const reviewModeRaw = String(env.MOSS_REVIEW_MODE ?? activeConfig.review?.mode ?? '')
+    .trim()
+    .toLowerCase();
+  const reviewMode: 'off' | 'manual' | 'auto' | undefined =
+    reviewModeRaw === 'off' || reviewModeRaw === 'manual' || reviewModeRaw === 'auto'
+      ? reviewModeRaw
+      : undefined;
   const envBestOfN = envBudgetNum('MOSS_BEST_OF_N');
   const bestOfN =
     envBestOfN !== undefined && envBestOfN >= 2
@@ -2643,6 +2659,7 @@ export function resolveCliConfig(
     compactionSettings,
     ...(runBudget ? { budget: runBudget } : {}),
     ...(bestOfN !== undefined ? { bestOfN } : {}),
+    ...(reviewMode !== undefined ? { reviewMode } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
     reasoningBudgetSource,
     ...(invalidReasoningBudgetEnv ? { invalidReasoningBudgetEnv } : {}),
