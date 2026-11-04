@@ -130,11 +130,12 @@ import {
   loadAgentFiles,
 } from '../core/subagent/agent-file-loader.js';
 
-import {
-  runRegistryCommand,
-  unknownSlashCommandLines,
-  type CommandContext as RegistryCommandContext,
-} from './commands/registry.js';
+import type { CommandContext as RegistryCommandContext } from './commands/registry.js';
+
+/** The slash-command graph is interactive-only; `-p` runs must not pay for it. */
+async function registryCommandModule() {
+  return import('./commands/registry.js');
+}
 import { cliLocale, KNOWN_COMMANDS } from './tui-utils.js';
 import { closestSlashCommands } from './command-completion.js';
 import {
@@ -1421,6 +1422,7 @@ export async function runCli(): Promise<void> {
             pendingPrompt = text;
           },
         };
+        const { runRegistryCommand, unknownSlashCommandLines } = await registryCommandModule();
         const handled = await runRegistryCommand(
           oneShotMessage.trim(),
           oneshotCmdCtx,
@@ -1541,6 +1543,7 @@ export async function runCli(): Promise<void> {
               pendingPrompt = text;
             },
           };
+          const { runRegistryCommand, unknownSlashCommandLines } = await registryCommandModule();
           const handled = await runRegistryCommand(pipedText, pipedCmdCtx, fileCommands);
           if (handled) {
             if (pendingPrompt) {

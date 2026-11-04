@@ -67,6 +67,16 @@
 | B17 | P2     | REPL（非 TUI）里运行中的一轮无法被按键中断：Esc 与 Ctrl+C 都不生效，用户只能等它跑完            | 真实 PTY 探针（见 §3 B17）：慢流 stub + REPL，按 Esc 后 provider 继续发出 95 个 token、无客户端中断、无 Interrupted 提示；Ctrl+C 同样无效                                                                                                                                         | Cursor / Claude Code 的“按 Esc 停止当前生成”是核心手感；TUI 已实现（bench 的 typing-stream-interrupt 场景 PASS，interrupt_ms 46–91ms）                                                                                                    | 真实 PTY 复跑：按 Esc / Ctrl+C 后 provider 侧 2.5s 内新增 token = 0，且出现 Interrupted 提示；REPL 与 TUI 行为一致                                                                                                                                                                                                                                                                                                                                 | ✅ 完成（REPL 运行中 Esc/Ctrl+C 可中断；文案恢复统一口径；真实 PTY 四场景验证）                                                                         |
 | B18 | P2     | 启动慢的大头是模块加载：`dist` 里 511 个 ESM 模块约 480ms，且发生在 `entry` 之前，无法并行化    | 实测：511 个 trivial ESM 模块加载仅 82–90ms；`-p` 墙钟 ~668ms、`entry≈305ms`，其余是模块求值；esbuild 打包 spike 撞到 3 个具体障碍（见 §3 B18）                                                                                                                                   | Cursor / Claude Code 的 CLI 都以打包后的少量文件启动                                                                                                                                                                                      | 本地 stub：`-p` 墙钟中位数 ≤550ms（`entry` ≤150ms）+ 逐子系统延迟求值；单靠打包预计只值 85–120ms                                                                                                                                                                                                                                                                                                                                                   | 已探针（打包代价/收益量化；下一轮按「延迟求值」方向做切片）                                                                                             |
 
+**B18 第二片（2026-11-05）：`-p` 不再加载整套斜杠命令图**
+`src/cli/runtime.ts` 为了 oneshot/管道的 `/命令` 分发，静态 import 了 `cli/commands/registry.js`（单测求值 **155–182ms**），
+而这个图只有交互会话（REPL/TUI）需要；`-p` 纯聊天永远走不到。改成 `registryCommandModule()` 的按需 dynamic import，
+在两个调用点（oneshot 分发、管道分发）各取一次句柄。
+**真实 A/B（同一脚本化 provider，各 10 次）**：`-p` 墙钟中位数 **709ms → 683ms**（−26ms），
+启动分阶段 `entry` 中位数 **321ms → 313ms**（−8ms）；单次波动 620–1060ms，中位数差异接近噪声上限，
+所以只按「结构上把交互图的 150ms 求值移出 `-p` 路径」记录，不夸大成大跃升。
+**行为回归（真实运行，全部通过）**：`moss "/skills"` → exit 0 且有技能表；`moss "/nope-not-a-command"` → exit 2 且给出
+did-you-mean；`echo "/skills" | moss` → exit 0 且有表；`-p` → exit 0 / subtype success。
+
 **B18 第一片（2026-11-05）：绕开 `contracts` 桶文件，收掉静态图里的无用耦合**
 上一片量化出「打包只值 85–120ms」，所以先做延迟/收窄求值：`src/cli/runtime.ts` 只需要
 `buildSoftwareEngineeringPromptQuick`，却经 `contracts/index.js` 桶文件把整套 message/device/task 契约一起求值
