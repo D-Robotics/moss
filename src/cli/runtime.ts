@@ -635,6 +635,10 @@ export async function runCli(): Promise<void> {
     workspace,
     ...(configDir ? { configDir } : {}),
     initialText: process.argv.join(' '),
+    // git status/log in the env layer is a subprocess chain; the TUI must not
+    // wait on it to paint (headless keeps the first-prompt snapshot).
+    ...(tuiBootWanted ? { deferEnvironmentLayer: true } : {}),
+    onEnvironmentLayerReady: () => startupTiming.mark('env'),
   });
   // Prompt assembly (system prompt layers, AGENTS.md, rules, soul) is the last
   // piece before the agent is built; a separate mark keeps it out of `config`.

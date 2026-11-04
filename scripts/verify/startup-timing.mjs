@@ -39,7 +39,7 @@ const check = async (name, fn) => {
 };
 
 const LINE_RE =
-  /\[startup\] timing: (entry=\d+ms )?(proxy=\d+ms )?config=\d+ms prompt=\d+ms agent=\d+ms mcp=\d+ms (probe=\d+ms )?skills=\d+ms total=\d+ms/;
+  /\[startup\] timing: (entry=\d+ms )?(proxy=\d+ms )?config=\d+ms (env=\d+ms )?prompt=\d+ms agent=\d+ms mcp=\d+ms (probe=\d+ms )?skills=\d+ms total=\d+ms/;
 
 await check('MOSS_STARTUP_TIMING=1 prints a phased startup line', async () => {
   const result = await run({ MOSS_STARTUP_TIMING: '1' });
@@ -62,6 +62,8 @@ await check(
     );
     // `entry` is process uptime at first mark, not a delta on the phase clock.
     if (values.entry !== undefined) assert.ok(values.entry > 0, line);
+    if (values.env !== undefined) assert.ok(values.config <= values.env, line);
+    if (values.env !== undefined) assert.ok(values.env <= values.prompt, line);
     assert.ok(values.config <= values.prompt, line);
     assert.ok(values.prompt <= values.agent, line);
     assert.ok(values.agent <= values.mcp, line);

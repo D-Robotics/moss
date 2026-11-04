@@ -672,6 +672,17 @@ headless 一行仍是 `… mcp=273ms probe=519ms skills=521ms total=521ms`（`-p
 **注意**：本机默认 provider 的 `/models` 通常 <100ms，所以日常提升小于该 A/B 的 800ms；结构收益是「慢 provider 不再拖慢首屏」，
 `bench:tui-feel` 的 composer 中位数仍需在本机默认 provider 下复测（本轮未跑，标注为未验证）。
 
+**B12-H1 第二刀（2026-11-05）：TUI 不再等待环境层（git 子进程链）**。headless 一行显示
+`config=111ms env=267ms prompt=268ms`——环境层（`buildEnvironmentContextLayer`：`git rev-parse ×2`、
+`git status`、`git log`、目录列举）**约 156ms 全串行**，而它只是动态层。改为 `createCliPromptSetup` 接受
+`deferEnvironmentLayer`：headless 仍然 `await`（第一轮就带快照），TUI 先画首屏、层落地后再 `set`
+（agent 每轮重读层）；落地打 `env` 标记。
+**真实 A/B（真实 TUI + PTY，工作区 400 个已修改文件让 `git status` 有成本，provider `/models` 即时，交替各 3 次）**：
+`composer` 中位数 **479ms → 383ms**（old 586/455/479，new 383/386/380），即 −20%；`prompt` 段 474→265。
+`startup-timing` probe 容忍 `env=` 且断言 `config ≤ env ≤ prompt`（4 checks pass）；README 同步。
+**诚实边界**：TUI 的首轮若在环境层落地前就开始，会缺该动态层（人类输入间隔通常 >100ms，且 `promptLayers`
+每轮重读；headless 不受影响）。`bench:tui-feel` 默认 provider 复测仍未跑（bench-unverified）。
+
 ## 4. 已排除：已落地 / 已澄清（防止重复调研）
 
 | 项                                                  | 为什么不再列                                                                                                                                      |

@@ -32,6 +32,14 @@ export interface CliPromptSetupInput {
   configDir?: string;
   /** Initial text scanned for path tokens (the CLI's own argv). */
   initialText: string;
+  /**
+   * TUI only: build the environment layer in the background so git subprocesses
+   * do not delay the first paint. The layer is dynamic (re-read every run), so a
+   * late `set` still lands before the first model call in practice.
+   */
+  deferEnvironmentLayer?: boolean;
+  /** Called once the deferred environment layer has been installed. */
+  onEnvironmentLayerReady?: () => void;
 }
 
 export interface CliPromptSetup {
@@ -45,15 +53,21 @@ export interface CliPromptSetup {
 export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<CliPromptSetup> {
   const { workspace, configDir, initialText } = input;
   const promptLayers = new PromptAssembler();
-  const envLayer = await buildEnvironmentContextLayer(workspace);
-  if (envLayer) {
+  const installEnvLayer = (envLayer: string | null): void => {
+    if (!envLayer) return;
     promptLayers.set({
       id: 'cli:environment',
       stability: 'dynamic',
       origin: 'environment',
       text: envLayer,
     });
-  }
+    input.onEnvironmentLayerReady?.();
+  };
+  // The environment layer shells out to git (branch, status, log): the TUI paints
+  // first and installs the layer when it lands; headless waits so the very first
+  // prompt already carries the snapshot.
+  const envLayerPromise = buildEnvironmentContextLayer(workspace).then(installEnvLayer);
+  if (!input.deferEnvironmentLayer) await envLayerPromise;
   // Plan mode is a read-only contract, not only an approval setting. The layer
   // lives in the dynamic suffix (re-read every run) so a `/mode` switch applies
   // on the next turn without rewriting the cached stable prefix.
