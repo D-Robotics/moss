@@ -41,6 +41,7 @@ import {
   parseCamerasProbe,
 } from '../device/observation.js';
 import { EXEC_DEFAULT_TIMEOUT_MS, looksBinary, safePath } from './tool-helpers.js';
+import { spillToolOutput } from './tool-output-spill.js';
 import { findLatestLiveTaskSnapshot, tryAppendTaskEvent } from '../core/task/task-store.js';
 
 const EXEC_STDOUT_MAX = 80_000;
@@ -162,11 +163,18 @@ export const deviceExecTool: Tool = {
         ? `(binary output, ${stdoutRaw.length} chars — suppressed; pipe through hexdump/xxd on the device if needed)`
         : stdoutRaw;
       if (!looksBinary(stdoutRaw) && outText.length > EXEC_STDOUT_MAX) {
+        const spilled = spillToolOutput({
+          workspaceDir: ctx.workspaceDir,
+          toolName: 'device-exec',
+          text: outText,
+        });
         const head = outText.slice(0, Math.floor(EXEC_STDOUT_MAX * 0.7));
         const tail = outText.slice(-Math.floor(EXEC_STDOUT_MAX * 0.25));
         outText =
           `${head}\n\n... [${outText.length - EXEC_STDOUT_MAX} chars omitted] ...\n\n${tail}\n` +
-          `(device stdout truncated to ~${EXEC_STDOUT_MAX} chars; re-run with a narrower command)`;
+          (spilled
+            ? `(device stdout truncated to ~${EXEC_STDOUT_MAX} chars; full output: ${spilled} — read the omitted region from there)`
+            : `(device stdout truncated to ~${EXEC_STDOUT_MAX} chars; re-run with a narrower command)`);
       }
       const stderrRaw = result.stderr.trim();
       const stderrFmt = stderrRaw

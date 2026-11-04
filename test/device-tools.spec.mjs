@@ -196,6 +196,41 @@ test('device tools: no target configured returns actionable guidance', async () 
   }
 });
 
+test('device tools: oversized device stdout spills to a readable file', async (t) => {
+  process.env[PASSWORD_ENV] = 'swordfish';
+  const bigStdout = `${'a'.repeat(60_000)}DEVICE-MIDDLE${'b'.repeat(60_000)}\n`;
+  const device = await startInProcessSshDevice({
+    commands: { 'cat /var/log/big.log': { stdout: bigStdout } },
+  });
+  t.after(async () => {
+    await disconnectAllDevices();
+    await device.close();
+  });
+  configureDefaultDeviceTarget({
+    deviceId: 'spill-test',
+    kind: 'rdk',
+    host: '127.0.0.1',
+    port: device.port,
+    user: 'tester',
+    auth: { method: 'password', passwordEnvVar: PASSWORD_ENV },
+  });
+
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-device-spill-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  // The runtime gitignore is written only inside a git work tree; a bare .git
+  // marker is enough and needs no git binary.
+  await fs.mkdir(path.join(workspace, '.git'), { recursive: true });
+  await fs.writeFile(path.join(workspace, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+
+  const out = await deviceExecTool.execute({ command: 'cat /var/log/big.log' }, makeCtx(workspace));
+  assert.match(out, /chars omitted/);
+  const spillMatch = out.match(/full output: (\S+\.txt)/);
+  assert.ok(spillMatch, `truncation note names the spill file:\n${out.slice(-400)}`);
+  const spilled = await fs.readFile(path.join(workspace, spillMatch[1]), 'utf8');
+  assert.ok(spilled.length > 120_000, 'spill keeps the full stdout');
+  assert.match(spilled, /DEVICE-MIDDLE/);
+});
+
 test('device tools: metadata matches the reserved scaffolding contracts', () => {
   const byName = new Map(deviceTools.map((tool) => [tool.name, tool]));
   assert.equal(byName.size, 12);
