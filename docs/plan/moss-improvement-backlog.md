@@ -164,8 +164,12 @@ relPath:'.moss/runtime/attachments/c414cd0e204de974.png', bytes:70, mimeType:'im
 回归门：verify stage `clipboard-paste` 从 6 断言扩到 **9 断言**（新增文件引用三种形态的解析、同一图片
 字节与剪贴板图片共用一个 staging 文件、非图片/缺失文件拒绝；`MOSS_VERIFY_CLIPBOARD=1` 时新增**真实
 Finder 复制往返**：`set the clipboard to POSIX file` → 捕获得到 `kind:'image'` 70 B，不再报空）。
-仍未做：`attachment-refs.ts` 的 `[Image #n]` chip 解析仍是无人调用的死代码（当前走 `@path` mention，
-chip 形态需要内联附件管线才值得接）。
+**已清理（2026-11-05，B01 收尾）**：`src/cli/attachment-refs.ts` 与它的 `[Image #n]` chip 解析确认是死代码
+（`extractAttachmentRefs` / `formatAttachmentChip` 无任何调用者，仅经 `tui-utils.ts` 的 `export *` 露出），
+已删除该模块并从 `tui-utils.ts` 的 re-export 列表移除；`AttachmentRef` 类型保留在
+`transcript-types.ts`（仍在 tui-utils 公共面上，删除会动内部导出面，无收益）。`tsc --noEmit` 干净，
+`npm run verify` PASS。**B01 至此全部完成**（读图工具 / 预算 / 能力守卫 / Ctrl+V 剪贴板 / Finder 文件 /
+死代码清理）。
 
 **B02 压缩可回溯（P0）**
 Moss 的压缩策略本身不弱（`compaction.ts:1137` 还会回读最近 5 个文件），但**摘要之外的历史在上下文里彻底消失**，
