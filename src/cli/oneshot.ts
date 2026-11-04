@@ -1,7 +1,7 @@
 import type { MossAgent, MossAgentEvent } from '../core/index.js';
 import type { ToolFilter } from '../core/index.js';
 import { createCliRunRenderer } from './output.js';
-import { formatImageMentionContext } from './image-mentions.js';
+import { loadImageMentions } from './image-mentions.js';
 import {
   listBackgroundProcessSnapshots,
   waitForBackgroundProcessesIdle,
@@ -509,10 +509,18 @@ export async function runOneShot(
         // best-effort
       }
     }
-    // B01: a pasted/typed `@<image>` reference is a path, not content. Name the
-    // image and point at read_image in this turn, so the model cannot answer
-    // about a screenshot it never opened.
-    const imageMentionContext = formatImageMentionContext({ message, workspaceDir });
+    // B01: a pasted/typed `@<image>` reference is a path, not content. Attach the
+    // image to this request (ChatOptions.attachments) so the model sees it on the
+    // first turn; when it cannot be attached (text-only model, not a real image,
+    // over the size cap) the context block names it and points at read_image.
+    const imageMentions = loadImageMentions({
+      message,
+      workspaceDir,
+      supportsImages: agent.config.supportsImages !== false,
+    });
+    const imageMentionContext = imageMentions.context;
+    const attachmentOptions =
+      imageMentions.attachments.length > 0 ? { attachments: imageMentions.attachments } : {};
     const mergedExtraContext =
       [
         ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
@@ -535,6 +543,7 @@ export async function runOneShot(
       brief || focusedInspection || fastNews
         ? {
             ...cancellationOptions,
+            ...attachmentOptions,
             ...taskFlow,
             ...(options.runId ? { runId: options.runId } : {}),
             ...sampling,
@@ -557,6 +566,7 @@ export async function runOneShot(
           }
         : {
             ...cancellationOptions,
+            ...attachmentOptions,
             ...taskFlow,
             ...(options.runId ? { runId: options.runId } : {}),
             ...sampling,

@@ -15,6 +15,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { detectImageMimeType } from '../tools/read-image-tool.js';
 
 /** Formats `read_image` can attach (see tools/read-image-tool.ts). */
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
@@ -82,4 +83,75 @@ export function formatImageMentionContext(options: ImageMentionContextOptions): 
     'Paths are relative to the workspace root.',
     '</attachments>',
   ].join('\n');
+}
+
+/** One image ready to attach to the provider request (base64, as ChatOptions wants). */
+export interface ImageAttachment {
+  type: 'image';
+  data: string;
+  mimeType: string;
+  filename: string;
+}
+
+export interface LoadedImageMentions {
+  /** Ready-to-send image blocks; empty when no mention is attachable. */
+  attachments: ImageAttachment[];
+  /** Context block to inject for this turn. */
+  context: string | undefined;
+}
+
+/**
+ * B01 closing slice: attach the referenced images to the request instead of only
+ * describing them. `ChatOptions.attachments` already carries image blocks into
+ * the user message, so a pasted screenshot becomes visible on the first turn --
+ * the same end state as Cursor/Claude Code -- with no extra tool round.
+ *
+ * Falls back to the read_image instruction when nothing can be attached: the
+ * model is text-only (`supportsImages === false`), the file is not a real image
+ * (magic bytes), or it is larger than read_image accepts.
+ */
+export function loadImageMentions(options: {
+  message: string;
+  workspaceDir: string | undefined;
+  supportsImages: boolean;
+}): LoadedImageMentions {
+  const described = formatImageMentionContext({
+    message: options.message,
+    workspaceDir: options.workspaceDir,
+  });
+  if (!described || !options.workspaceDir) return { attachments: [], context: described };
+  if (!options.supportsImages) return { attachments: [], context: described };
+  const workspaceDir = options.workspaceDir;
+  const attachments: ImageAttachment[] = [];
+  for (const match of described.matchAll(/^- (\S+) \((\d+(?:\.\d+)? [KMG]?B)\)$/gmu)) {
+    const relPath = match[1];
+    if (!relPath) continue;
+    const absolute = path.resolve(workspaceDir, relPath);
+    try {
+      const bytes = fs.readFileSync(absolute);
+      if (bytes.length > MAX_ATTACHMENT_BYTES) continue;
+      const detected = detectImageMimeType(bytes);
+      if (!detected) continue;
+      attachments.push({
+        type: 'image',
+        data: bytes.toString('base64'),
+        mimeType: detected.mimeType,
+        filename: relPath,
+      });
+    } catch {
+      continue;
+    }
+  }
+  if (attachments.length === 0) return { attachments, context: described };
+  const lines = attachments.map((item) => `- ${item.filename} (${item.mimeType})`);
+  return {
+    attachments,
+    context: [
+      '<attachments>',
+      "The user's message includes these images, attached below as image content:",
+      ...lines,
+      'Look at them directly. Their paths are workspace-relative if you need to re-read the file.',
+      '</attachments>',
+    ].join('\n'),
+  };
 }
