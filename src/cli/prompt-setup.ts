@@ -46,6 +46,8 @@ export interface CliPromptSetup {
   promptLayers: PromptAssembler;
   capabilityRegistry: CapabilityRegistry;
   trackTouchedInput: (input: unknown) => void;
+  /** Scan one user message for `@rule:<name>` requests (REPL turns after argv). */
+  noteUserText: (text: string) => void;
   /** Workspace-relative paths seen so far (tool inputs + initial message tokens). */
   touchedPaths: () => readonly string[];
 }
@@ -154,15 +156,25 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
       text: formatAvailableRules(manualRules),
     });
   }
-  const requestedRules = selectRequestedRules(manualRules, initialText);
-  if (requestedRules.length > 0) {
+  // `@rule:<name>` is a per-message request, not a startup flag: REPL turns after
+  // the first one must be able to load a manual rule body too. The set is sticky
+  // for the session once a rule has been requested (loading is additive, and a
+  // body that vanished from the prompt mid-session would be surprising).
+  const requestedRuleIds = new Set<string>();
+  const installRequestedRules = (text: string): void => {
+    for (const rule of selectRequestedRules(manualRules, text)) requestedRuleIds.add(rule.id);
+    if (requestedRuleIds.size === 0) return;
     promptLayers.set({
       id: 'project:rules:requested',
       stability: 'dynamic',
       origin: 'project',
-      text: formatInstructionRules('Requested project rules', requestedRules),
+      text: formatInstructionRules(
+        'Requested project rules',
+        manualRules.filter((rule) => requestedRuleIds.has(rule.id))
+      ),
     });
-  }
+  };
+  installRequestedRules(initialText);
   const toWorkspaceRelative = (candidate: string): string | undefined => {
     const rel = path.relative(workspace, path.resolve(workspace, candidate));
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return undefined;
@@ -232,6 +244,8 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
     promptLayers,
     capabilityRegistry,
     trackTouchedInput,
+    /** Scan one user message for `@rule:<name>` requests (REPL turns after argv). */
+    noteUserText: installRequestedRules,
     touchedPaths: () => [...touchedPaths],
   };
 }

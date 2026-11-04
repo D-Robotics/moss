@@ -646,6 +646,7 @@ export async function runCli(): Promise<void> {
     promptLayers,
     capabilityRegistry,
     trackTouchedInput: trackTouchedInputBase,
+    noteUserText,
     touchedPaths,
   } = await createCliPromptSetup({
     workspace,
@@ -811,6 +812,9 @@ export async function runCli(): Promise<void> {
       configuredHooks.onToolResult?.(call, result);
     },
     onInputGuardrail: async (request) => {
+      // `@rule:<name>` in this message may load a manual rule body; headless
+      // already scanned argv, REPL turns arrive here.
+      noteUserText(request.userMessage);
       const submitted = await configuredHooks.runUserPromptSubmit(request.userMessage);
       if (submitted.blocked) {
         return {

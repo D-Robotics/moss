@@ -505,6 +505,7 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 | B34 | P2     | **隐藏命令的拼写建议缺失**：`/context`、`/usage` 等是 `hidden: true`，`uniqueMenuRows()` 把它们同时排除出 menu / 补全 / did-you-mean；用户打错 `/contex` 时只得到 `unknown command`，而该命令真实存在（Claude Code 的 near-miss 提示会点名真实命令）                                             | **已修并验证（2026-11-05）**：`cli/interactive-commands.ts` 新增 `DISPATCHABLE_SLASH_COMMANDS`（repl 面全部命令 + 别名，含 hidden；menu 与补全仍用原表）；`runtime.ts` 两处未知斜杠建议、`repl.ts` 拼写建议改用该表；`uniqueMenuRows` 注释同步（hidden 只退出 menu/前缀补全）                                         | 实测：`-p '/contex'` → `Did you mean /context, /cost?`；REPL pipe 同结果；`/zzzzzz` 无建议（防 dump）；`/context` 仍可执行；`INTERACTIVE_COMPLETION_COMMANDS` 仍 19 条、不含 `/context`；`npm run verify` PASS 36.2s                                                                                                                                         |
 | B35 | P1     | **`web_fetch` 的权限规则永不生效**：`extractRuleOperand()` 没有 `web_fetch` 分支（返回 undefined），于是 `deny: ["web_fetch(domain:example.com)"]` 这类规则**静默失效**——用户从 Claude Code 迁移过来的域名拦截等于没写；同时 Claude Code 文档的 `WebFetch(domain:…)` 写法 Moss 也不解析          | **已修并验证（2026-11-05）**：`extractRuleOperand()` 增加 `web_fetch → input.url`；`matchPermissionRule()` 支持 `domain:` 说明符（精确 host、子域、`*.example.com` 通配，URL 端口/大小写容错）；错误提示与 onboarding 示例补 `web_fetch(domain:example.com)`                                                          | 实测见 B35 证据（e2e 三条 + dist 十组对照）；`npm run check` 绿、`npm run verify` PASS 39.6s                                                                                                                                                                                                                                                                 |
 | B36 | P2     | **更多工具的主操作数缺失，路径型 deny 规则静默失效**：B35 修好 `web_fetch` 后同类形状仍在——`read_image`、`list_directory`、`search_files`、`search_code` 都没有 `extractRuleOperand` 分支，`run_tests` 的 command 也没有；于是 `deny list_directory(./private)` 解析通过却永不匹配，私有目录照列 | **已修并验证（2026-11-05）**：提取表补 `read_image/list_directory/search_files/search_code → path`、`run_tests → command`；表注释同步                                                                                                                                                                                 | 实测：改造前 `list_directory(./private)` / `search_code(./src)` 均 ✓ 正常执行（规则无效）；改造后均 ✗ 2ms 被 deny 规则拦下、未触盘；同配置下别的路径 `./public` 仍执行（未误伤）；dist 9 组对照（含 read_image、run_tests 正负例）全绿；`npm run verify` PASS 40.0s                                                                                          |
+| B37 | P1     | **REPL 里 `@rule:<name>` 永远不生效**：规则扫描只做一次（`createCliPromptSetup({ initialText: process.argv.join(' ') })`），REPL 的 argv 里没有提示词，所以首轮与后续轮次的 `@rule:` 都被忽略——B06 交付的「可按需加载的 manual 规则」在交互模式下形同虚设                                        | **已修并验证（2026-11-05）**：`prompt-setup.ts` 新增 `noteUserText()`（会话内 sticky 累加已请求规则）；`runtime.ts` 在每轮 `onInputGuardrail` 先扫该轮用户消息；`CliPromptSetup` 接口补声明                                                                                                                           | PTY 实测：改造前「hello」→`none`、「@rule:described give me a fruit」→`none`；改造后同一会话第二轮 → `BANANA`，首轮直接 `@rule:` → `BANANA`；headless `-p` 行为不变（带 `@rule:` → BANANA，不带 → none）；`npm run verify` PASS 44.2s                                                                                                                        |
 
 **B32 证据（2026-11-05，已实跑）**：模块加载计数器（`module.registerHooks`）跑 7 次真实 `-p`：
 
@@ -513,6 +514,18 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 - 改造后 370 个：上述 8 个消失，新增 3 行的 `cli/diff-preview.js`；
 - 墙钟中位 583ms → 606ms（min 564 → 559）——**噪声内，本轮只声称图更小**；
 - 行为：`-p` 让模型把文件 20 行改掉，headless diff 预览仍**恰好 14 行**后打印 `... 27 more lines ...`（`DIFF_PREVIEW_LINES` 语义未变）。
+
+**B37 证据（2026-11-05，已实跑，PTY 真交互）**：B06 的 manual 规则（`description` 有、`globs` 空）要靠 `@rule:<name>` 加载正文，
+但扫描只发生在 `createCliPromptSetup({ initialText: process.argv.join(' ') })`；REPL 的 argv 没有提示词，
+于是**交互会话里 `@rule:` 完全不生效**（headless `-p` 因为 argv 带提示词才碰巧能用）。
+
+- 改造前 PTY：`hello there` → `none`；`@rule:described give me a fruit` → `none`（规则正文没进提示词）；
+- 改造后 PTY 同一会话：第一轮 → `none`，第二轮 → `BANANA`；首轮直接 `@rule:` → `BANANA`；
+- headless 对照（不变）：`-p '@rule:described …'` → `BANANA`，`-p 'give me a fruit'` → `none`；
+- 实现：`noteUserText()` 在 `onInputGuardrail` 里按轮扫描（REPL 每轮用户消息都经过这里），
+  已请求规则在会话内 sticky 累加（加载是增量语义，中途撤掉正文会很怪）。
+  stub provider 的判定依据是 system 消息里是否出现规则正文，不是固定字符串。
+  `npm run check` 绿、`npm run verify` PASS 44.2s。
 
 **B36 证据（2026-11-05，已实跑）**：B35 修好 `web_fetch` 后，同类「解析通过但永不匹配」的形状仍在其余路径型工具上。
 
