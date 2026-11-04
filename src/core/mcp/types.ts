@@ -109,6 +109,8 @@ export interface InboundJsonRpcMessage {
   jsonrpc?: string;
   id?: number | string | null;
   method?: string;
+  /** Params of a server → client request (ping/roots/list/…); unused for responses. */
+  params?: Record<string, unknown>;
   result?: unknown;
   error?: JsonRpcErrorBody;
 }

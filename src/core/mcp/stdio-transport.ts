@@ -279,6 +279,30 @@ export class McpStdioTransport implements McpTransport {
     });
   }
 
+  /** Reply to a server → client request (see handleLine). */
+  private answerServerRequest(
+    id: number | string | null,
+    method: string,
+    _params: Record<string, unknown> | undefined
+  ): void {
+    let body: Record<string, unknown>;
+    if (method === 'ping') {
+      body = { jsonrpc: '2.0', id, result: {} };
+    } else if (method === 'roots/list') {
+      // No workspace roots are advertised: the agent's sandbox is not a
+      // filesystem root list the server may roam; an empty list is spec-valid.
+      body = { jsonrpc: '2.0', id, result: { roots: [] } };
+    } else {
+      log.debug('unsupported server request', { server: this.config.name, method });
+      body = {
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32601, message: `method not supported by moss: ${method}` },
+      };
+    }
+    this.child?.stdin?.write(`${JSON.stringify(body)}\n`);
+  }
+
   private handleLine(line: string): void {
     let msg: InboundJsonRpcMessage;
     try {
@@ -293,6 +317,14 @@ export class McpStdioTransport implements McpTransport {
       // Server-initiated notification — accepted and ignored (we advertise no
       // server-facing capabilities yet).
       log.debug('notification from server', { server: this.config.name, method: msg.method });
+      return;
+    }
+    if (typeof msg.method === 'string') {
+      // Server → client REQUEST (not a response to one of ours). The spec lets
+      // servers ping for liveness and ask for roots; a client that stays silent
+      // can make them give up or close the connection, so answer every request:
+      // ping/roots/list properly, anything else with JSON-RPC "method not found".
+      this.answerServerRequest(msg.id, msg.method, msg.params);
       return;
     }
     // Our request ids are numbers; tolerate a server echoing them as strings.
