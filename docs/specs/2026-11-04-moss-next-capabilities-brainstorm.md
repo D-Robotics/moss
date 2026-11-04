@@ -294,18 +294,24 @@
 
 ### D12 Hooks 契约对齐（低成本、高杠杆）
 
-- **问题**：Moss 的事件面与 Claude/Cursor 已高度相似，但**语义契约**没对齐：exit code 只有"阻塞/非阻塞"
-  的粗粒度（Claude：0 正常、2 阻塞、其余非阻塞，文档专门警告 exit 1 陷阱）；PreToolUse 的
-  `updatedInput` 是否整对象替换、多 hook 的 `deny > defer > ask > allow` 优先级、hook 输出 10k/2k
-  截断 + spill 文案，都没有显式契约；事件数 11 vs Claude 37 / Cursor 18。
-- **参考**：Claude hooks 文档的 per-event block table + 退出码矩阵；Cursor 的 `matcher`/`failClosed`/
-  `loop_limit(5)`/`additional_context`。
-- **落点**：`src/cli/hooks.ts` 固化三类契约并补 probe：①退出码矩阵（含 exit 1 非阻塞）；
-  ②PreToolUse 决策优先级与 `updatedInput` 整对象替换语义；③输出 cap（10k/2k + spill 提示，复用
-  `tool-output-spill`）。事件面上补 3–5 个高价值事件（现有 `SubagentStop`/`PreCompact`/`PostCompact`；缺 `SubagentStart`、
-  `PermissionDenied`、`FileChanged`、`WorktreeCreate/Remove`、`PostToolUseFailure`）。
-- **验收**：probe 覆盖 exit-1 不阻塞、exit-2 阻塞、`updatedInput` 替换后审批按新输入判断、
-  10k 输出截断带 spill 提示、`PermissionDenied` hook 可观测；真实会话中一个格式化 hook 无需改 prompt 即生效。
+- **问题（先核实现状，避免修不存在的洞）**：Moss 已有 `additional_context`、hook 输出 overflow
+  （`output_too_large`）、Claude 格式兼容（`format:'claude'` 时 exit 2 阻塞、其余非阻塞）与原生
+  非零即阻塞的语义。真正缺的是：
+  ① PreToolUse 的 **`updatedInput` 整对象替换**（Moss 没有；参考产品用它让 hook 改写工具输入，
+  且改写后的输入重新走权限判断）；
+  ② 多 hook 的**决策优先级**与 `defer` 语义没有显式契约/探测（Moss 有审批队列，但没有 "defer 到下一轮"）；
+  ③ 事件面 11 vs Claude 37 / Cursor 18，缺 `SubagentStart`、`PermissionDenied`、`FileChanged`、
+  `WorktreeCreate/Remove`、`PostToolUseFailure`；
+  ④ 原生"非零即阻塞"与 Claude"仅 2 阻塞"的差异**是刻意兼容选择**，必须写进文档 + probe，而不是悄悄改语义。
+- **参考**：Claude hooks 的 per-event block table + 退出码矩阵 + `updatedInput` 替换；Cursor 的
+  `matcher`/`failClosed`/`loop_limit(5)`/`additional_context`。
+- **落点**：`src/cli/hooks.ts`：
+  1. PreToolUse 支持 `updatedInput`（整对象替换，随后按替换后的输入重新过 `toolVisibleForRun` 与审批）；
+  2. 决策优先级与原生/`claude` 格式的 exit-code 矩阵写成显式表 + probe；
+  3. 补 `PermissionDenied`（审批拒绝后可观测/可审计）与 `SubagentStart`；其余事件按需求再加；
+  4. 可选：`failClosed`（spawn 失败/超时是否阻塞）作为配置项，默认保持现状。
+- **验收**：probe 覆盖 exit-1 原生阻塞 / `claude` 格式非阻塞 / exit-2 阻塞、`updatedInput` 替换后
+  审批按新输入判断、`PermissionDenied` 可观测；真实会话中一个"改 exec 参数"的 hook 生效且不绕过 deny 规则。
 - **成本**：低；**风险**：改语义会影响现有 hook 用户，需要新增配置开关或严格向后兼容。
 - **优先级**：P1（与 D5/D11 相比，这是"确定性控制层"最便宜的质量提升）。
 
