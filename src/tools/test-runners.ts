@@ -568,14 +568,29 @@ function judge(
       return view(
         'unknown',
         blank(output),
-        `Test Results:\nCommand: ${command}\nexit 0, counts unknown\ntests_pass=false`
+        `Test Results: ⚠️ exit 0, counts unknown\nCommand: ${command}\ntests_pass=false`
       );
     }
     const why = spawnError ?? `exit ${exitCode}`;
+    const body = output.trim();
+    if (!spawnError) {
+      // The command ran and failed; "failed to run" sent the model off to
+      // debug the invocation instead of the failing test.
+      return view(
+        'fail',
+        blank(output),
+        `Test Results: ❌ exit ${exitCode}\nCommand: ${command}\n` +
+          (body ? `\nOutput:\n${body.slice(0, 2000)}\n` : '(no output)\n') +
+          'tests_pass=false'
+      );
+    }
+    // `why` already carries the reason when the process never started, so
+    // repeating it under "Output" only doubled the same sentence.
+    const detail = body && body !== why ? `\n\nOutput:\n${body.slice(0, 2000)}` : '';
     return view(
       'fail',
       blank(output),
-      `Test command failed to run: ${why}\n\nOutput:\n${output.slice(0, 2000)}\nCommand: ${command}\ntests_pass=false`
+      `Test command failed to run: ${why}${detail}\nCommand: ${command}\ntests_pass=false`
     );
   }
   if (timedOut) {
@@ -662,12 +677,17 @@ async function spawnOne(
     const failed = err instanceof ProcessError ? err : null;
     const timedOut = failed?.timedOut === true;
     const raw = failed ? `${failed.stdout}\n${failed.stderr}`.trim() : '';
+    // No exit code means the process never started (ENOENT, bad cwd, abort).
+    // That is the one case worth "failed to run"; a non-zero exit is a failing
+    // test run.
+    const neverStarted =
+      failed === null || failed.exitCode === null || ctx.abortSignal?.aborted === true;
     return judge(
       command,
       failed?.exitCode ?? 1,
-      timedOut ? raw : raw || errorMessage(err),
+      timedOut ? raw : raw || (neverStarted ? errorMessage(err) : ''),
       timedOut,
-      timedOut ? undefined : errorMessage(err)
+      timedOut || !neverStarted ? undefined : errorMessage(err)
     );
   }
 }
