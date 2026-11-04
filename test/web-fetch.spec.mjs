@@ -190,3 +190,15 @@ test('web_fetch focus parameter filters page text', async () => {
     f.restore();
   }
 });
+
+test('a non-http URL is refused with the protocol named and a usable next step', async () => {
+  const tool = createWebFetchTool({ resolveHostAddresses: async () => [PUBLIC_IP] });
+  await assert.rejects(
+    () => tool.execute({ url: 'file:///etc/passwd' }, ctx()),
+    (err) => {
+      assert.match(err.message, /unsupported protocol file$/);
+      assert.match(err.hint, /use read_file/);
+      return true;
+    }
+  );
+});

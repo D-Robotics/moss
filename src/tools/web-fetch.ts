@@ -476,8 +476,8 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
       if (url.protocol !== 'http:' && url.protocol !== 'https:') {
         throw new MossError({
           code: ErrorCode.USER_INPUT_INVALID,
-          message: `web_fetch: unsupported protocol ${url.protocol}`,
-          hint: 'Only http: and https: are allowed. For local files use read/readFile tools.',
+          message: `web_fetch: unsupported protocol ${url.protocol.replace(/:$/, '')}`,
+          hint: 'Only http and https are allowed. For local files use read_file.',
           recoverable: false,
         });
       }
@@ -569,8 +569,8 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
                 await res.body?.cancel?.().catch(() => {});
                 throw new MossError({
                   code: ErrorCode.USER_INPUT_INVALID,
-                  message: `web_fetch: redirect to unsupported protocol ${nextUrl.protocol}`,
-                  hint: 'Only http: and https: redirects are allowed.',
+                  message: `web_fetch: redirect to unsupported protocol ${nextUrl.protocol.replace(/:$/, '')}`,
+                  hint: 'Only http and https redirects are allowed.',
                   recoverable: false,
                 });
               }
