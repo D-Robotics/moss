@@ -122,6 +122,13 @@ description 写着「At most once per change」但代码里没有任何去重，
 修复循环。**回归门**：probe 新增 1 条（23 checks）：cap 常量、尾部连续统计、重复 fingerprint 只算一次、
 pass 清零、depth 分档。
 
+**B16 第四片（2026-11-05）：把「第几次修复尝试」告诉模型**。上限到了才停手还不够——模型不知道自己在
+第 2/3 次，容易把「又失败」当成随机噪声。现在 `ReviewRecord.repairAttempt`（1 起）+ 结果头部
+`repair attempt: N of 3`（第 1 次不显示，避免噪声）。
+**真实证据（4 次独立 `-p`，共享 `.moss/review.jsonl`，每次改文件后评审且 reviewer 回 FAIL）**：
+`reviewerCalls=3`，记录里 `repairAttempt` 依次 `1,2,3`；第 2、3 次的主模型上下文分别出现
+`repair attempt: 2 of 3` / `repair attempt: 3 of 3`，第 1 次没有该行；第 4 次被上限拒绝。
+
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**

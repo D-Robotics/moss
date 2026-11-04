@@ -70,6 +70,8 @@ export interface ReviewRecord {
   truncated: boolean;
   /** Hash of the reviewed diff: the same change is never reviewed twice. */
   diffFingerprint?: string;
+  /** 1-based position in the fix-review loop (capped by MAX_REPAIR_ATTEMPTS). */
+  repairAttempt?: number;
   /** Acceptance rubric the review was graded against, when it came from the task ledger. */
   rubricTaskId?: string;
   rubricCriteria?: number;
@@ -515,13 +517,17 @@ function findingLine(finding: ReviewFinding): string {
 function formatReviewResult(record: ReviewRecord, logPath: string): string {
   const counts = { critical: 0, important: 0, suggestion: 0 };
   for (const finding of record.findings) counts[finding.severity] += 1;
+  const attemptLine = record.repairAttempt
+    ? `\nrepair attempt: ${record.repairAttempt} of ${MAX_REPAIR_ATTEMPTS}`
+    : '';
   const rubricLine = record.rubricTaskId
     ? `\nrubric: task ${record.rubricTaskId} (${record.rubricCriteria ?? 0} acceptance criteria)`
     : '';
   const header =
     `Independent review (${record.scope}, ${record.depth}) — verdict: ${record.verdict.toUpperCase()}` +
     `\n${record.findings.length} finding(s): ${counts.critical} critical, ${counts.important} important, ${counts.suggestion} suggestion` +
-    rubricLine;
+    rubricLine +
+    attemptLine;
   const findingLines = record.findings.map(findingLine);
   const checkLines = record.checks.length
     ? ['', 'CHECKS:', ...record.checks.map((check) => `  - ${check}`)]
@@ -692,6 +698,7 @@ export const reviewChangesTool: Tool<ReviewChangesInput> = {
       diffLines: collected.totalLines,
       truncated: collected.truncated,
       diffFingerprint: fingerprint,
+      ...(failedAttempts > 0 ? { repairAttempt: failedAttempts + 1 } : {}),
       reviewerSuccess: result.success,
       ...(rubric ? { rubricTaskId: rubric.taskId, rubricCriteria: rubric.criteria } : {}),
       ...(result.runId ? { reviewerRunId: result.runId } : {}),
