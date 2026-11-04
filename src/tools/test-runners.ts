@@ -626,10 +626,17 @@ export function renderCommandResult(
 
 function collectFailures(output: string, result: TestResult): void {
   const seen = new Set<string>();
-  const patterns = [/✖\s+(.+)/g, /not ok\s+\d+\s+-\s+(.+)/g, /AssertionError[:\s]*([^\n]+)/g];
+  // Node prints `✖ failing tests:` as a section header and repeats every
+  // failure under it; `AssertionError: ...` is a message, not a test name.
+  // Reading all three as names listed one failing test three times, two of
+  // them as header text, next to a summary that said "1 FAILED".
+  const patterns = [/✖\s+(.+)/g, /not ok\s+\d+\s+-\s+(.+)/g];
   for (const re of patterns) {
     for (const match of output.matchAll(re)) {
-      const name = (match[1] ?? '').trim().slice(0, 200);
+      const raw = (match[1] ?? '').trim();
+      if (!raw || raw.endsWith(':')) continue;
+      // Node appends the duration: "✖ adds (1.5ms)".
+      const name = raw.replace(/\s+\(\d+(?:\.\d+)?\s*ms\)$/, '').slice(0, 200);
       const at = match.index ?? 0;
       const context = output.slice(Math.max(0, at - 200), at + 500);
       const message = (context.match(/(?:AssertionError|Error)[:\s]*(.+)/)?.[1] ?? '')

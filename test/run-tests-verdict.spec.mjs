@@ -34,3 +34,32 @@ test('exit 0 with no test counts is labeled unknown, not a bare header', () => {
   assert.match(out, /Test Results: ⚠️ exit 0, counts unknown/);
   assert.match(out, /tests_pass=false/);
 });
+
+test('a node failure is listed once by test name, not three times', () => {
+  // Verbatim shape of `node --test` output for one failing test.
+  const raw = [
+    '✖ adds (1.5ms)',
+    'ℹ tests 1',
+    'ℹ suites 0',
+    'ℹ pass 0',
+    'ℹ fail 1',
+    'ℹ cancelled 0',
+    'ℹ skipped 0',
+    'ℹ todo 0',
+    'ℹ duration_ms 81',
+    '',
+    '✖ failing tests:',
+    '',
+    'test at test/a.spec.mjs:3:1',
+    '✖ adds (1.5ms)',
+    '  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:',
+    '  ',
+    '  2 !== 3',
+  ].join('\n');
+  const out = renderCommandResult('node --test test/a.spec.mjs', 1, raw);
+  const listed = out.split('\n').filter((line) => line.startsWith('  • '));
+  assert.equal(listed.length, 1, `one failure, not a header or a message; got:\n${out}`);
+  assert.match(listed[0], /^ {2}• adds — /);
+  assert.doesNotMatch(out, /• failing tests:/);
+  assert.doesNotMatch(out, /• \[ERR_ASSERTION\]/);
+});
