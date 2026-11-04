@@ -354,9 +354,18 @@ main-headless 13,524→**12,957 chars**（−567，≈−141 tokens），main-tt
 （`EXEC-RAN`，exit 0）。
 **回归保护**：`scripts/measure-tool-surface.mjs --check`（tool-surface stage 的一部分）现在断言：每个 lean 描述
 必须比全长版短且 ≤60% 长度；默认面必须仍是全长版；lean 模式声明总字符数必须严格小于默认面。`npm run verify` PASS。
-**仍未做**：给其余长描述工具（`device_deploy` 910、`device_probe` 833、`device_robotics_status` 869 等）补 lean 版；
-lean 档对弱模型/小窗口模型的实际得分影响仍需 `npm run bench` A/B（本机无 `MOSS_BENCH_API_KEY`，此前同类结论均按
-bench-unverified 处理）。
+**第二轮补充（2026-11-05）：又给 6 个长描述工具补了 lean 版** —— `device_deploy`(910)、
+`device_robotics_status`(869)、`device_probe`(833)、`subagent_resume`(750)、`review_changes`(577)、
+`device_file_write`(527)。设备类工具的短版**刻意省掉那条每个设备工具都重复的“凭据来自 env/.env”长段**（只在
+`device_file_write`/`device_deploy` 里留一句短提醒），这正是 lean 档该砍的重复成本。表面成本（真实声明构建器）：
+main-headless 13,524→**12,710 chars**（≈−203 tokens，−6.0%）、main-tty 19,774→**17,116**（≈−665 tokens，−13.4%，
+设备工具全在场时收益最大）。
+**真实 CLI + 脚本化 provider 记录 wire 请求体**：`exec`、`review_changes` 在 lean 模式下确实是短版
+（`review_changes` 以 "Clean-context read-only review…" 开头），默认模式仍是 "Run an independent review…" 与
+"Run a shell command…" 的完整版；`allShorter` 为 true，两次 run 都 exit 0（`subagent_resume` 在 headless 场景
+本身是 deferred，未在场，符合预期）。
+**仍未做**：lean 档对弱模型/小窗口模型的实际得分影响仍需 `npm run bench` A/B（本机无 `MOSS_BENCH_API_KEY`，
+按 bench-unverified 处理）；`device_cameras`(502)/`device_network`(497) 等更短的工具收益小，暂不做。
 
 **B09 截断结果统一落盘（P2）**
 `spillToolOutput` 只被 `exec`/`device_exec` 调用（`builtin.ts:416`、`device-tools.ts:186`），其余工具超预算后

@@ -319,6 +319,8 @@ export const deviceFileWriteTool: Tool = {
     'Write a file on the configured device over SFTP — either inline content or by uploading a local workspace file (artifact deploy). Parent directories must already exist (create them with device_exec mkdir -p first).\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    leanDescription:
+      'Write a file on the device over SFTP (inline content or upload a workspace file); parent directories must already exist (device_exec mkdir -p). Device credentials come from env/.env — never ask the user to paste a password or key.',
     sideEffectClass: 'device_mutation',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
@@ -494,6 +496,8 @@ export const deviceDeployTool: Tool = {
     `- health_command: device command proving the deployment is alive (exit 0 required); health_expect: optional regex its output must match.\n` +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    leanDescription:
+      'Deploy a workspace artifact to the device as one recorded lifecycle: mkdir → upload → (chmod) → (start) → (health check); the record is appended to .moss/deployments.jsonl and success requires every requested step, health included. artifact_path must be inside the workspace; omit start_command for file-only deploys; health_command must exit 0 (health_expect regex optional). Credentials come from env/.env.',
     sideEffectClass: 'device_mutation',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
@@ -605,6 +609,8 @@ export const deviceRoboticsStatusTool: Tool = {
     'ROS commands themselves run through device_exec after verifying and sourcing <installation>/setup.bash (for example, `test -f /opt/tros/setup.bash && source /opt/tros/setup.bash`). If that file is absent, check the TROS manual and cite its page URL.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    leanDescription:
+      'Detect the robotics stack on the device: TROS (/opt/tros, RDK) or ROS2 (/opt/ros/<distro>), ros2 path, TROS version, hbm presence. Call before ROS work — a plain host reports "none detected". Run ROS commands through device_exec after sourcing <installation>/setup.bash.',
     hiddenFromModel: true,
     classification: { discovery: true },
     sideEffectClass: 'readonly',
@@ -715,6 +721,8 @@ export const deviceProbeTool: Tool = {
     '\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    leanDescription:
+      'Read-only device observation over SSH: kind=info first (identity/system facts), then processes/resources/temperature/network/cameras/robotics_status snapshots. Prefer these over device_exec for standard observation — readonly, parallel-safe, retried on transport errors. When asked about the board, probe kind=info before reading config or .env.',
     classification: { discovery: true, singleCallExempt: true },
     sideEffectClass: 'readonly',
     transientRetry: true,

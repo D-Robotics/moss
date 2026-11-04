@@ -1046,6 +1046,8 @@ export const subagentResumeTool: Tool<SubagentResumeInput> = {
     'Not for starting unrelated work (create_subagent) or for a child whose transcript was never stored.',
   ].join(' '),
   metadata: {
+    leanDescription:
+      'Continue a finished sub-agent with its stored conversation: pass the taskId/runId, or omit it (or pass "latest") for the most recent one, including from an earlier session. The prompt is appended as the next user message; blocks until the follow-up finishes. A still-running background task is waited for first unless waitForRunning is false. Not for unrelated new work (create_subagent).',
     classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',

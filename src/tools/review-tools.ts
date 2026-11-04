@@ -461,6 +461,8 @@ export const reviewChangesTool: Tool<ReviewChangesInput> = {
     'At most once per change; a clean tree reports "nothing to review" without spending a sub-agent.',
   ].join(' '),
   metadata: {
+    leanDescription:
+      'Clean-context read-only review of the current change (working-tree diff or GitHub PR): structured findings saved to .moss/review.jsonl. Use after non-trivial changes or when asked (same pipeline as /review). The reviewer cannot edit — apply fixes yourself and re-run. At most once per change; a clean tree reports nothing to review.',
     sideEffectClass: 'subagent',
     planMode: 'allow',
     requiresApproval: false,
