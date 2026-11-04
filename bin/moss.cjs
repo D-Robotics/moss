@@ -15,11 +15,12 @@ if (problem) {
   process.exit(1);
 }
 
-// B12/H1: the TUI's first paint lands after ~700ms of module/config work, so the
+// B12/H1: the first paint lands after ~500-700ms of module/config work, so the
 // terminal sat blank while the process was already alive. Print one dim line
 // before loading the ESM CLI. The heuristic is argv-only: interactive chat (no
-// subcommand, no print/version/help flags), stdout is a TTY, TUI not disabled.
-var wantsTui = process.stdout.isTTY === true && process.env.MOSS_NO_TUI !== '1';
+// subcommand, no print/version/help flags) on a TTY. The readline REPL pays the
+// same module-load wait, so it gets the line too.
+var wantsTui = process.stdout.isTTY === true;
 if (wantsTui) {
   var argv = process.argv.slice(2);
   for (var i = 0; i < argv.length; i += 1) {
