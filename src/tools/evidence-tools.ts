@@ -148,9 +148,11 @@ export const recordEvidenceTool: Tool = {
     const requestedTaskId = input.task_id ? String(input.task_id).trim() : '';
     let taskId = requestedTaskId;
     let unknownTask = false;
+    let knownTaskIds: string[] = [];
     if (requestedTaskId) {
       const known = await listTaskRecords(ctx.workspaceDir).catch(() => []);
-      unknownTask = !known.some((task) => task.taskId === requestedTaskId);
+      knownTaskIds = known.map((task) => task.taskId);
+      unknownTask = !knownTaskIds.includes(requestedTaskId);
     } else {
       taskId = await implicitTaskId(ctx.workspaceDir, metric);
     }
@@ -235,7 +237,10 @@ export const recordEvidenceTool: Tool = {
       taskId && !requestedTaskId
         ? `\n  task: ${taskId} (latest contract; task_id omitted)`
         : unknownTask
-          ? `\n  task: ${taskId} — no task contract has this id, so this row will not count toward task_acceptance`
+          ? `\n  task: ${taskId} — no task contract has this id, so this row will not count toward task_acceptance` +
+            (knownTaskIds.length
+              ? ` (known ids: ${knownTaskIds.slice(-3).join(', ')}). Record it again with the right id.`
+              : ' (no contract defined yet — call task_define first).')
           : '';
     return (
       formatRecord(record, explanation) +

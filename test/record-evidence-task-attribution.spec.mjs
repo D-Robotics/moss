@@ -84,7 +84,7 @@ test('a diagnostic metric no criterion names stays unlinked', async (t) => {
 
 test('an unknown task_id is accepted but marked as not counting', async (t) => {
   const dir = await workspace(t);
-  await defineTask(dir);
+  const taskId = await defineTask(dir);
   const out = await recordEvidenceTool.execute(
     {
       metric: 'camera_fps',
@@ -98,6 +98,8 @@ test('an unknown task_id is accepted but marked as not counting', async (t) => {
   assert.match(out, /^evidence ev_/);
   assert.match(out, /task: task_nope — no task contract has this id/);
   assert.match(out, /will not count toward task_acceptance/);
+  // One turn fixes it: the row names the ids that do exist.
+  assert.match(out, new RegExp(`known ids: .*${taskId}`));
 });
 
 test('an explicit task_id is still honored', async (t) => {
