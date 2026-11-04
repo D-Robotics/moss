@@ -315,8 +315,15 @@
 - 验收：临时工作区技能 `allowed-tools: [read_file, skill]` + `disallowed-tools: [exec]`，真实 `-p` 会话：
   加载技能后 `write_file` 不可用 → 模型回 `WRITE-BLOCKED` 且文件未创建；对照组（不加载技能、同一提示）
   `write_file` 正常创建文件。
-- ⬜ 仍缺：`context: fork`（子代理隔离执行）、技能级 `model`/`effort` 覆盖、`when_to_use` /
-  `arguments` 的目录级展示与替换。
+- ✅ **`context: fork`（2026-11-05）**：声明该字段的技能在**隔离子代理**里跑正文，父上下文只拿回
+  摘要（不再付整段正文的 token）；同时把 `model:` 转发给子代理、`allowed-tools`/`disallowed-tools`
+  转成子代理的允许/拒绝清单、`$ARGUMENTS` 先替换再作为子任务。宿主没有子代理能力时返回可读说明而
+  不是静默内联；未知 `context` 值记 warning 并回退内联。真实运行：`fork-demo` 技能返回
+  `forked sub-agent <runId> · 1 turn · 3s` + `FORK-OK`；确定性探针 `skill-fork`（8 条断言）。
+- ✅ 顺带：spec 拼写 `when_to_use` 与 Moss 原 `when` 都映射到目录触发提示；`arguments` 已由
+  `skill` 工具的 `args` + `$ARGUMENTS` 替换覆盖（早前落地）。
+- ⬜ 仍缺：**内联**技能的 `model`/`effort` 覆盖（只影响本轮）、`background`、技能自带 hooks、
+  `paths` 文件级自动激活之外的更深 scoping。
 
 - **问题**：Moss 加载技能只是把正文塞进工具结果；参考产品已经让技能**改变运行本身**：
   Claude 的 `context: fork`（技能作为隔离子代理跑）、`agent`/`background`、`allowed-tools`/
@@ -525,7 +532,7 @@
 | D8 代码智能（LSP）                                  | ❌                      | 无 LSP / diagnostics 客户端；跨文件符号视图仍靠 `tool_search` + grep。                                                                                                                                                                         |
 | D9 规则 4 类 + 团队策略                             | 🟡                      | 已有规则激活（`rules-activation` stage、路径 glob 激活）。缺：4 类规则分层（always / path / model / team）与团队级策略层。                                                                                                                     |
 | D10 产品化小件                                      | ✅                      | `moss skill list` 显示 scope/used/catalog/evals；本地 usage 计数；`moss skill create` 脚手架。缺：`/skills` 在 REPL/TUI 的同等信息（两者仍只列名字与 issues）。                                                                                |
-| D11 技能运行语义 v2                                 | 🟡                      | 已有 `allowed-tools`/`disallowed-tools` 的 run 级工具收窄（真实 -p 验收）。缺：`context: fork`、技能级 `model`/`effort`、`when_to_use`/`arguments`。                                                                                           |
+| D11 技能运行语义 v2                                 | 🟡                      | 已有 run 级 `allowed-tools`/`disallowed-tools` 收窄、`context: fork` 隔离子代理（含 `model` 转发、真实 -p 证据）、`$ARGUMENTS` 替换、`when_to_use` 别名。缺：**内联**技能的 model/effort 覆盖、`background`、技能自带 hooks。                  |
 | D12 Hooks 契约                                      | ✅                      | `updatedInput` 重过审批、deny>ask>allow、exit-code 矩阵、事件面、fail-closed；`docs/hooks.md` + `hooks-contract`（16 条）+ Stop 完成门 recipe（真实 exit 9/0）。                                                                               |
 | D13 定时/循环任务                                   | ❌                      | 只有 `moss loop --until`（本地闭环，一次性），没有 cron / 定时调度。                                                                                                                                                                           |
 | D14 环境隔离（OS sandbox）                          | ❌                      | 只有设计文档 `docs/design/os-sandbox.md`，未实现。                                                                                                                                                                                             |

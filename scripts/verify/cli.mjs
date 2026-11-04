@@ -46,6 +46,7 @@ import { stage as loopCommandStage } from './stages/loop-command.mjs';
 import { stage as mcpProtocolStage } from './stages/mcp-protocol.mjs';
 import { stage as rememberStage } from './stages/remember.mjs';
 import { stage as startupTimingStage } from './stages/startup-timing.mjs';
+import { stage as skillForkStage } from './stages/skill-fork.mjs';
 
 const STAGES = new Map(
   [
@@ -71,6 +72,7 @@ const STAGES = new Map(
     mcpProtocolStage,
     rememberStage,
     startupTimingStage,
+    skillForkStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -97,6 +99,7 @@ const FAST_GATE = [
   'mcp-protocol',
   'remember',
   'startup-timing',
+  'skill-fork',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 
@@ -194,6 +197,19 @@ function resolveStages(names, noDeps) {
   return ORDER.filter((name) => wanted.has(name));
 }
 
+/** How many independent stages may run at once (VERIFY_CONCURRENCY overrides). */
+function resolveConcurrency(raw) {
+  const parsed = raw === undefined ? 4 : Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1) return 4;
+  return Math.max(1, Math.floor(parsed));
+}
+
+/**
+ * PTY and timing stages measure wall clock, so they run alone: a busy pool would
+ * flake their thresholds (startup-timing asserts milliseconds; smoke drives a PTY).
+ */
+const EXCLUSIVE_STAGES = new Set(['smoke', 'startup-timing']);
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
@@ -227,7 +243,17 @@ async function main() {
   const startedAt = Date.now();
   let failed = null;
 
-  for (const name of stages) {
+  // Scheduler: a stage starts as soon as its `requires` are done. `static` and
+  // `build` are independent (one reads sources, the other writes dist/), so they
+  // overlap; after build the probe stages run in a small pool instead of one by
+  // one. Timing/PTY stages stay exclusive. A failure stops new launches and lets
+  // the in-flight stages finish, so the summary never shows a half-run stage as ok.
+  const concurrency = resolveConcurrency(process.env.VERIFY_CONCURRENCY);
+  const pending = [...stages];
+  const completed = new Set();
+  const running = new Map();
+
+  const launch = (name) => {
     const stage = STAGES.get(name);
     const context = {
       root: process.cwd(),
@@ -236,23 +262,62 @@ async function main() {
     };
     console.log(`[verify] ${name}: ${stage.description}`);
     const stageStartedAt = Date.now();
-    let result;
-    try {
-      result = await stage.run(context);
-    } catch (error) {
-      result = { ok: false, detail: error instanceof Error ? error.message : String(error) };
+    const promise = (async () => {
+      let result;
+      try {
+        result = await stage.run(context);
+      } catch (error) {
+        result = { ok: false, detail: error instanceof Error ? error.message : String(error) };
+      }
+      const durationMs = Date.now() - stageStartedAt;
+      results.push({ name, ok: result.ok, durationMs });
+      if (!result.ok) {
+        failed = { name, durationMs, detail: result.detail };
+        console.error(
+          `[verify] FAIL ${name} after ${formatDuration(durationMs)}: ${result.detail ?? 'unknown'}`
+        );
+        annotateError(`verify: ${name} failed`, result.detail ?? `${name} failed`);
+      } else {
+        console.log(`[verify] ok ${name} in ${formatDuration(durationMs)}`);
+      }
+      completed.add(name);
+      running.delete(name);
+    })();
+    running.set(name, promise);
+  };
+
+  while (pending.length > 0 || running.size > 0) {
+    if (!failed) {
+      for (;;) {
+        const index = pending.findIndex((name) =>
+          STAGES.get(name).requires.every((dependency) => completed.has(dependency))
+        );
+        if (index === -1) break;
+        const name = pending[index];
+        if (EXCLUSIVE_STAGES.has(name)) {
+          if (running.size > 0) break;
+          pending.splice(index, 1);
+          launch(name);
+          break;
+        }
+        if (running.size >= concurrency) break;
+        pending.splice(index, 1);
+        launch(name);
+      }
     }
-    const durationMs = Date.now() - stageStartedAt;
-    results.push({ name, ok: result.ok, durationMs });
-    if (!result.ok) {
-      failed = { name, durationMs, detail: result.detail };
-      console.error(
-        `[verify] FAIL ${name} after ${formatDuration(durationMs)}: ${result.detail ?? 'unknown'}`
-      );
-      annotateError(`verify: ${name} failed`, result.detail ?? `${name} failed`);
+    if (running.size === 0) {
+      if (failed) break;
+      // Only reachable when a stage names a dependency that is not in this run.
+      const stuck = pending[0];
+      failed = {
+        name: stuck,
+        durationMs: 0,
+        detail: `dependency was not scheduled for ${stuck}`,
+      };
+      console.error(`[verify] FAIL ${failed.detail}`);
       break;
     }
-    console.log(`[verify] ok ${name} in ${formatDuration(durationMs)}`);
+    await Promise.race([...running.values()]);
   }
 
   const totalMs = Date.now() - startedAt;

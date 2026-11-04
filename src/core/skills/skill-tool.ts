@@ -152,6 +152,36 @@ export function createSkillTool(
         return `Skill "${skill.name}" could not be read from ${skill.file}`;
       }
       if (body.includes('$ARGUMENTS')) body = body.replaceAll('$ARGUMENTS', args);
+      if (skill.context === 'fork') {
+        // D11 `context: fork`: the body runs in an isolated sub-agent, so the
+        // parent context pays for the summary instead of the whole skill. The
+        // body is the child's task; args are already substituted above.
+        if (!ctx.spawnSubagent) {
+          return `Skill "${skill.name}" declares \`context: fork\`, but this host has no sub-agent runner; run it in an interactive/full host, or remove that field to load it inline.`;
+        }
+        const forked = await ctx.spawnSubagent({
+          task: body,
+          label: `skill-${skill.name}`,
+          maxTurns: 20,
+          ...(skill.allowedTools.length > 0 ? { allowedTools: skill.allowedTools } : {}),
+          ...(skill.disallowedTools.length > 0 ? { deniedTools: skill.disallowedTools } : {}),
+          ...(skill.model ? { model: skill.model } : {}),
+          ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+          cleanup: 'delete',
+        });
+        loaded.set(skill.name, args);
+        recordSkillUse(ctx.workspaceDir, skill.name);
+        const status = forked.success
+          ? 'completed'
+          : `failed${forked.error ? `: ${forked.error}` : ''}`;
+        const detail = [
+          forked.turns !== undefined ? `${String(forked.turns)} turn(s)` : '',
+          forked.durationMs !== undefined ? `${String(Math.round(forked.durationMs / 1000))}s` : '',
+        ]
+          .filter(Boolean)
+          .join(', ');
+        return `# Skill: ${skill.name} (forked sub-agent ${forked.runId}, ${status}${detail ? ` · ${detail}` : ''})\n\nThe skill body ran in an isolated sub-agent; only this summary returns to the parent context.\n\n${forked.summary}`;
+      }
       const maxBodyBytes = SKILL_TOOL_MAX_RESULT_TOKENS * BYTES_PER_TOKEN - WRAPPER_RESERVE_BYTES;
       const clipped = clampBytes(body, Math.max(1_000, maxBodyBytes));
       const wrapped = buildWrapper(skill, clipped);

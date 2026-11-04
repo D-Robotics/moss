@@ -38,6 +38,7 @@ export type SkillIssueCode =
   | 'hidden-dir'
   | 'duplicate-name'
   | 'unknown-field'
+  | 'unknown-context'
   | 'resource-oversize'
   | 'evals-invalid';
 
@@ -89,6 +90,13 @@ export interface SkillManifest {
   allowedTools: string[];
   /** Spec `disallowed-tools`: tools hidden for the rest of the run. */
   disallowedTools: string[];
+  /**
+   * D11 `context: fork` — the skill body runs in an isolated sub-agent and only
+   * its summary returns to the parent context. Omitted = inline (the default).
+   */
+  context?: 'fork';
+  /** D11 `model`: model id for the forked sub-agent (ignored when inline). */
+  model?: string;
   metadata: Record<string, string>;
   /** Moss extension: workspace-relative globs that activate the skill's catalog entry. */
   globs: string[];

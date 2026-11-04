@@ -239,12 +239,25 @@ export function readSkillManifest(
       }
     }
   }
-  const when = asString(parsed.fields.when)?.trim();
+  // Spec spelling `when_to_use` (Claude) and Moss's original `when` both work.
+  const when = (asString(parsed.fields.when) ?? asString(parsed.fields['when_to_use']))?.trim();
   const version = asString(parsed.fields.version) ?? metadata.version;
   const license = asString(parsed.fields.license);
   const compatibility = asString(parsed.fields.compatibility);
   const allowedTools = asStringList(parsed.fields['allowed-tools']);
   const disallowedTools = asStringList(parsed.fields['disallowed-tools']);
+  // D11: `context: fork` runs the body in an isolated sub-agent; anything else
+  // is a configuration issue instead of silently running inline.
+  const rawContext = asString(parsed.fields['context']);
+  const context = rawContext === 'fork' ? ('fork' as const) : undefined;
+  if (rawContext !== undefined && context === undefined) {
+    issues.push({
+      code: 'unknown-context',
+      file,
+      message: `context "${rawContext}" is not supported (only "fork"); the skill runs inline`,
+    });
+  }
+  const model = asString(parsed.fields['model']);
   const globs = asStringList(parsed.fields.globs);
   return {
     issues,
@@ -257,6 +270,8 @@ export function readSkillManifest(
       ...(compatibility ? { compatibility } : {}),
       allowedTools,
       disallowedTools,
+      ...(context ? { context } : {}),
+      ...(model ? { model } : {}),
       metadata,
       globs,
       scope,
