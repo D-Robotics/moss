@@ -155,8 +155,11 @@ export function failedPreviewLimit(
 
 /** Source dumps (writes, patches) stay readable without ctrl+o. */
 const CODE_PREVIEW_LINES = 24;
-/** Diff blocks get a larger window: a hunk with its context is one thought. */
-export const DIFF_PREVIEW_LINES = 14;
+/** Diff blocks get a larger window: a hunk with its context is one thought.
+ *  Defined in a headless-safe module so `-p` never loads the renderer graph. */
+import { DIFF_PREVIEW_LINES } from '../diff-preview.js';
+
+export { DIFF_PREVIEW_LINES };
 
 /**
  * Read-only observation tools whose results fold to the headline by default

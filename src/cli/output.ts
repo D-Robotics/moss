@@ -5,7 +5,7 @@ import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { createStreamingTextRedactor } from '../safety/tool-output-redact.js';
 import { ui } from './ui.js';
 import { diffLinesForApproval } from './approval-detail.js';
-import { DIFF_PREVIEW_LINES } from './tui/transcript.js';
+import { DIFF_PREVIEW_LINES } from './diff-preview.js';
 import { summarizeVerificationResult } from '../tools/harness-tools.js';
 import { EDIT_TOOL_NAME_SET, EXEC_LIKE_TOOL_NAME_SET } from '../core/tools/tool-catalog.js';
 import {

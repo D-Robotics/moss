@@ -449,7 +449,7 @@ Ctrl+C 必须停流、上方向键 `\x1b[A` **不得**停流（防止把转义�
 | B01 | P0 图片进不了上下文          | **已完成（2026-11-05）**               | `cli/image-mentions.ts` 把消息里的 `@<图片>` 直接作为 `ChatOptions.attachments` 附进请求（视觉模型首轮见像素）；`agent.supportsImages=false`/非图片/超 3MB 时退化为 `<attachments>` 描述 + `read_image` 指引。证据见 §2.5 末 B01 收尾证据 |
 | B02 | P0 压缩后旧历史不可回溯      | **已落地且已端到端验证**               | 机制在 `context/compaction.ts:256-274`（`formatHistoricalTranscriptPointer` 生成 `<historical-transcript>` 段）+ `:1198-1203` 拼接 + `core/agent/moss-agent.ts:955/1841` 传 `store.transcriptPath`；端到端探针见本节末                    |
 | B08 | P2 工具描述单档              | **已落地（审计更正）**                 | `tools/file-tools.ts:210-216` 的 `description` 已以否定段结尾（目录→list_directory、图片→read_image、找匹配→search_code），`metadata.leanDescription` 同内容；见 §2.5 审计                                                                |
-| B09 | P2 大结果只有 exec 落盘      | **部分**                               | `tool-output-spill.ts` 只被 `tools/builtin.ts`、`tools/device-tools.ts` 使用；其他工具被截断的中段仍不可取回                                                                                                                              |
+| B09 | P2 大结果只有 exec 落盘      | **已落地且已验证**                     | 后续由 `context/tool-output-spill.ts` 的 `truncateWithRecoveryPath` 收口（循环侧 `agent-loop-tool-execution.ts:315` 对所有工具生效）；见 §2 B09 行                                                                                        |
 | B18 | P2 启动慢在模块加载          | **已大幅推进**                         | `bin/moss.cjs` 启动行（交互首字节 777→68.9ms）、懒加载设备注册表/斜杠命令图、barrel 直连、REPL 历史；剩余空间见 B18 段落                                                                                                                  |
 
 **新的队列结论（本轮更新三次审计）**：B02、B09、B08 都已从「仍缺」改为**已实现/已验收**（证据见下）。
