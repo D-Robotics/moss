@@ -769,18 +769,33 @@ async function* parseOpenAiBuffered(res: Response): AsyncGenerator<PiAiStreamEve
   }
   if (choice?.message?.tool_calls) {
     for (const tc of choice.message.tool_calls) {
-      let input: Record<string, unknown>;
+      let input: Record<string, unknown> | null = null;
+      const raw = tc.function.arguments || '{}';
       try {
-        input = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>;
-      } catch (err) {
-        throw new Error(
-          `OpenAI-compatible provider: malformed tool call arguments for ${tc.function.name}: ${errorMessage(err)}`
-        );
+        input = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        // Same contract as the streaming path: one malformed call must not
+        // abort the turn. The raw text rides along so a partial object (the
+        // `url` of a truncated fetch, say) can still be used downstream.
+        input = recoverToolCallArguments(raw);
       }
-      yield {
-        type: 'toolcall_end',
-        toolCall: { id: tc.id, name: tc.function.name, arguments: input },
-      };
+      if (input) {
+        yield {
+          type: 'toolcall_end',
+          toolCall: { id: tc.id, name: tc.function.name, arguments: input },
+        };
+      } else {
+        yield {
+          type: 'toolcall_end',
+          toolCall: {
+            id: tc.id,
+            name: tc.function.name,
+            arguments: {},
+            partialArgs: raw,
+            partial: true,
+          },
+        };
+      }
     }
   }
   const bufferedUsage: { input: number; output: number } = {
