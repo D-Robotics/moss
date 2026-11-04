@@ -98,9 +98,13 @@ export function validateToolInputObject(
       if (v === undefined) continue;
       if (spec.enum !== undefined && spec.enum.length > 0) {
         if (!spec.enum.some((e) => Object.is(e, v))) {
+          // Name the allowed values: "must be one of the enum values" made the
+          // model guess a second time.
           return {
             ok: false,
-            message: `${tool.name}: parameter "${key}" must be one of the enum values`,
+            message:
+              `${tool.name}: parameter "${key}" must be one of ` +
+              `${spec.enum.map((e) => JSON.stringify(e)).join(', ')} (got ${JSON.stringify(v)})`,
           };
         }
         continue;
