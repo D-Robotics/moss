@@ -335,6 +335,23 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
       for (const tool of tools.slice(0, 5)) out(`    · ${tool.name}`);
       if (tools.length > 5)
         out(zh ? `    … 还有 ${tools.length - 5} 个` : `    … ${tools.length - 5} more`);
+      // D4: resources and prompts are part of the protocol surface; a server
+      // that does not implement them answers "method not found" and the client
+      // maps that to an empty list, so this never fails the whole test.
+      const resources = await client
+        .listResources()
+        .catch(() => [] as Awaited<ReturnType<typeof client.listResources>>);
+      out(zh ? `  ${resources.length} 个资源` : `  ${resources.length} resource(s)`);
+      for (const resource of resources.slice(0, 5)) out(`    · ${resource.uri}`);
+      if (resources.length > 5)
+        out(zh ? `    … 还有 ${resources.length - 5} 个` : `    … ${resources.length - 5} more`);
+      const prompts = await client
+        .listPrompts()
+        .catch(() => [] as Awaited<ReturnType<typeof client.listPrompts>>);
+      out(zh ? `  ${prompts.length} 个提示词` : `  ${prompts.length} prompt(s)`);
+      for (const prompt of prompts.slice(0, 5)) out(`    · ${prompt.name}`);
+      if (prompts.length > 5)
+        out(zh ? `    … 还有 ${prompts.length - 5} 个` : `    … ${prompts.length - 5} more`);
       return 0;
     } catch (failure) {
       err(

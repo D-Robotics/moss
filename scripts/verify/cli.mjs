@@ -40,6 +40,7 @@ import { stage as subagentPromptStage } from './stages/subagent-prompt-contract.
 import { stage as toolSurfaceStage } from './stages/tool-surface.mjs';
 import { stage as imageBudgetStage } from './stages/image-budget.mjs';
 import { stage as loopCommandStage } from './stages/loop-command.mjs';
+import { stage as mcpProtocolStage } from './stages/mcp-protocol.mjs';
 
 const STAGES = new Map(
   [
@@ -59,6 +60,7 @@ const STAGES = new Map(
     toolSurfaceStage,
     imageBudgetStage,
     loopCommandStage,
+    mcpProtocolStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -79,6 +81,7 @@ const FAST_GATE = [
   'tool-surface',
   'image-budget',
   'loop-command',
+  'mcp-protocol',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 

@@ -209,6 +209,22 @@
 - **成本**：中；**风险**：elicitation 与审批语义重叠，要定"谁来问"。
 - **优先级**：P0–P1（协议完整性直接影响生态接入）。
 
+- **进展（2026-11-05）**：resources / prompts 已完成并**可回归证明**——`mcp_resource`（无参列出、
+  带 `uri` 读取）与 `mcp_prompt`（无参列出、带 `name`+`arguments` 展开）已是模型可调用工具；
+  `moss mcp test <name>` 现在同时报告 tools / resources / prompts 三个协议面；新增 verify stage
+  `mcp-protocol`（`scripts/verify/mcp-protocol.mjs` + `scripts/verify/fixtures/mcp-mock-server.mjs`，
+  **6 条断言**）：真实 `McpClient` 对本地 mock stdio server 完成 `tools/list`、`resources/list`+
+  `resources/read`、`prompts/list`+`prompts/get`（含参数）、未知 URI 报协议错误、连接在
+  method-not-found 时仍存活，且 `moss mcp test` 的三种清单都出现。描述长度上限（默认 1,024 字符截断）
+  与 `alwaysLoadTools` 已有。**未做（本轮明确不做）**：elicitation（MCP 要求客户端声明
+  `elicitation` capability 并在运行中弹表单，与 Moss 现有审批语义重叠，且需要 TUI 表单面；
+  不声明 capability，避免 server 发出无法应答的请求）、OAuth（凭据仍只走 env/config header）。
+  这两项保持为待做方向，不计入"已落地"。
+
+  真实 server 实测（2026-11-05，`moss mcp test rdk-docs`）：连接成功、**6 个工具**、
+  **0 resources / 0 prompts**——rdk-docs 目前只发布工具，所以"真实 resources 列表可见"以
+  mock server 的协议级证据为准，rdk-docs 侧诚实记为"server 未发布资源"。
+
 ### D5 编排：workflow 脚本 / agent teams（需要解冻）
 
 - **问题**：Moss 有 `fan_out_subagents` 和 Task OS，但"计划"仍由模型逐轮决定；大规模任务（几百文件
@@ -325,6 +341,14 @@
   审批按新输入判断、`PermissionDenied` 可观测；真实会话中一个"改 exec 参数"的 hook 生效且不绕过 deny 规则。
 - **成本**：低；**风险**：改语义会影响现有 hook 用户，需要新增配置开关或严格向后兼容。
 - **优先级**：P1（与 D5/D11 相比，这是"确定性控制层"最便宜的质量提升）。
+
+- **进展（2026-11-05）**：①②③④ 全部落地并钉住——① `updatedInput` 整对象替换后**重新过审批**
+  （`src/cli/hook-ask.ts`：hook 只能收紧/改写输入，不能绕过 deny）；② deny > ask > allow 的优先级
+  与 exit-code 矩阵有显式 probe（`hooks-contract`，16 条断言）；③ 事件面已含 `PermissionDenied`、
+  `SubagentStart`/`SubagentStop`、`PreCompact`/`PostCompact`、`Stop`、`SessionStart/End`、`Notification`；
+  ④ 原生"非零即阻塞"与 `format:"claude"`"仅 exit 2 阻塞"的刻意差异写进 [`docs/hooks.md`](../hooks.md)
+  并各有 probe；`Stop` 另做成用户可安装完成门（`docs/hooks/stop-verified-completion.mjs`，真实
+  exit 9 / exit 0 对照）。`failClosed` 已作为默认行为（spawn 失败/超时 = 阻塞），不新增开关。
 
 **进度（2026-11-04）**
 
