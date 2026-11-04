@@ -516,6 +516,29 @@ function withBoundNote(text: string, location: SearchLocation): string {
   return `${text}\n${location.bound.note}`;
 }
 
+/**
+ * A search under a path that does not exist used to answer "No matches found",
+ * which reads as "the code is not there". Stat first, so a typo says so.
+ * Returns the refusal text, or null when the target exists (or cannot be
+ * judged, in which case the search itself will report its own failure).
+ */
+async function missingSearchTarget(
+  location: SearchLocation,
+  rawPath: unknown
+): Promise<string | null> {
+  try {
+    await fs.stat(location.dir);
+    return null;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return null;
+  }
+  const shown = typeof rawPath === 'string' && rawPath.trim() ? rawPath.trim() : '.';
+  return (
+    `Error: no such path: ${shown}. Nothing was searched. ` +
+    'Use list_directory to check the path, or omit path to search the workspace root.'
+  );
+}
+
 function presentSearch(text: string, location: SearchLocation, incomplete = false): string {
   if (incomplete) {
     if (text === 'No files found' || text === 'No matches found')
@@ -562,6 +585,8 @@ export const searchFilesTool: Tool = {
   async execute(input, ctx) {
     try {
       const location = resolveSearchLocation(input.path, ctx.workspaceDir);
+      const missing = await missingSearchTarget(location, input.path);
+      if (missing) return redactEgress(missing);
       const rawLimit = Number(input.head_limit ?? input.maxResults);
       const requested = Math.min(
         500,
@@ -720,6 +745,8 @@ export const searchCodeTool: Tool = {
 
     try {
       const location = resolveSearchLocation(input.path, ctx.workspaceDir);
+      const missing = await missingSearchTarget(location, input.path);
+      if (missing) return redactEgress(missing);
       const patternStr = String(input.pattern);
       const cappedResults = location.bound
         ? Math.min(maxResults, location.bound.maxResults)
