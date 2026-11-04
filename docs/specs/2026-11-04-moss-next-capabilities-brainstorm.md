@@ -279,6 +279,17 @@
 
 ### D11 技能运行语义 v2：从"读到一段正文"到"按技能改变运行"
 
+**进度（2026-11-04，D11 第一片）**
+
+- ✅ 技能级 **turn/run 作用域工具限制**：`allowed-tools` / `disallowed-tools` 不再是"只声明不生效"——
+  加载该技能后，本次 run 的后续工具列表被收窄（allowed 为空表示不限制；disallowed 永远隐藏；
+  多次激活只会取交集，不会放宽）；限制只收窄**可见性**，审批照常执行，绝不自动放行。
+- 验收：临时工作区技能 `allowed-tools: [read_file, skill]` + `disallowed-tools: [exec]`，真实 `-p` 会话：
+  加载技能后 `write_file` 不可用 → 模型回 `WRITE-BLOCKED` 且文件未创建；对照组（不加载技能、同一提示）
+  `write_file` 正常创建文件。
+- ⬜ 仍缺：`context: fork`（子代理隔离执行）、技能级 `model`/`effort` 覆盖、`when_to_use` /
+  `arguments` 的目录级展示与替换。
+
 - **问题**：Moss 加载技能只是把正文塞进工具结果；参考产品已经让技能**改变运行本身**：
   Claude 的 `context: fork`（技能作为隔离子代理跑）、`agent`/`background`、`allowed-tools`/
   `disallowed-tools`（仅本次调用预批准/移除工具）、`model`/`effort` 覆盖、技能自身 `hooks`、

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
-import type { Tool } from '../tools/tool-types.js';
+import type { Tool, ToolContext } from '../tools/tool-types.js';
 import { findSkill, parseSkillFile, type SkillManifest } from './skill-registry.js';
+import { applySkillToolScope, describeSkillToolScope } from './skill-tool-scope.js';
 
 /**
  * L2 of progressive disclosure: the full body plus the provenance and resource
@@ -129,7 +130,7 @@ export function createSkillTool(
       },
       required: ['name'],
     },
-    async execute(input: SkillToolInput): Promise<string> {
+    async execute(input: SkillToolInput, ctx: ToolContext): Promise<string> {
       const skill = findSkill(list(), String(input.name ?? '').trim());
       if (!skill) {
         const available =
@@ -153,8 +154,13 @@ export function createSkillTool(
       const maxBodyBytes = SKILL_TOOL_MAX_RESULT_TOKENS * BYTES_PER_TOKEN - WRAPPER_RESERVE_BYTES;
       const clipped = clampBytes(body, Math.max(1_000, maxBodyBytes));
       const wrapped = buildWrapper(skill, clipped);
+      // D11: a skill that declares tool restrictions narrows the rest of the
+      // run. The model is told, so it does not try tools it can no longer call.
+      const scopeNote = applySkillToolScope(ctx.runId ?? ctx.sessionKey, skill)
+        ? describeSkillToolScope(ctx.runId ?? ctx.sessionKey)
+        : undefined;
       loaded.set(skill.name, args);
-      return wrapped;
+      return scopeNote ? `${wrapped}\n\n${scopeNote}` : wrapped;
     },
   };
 }

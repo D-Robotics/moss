@@ -32,6 +32,7 @@ import type { AgentLoopRun } from './agent-loop-run-state.js';
 import type { SkillCatalogPort } from '../../contracts/skill.js';
 import { renderSkillCatalog, type SkillCatalogStats } from '../skills/skill-catalog.js';
 import { createSkillTool } from '../skills/skill-tool.js';
+import { skillScopeAllowsTool } from '../skills/skill-tool-scope.js';
 import {
   buildAgentBehaviorPrompt,
   buildAgentBehaviorPromptQuick,
@@ -1257,6 +1258,9 @@ ${result.stderr ?? ''}`.trim();
     });
     const visibleForRun = (tool: Tool): boolean =>
       this.deferredTools.isOffered(tool.name) &&
+      // D11: a skill that declared allowed-tools/disallowed-tools narrows this
+      // run; the filter runs per turn, so it applies right after the load.
+      skillScopeAllowsTool(runId, tool.name) &&
       toolVisibleForRun(tool.name, {
         taskFlow: ledgerVisible ? true : options?.taskFlow,
         deviceConfigured: options?.deviceConfigured,

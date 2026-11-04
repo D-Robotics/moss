@@ -38,6 +38,7 @@ export function bundledRdkDocsSkill(): SkillManifest {
     description: 'Look up RDK manual pages; judge snippets and cite the URL.',
     when: 'an RDK board fact is needed',
     allowedTools: [],
+    disallowedTools: [],
     metadata: {},
     globs: [],
     scope: 'bundled',

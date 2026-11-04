@@ -82,8 +82,13 @@ export interface SkillManifest {
   version?: string;
   license?: string;
   compatibility?: string;
-  /** Spec `allowed-tools`: declared, audited, never used to auto-approve. */
+  /**
+   * Spec `allowed-tools`: narrows the tools offered for the rest of the run
+   * once the skill loads. Never auto-approves a call (approval still runs).
+   */
   allowedTools: string[];
+  /** Spec `disallowed-tools`: tools hidden for the rest of the run. */
+  disallowedTools: string[];
   metadata: Record<string, string>;
   /** Moss extension: workspace-relative globs that activate the skill's catalog entry. */
   globs: string[];

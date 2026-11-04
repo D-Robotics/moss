@@ -244,6 +244,7 @@ export function readSkillManifest(
   const license = asString(parsed.fields.license);
   const compatibility = asString(parsed.fields.compatibility);
   const allowedTools = asStringList(parsed.fields['allowed-tools']);
+  const disallowedTools = asStringList(parsed.fields['disallowed-tools']);
   const globs = asStringList(parsed.fields.globs);
   return {
     issues,
@@ -255,6 +256,7 @@ export function readSkillManifest(
       ...(license ? { license } : {}),
       ...(compatibility ? { compatibility } : {}),
       allowedTools,
+      disallowedTools,
       metadata,
       globs,
       scope,

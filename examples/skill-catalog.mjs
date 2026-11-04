@@ -11,6 +11,7 @@ const skill = {
   description: 'Use before deploying: prints the checklist token the operator expects.',
   when: 'the user asks whether a deploy is ready',
   allowedTools: [],
+  disallowedTools: [],
   metadata: {},
   globs: [],
   scope: 'workspace',
