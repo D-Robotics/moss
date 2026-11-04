@@ -98,7 +98,16 @@ readline REPL 每次启动 history 为空，Up 只能回到本次会话。现在
    `runOneShot:enter` → `before-git-snapshot` → `before-streamChat` → `loop:turn_start` → `loop:before-prepareTurnContext`
    → `loop:before-executeLlmTurn`（+93ms）后**再无输出**，stub 侧连 TCP 连接都没有（`server.on('connection')` 零事件）。
    即卡点在 `executeLlmTurn` 内部、真正发起请求之前，不是 REPL 外壳、不是 `prepareTurnContext`、也不是 provider 之前的
-   git/CLI 准备。**尚未定位**：`executeLlmTurn` 内部（`src/core/loop/agent-loop-llm-call.ts`）哪一步 await 永不返回。下一轮建议的定位手段：
+   git/CLI 准备。**再进一步（本轮）**：把 `executeLlmTurn` 之后的等待点用行为实验钉住——
+4. REPL 的 `/status` 显示 `model: fake-model-marker (openai-compatible)`，说明**配置确实被 REPL 读到**（不是「REPL 忽略 config」）；
+5. 给 REPL 设 `MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS=3000` 后再提交：3s 时打点触发
+   `retrying (attempt 1)…` → `Error: No response from the model within 3s (no streaming output…)` → `⏺ Incomplete`，
+   即挂起发生在「等第一个 stream chunk」的 await 上（`abortable(iterator.next(), streamSignal)`），
+   **但同一时刻 stub 侧 `server.on('connection')` 仍然是 0** —— 请求连 TCP 都没建立。
+6. 这条超时路径本身就是可用的逃生阀：用户不会永远卡 `Working`，45s（默认）后会给出可行动错误文案。
+   **尚未定位**：为什么 provider 在建立连接前就停住（不是 `abortable` 本身、不是 config、不是 REPL 外壳）。
+   下一轮建议的定位手段（比打点更直接）：在 provider `streamFn` 内部（`src/provider/pi-ai-*`）打点
+   `resolveApiKey`/`resolveModel`/`fetch` 三段，或直接对 REPL 子进程 `node --inspect` 取 async stack。
    `node --inspect` + inspector 的 `Runtime.getPromiseDetails`/async stack，或在 `runOneShot` 与 `streamChat` 之间
    临时插桩（`MOSS_TURN_TRACE=1`）看最后一个打点停在哪；不要在未定位前当成「REPL 不能聊天」的结论——
    `-p`、TUI、管道三条路径都正常，这一条只影响 `MOSS_NO_TUI=1` 的 readline 交互面，属于 P1（非 P0）。
