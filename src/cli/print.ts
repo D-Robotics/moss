@@ -132,6 +132,8 @@ export type HeadlessResultEvent = {
   result: string;
   duration_ms: number;
   num_turns: number;
+  /** Milliseconds from run start to the first streamed token, when observed. */
+  first_token_ms?: number;
   session_id: string;
   total_cost_usd: number | null;
   cost_unavailable: boolean;
@@ -209,6 +211,8 @@ export interface HeadlessPrintState {
   outputContinuationMax?: number;
   lastError?: string;
   lastErrorDetails?: MossErrorOutcome;
+  /** Wall time from run start to the first streamed token (from run_metrics). */
+  firstTokenMs?: number;
   resultEmitted: boolean;
   structuredOutputRequested: boolean;
   usageSlices: UsageSlice[];
@@ -478,6 +482,7 @@ function formatResult(
       : {}),
   };
   if (result?.usage) event.usage = result.usage;
+  if (state.firstTokenMs !== undefined) event.first_token_ms = state.firstTokenMs;
   const shell = headlessResultShell();
   if (shell) event.shell = shell;
   if (errorMessage) event.error = redactText(errorMessage);

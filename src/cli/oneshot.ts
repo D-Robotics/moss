@@ -560,6 +560,12 @@ export async function runOneShot(
           };
     for await (const event of agent.streamChat(sessionKey, message, streamOptions)) {
       options.onAgentEvent?.(event);
+      // The provider already reports time-to-first-token per call; the JSON
+      // result exposes the first observation instead of discarding the only
+      // signal that splits prompt assembly from the provider round-trip.
+      if (event.type === 'llm_usage' && event.ttftMs != null && state.firstTokenMs === undefined) {
+        state.firstTokenMs = event.ttftMs;
+      }
       noteRunCompletionEvent(completionTracker, event);
       const structuredEvents = formatHeadlessStreamEvent(state, event);
       if (outputFormat === 'text') {

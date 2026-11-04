@@ -66,6 +66,16 @@
 | B16 | P1     | 独立评审（`review_changes`）不会自动用任务验收标准当 rubric，模型必须手填 `criteria`            | `review_changes` 已有 `criteria` 输入（`src/tools/review-tools.ts`），但没人自动传；`task_define` 的 acceptance criteria 在 `.moss/tasks.jsonl`（`listTaskRecords`）里躺着不用                                                                                                    | Cursor Agent Review 按任务标准评分（`docs/research/2026-11-05-cursor-acceptance-loop.md` §2.2、§5.1「acceptance criteria 作为评审 rubric」）                                                                                              | 真实 `-p`（脚本化 provider）在含 `.moss/tasks.jsonl` 的工作区触发 `review_changes`：reviewer 请求体必须含 `Task <id>` 与验收标准原文，工具结果含 `rubric: task <id>`；verify probe 断言最新任务胜出、可选 criterion 标注 `(optional)`、无任务返回 undefined                                                                                                                                                                                        | ✅ 完成                                                                                                                                                 |
 | B17 | P2     | REPL（非 TUI）里运行中的一轮无法被按键中断：Esc 与 Ctrl+C 都不生效，用户只能等它跑完            | 真实 PTY 探针（见 §3 B17）：慢流 stub + REPL，按 Esc 后 provider 继续发出 95 个 token、无客户端中断、无 Interrupted 提示；Ctrl+C 同样无效                                                                                                                                         | Cursor / Claude Code 的“按 Esc 停止当前生成”是核心手感；TUI 已实现（bench 的 typing-stream-interrupt 场景 PASS，interrupt_ms 46–91ms）                                                                                                    | 真实 PTY 复跑：按 Esc / Ctrl+C 后 provider 侧 2.5s 内新增 token = 0，且出现 Interrupted 提示；REPL 与 TUI 行为一致                                                                                                                                                                                                                                                                                                                                 | ✅ 完成（REPL 运行中 Esc/Ctrl+C 可中断；文案恢复统一口径；真实 PTY 四场景验证）                                                                         |
 
+**H6 第一片（2026-11-05）：把首字延迟暴露到 headless JSON 结果**
+loop 早就在测 `firstTokenMs`（`run_metrics`）与每次调用的 `ttftMs`（`llm_usage`），但 **CLI 一个都没消费**——
+`-p --output-format json` 里只有 `duration_ms`，想拆分「prompt 组装 vs provider 往返」只能靠猜。
+现在 `result` 事件新增 `first_token_ms`（首次观测到的 ttft），`HeadlessResultEvent` 与 `HeadlessPrintState` 同步带上。
+**真实证据（真实 CLI + 脚本化 provider，同一工作区两次）**：
+
+- provider 首字节延迟 400ms：`exit 0 | first_token_ms 411 | duration_ms 592`；
+- 延迟 0ms：`exit 0 | first_token_ms 8 | duration_ms 163`。
+  也就是说这个字段确实反映 provider 停顿，而不是固定值；差值（duration − first_token）≈ 其余装配/收尾开销，可作为下一步优化的基线。
+
 **H4 余量（2026-11-05）：会话内 `/skills` 可见技能成本/使用/评测**
 `moss skill list` 早就有「scope / used / catalog 字符 / evals」四列，但**会话里没有等价入口**（`/skills` 不是命令），
 用户想判断「这个技能占多少上下文、到底用不用」必须退出会话。现在把列表渲染抽成
