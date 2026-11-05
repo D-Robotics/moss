@@ -61,6 +61,7 @@ import { stage as helpSurfaceStage } from './stages/help-surface.mjs';
 import { stage as slashDispatchStage } from './stages/slash-dispatch.mjs';
 import { stage as todosViewStage } from './stages/todos-view.mjs';
 import { stage as doctorBehaviorStage } from './stages/doctor-behavior.mjs';
+import { stage as diagnosticsStage } from './stages/diagnostics.mjs';
 
 const STAGES = new Map(
   [
@@ -101,6 +102,7 @@ const STAGES = new Map(
     slashDispatchStage,
     todosViewStage,
     doctorBehaviorStage,
+    diagnosticsStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -142,6 +144,7 @@ const FAST_GATE = [
   'slash-dispatch',
   'todos-view',
   'doctor-behavior',
+  'diagnostics',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 

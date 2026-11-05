@@ -25,6 +25,7 @@ import { createWebSearchTool } from './web-search.js';
 import { backgroundExecTools } from './background-exec.js';
 import { createExecEventCollector, formatExecEventResult } from './exec-events.js';
 import { harnessTools } from './harness-tools.js';
+import { diagnosticsTool } from './diagnostics.js';
 import { deviceTools } from './device-tools.js';
 import { evidenceTools } from './evidence-tools.js';
 import { taskTools } from './task-tools.js';
@@ -601,6 +602,7 @@ export const builtinTools: Tool[] = [
   reviewChangesTool,
   ...backgroundExecTools,
   ...harnessTools,
+  diagnosticsTool,
   ...deviceTools,
   ...evidenceTools,
   ...taskTools,

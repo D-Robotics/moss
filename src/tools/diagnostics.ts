@@ -1,0 +1,564 @@
+/**
+ * D8 code intelligence, first slice: one aggregated, normalized view of the
+ * workspace's compiler and linter findings.
+ *
+ * `exec` can already reach `tsc`/`eslint`, but it returns one undifferentiated
+ * blob and the model pays for re-parsing it every turn. This tool runs the
+ * workspace's own toolchains once — `tsc --noEmit --pretty false` and
+ * `eslint . --format json` — normalizes both into
+ * `{file, line, column, severity, code, message, source}`, and renders a
+ * compact, sorted, capped list. A repair loop can then re-run it after an edit
+ * and see the remaining findings without a second round of grep/exec.
+ *
+ * Readonly: `--noEmit` writes no JS, eslint runs without `--fix`, and the tools
+ * resolve from the workspace (or `MOSS_TSC_PATH` / `MOSS_ESLINT_PATH`) instead
+ * of whatever happens to be on PATH. A missing toolchain is reported as
+ * actionable text, never thrown.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { runProcess, ProcessError } from '../utils/run-process.js';
+import type { Tool, ToolContext } from '../core/tools/tool-types.js';
+
+export interface DiagnosticsInput {
+  /** Only keep findings at or under these files/directories (workspace-relative or absolute). */
+  paths?: string[];
+  /** Cap on rendered findings (default 50, maximum 500). */
+  max?: number;
+}
+
+export type DiagnosticSource = 'tsc' | 'eslint';
+export type DiagnosticSeverity = 'error' | 'warning';
+
+export interface Diagnostic {
+  /** Workspace-relative path (POSIX separators); '' for a project-level tsc error. */
+  file: string;
+  line: number;
+  column: number;
+  severity: DiagnosticSeverity;
+  /** `TS2322` for tsc, the rule id (or `fatal`) for eslint. */
+  code: string;
+  message: string;
+  source: DiagnosticSource;
+}
+
+const DEFAULT_MAX = 50;
+const MAX_LIMIT = 500;
+const MESSAGE_MAX_CHARS = 300;
+const TSC_TIMEOUT_MS = 180_000;
+const ESLINT_TIMEOUT_MS = 120_000;
+
+/** `src/a.ts(12,7): error TS2322: …` — tsc with `--pretty false`. */
+const TSC_LOCATED_RE = /^(.*?)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.*)$/;
+/** Older/alternate tsc format: `src/a.ts:12:7 - error TS2322: …`. */
+const TSC_COLON_RE = /^(.*?):(\d+):(\d+)\s+-\s+(error|warning)\s+(TS\d+):\s*(.*)$/;
+/** Project-level tsc error with no location: `error TS5083: Cannot read file …`. */
+const TSC_GLOBAL_RE = /^(error|warning)\s+(TS\d+):\s*(.*)$/;
+
+const ESLINT_CONFIG_FILES = [
+  'eslint.config.mjs',
+  'eslint.config.js',
+  'eslint.config.cjs',
+  'eslint.config.ts',
+  '.eslintrc',
+  '.eslintrc.json',
+  '.eslintrc.js',
+  '.eslintrc.cjs',
+  '.eslintrc.yml',
+  '.eslintrc.yaml',
+] as const;
+
+const TSC_SEGMENTS = ['node_modules', 'typescript', 'bin', 'tsc'] as const;
+const ESLINT_SEGMENTS = ['node_modules', 'eslint', 'bin', 'eslint.js'] as const;
+
+interface ResolvedTool {
+  path: string;
+  /** Run through `process.execPath` (JS file or `#!…node` script); keeps Windows working. */
+  viaNode: boolean;
+}
+
+interface RunOutcome {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  spawnError?: string;
+}
+
+function isFile(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * macOS `TMPDIR` is a symlink (`/var` → `/private/var`) and `runProcess`
+ * canonicalizes the child's cwd, so a toolchain can report absolute file paths
+ * under the real path while ctx.workspaceDir still has the symlink. Compare and
+ * relativize against the canonical root, or eslint findings look external.
+ */
+function canonicalWorkspace(workspaceDir: string): string {
+  try {
+    return fs.realpathSync(workspaceDir);
+  } catch {
+    return workspaceDir;
+  }
+}
+
+/** Walk up from `start` to the filesystem root; undefined when no candidate exists. */
+function findUp(start: string, segments: readonly string[]): string | undefined {
+  let dir = path.resolve(start);
+  for (;;) {
+    const candidate = path.join(dir, ...segments);
+    if (isFile(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+function isNodeScript(filePath: string): boolean {
+  if (/\.(?:c|m)?js$/.test(filePath)) return true;
+  try {
+    const head = fs.readFileSync(filePath, 'utf8').slice(0, 160);
+    return /^#!.*\bnode\b/.test(head);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve a toolchain in priority order: the explicit env override, then the
+ * workspace's own `node_modules`, then the nearest ancestor `node_modules` (a
+ * repo root when the workspace is nested in one). `envInvalid` distinguishes a
+ * typo'd override from "not installed" so the note can name the bad path.
+ */
+function resolveNodeScript(
+  envValue: string | undefined,
+  workspaceDir: string,
+  segments: readonly string[]
+): { tool?: ResolvedTool; envInvalid?: string } {
+  const raw = envValue?.trim();
+  if (raw) {
+    const abs = path.isAbsolute(raw) ? raw : path.resolve(workspaceDir, raw);
+    if (isFile(abs)) return { tool: { path: abs, viaNode: isNodeScript(abs) } };
+    return { envInvalid: abs };
+  }
+  const found = findUp(workspaceDir, segments);
+  return found ? { tool: { path: found, viaNode: isNodeScript(found) } } : {};
+}
+
+function hasEslintConfig(workspaceDir: string): boolean {
+  if (ESLINT_CONFIG_FILES.some((name) => isFile(path.join(workspaceDir, name)))) return true;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(workspaceDir, 'package.json'), 'utf8')) as {
+      eslintConfig?: unknown;
+    };
+    return pkg.eslintConfig !== undefined && pkg.eslintConfig !== null;
+  } catch {
+    return false;
+  }
+}
+
+async function runToolchain(
+  tool: ResolvedTool,
+  args: readonly string[],
+  ctx: ToolContext,
+  timeoutMs: number
+): Promise<RunOutcome> {
+  const command = tool.viaNode ? process.execPath : tool.path;
+  const argv = tool.viaNode ? [tool.path, ...args] : [...args];
+  try {
+    const result = await runProcess(command, {
+      args: argv,
+      cwd: canonicalWorkspace(ctx.workspaceDir),
+      timeout: timeoutMs,
+      ...(ctx.abortSignal ? { signal: ctx.abortSignal } : {}),
+    });
+    return {
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      timedOut: false,
+    };
+  } catch (err) {
+    if (err instanceof ProcessError) {
+      return {
+        stdout: err.stdout,
+        stderr: err.stderr,
+        exitCode: err.exitCode,
+        timedOut: err.timedOut,
+      };
+    }
+    return {
+      stdout: '',
+      stderr: '',
+      exitCode: null,
+      timedOut: false,
+      spawnError: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function toPosix(filePath: string): string {
+  return filePath.replaceAll('\\', '/');
+}
+
+/** Workspace-relative when possible, absolute otherwise; '' stays ''. */
+function normalizeFile(raw: string, workspaceDir: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const abs = path.isAbsolute(trimmed)
+    ? path.resolve(trimmed)
+    : path.resolve(workspaceDir, trimmed);
+  const rel = path.relative(path.resolve(workspaceDir), abs);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return toPosix(abs);
+  return toPosix(rel);
+}
+
+function capMessage(text: string): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  return oneLine.length > MESSAGE_MAX_CHARS
+    ? `${oneLine.slice(0, MESSAGE_MAX_CHARS - 1)}…`
+    : oneLine;
+}
+
+function asNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+function parseTscOutput(stdout: string, workspaceDir: string): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  let last: Diagnostic | undefined;
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.replace(/\r$/, '');
+    if (!line.trim()) continue;
+    const matched = TSC_LOCATED_RE.exec(line) ?? TSC_COLON_RE.exec(line);
+    if (matched) {
+      const [, file, lineText, columnText, severity, code, message] = matched;
+      last = {
+        file: normalizeFile(file ?? '', workspaceDir),
+        line: Number(lineText),
+        column: Number(columnText),
+        severity: severity === 'warning' ? 'warning' : 'error',
+        code: code ?? 'TS',
+        message: capMessage(message ?? ''),
+        source: 'tsc',
+      };
+      diagnostics.push(last);
+      continue;
+    }
+    const global = TSC_GLOBAL_RE.exec(line.trim());
+    if (global) {
+      const [, severity, code, message] = global;
+      last = {
+        file: '',
+        line: 0,
+        column: 0,
+        severity: severity === 'warning' ? 'warning' : 'error',
+        code: code ?? 'TS',
+        message: capMessage(message ?? ''),
+        source: 'tsc',
+      };
+      diagnostics.push(last);
+      continue;
+    }
+    // Indented follow-up of the previous error (tsc's "  Types of property …"
+    // continuation lines) belongs to that diagnostic, not to a new one.
+    if (last && /^\s{2,}\S/.test(line) && !/^Found \d+ error/.test(line.trim())) {
+      last.message = capMessage(`${last.message} ${line.trim()}`);
+    }
+  }
+  return diagnostics;
+}
+
+function parseEslintOutput(
+  stdout: string,
+  workspaceDir: string
+): { diagnostics: Diagnostic[]; parseError?: string } {
+  const text = stdout.trim();
+  if (!text) return { diagnostics: [] };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Some plugins print banners before the JSON array; keep the array body.
+    const start = text.indexOf('[');
+    const end = text.lastIndexOf(']');
+    if (start < 0 || end <= start)
+      return { diagnostics: [], parseError: 'no JSON array in output' };
+    try {
+      parsed = JSON.parse(text.slice(start, end + 1));
+    } catch {
+      return { diagnostics: [], parseError: 'unparseable JSON' };
+    }
+  }
+  if (!Array.isArray(parsed)) return { diagnostics: [], parseError: 'output is not a JSON array' };
+
+  const diagnostics: Diagnostic[] = [];
+  for (const fileEntry of parsed) {
+    const entry = fileEntry as { filePath?: unknown; messages?: unknown };
+    const filePath = typeof entry.filePath === 'string' ? entry.filePath : '';
+    if (!Array.isArray(entry.messages)) continue;
+    for (const raw of entry.messages) {
+      const finding = raw as {
+        line?: unknown;
+        column?: unknown;
+        severity?: unknown;
+        ruleId?: unknown;
+        message?: unknown;
+        fatal?: unknown;
+      };
+      // 2 = error, 1 = warning; 0 is a "disable" hint, not a finding.
+      const severity: DiagnosticSeverity | undefined =
+        finding.severity === 2 ? 'error' : finding.severity === 1 ? 'warning' : undefined;
+      if (!severity) continue;
+      const fallbackCode = finding.fatal === true ? 'fatal' : 'eslint';
+      diagnostics.push({
+        file: normalizeFile(filePath, workspaceDir),
+        line: asNumber(finding.line),
+        column: asNumber(finding.column),
+        severity,
+        code: typeof finding.ruleId === 'string' && finding.ruleId ? finding.ruleId : fallbackCode,
+        message: capMessage(typeof finding.message === 'string' ? finding.message : ''),
+        source: 'eslint',
+      });
+    }
+  }
+  return { diagnostics };
+}
+
+function resolveMax(raw: unknown): number {
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_MAX;
+  return Math.min(Math.floor(value), MAX_LIMIT);
+}
+
+function resolveFilters(raw: unknown, workspaceDir: string): string[] {
+  if (!Array.isArray(raw)) return [];
+  const root = path.resolve(workspaceDir);
+  const filters: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'string' || !entry.trim()) continue;
+    const value = entry.trim();
+    filters.push(path.isAbsolute(value) ? path.resolve(value) : path.resolve(root, value));
+  }
+  return filters;
+}
+
+/** A path filter keeps a finding under that file/dir. Project-level tsc errors always stay. */
+function matchesPaths(
+  diagnostic: Diagnostic,
+  filters: readonly string[],
+  workspaceDir: string
+): boolean {
+  if (filters.length === 0) return true;
+  if (!diagnostic.file) return true;
+  const abs = path.isAbsolute(diagnostic.file)
+    ? path.resolve(diagnostic.file)
+    : path.resolve(workspaceDir, diagnostic.file);
+  return filters.some((filter) => abs === filter || abs.startsWith(`${filter}${path.sep}`));
+}
+
+function compareDiagnostics(a: Diagnostic, b: Diagnostic): number {
+  return (
+    a.file.localeCompare(b.file) ||
+    a.line - b.line ||
+    a.column - b.column ||
+    a.source.localeCompare(b.source) ||
+    a.code.localeCompare(b.code)
+  );
+}
+
+function firstLine(text: string): string {
+  const line = text
+    .split('\n')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0);
+  return line ? capMessage(line) : '';
+}
+
+function renderDiagnostic(diagnostic: Diagnostic): string {
+  const where = diagnostic.file
+    ? `${diagnostic.file}:${diagnostic.line}:${diagnostic.column}`
+    : '(project)';
+  return `${where} ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message} (${diagnostic.source})`;
+}
+
+export const diagnosticsTool: Tool<DiagnosticsInput> = {
+  name: 'diagnostics',
+  description:
+    'Run the workspace TypeScript and ESLint toolchains and return normalized compiler/linter findings ' +
+    '(file:line:col, severity, code, message, source) sorted and capped. Use it before/after an edit to ' +
+    'see real type and lint errors instead of grepping build output. Readonly: tsc runs with --noEmit and ' +
+    'eslint without --fix. A missing toolchain or an empty result is reported explicitly. Not for running ' +
+    'tests (run_tests) or arbitrary shell commands (exec).',
+  metadata: {
+    leanDescription:
+      'Run the workspace tsc/eslint toolchains and return normalized findings (file:line:col, severity, code, message), sorted and capped. Readonly: no emit, no --fix. Not for running tests (run_tests) or other commands (exec).',
+    sideEffectClass: 'readonly',
+    planMode: 'allow',
+    requiresApproval: false,
+    // Re-running after an edit must observe the new state, not replay the
+    // previous turn's diagnostics from the loop cache.
+    noReplay: true,
+    timeoutMs: 240_000,
+    maxResultTokens: 5_000,
+    truncationHint:
+      'narrow with paths, lower max, or fix the reported findings instead of re-running the whole toolchain',
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      paths: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Only keep findings at or under these files/directories (workspace-relative or absolute). ' +
+          'The toolchain still checks the project; filters apply to the returned list.',
+      },
+      max: {
+        type: 'number',
+        description: `Maximum findings to render (default ${DEFAULT_MAX}, maximum ${MAX_LIMIT}).`,
+      },
+    },
+  },
+  async execute(input, ctx: ToolContext): Promise<string> {
+    const workspaceDir = canonicalWorkspace(ctx.workspaceDir);
+    const max = resolveMax(input?.max);
+    const filters = resolveFilters(input?.paths, workspaceDir);
+    const notes: string[] = [];
+    const sources: DiagnosticSource[] = [];
+    const diagnostics: Diagnostic[] = [];
+
+    const hasTsconfig = isFile(path.join(workspaceDir, 'tsconfig.json'));
+    const hasEslint = hasEslintConfig(workspaceDir);
+    if (!hasTsconfig && !hasEslint) {
+      return [
+        `No diagnostics sources in ${workspaceDir}: no tsconfig.json and no ESLint config were found.`,
+        'Add a tsconfig.json (TypeScript) and/or an ESLint config, then re-run; nothing was executed.',
+      ].join('\n');
+    }
+
+    if (hasTsconfig) {
+      const resolved = resolveNodeScript(process.env.MOSS_TSC_PATH, workspaceDir, TSC_SEGMENTS);
+      if (resolved.envInvalid) {
+        notes.push(
+          `TypeScript: MOSS_TSC_PATH points to ${resolved.envInvalid}, which is not a file — fix the override or unset it.`
+        );
+      } else if (!resolved.tool) {
+        notes.push(
+          'TypeScript: tsconfig.json found but no tsc toolchain resolved — install typescript in the workspace ' +
+            '(npm install -D typescript) or set MOSS_TSC_PATH to node_modules/typescript/bin/tsc.'
+        );
+      } else {
+        sources.push('tsc');
+        const run = await runToolchain(
+          resolved.tool,
+          ['--noEmit', '--pretty', 'false'],
+          ctx,
+          TSC_TIMEOUT_MS
+        );
+        if (run.spawnError) {
+          notes.push(`TypeScript: could not start tsc (${run.spawnError}).`);
+        } else {
+          if (run.timedOut)
+            notes.push(
+              'TypeScript: tsc timed out; raising the budget or narrowing the project is needed.'
+            );
+          const parsed = parseTscOutput(run.stdout, workspaceDir);
+          diagnostics.push(...parsed);
+          if (parsed.length === 0 && run.exitCode !== 0) {
+            const detail = firstLine(run.stderr) || firstLine(run.stdout);
+            notes.push(
+              `TypeScript: tsc exited ${run.exitCode ?? 'unknown'} without parseable diagnostics${detail ? ` — ${detail}` : ''}.`
+            );
+          }
+        }
+      }
+    }
+
+    if (hasEslint) {
+      const resolved = resolveNodeScript(
+        process.env.MOSS_ESLINT_PATH,
+        workspaceDir,
+        ESLINT_SEGMENTS
+      );
+      if (resolved.envInvalid) {
+        notes.push(
+          `ESLint: MOSS_ESLINT_PATH points to ${resolved.envInvalid}, which is not a file — fix the override or unset it.`
+        );
+      } else if (!resolved.tool) {
+        notes.push(
+          'ESLint: an ESLint config was found but no eslint toolchain resolved — install eslint in the workspace ' +
+            '(npm install -D eslint) or set MOSS_ESLINT_PATH to node_modules/eslint/bin/eslint.js.'
+        );
+      } else {
+        sources.push('eslint');
+        const run = await runToolchain(
+          resolved.tool,
+          ['.', '--format', 'json'],
+          ctx,
+          ESLINT_TIMEOUT_MS
+        );
+        if (run.spawnError) {
+          notes.push(`ESLint: could not start eslint (${run.spawnError}).`);
+        } else {
+          if (run.timedOut)
+            notes.push(
+              'ESLint: eslint timed out; raising the budget or narrowing paths is needed.'
+            );
+          const parsed = parseEslintOutput(run.stdout, workspaceDir);
+          diagnostics.push(...parsed.diagnostics);
+          if (parsed.parseError) {
+            const detail = firstLine(run.stderr);
+            notes.push(`ESLint: ${parsed.parseError}${detail ? ` — ${detail}` : ''}.`);
+          } else if (parsed.diagnostics.length === 0 && run.exitCode !== 0 && run.exitCode !== 1) {
+            // 1 is the normal "findings present" exit; anything else is a
+            // config/crash failure that produced no findings.
+            const detail = firstLine(run.stderr) || firstLine(run.stdout);
+            notes.push(
+              `ESLint: exited ${run.exitCode ?? 'unknown'} without diagnostics${detail ? ` — ${detail}` : ''}.`
+            );
+          }
+        }
+      }
+    }
+
+    const filtered = diagnostics.filter((diagnostic) =>
+      matchesPaths(diagnostic, filters, workspaceDir)
+    );
+    const sorted = [...filtered].sort(compareDiagnostics);
+    const shown = sorted.slice(0, max);
+    const errors = filtered.filter((diagnostic) => diagnostic.severity === 'error').length;
+    const warnings = filtered.length - errors;
+    const from = sources.length > 0 ? sources.join(', ') : 'no toolchain';
+
+    const lines = [`${errors} error(s), ${warnings} warning(s) from ${from}`];
+    if (filters.length > 0) {
+      lines.push(
+        `Filtered to: ${filters.map((filter) => normalizeFile(filter, workspaceDir)).join(', ')}`
+      );
+    }
+    if (shown.length === 0) {
+      lines.push(
+        sources.length === 0
+          ? 'No diagnostics were run — see the notes below.'
+          : 'No diagnostics found — the checked project is clean.'
+      );
+    } else {
+      for (const diagnostic of shown) lines.push(renderDiagnostic(diagnostic));
+      if (filtered.length > shown.length) {
+        lines.push(
+          `(${filtered.length} diagnostics total; showing ${shown.length} — raise max to see more.)`
+        );
+      }
+    }
+    if (notes.length > 0) {
+      lines.push('Notes:', ...notes.map((note) => `- ${note}`));
+    }
+    return lines.join('\n');
+  },
+};
