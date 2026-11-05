@@ -32,6 +32,8 @@ export interface LoopOptions {
   watch?: string;
   /** How long `--watch` waits for a change before ending the loop (0 = default 10m). */
   watchTimeoutMs: number;
+  /** Cap on a single `--until` run; a hang stops the loop instead of eating attempts. */
+  untilTimeoutMs: number;
 }
 
 /** First line of a run: lets `loop list` tell "still running" from "killed". */
@@ -44,6 +46,8 @@ interface LoopStartRecord {
   until: string;
   maxAttempts: number;
   prompt: string;
+  /** Legacy ledgers may lack this; the check cap is per-run. */
+  untilTimeoutMs?: number;
 }
 
 /** One line per attempt, so an overnight loop can be audited afterwards. */
@@ -55,7 +59,14 @@ interface LoopAttemptRecord {
   durationMs: number;
   sessionKey: string;
   agentError?: string;
-  check: { exitCode: number; durationMs: number; stdout: string; stderr: string };
+  check: {
+    exitCode: number;
+    durationMs: number;
+    stdout: string;
+    stderr: string;
+    /** The check never answered: killed by `--until-timeout`, not a verdict. */
+    timedOut?: boolean;
+  };
   passed: boolean;
   /** Wall-clock spent waiting for `--watch` before this attempt. */
   waitedMs?: number;
@@ -70,8 +81,9 @@ interface LoopSummaryRecord {
   maxAttempts: number;
   maxDurationMs: number;
   totalDurationMs: number;
-  reason: 'passed' | 'attempts_exhausted' | 'budget_exhausted' | 'watch_timeout';
+  reason: 'passed' | 'attempts_exhausted' | 'budget_exhausted' | 'watch_timeout' | 'check_timeout';
   until: string;
+  untilTimeoutMs?: number;
   /** The external signal path, when `--watch` was used. */
   watch?: string;
 }
@@ -80,7 +92,7 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_WATCH_TIMEOUT_MS = 10 * 60_000;
 const WATCH_POLL_MS = 500;
 const MAX_ATTEMPTS_CAP = 20;
-const CHECK_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_UNTIL_TIMEOUT_MS = 10 * 60_000;
 
 export function renderLoopUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
@@ -95,6 +107,7 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
       '  --max-duration 30m：整轮墙钟上限，只在两次尝试之间检查（进行中的一轮不会被切断）。',
       '  --watch <路径>：失败后等这个文件/目录变化再跑下一轮（外部信号唤醒，如 CI 产物落地）。',
       '  --watch-timeout 10m：等不到变化就收工（summary reason=watch_timeout，不烧剩余轮次）。',
+      '  --until-timeout 10m：单次检查命令的墙钟上限；挂起（例如等 stdin）就停止并记 reason=check_timeout，不当作判定失败、不烧剩余轮次。',
       '  每轮的退出码/耗时/检查输出尾部/改动会写进 .moss/loops/<runId>.jsonl（启动时打印路径）。',
       '  moss loop list [--limit N] [--json]：历史运行（最新在前，离线读账本）。',
       '  moss loop show [<run_id>|latest] [--json]：某次运行的每轮明细与检查输出。',
@@ -119,6 +132,8 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
     '  --watch <path> waits for that file/directory to change before the next attempt',
     '  (an external signal such as a CI artifact); --watch-timeout 10m gives up and ends the',
     '  loop with summary reason watch_timeout instead of burning the remaining attempts.',
+    '  --until-timeout 10m caps one run of the check command; a hang (e.g. waiting on stdin)',
+    '  stops the loop with summary reason check_timeout rather than being treated as a verdict.',
     '  --every and --watch can be combined: the fixed delay runs, then the watch wait.',
     '  The ledger for every attempt (exit code, duration, check output tails) is',
     '  written to .moss/loops/<runId>.jsonl and the path is printed at startup.',
@@ -167,6 +182,7 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
   let maxDurationMs = 0;
   let watch: string | undefined;
   let watchTimeoutMs = 0;
+  let untilTimeoutMs = 0;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? '';
     if (arg === '--') {
@@ -206,6 +222,15 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
       if (watch === '') throw new Error('--watch needs a file or directory path');
       continue;
     }
+    if (arg === '--until-timeout' || arg.startsWith('--until-timeout=')) {
+      const raw = readValue(argv, i, '--until-timeout');
+      if (!arg.includes('=')) i += 1;
+      untilTimeoutMs = parseLoopDuration(raw, '--until-timeout');
+      if (untilTimeoutMs === 0) {
+        throw new Error('--until-timeout must be greater than 0');
+      }
+      continue;
+    }
     if (arg === '--watch-timeout' || arg.startsWith('--watch-timeout=')) {
       const raw = readValue(argv, i, '--watch-timeout');
       if (!arg.includes('=')) i += 1;
@@ -228,6 +253,7 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
     maxDurationMs,
     ...(watch !== undefined ? { watch } : {}),
     watchTimeoutMs: watchTimeoutMs > 0 ? watchTimeoutMs : DEFAULT_WATCH_TIMEOUT_MS,
+    untilTimeoutMs: untilTimeoutMs > 0 ? untilTimeoutMs : DEFAULT_UNTIL_TIMEOUT_MS,
   };
 }
 
@@ -300,10 +326,16 @@ export interface CheckResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** Killed by `--until-timeout`: no verdict was produced. */
+  timedOut?: boolean;
 }
 
 /** Runs the check command; a non-zero exit is data, not an exception. */
-export async function runLoopCheck(until: string, cwd: string): Promise<CheckResult> {
+export async function runLoopCheck(
+  until: string,
+  cwd: string,
+  timeoutMs = DEFAULT_UNTIL_TIMEOUT_MS
+): Promise<CheckResult> {
   const windows = process.platform === 'win32';
   const command = windows ? process.env.ComSpec || 'cmd.exe' : '/bin/sh';
   const args = windows ? ['/d', '/s', '/c', until] : ['-c', until];
@@ -311,7 +343,7 @@ export async function runLoopCheck(until: string, cwd: string): Promise<CheckRes
     const result = await runProcess(command, {
       args,
       cwd,
-      timeout: CHECK_TIMEOUT_MS,
+      timeout: timeoutMs,
       maxBuffer: 2 * 1024 * 1024,
       ...(windows ? { windowsVerbatimArguments: true } : {}),
     });
@@ -322,11 +354,13 @@ export async function runLoopCheck(until: string, cwd: string): Promise<CheckRes
       stdout?: string;
       stderr?: string;
       message?: string;
+      timedOut?: boolean;
     };
     return {
       exitCode: typeof processError.exitCode === 'number' ? processError.exitCode : 1,
       stdout: processError.stdout ?? '',
       stderr: processError.stderr ?? processError.message ?? String(error),
+      ...(processError.timedOut === true ? { timedOut: true } : {}),
     };
   }
 }
@@ -425,6 +459,7 @@ export async function runLoopCommand(
     until: options.until,
     maxAttempts: options.maxAttempts,
     prompt: options.prompt.slice(0, 500),
+    untilTimeoutMs: options.untilTimeoutMs,
   });
   let attempts = 0;
   let pendingWaitMs = 0;
@@ -444,6 +479,7 @@ export async function runLoopCommand(
       totalDurationMs: Date.now() - loopStartedAt,
       reason,
       until: options.until,
+      untilTimeoutMs: options.untilTimeoutMs,
       ...(options.watch ? { watch: options.watch } : {}),
     };
     appendLedger(summary);
@@ -463,13 +499,17 @@ export async function runLoopCommand(
         ? zh
           ? `墙钟预算 ${options.maxDurationMs}ms 用尽（${attempts} 轮后）`
           : `wall-clock budget ${options.maxDurationMs}ms exhausted after ${attempts} attempt(s)`
-        : reason === 'watch_timeout'
+        : reason === 'check_timeout'
           ? zh
-            ? `等 \`${options.watch ?? ''}\` 变化超时（${options.watchTimeoutMs}ms），已停止而不是烧掉剩余轮次`
-            : `no change on \`${options.watch ?? ''}\` within ${options.watchTimeoutMs}ms (--watch-timeout); stopped instead of burning the remaining attempts`
-          : zh
-            ? `${attempts} 轮后 \`${options.until}\` 仍未通过`
-            : `${attempts} attempt(s) and \`${options.until}\` still exited ${lastCheck.exitCode}`;
+            ? `检查命令 ${formatLoopDuration(options.untilTimeoutMs)} 内没有结束（挂起），已停止；这不是判定失败，剩余轮次未消耗`
+            : `the check did not finish within ${formatLoopDuration(options.untilTimeoutMs)} (--until-timeout); it hung, so the loop stopped instead of burning the remaining attempts`
+          : reason === 'watch_timeout'
+            ? zh
+              ? `等 \`${options.watch ?? ''}\` 变化超时（${options.watchTimeoutMs}ms），已停止而不是烧掉剩余轮次`
+              : `no change on \`${options.watch ?? ''}\` within ${options.watchTimeoutMs}ms (--watch-timeout); stopped instead of burning the remaining attempts`
+            : zh
+              ? `${attempts} 轮后 \`${options.until}\` 仍未通过`
+              : `${attempts} attempt(s) and \`${options.until}\` still exited ${lastCheck.exitCode}`;
     const changedLine =
       files && files.length > 0
         ? zh
@@ -514,7 +554,7 @@ export async function runLoopCommand(
     }
     const attemptDurationMs = Date.now() - attemptStartedAt;
     const checkStartedAt = Date.now();
-    lastCheck = await runLoopCheck(options.until, ctx.workspaceDir);
+    lastCheck = await runLoopCheck(options.until, ctx.workspaceDir, options.untilTimeoutMs);
     const checkDurationMs = Date.now() - checkStartedAt;
     attempts = attempt;
     const passed = lastCheck.exitCode === 0;
@@ -531,13 +571,22 @@ export async function runLoopCommand(
         durationMs: checkDurationMs,
         stdout: tailForLedger(lastCheck.stdout),
         stderr: tailForLedger(lastCheck.stderr),
+        ...(lastCheck.timedOut ? { timedOut: true } : {}),
       },
       passed,
       ...(pendingWaitMs > 0 ? { waitedMs: pendingWaitMs } : {}),
     };
     pendingWaitMs = 0;
     appendLedger(record);
-    say(`[loop] attempt ${attempt}/${options.maxAttempts}: check exit ${lastCheck.exitCode}`);
+    say(
+      lastCheck.timedOut
+        ? `[loop] attempt ${attempt}/${options.maxAttempts}: check did not finish within ${formatLoopDuration(options.untilTimeoutMs)} (--until-timeout)`
+        : `[loop] attempt ${attempt}/${options.maxAttempts}: check exit ${lastCheck.exitCode}`
+    );
+    if (lastCheck.timedOut) {
+      reason = 'check_timeout';
+      return await finish(false);
+    }
     if (passed) {
       reason = 'passed';
       return await finish(true);
@@ -616,7 +665,7 @@ interface LoopLedgerRead {
   torn: number;
 }
 
-function readLoopLedger(filePath: string): LoopLedgerRead {
+export function readLoopLedger(filePath: string): LoopLedgerRead {
   const attempts: LoopAttemptRecord[] = [];
   let start: LoopStartRecord | undefined;
   let summary: LoopSummaryRecord | undefined;
@@ -796,9 +845,13 @@ export function renderLoopRunRows(
                 ? zh
                   ? '外部信号等待超时'
                   : 'watch timed out'
-                : zh
-                  ? '轮次用尽'
-                  : 'attempts exhausted';
+                : run.reason === 'check_timeout'
+                  ? zh
+                    ? '检查命令超时（挂起）'
+                    : 'check timed out (hang)'
+                  : zh
+                    ? '轮次用尽'
+                    : 'attempts exhausted';
     const count = `${String(run.attempts)}/${String(run.maxAttempts ?? run.attempts)}`;
     lines.push(
       `  ${clockOf(run.startedAt)}  ${outcome.padEnd(11)}  ${run.runId.slice(-14).padEnd(14)}  att:${count.padEnd(5)} ${formatLoopDuration(run.totalDurationMs).padStart(7)}  ${clipLine(run.until ?? '', 56)}`
@@ -820,7 +873,11 @@ export function formatLoopAttemptLine(attempt: LoopAttemptRecord): string {
   const check = attempt.check;
   return `  ${clockOf(attempt.at)}  #${String(attempt.attempt)}${
     attempt.waitedMs && attempt.waitedMs > 0 ? `  wait ${formatLoopDuration(attempt.waitedMs)}` : ''
-  }  agent ${formatLoopDuration(attempt.durationMs)}  check exit ${String(check.exitCode)} (${formatLoopDuration(check.durationMs)})  ${attempt.passed ? 'PASS' : 'fail'}`;
+  }  agent ${formatLoopDuration(attempt.durationMs)}  ${
+    check.timedOut === true
+      ? `check TIMEOUT (${formatLoopDuration(check.durationMs)})`
+      : `check exit ${String(check.exitCode)} (${formatLoopDuration(check.durationMs)})`
+  }  ${attempt.passed ? 'PASS' : 'fail'}`;
 }
 
 export function formatLoopRunDetail(
