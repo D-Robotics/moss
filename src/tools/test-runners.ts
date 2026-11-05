@@ -565,10 +565,24 @@ function judge(
       );
     }
     if (exitCode === 0) {
+      // Reference harnesses (Claude Code, Cursor) treat a test command's exit
+      // code as the verdict and read the output only for display. Reporting
+      // `tests_pass=false` here told both the model and the acceptance ledger
+      // that a green run failed, purely because the runner's output was not one
+      // of the parsed frameworks — the model then spent another turn proving
+      // the green run with exec. Keep the caveat, keep the verdict honest:
+      // exit 0 is a pass, counts are best-effort.
       return view(
         'unknown',
         blank(output),
-        `Test Results: ⚠️ exit 0, counts unknown\nCommand: ${command}\ntests_pass=false`
+        [
+          'Test Results: ✅ exit 0 (pass/fail counts could not be parsed)',
+          `Command: ${command}`,
+          'tests_pass=true',
+          'The command exited 0, so this is recorded as a passing run. The output did not match the',
+          'built-in reporters (jest/vitest/pytest/go/cargo/make/…); counts are unavailable, and a',
+          'silent or no-op test script would look the same. Run it via exec if you need the raw output.',
+        ].join('\n')
       );
     }
     const why = spawnError ?? `exit ${exitCode}`;
@@ -726,8 +740,13 @@ async function executePlan(
   const actionable = views.filter((view) => view.verdict !== 'notRun');
   const failed = held.length > 0 || actionable.some((view) => view.verdict === 'fail');
   const unknown = !failed && actionable.some((view) => view.verdict === 'unknown');
+  // `unknown` now only comes from the "exit 0 but counts unparsed" branch, which
+  // is a pass by exit-code contract (see judge()). Keep it out of the no-tests
+  // heuristic but count it as passing here.
   const passed =
-    actionable.length > 0 && !failed && actionable.every((view) => view.verdict === 'pass');
+    actionable.length > 0 &&
+    !failed &&
+    actionable.every((view) => view.verdict === 'pass' || view.verdict === 'unknown');
   const notRunViews = views.filter((view) => view.verdict === 'notRun');
   const installNotes = [...new Set(notRunViews.map((view) => view.hint).filter(Boolean))];
   const note = [displayNote, ...installNotes].filter(Boolean).join('\n');

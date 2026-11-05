@@ -66,6 +66,7 @@ import { stage as workflowStage } from './stages/workflow.mjs';
 import { stage as toolLeanStage } from './stages/tool-lean.mjs';
 import { stage as skillBackgroundStage } from './stages/skill-background.mjs';
 import { stage as skillHooksStage } from './stages/skill-hooks.mjs';
+import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
 import { stage as replInterruptStage } from './stages/repl-interrupt.mjs';
 import { stage as helpSurfaceStage } from './stages/help-surface.mjs';
@@ -118,6 +119,7 @@ const STAGES = new Map(
     toolLeanStage,
     skillBackgroundStage,
     skillHooksStage,
+    runTestsVerdictStage,
     contextSurfaceStage,
     replInterruptStage,
     helpSurfaceStage,
@@ -171,6 +173,7 @@ const FAST_GATE = [
   'tool-lean',
   'skill-background',
   'skill-hooks',
+  'run-tests-verdict',
   'context-surface',
   'repl-interrupt',
   'help-surface',
