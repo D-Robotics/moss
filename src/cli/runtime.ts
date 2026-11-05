@@ -729,6 +729,19 @@ export async function runCli(): Promise<void> {
   // D9 policy layer: an org-owned read-only file outranks user/workspace
   // rules. Loading happens once at startup; a malformed file fails closed.
   const orgPolicy = loadOrgPolicy(process.env, workspace);
+  // Claude Code `--allowedTools` / `--disallowedTools`: this run's pre-approval
+  // and removal, expressed in the same rule language as `permissions.*`. Session
+  // source (never persisted), and deny keeps winning over everything.
+  const cliToolRules = parsedArgs.toolRules
+    ? [
+        ...parsedArgs.toolRules.allow.map((spec) =>
+          parsePermissionRuleSpec(spec, 'session', 'allow')
+        ),
+        ...parsedArgs.toolRules.deny.map((spec) =>
+          parsePermissionRuleSpec(spec, 'session', 'deny')
+        ),
+      ]
+    : [];
   const startupPermissionRules: PermissionRule[] = [
     ...orgPolicy.rules,
     ...resolvedConfig.permissions.allow.map((spec) =>
@@ -736,6 +749,7 @@ export async function runCli(): Promise<void> {
     ),
     ...resolvedConfig.permissions.ask.map((spec) => parsePermissionRuleSpec(spec, 'user', 'ask')),
     ...resolvedConfig.permissions.deny.map((spec) => parsePermissionRuleSpec(spec, 'user', 'deny')),
+    ...cliToolRules,
   ];
   const permissionRuleSources = {
     userPath: path.join(configDir, 'config.json'),
@@ -751,6 +765,16 @@ export async function runCli(): Promise<void> {
   {
     const notice = orgPolicyNotice(orgPolicy, isZhLocale());
     if (notice) console.error(notice);
+  }
+  if (cliToolRules.length > 0 && cliDetailForNotices !== 'quiet') {
+    const format = (rule: PermissionRule): string =>
+      `${rule.level} ${rule.toolName}${rule.operandPattern ? `(${rule.operandPattern})` : ''}`;
+    console.error(
+      uiText(
+        `[moss] this run's CLI tool rules: ${cliToolRules.map(format).join(', ')} (not persisted)`,
+        `[moss] 本次运行的 CLI 工具规则：${cliToolRules.map(format).join('、')}（不写入配置）`
+      )
+    );
   }
   const deviceTarget = resolveDefaultDeviceTarget();
   if (deviceTarget) {

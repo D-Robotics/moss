@@ -68,6 +68,13 @@ export interface ParsedCliArgs {
   print: boolean;
   /** `--trust-workspace`: this process may run project hooks, stdio MCP, write agents, and plugins. */
   trustWorkspace: boolean;
+  /**
+   * `--allowed-tools` / `--disallowed-tools`: pre-approve or remove tools for
+   * this run only, using the same rule syntax as `permissions.*`
+   * (`exec(npm test*)`, `write_file`, `domain:example.com`). Session rules, not
+   * persisted; deny still wins over everything else.
+   */
+  toolRules?: { allow: string[]; deny: string[] };
   outputFormat: 'text' | 'json' | 'stream-json';
   maxTurns?: number;
 
@@ -448,6 +455,19 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let outputFormat: ParsedCliArgs['outputFormat'] = 'text';
   let maxTurns: number | undefined;
   let promptOnly = false;
+  let toolRuleSpecs: ParsedCliArgs['toolRules'];
+
+  const addToolRuleSpecs = (kind: 'allow' | 'deny', raw: string, flag: string): void => {
+    const specs = raw
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (specs.length === 0) {
+      throw new Error(`${flag} requires at least one rule, e.g. ${flag} "exec(npm test*)"`);
+    }
+    toolRuleSpecs ??= { allow: [], deny: [] };
+    toolRuleSpecs[kind].push(...specs);
+  };
 
   let unknownOption: string | undefined;
   let lang: 'en' | 'zh' | undefined;
@@ -591,6 +611,28 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     }
     if (arg === '--trust-workspace') {
       trustWorkspace = true;
+      continue;
+    }
+    if (
+      arg === '--allowed-tools' ||
+      arg.startsWith('--allowed-tools=') ||
+      arg === '--allowedTools' ||
+      arg.startsWith('--allowedTools=')
+    ) {
+      const parsed = readValue(argv, i, arg);
+      addToolRuleSpecs('allow', parsed.value, '--allowed-tools');
+      i = parsed.nextIndex;
+      continue;
+    }
+    if (
+      arg === '--disallowed-tools' ||
+      arg.startsWith('--disallowed-tools=') ||
+      arg === '--disallowedTools' ||
+      arg.startsWith('--disallowedTools=')
+    ) {
+      const parsed = readValue(argv, i, arg);
+      addToolRuleSpecs('deny', parsed.value, '--disallowed-tools');
+      i = parsed.nextIndex;
       continue;
     }
     if (arg === '--quiet') {
@@ -781,6 +823,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     version,
     print,
     trustWorkspace,
+    ...(toolRuleSpecs ? { toolRules: toolRuleSpecs } : {}),
     outputFormat,
     maxTurns,
     unknownCommand,
