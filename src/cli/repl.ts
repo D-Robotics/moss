@@ -537,6 +537,22 @@ export async function runInteractive(
       continue;
     }
 
+    if (msg === '/hooks' || msg.startsWith('/hooks ')) {
+      // The hooks view used to be TUI-only; a readline REPL user could not see
+      // which hook fires on what. Shared formatter + the never-fires warnings.
+      const { formatHookViewLines } = await import('./hooks-view.js');
+      const hooks = runtime?.hooksConfig;
+      const lines = formatHookViewLines(hooks, {
+        zh: cliLocale() === 'zh',
+        knownToolNames: agent.tools.getAll().map((tool) => tool.name),
+        ...(runtime?.configDir ? { configDir: runtime.configDir } : {}),
+      });
+      console.error('Hooks');
+      for (const line of lines) console.error(`  ${line}`);
+      rl.prompt();
+      continue;
+    }
+
     if (msg === '/rules' || msg.startsWith('/rules ')) {
       const { collectRuleRows, renderRulesUsage } = await import('./rules-commands.js');
       const { resolveConfigDir } = await import('./config.js');

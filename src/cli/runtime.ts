@@ -1641,6 +1641,14 @@ export async function runCli(): Promise<void> {
       // /permissions from T04 and by 'a' grants through the hook's getter).
       permissionsRules: livePermissionRules,
       permissionRuleRegistry,
+      ...(projectCapabilities.hooks
+        ? {
+            hooksConfig: projectCapabilities.hooks as unknown as Record<
+              string,
+              readonly import('./hooks-view.js').HookViewEntry[]
+            >,
+          }
+        : {}),
     });
     // v0.17: interactive TTY sessions get the full-screen TUI (ink); non-TTY
     // pipes and MOSS_NO_TUI=1 keep the readline REPL. The TUI is dynamically

@@ -2287,60 +2287,18 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/hooks') {
-        // The hooks subsystem is the most powerful config surface (9 events,
-        // blocking vetoes) and used to be manageable only by hand-editing
-        // JSON. The view lists what is live and where to edit it.
-        // O91: in the zh UI every event key is paired with its Chinese display
-        // name (the keys themselves stay the English config literals). Dynamic
-        // import keeps the pure name table off the shell's static graph.
-        const { hookEventCatalogLines, hookEventZhName, isMossHookEventId } =
-          await import('../hook-event-names.js');
-        const zh = isZhLocale();
-        const hooks = (
-          options.cliRuntime?.config as
-            | {
-                hooks?: Record<
-                  string,
-                  Array<{
-                    matcher?: string;
-                    command: string;
-                    timeoutMs?: number;
-                    blocking?: boolean;
-                  }>
-                >;
-              }
-            | undefined
-        )?.hooks;
-        const lines: string[] = [];
-        if (hooks) {
-          for (const [event, entries] of Object.entries(hooks)) {
-            for (const hook of entries ?? []) {
-              const label =
-                zh && isMossHookEventId(event) ? `${event}（${hookEventZhName(event)}）` : event;
-              lines.push(
-                `${label.padEnd(14)} ${hook.matcher ? `[${hook.matcher}] ` : ''}${hook.command}` +
-                  `${hook.blocking ? ' · blocking' : ''}` +
-                  `${hook.timeoutMs !== undefined ? ` · ${hook.timeoutMs}ms` : ''}`
-              );
-            }
-          }
-        }
-        if (lines.length === 0) {
-          lines.push(
-            tui('no hooks configured — add a "hooks" object to the config file:'),
-            ...hookEventCatalogLines(zh),
-            'each entry: { "command": "…", "matcher": "tool-glob", "timeoutMs": 5000, "blocking": true }'
-          );
-        }
-        if (options.cliRuntime?.configDir) {
-          lines.push(
-            '',
-            tui('config dir: {path} (or MOSS_CONFIG_FILE)', {
-              path: options.cliRuntime.configDir,
-            })
-          );
-        }
-        printBlock('Hooks', lines);
+        // Shared with the readline REPL: the hooks view used to exist only in the
+        // TUI, and a matcher/if naming an unregistered tool is flagged there.
+        const { formatHookViewLines } = await import('../hooks-view.js');
+        const hooks = options.cliRuntime?.hooksConfig;
+        printBlock(
+          'Hooks',
+          formatHookViewLines(hooks, {
+            zh: isZhLocale(),
+            knownToolNames: options.agent.tools.getAll().map((tool) => tool.name),
+            ...(options.cliRuntime?.configDir ? { configDir: options.cliRuntime.configDir } : {}),
+          })
+        );
         return;
       }
       if (text === '/mcp') {

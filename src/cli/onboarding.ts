@@ -47,6 +47,12 @@ export interface CliRuntimeStatus {
    * Present from T03 wiring on.
    */
   permissionRuleRegistry?: import('./permission-rules.js').PermissionRuleRegistry;
+  /**
+   * Live lifecycle hooks (user + project merged, after capability resolution).
+   * `/hooks` reads this: `config` here is the resolved CLI config, which does not
+   * carry the hooks table.
+   */
+  hooksConfig?: Record<string, readonly import('./hooks-view.js').HookViewEntry[]>;
 }
 
 interface ToolGroupSummary {
@@ -74,6 +80,7 @@ function createDefaultRuntime(): Required<CliRuntimeStatus> {
     safetyMode: process.env.MOSS_SAFETY_MODE || process.env.MOSS_CLI_SAFETY_MODE || 'full-access',
     sessionKey: 'cli',
     permissionsRules: () => ({ rules: [], sources: {} }),
+    hooksConfig: {},
     permissionRuleRegistry: new PermissionRuleRegistry(),
     config: loadDefaultRuntimeConfig(),
   };
