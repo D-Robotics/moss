@@ -331,6 +331,7 @@ export function renderAuthStatus(
         'supportsImages',
         'reviewMode',
         'verificationGate',
+        'outputStyle',
         'reasoningBudget',
         'compaction',
         'modelTiers',

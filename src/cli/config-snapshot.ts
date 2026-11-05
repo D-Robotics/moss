@@ -91,6 +91,7 @@ const ZH_FIELD: Record<string, string> = {
   images: '图片输入',
   'review mode': '评审模式',
   'verification gate': '验证门',
+  'output style': '输出风格',
   'reasoning budget': '推理强度',
   'max output': '最大输出',
   compaction: '压缩',
@@ -310,6 +311,11 @@ const FIELDS = {
       `${c.verificationGate === false ? uiText('off', '关闭') : uiText('on', '开启')} ${sourceNote(
         c.verificationGateSource ?? 'default'
       )}`,
+  ],
+  outputStyle: [
+    'output style',
+    (c: ResolvedCliConfig) =>
+      `${c.outputStyle ?? 'default'} ${sourceNote(c.outputStyleSource ?? 'default')}`,
   ],
   reasoningBudget: [
     'reasoning budget',

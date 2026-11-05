@@ -48,6 +48,7 @@ import {
   type CliInteractionMode,
 } from './approval.js';
 import { createCliPromptSetup } from './prompt-setup.js';
+import { setOutputStyle } from './output-style.js';
 import { collectSlashNamespace, formatSlashConflict } from './slash-namespace.js';
 import { promptLayersDebugEnabled } from '../core/prompt/index.js';
 import {
@@ -457,6 +458,9 @@ export async function runCli(): Promise<void> {
   if (parsedArgs.interactionModeOverride || startupMode !== 'manual') {
     setCliInteractionMode(startupMode);
   }
+  // D15: install the chosen output style before the prompt layers are built.
+  // It is additive (voice only) and `default` installs no layer.
+  setOutputStyle(resolvedConfig.outputStyle);
   // O72: the resolved mode is printed on every start (stderr), including -p
   // and --quiet, so a user can always tell whether Moss will ask first.
   console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));

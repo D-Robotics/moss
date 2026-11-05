@@ -15,6 +15,7 @@ export type PromptLayerOrigin =
   | 'environment'
   | 'tooling'
   | 'mode'
+  | 'style'
   | 'host';
 
 export interface PromptLayerSpec {

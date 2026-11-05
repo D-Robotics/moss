@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { stdout as standardOutput } from 'node:process';
 import { WORKSPACE_WRITE_LIMIT_EN, WORKSPACE_WRITE_LIMIT_ZH } from './workspace-write-copy.js';
+import { OUTPUT_STYLE_NAMES, parseOutputStyle } from './output-style.js';
 import { isHttpUrl } from '../provider/api-v1-url.js';
 import {
   auditResolvedCliConfig,
@@ -90,6 +91,8 @@ function serializeResolvedConfig(
     reviewModeSource: resolved.reviewMode ? 'config-or-env' : 'default',
     verificationGate: resolved.verificationGate,
     verificationGateSource: resolved.verificationGateSource,
+    outputStyle: resolved.outputStyle,
+    outputStyleSource: resolved.outputStyleSource,
     reasoningBudget: resolved.reasoningBudget ?? 'adaptive',
     reasoningBudgetSource: resolved.reasoningBudgetSource ?? 'default',
     compactionSettings: { ...resolved.compactionSettings },
@@ -407,6 +410,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_BEST_OF_N',
       'MOSS_REVIEW_MODE (off|manual|auto; overrides config review.mode)',
       'MOSS_VERIFICATION_GATE (0|false|off disables the L1 completion gate)',
+      'MOSS_OUTPUT_STYLE (default|explanatory|learning; changes voice, not the engineering rules)',
       'MOSS_REASONING_BUDGET (off|adaptive|high; overrides config agent.reasoningBudget)',
       'MOSS_MODEL_BALANCED',
       'MOSS_MODEL_CHEAP',
@@ -652,6 +656,10 @@ export function renderConfigHelp(zh = false): string {
     '  # "you changed files but never checked" completion gate.',
     '  moss config set review.mode auto      # off|manual|auto',
     '  moss config set verificationGate false',
+    '  # outputStyle — model voice: default | explanatory | learning. Explanatory',
+    '  # explains tradeoffs as it works; learning teaches as it goes. Neither relaxes',
+    '  # tool contracts, approval rules, or the L1 completion gate.',
+    '  moss config set outputStyle explanatory',
     '  moss config set agent.compaction.reserveTokens 20000',
     '  moss config set rdkDocs false',
     '  moss config set rdkDocs.package ../rdk-docs-mcp',
@@ -717,6 +725,9 @@ function renderConfigHelpZh(): string {
     '  # verificationGate=false 关闭 L1「改了文件却没检查」完成门。',
     '  `moss config set review.mode auto`   # 可选值：off|manual|auto',
     '  `moss config set verificationGate false`',
+    '  # outputStyle — 模型语气：default | explanatory | learning。explanatory 边做边解释',
+    '  # 取舍，learning 边做边讲概念；两者都不放松工具契约、审批规则或 L1 完成门。',
+    '  `moss config set outputStyle explanatory`',
     '  `moss config set language auto|en|zh`   # 只写用户配置（不能 --project，项目 .env 也不能设置）',
     '  # 界面语言优先级：--lang > MOSS_LANG > `language` > 系统区域。auto 仅在区域以 zh 开头时用中文。',
   ].join('\n');
@@ -977,8 +988,8 @@ function buildProjectConfigTemplate(): ConfigFile {
 
 function supportedConfigKeys(): string {
   return uiText(
-    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, permissions.osSandbox, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.supportsImages, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
-    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.supportsImages、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
+    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, permissions.osSandbox, outputStyle, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.supportsImages, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
+    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、outputStyle、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.supportsImages、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
   );
 }
 
@@ -1211,6 +1222,22 @@ function applyConfigSetPair(
     if (!setPermissionsKey(next, key, value)) {
       return { ok: false, messages: [supportedConfigKeys()] };
     }
+  } else if (key === 'outputStyle') {
+    const style = parseOutputStyle(value);
+    if (!style) {
+      return {
+        ok: false,
+        messages: [`Supported outputStyle values: ${OUTPUT_STYLE_NAMES.join(', ')}`],
+      };
+    }
+    if (style === 'default') {
+      delete next.outputStyle;
+    } else {
+      next.outputStyle = style;
+    }
+    messages.push(
+      `[config] outputStyle ${style} — changes the model's voice; tool contracts, approval rules, and the completion gate are unchanged.`
+    );
   } else if (key === 'safetyMode') {
     const mode = normalizeSafetyModeConfig(value);
     if (!mode) {
@@ -1554,6 +1581,7 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   let next: ConfigFile = { ...current };
   if (key === 'language') delete next.language;
   else if (key === 'profile') delete next.profile;
+  else if (key === 'outputStyle') delete next.outputStyle;
   else if (key === 'provider') delete next.provider;
   else if (key === 'model') delete next.model;
   else if (key === 'baseUrl') delete next.baseUrl;

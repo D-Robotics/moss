@@ -25,6 +25,7 @@ import {
   selectRequestedRules,
 } from './project-instructions.js';
 import { buildAnswerLanguageLayer } from './cli-locale.js';
+import { buildOutputStyleLayer, currentOutputStyle, subscribeOutputStyle } from './output-style.js';
 import { buildEnvironmentContextLayer } from '../context/environment.js';
 import { PromptAssembler, promptLayersDebugEnabled } from '../core/prompt/index.js';
 import { CapabilityRegistry } from '../core/capabilities/registry.js';
@@ -89,6 +90,24 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
       text: planModeLayer(mode),
     })
   );
+  // Output style (D15): an additive dynamic layer that changes the agent's
+  // voice without touching the base prompt, tool contracts, or safety rules.
+  // `default` removes the layer entirely (no empty layer, no token churn).
+  const installOutputStyleLayer = (style: ReturnType<typeof currentOutputStyle>): void => {
+    const text = buildOutputStyleLayer(style);
+    if (text) {
+      promptLayers.set({
+        id: 'cli:output-style',
+        stability: 'dynamic',
+        origin: 'style',
+        text,
+      });
+    } else {
+      promptLayers.remove('cli:output-style');
+    }
+  };
+  installOutputStyleLayer(currentOutputStyle());
+  subscribeOutputStyle(installOutputStyleLayer);
   // Project instructions: AGENTS.md / CLAUDE.md from the user config dir, the
   // workspace and its ancestors up to the git root, loaded once so the
   // "auto-loaded project instructions" claim in the prompts is real.

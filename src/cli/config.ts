@@ -53,6 +53,7 @@ import { isZhLocale, setupCopy } from './cli-locale.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
 import type { StatusLineConfig } from './status-line.js';
+import { parseOutputStyle, type OutputStyleName } from './output-style.js';
 
 export { envBeforeDotenv };
 export {
@@ -185,6 +186,12 @@ export interface ConfigFile {
    * default true. Env: MOSS_VERIFICATION_GATE (0/false/off disables).
    */
   verificationGate?: boolean;
+  /**
+   * Output style (D15): `default` | `explanatory` | `learning`. Changes the
+   * model's voice (explain more / teach along the way) without relaxing tool
+   * contracts or safety rules. Env: MOSS_OUTPUT_STYLE.
+   */
+  outputStyle?: OutputStyleName | string;
   hooks?: HooksConfig;
   /** Network egress policy for web tools (hostname allowlist). */
   net?: { allowHosts?: string[] };
@@ -987,6 +994,7 @@ export function fieldSourcesFor(
     project.permissions?.defaultMode !== undefined,
     true
   );
+  mark('outputStyle', user.outputStyle !== undefined, project.outputStyle !== undefined, true);
   mark('promptCache', user.promptCache !== undefined, project.promptCache !== undefined, true);
   mark('guardrails', user.guardrails !== undefined, project.guardrails !== undefined, true);
   mark('agent.maxTurns', user.agent?.maxTurns !== undefined, project.agent?.maxTurns !== undefined);
@@ -1645,6 +1653,9 @@ export interface ResolvedCliConfig {
   /** Resolved L1 completion gate switch (default true). */
   verificationGate: boolean;
   verificationGateSource: 'env' | 'config' | 'default';
+  /** Resolved output style (D15); `default` installs no prompt layer. */
+  outputStyle: OutputStyleName;
+  outputStyleSource: 'env' | 'config' | 'default';
   provider: CliProviderPreset;
   providerSource: string;
   apiKey: string;
@@ -2608,6 +2619,14 @@ export function resolveCliConfig(
       : activeConfig.verificationGate !== undefined
         ? 'config'
         : 'default';
+  const outputStyleFromEnv = parseOutputStyle(env.MOSS_OUTPUT_STYLE);
+  const outputStyleFromConfig = parseOutputStyle(activeConfig.outputStyle);
+  const outputStyle: OutputStyleName = outputStyleFromEnv ?? outputStyleFromConfig ?? 'default';
+  const outputStyleSource: 'env' | 'config' | 'default' = outputStyleFromEnv
+    ? 'env'
+    : outputStyleFromConfig
+      ? 'config'
+      : 'default';
   const envBestOfN = envBudgetNum('MOSS_BEST_OF_N');
   const bestOfN =
     envBestOfN !== undefined && envBestOfN >= 2
@@ -2794,6 +2813,8 @@ export function resolveCliConfig(
     ...(reviewMode !== undefined ? { reviewMode } : {}),
     verificationGate,
     verificationGateSource,
+    outputStyle,
+    outputStyleSource,
     ...(reasoningBudget ? { reasoningBudget } : {}),
     reasoningBudgetSource,
     ...(invalidReasoningBudgetEnv ? { invalidReasoningBudgetEnv } : {}),
