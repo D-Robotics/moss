@@ -38,3 +38,6 @@ __pycache__/
 # Qoder IDE session artifacts
 .qoder/
 .qoder-collab-runtime/
+
+# per-checkout incremental build state (B109: never share a worktree cache)
+.cache/
