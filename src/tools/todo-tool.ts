@@ -98,7 +98,7 @@ export const todoWriteTool: Tool = {
     'Replace the checklist. Use for 3+ steps; skip a single trivial step. Exactly one item is in_progress. Each call sends the full list. When a live task exists this writes its plan steps (same list, one source of truth). Not for recording acceptance or evidence — that is record_evidence/task_acceptance.',
   metadata: {
     leanDescription:
-      "Replace the checklist for 3+ steps; exactly one item is in_progress; each call sends the whole list. A live task's plan becomes these steps.",
+      'Replace the checklist for 3+ steps; one in_progress. Not for a single trivial action.',
     sideEffectClass: 'runtime_state',
     planMode: 'allow',
     retainResult: true,

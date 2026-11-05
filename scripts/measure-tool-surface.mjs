@@ -207,10 +207,24 @@ function check() {
     if (lean.length >= full.length) {
       throw new Error(`${tool.name} lean description is not shorter than the full one`);
     }
-    if (lean.length > full.length * 0.6) {
+    // A short full description cannot be cut to 60% and still name a scope; for
+    // those require a real (20-char) cut instead of a ratio, so the lean tier
+    // still removes declaration bytes rather than just relabeling them.
+    if (full.length > 150 && lean.length > full.length * 0.6) {
       throw new Error(
         `${tool.name} lean description is ${lean.length} chars (budget 60% of ${full.length})`
       );
+    }
+    if (full.length <= 150 && lean.length > full.length - 20) {
+      throw new Error(
+        `${tool.name} lean description is ${lean.length} chars (needs >=20 chars less than ${full.length})`
+      );
+    }
+    // D3: the lean tier is one sentence plus the "not for" hint; anything
+    // longer is the full description with a shorter wrapper and defeats the
+    // point of a small-window surface.
+    if (lean.length > 120) {
+      throw new Error(`${tool.name} lean description is ${lean.length} chars (budget 120)`);
     }
   }
   // B08 lean tier coverage: a declared tool whose description is long enough to

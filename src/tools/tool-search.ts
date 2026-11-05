@@ -38,7 +38,7 @@ export const toolSearchTool: Tool = {
     'Loaded tools are callable on the next model call.',
   metadata: {
     leanDescription:
-      'Load deferred tool schemas. group=subagent loads the five sub-agent tools for 3+ independent subtasks, a background child, or an open-ended explore pass. Loaded tools are callable on the next model call.',
+      'Load deferred tool schemas; group=subagent for 3+ subtasks. Not for tools already declared.',
     sideEffectClass: 'readonly',
     planMode: 'allow',
   },

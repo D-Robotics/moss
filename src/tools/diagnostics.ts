@@ -397,7 +397,7 @@ export const diagnosticsTool: Tool<DiagnosticsInput> = {
     'tests (run_tests) or arbitrary shell commands (exec).',
   metadata: {
     leanDescription:
-      'Run the workspace tsc/eslint toolchains and return normalized findings (file:line:col, severity, code, message), sorted and capped. Readonly: no emit, no --fix. Not for running tests (run_tests) or other commands (exec).',
+      'Run workspace tsc/eslint and return normalized findings; readonly. Not for tests (run_tests).',
     sideEffectClass: 'readonly',
     planMode: 'allow',
     requiresApproval: false,

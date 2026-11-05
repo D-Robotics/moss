@@ -961,8 +961,35 @@ export async function runCli(): Promise<void> {
       model: nextModel,
       usingBundledDefault: agent.config.usingBundledDefault,
     });
-  const { registerBuiltinTools } = await (builtinToolsPromise ?? import('../tools/builtin.js'));
+  const { registerBuiltinTools, builtinTools } = await (builtinToolsPromise ??
+    import('../tools/builtin.js'));
   await registerBuiltinTools(agent);
+  // D3 tool-surface experiments: MOSS_HIDE_TOOLS hides tools for an A/B without
+  // editing code. Say what was hidden (and what was not a real tool) so a bench
+  // run cannot silently measure the wrong surface.
+  {
+    const { hiddenToolNames, unknownHiddenToolNames } =
+      await import('../core/agent/session-tool-offer.js');
+    const hidden = hiddenToolNames();
+    if (hidden.size > 0) {
+      const zh = isZhLocale();
+      const registered = new Set(builtinTools.map((tool) => tool.name));
+      const hiddenKnown = [...hidden].filter((name) => registered.has(name));
+      const unknown = unknownHiddenToolNames([...registered], process.env);
+      console.error(
+        zh
+          ? `[moss] 工具实验：MOSS_HIDE_TOOLS 隐藏 ${String(hiddenKnown.length)} 个工具（${hiddenKnown.join(', ')}）`
+          : `[moss] tool experiment: MOSS_HIDE_TOOLS hides ${String(hiddenKnown.length)} tool(s) (${hiddenKnown.join(', ')})`
+      );
+      if (unknown.length > 0) {
+        console.error(
+          zh
+            ? `[moss] MOSS_HIDE_TOOLS 里这些名字不是已注册工具，已忽略：${unknown.join(', ')}`
+            : `[moss] MOSS_HIDE_TOOLS names are not registered tools and were ignored: ${unknown.join(', ')}`
+        );
+      }
+    }
+  }
   // Device targets resolve host > env > .moss/devices.json (registered via
   // `moss device add`); declaring the workspace turns the registry tier on.
   // A project's .moss/devices.json picks a host and an env var whose value is

@@ -447,7 +447,7 @@ export const execLogsTool: Tool = {
     'Not for starting a command (exec with run_in_background) or for foreground output (exec).',
   metadata: {
     leanDescription:
-      'Status and recent output of an exec(run_in_background) command; omit id to list them. wait_for blocks until a line matches. Not for starting one (exec).',
+      'Status/output of an exec(run_in_background) command; wait_for blocks. Not for starting one (exec).',
     sideEffectClass: 'readonly',
     planMode: 'allow',
   },
@@ -610,6 +610,7 @@ export const execStopTool: Tool = {
   description:
     'Stop a background command started by exec_background (terminates its process group on POSIX).',
   metadata: {
+    leanDescription: 'Stop a running background command. Not for finished ones (exec_logs).',
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },
@@ -646,6 +647,8 @@ export const execWaitTool: Tool = {
   description:
     'Wait for background commands. mode=wait_all (default) waits for every id; wait_any returns when the first finishes. Caps at 20 ids and 120s.',
   metadata: {
+    leanDescription:
+      'Wait for background commands (wait_all/wait_any); returns their output. Not for starting one.',
     sideEffectClass: 'readonly',
     planMode: 'allow',
   },
@@ -733,6 +736,8 @@ export const execInputTool: Tool = {
   description:
     'Write to stdin of a command started with exec(run_in_background). Read the reply with exec_logs. eof: true closes stdin.',
   metadata: {
+    leanDescription:
+      'Write stdin to a background command and read the reply. Not for one-shot commands (exec).',
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
   },

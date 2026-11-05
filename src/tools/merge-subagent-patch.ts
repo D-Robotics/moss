@@ -12,7 +12,7 @@ export const mergeSubagentPatchTool: Tool<MergeSubagentPatchInput> = {
     'Merge a completed full-scope sub-agent patch into the parent workspace. Use the lease and patchId returned by create_subagent. The default merge checks the stored artifact and applies it with git --3way; it does not enforce declared writePaths. Review the patch before merging. Not for writing the change yourself (edit_file/apply_patch) — the child already did the work, and a hand copy loses its patch artifact.',
   metadata: {
     leanDescription:
-      "Merge a completed full-scope sub-agent patch into the parent workspace using create_subagent's lease/patchId (git --3way; writePaths are hints). Review the patch first.",
+      'Merge a completed full-scope sub-agent patch (lease/patchId, --3way). Not for new work.',
     sideEffectClass: 'local_write',
     planMode: 'allow',
     requiresApproval: true,

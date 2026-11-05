@@ -1408,7 +1408,7 @@ export const readPdfTool: Tool = {
     'images/screenshots (read_image).',
   metadata: {
     leanDescription:
-      'Extract a local PDF’s text page by page (datasheets, reports, papers); pages like "1-3" reads a slice. Scanned/encrypted PDFs are reported, not guessed. Not for text/source (read_file) or images (read_image).',
+      'Extract a PDF text page by page ("1-3" slices). Scans/encrypted are reported, not guessed. Not for images.',
     classification: { singleCallExempt: true, discovery: true },
     maxResultTokens: 6_000,
     truncationHint:

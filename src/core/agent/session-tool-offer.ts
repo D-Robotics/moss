@@ -74,6 +74,36 @@ export function enrichRunToolContext(
   }
 }
 
+/**
+ * D3 experiment switch: `MOSS_HIDE_TOOLS=todo_write,multi_edit` hides those
+ * tools from the model for this process, so a tool-surface A/B needs no code
+ * edit. It parses per read so probes can flip it; an unknown name is simply
+ * never visible (the CLI warns when the list is set).
+ */
+let hiddenNamesCache: { raw: string; names: ReadonlySet<string> } | undefined;
+
+export function hiddenToolNames(env: NodeJS.ProcessEnv = process.env): ReadonlySet<string> {
+  const raw = env.MOSS_HIDE_TOOLS ?? '';
+  if (hiddenNamesCache?.raw === raw) return hiddenNamesCache.names;
+  const names = new Set(
+    raw
+      .split(',')
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0)
+  );
+  hiddenNamesCache = { raw, names };
+  return names;
+}
+
+/** Tool names in `MOSS_HIDE_TOOLS` that are not registered (for a CLI warning). */
+export function unknownHiddenToolNames(
+  registered: readonly string[],
+  env: NodeJS.ProcessEnv = process.env
+): string[] {
+  const known = new Set(registered);
+  return [...hiddenToolNames(env)].filter((name) => !known.has(name));
+}
+
 export function toolVisibleForRun(
   toolName: string,
   options: {
@@ -91,6 +121,7 @@ export function toolVisibleForRun(
   // never offered: each one duplicates a canonical tool the model already has.
   if (isLegacyAliasToolName(toolName)) return false;
   if (options.hiddenFromModel === true) return false;
+  if (hiddenToolNames().has(toolName)) return false;
   // The plan-exit action is part of plan mode, not a global tool: offering it
   // in normal mode invites a call that cannot open anything.
   if (isPlanOnlyToolName(toolName) && options.planMode !== true) return false;

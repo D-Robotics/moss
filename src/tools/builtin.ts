@@ -162,7 +162,7 @@ export const execTool: Tool = {
   },
   metadata: {
     leanDescription:
-      'Run a shell command in the workspace and return stdout, stderr and the exit code. Not for reading files (read_file), searching (search_code), or finding paths (search_files); not for edits (edit_file/apply_patch). Do not append "&" for long-running processes — use run_in_background. Risky or destructive commands stay gated by the approval policy.',
+      'Run one shell command; returns stdout, stderr, exit code. Long-running: run_in_background. Not for reads/search/edits.',
     classification: { verifyShell: true, shellCommand: true },
     maxResultTokens: 4_500,
     truncationHint: 'output was cut — narrow the command (grep/head/tail) to the slice you need',

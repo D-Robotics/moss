@@ -158,7 +158,7 @@ export const readImageTool: Tool = {
     'answer from what you see, and say when something is not visible instead of guessing.',
   metadata: {
     leanDescription:
-      'Attach a local image (PNG/JPEG/GIF/WebP, up to 3 MB) so you can see it: screenshots, photos, diagrams, rendered UI. Use instead of read_file for images. Not for text, source or SVG (read_file). Say when something is not visible instead of guessing.',
+      'Attach a local image (PNG/JPEG/GIF/WebP) to see screenshots, photos, diagrams. Not for text/SVG (read_file).',
     classification: { singleCallExempt: true, discovery: true },
     maxResultTokens: 600,
     truncationHint: 'the image is attached separately — do not re-read it as text',

@@ -6,6 +6,7 @@ import {
   buildProviderToolDeclarations,
   shouldLeanToolDescriptions,
 } from '../../core/loop/agent-loop-context-prep.js';
+import { hiddenToolNames } from '../../core/agent/session-tool-offer.js';
 import type { MossAgent } from '../../core/index.js';
 import type { CompactionRecord, SessionUsageSummary } from '../session-usage.js';
 import {
@@ -506,6 +507,11 @@ const contextCommand: CommandSpec = {
         0
       );
 
+      const hiddenTools = hiddenToolNames();
+      const hiddenLine =
+        hiddenTools.size > 0
+          ? [`  experiment hidden  ${[...hiddenTools].join(', ')} (MOSS_HIDE_TOOLS)`]
+          : [];
       const configuredModel = ctx.agent.config.model ?? '';
       const reportedModel = ctx.agent.reportedModel();
       const modelLine =
@@ -532,6 +538,7 @@ const contextCommand: CommandSpec = {
           `  tools      ~${fmt(toolTokens)} tokens (${toolDeclarations.length} declared, ${
             leanSurface ? 'lean' : 'full'
           } descriptions)`,
+          ...hiddenLine,
           `  model      ${modelLine}`,
         ].join('\n')
       );

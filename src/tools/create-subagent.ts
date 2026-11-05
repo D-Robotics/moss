@@ -171,7 +171,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
   ].join(' '),
   metadata: {
     leanDescription:
-      'Spawn a sub-agent with its own scope and context: explore/plan/verify/full; omit scope to infer from the task (fix/implement→full). maxTurns defaults per scope. Put acceptance in implement/fix tasks; empty child output is failure. Not for quick config or short answers.',
+      'Spawn a scoped sub-agent (explore/plan/verify/full); state acceptance. Not for quick answers.',
     classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',
@@ -603,7 +603,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
   ].join(' '),
   metadata: {
     leanDescription:
-      "Run 2-N independent sub-agents concurrently and cite each child's paths, commands and output — a merge without evidence is unverified. Omit scope to infer per task; empty child output is FAILED, and one task belongs in create_subagent. cross_review=true adds one read-only reviewer per implementation task that must emit VERDICT: PASS|FAIL. Not for quick help.",
+      'Run 2-N independent sub-agents and cite their evidence. Not for a single task (create_subagent).',
     classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',
@@ -885,7 +885,7 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
   ].join(' '),
   metadata: {
     leanDescription:
-      'Snapshot (wait=false) or wait for (wait=true) a create_subagent background task; wait returns the final summary.',
+      'Snapshot or wait for a create_subagent background task. Not for stopping one (subagent_stop).',
     classification: { discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -967,7 +967,7 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
   ].join(' '),
   metadata: {
     leanDescription:
-      'Stop a create_subagent background task that is no longer useful, returning control to the parent task.',
+      'Stop a create_subagent background task. Not for a finished task (subagent_status).',
     classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',
@@ -1055,7 +1055,7 @@ export const subagentResumeTool: Tool<SubagentResumeInput> = {
   ].join(' '),
   metadata: {
     leanDescription:
-      'Continue a finished sub-agent with its stored conversation: pass the taskId/runId, or omit it (or pass "latest") for the most recent one, including from an earlier session. The prompt is appended as the next user message; blocks until the follow-up finishes. A still-running background task is waited for first unless waitForRunning is false. Not for unrelated new work (create_subagent).',
+      'Continue a finished sub-agent from its stored conversation. Not for unrelated new work.',
     classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',

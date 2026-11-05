@@ -46,7 +46,7 @@ export const applyPatchTool: Tool = {
     'Apply an add/update/delete patch. Hunks are checked before any write; a failed apply restores files. Context lines must match the file exactly — include enough surrounding lines that each hunk lands in one place. read_file existing targets first. Not for a single targeted replacement (edit_file) or a new file with plain content (write_file). A delete is a patch hunk; renaming a path is move_file.',
   metadata: {
     leanDescription:
-      'Apply an add/update/delete patch; hunks are validated before writing and a failed apply restores files. read_file targets first. Not for one replacement (edit_file) or a rename (move_file).',
+      'Apply an add/update/delete patch (validated, restores on failure). Not for one replacement (edit_file).',
     classification: { singleCallExempt: true, surgicalEdit: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',

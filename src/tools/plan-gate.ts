@@ -26,7 +26,7 @@ export const exitPlanTool: Tool<ExitPlanInput> = {
     'then stop unless they ask for work. Not for asking a clarifying question (ask_user_question).',
   metadata: {
     leanDescription:
-      'Call when a read-only plan is ready for approval; it edits nothing and switches no mode. Then wait for the user and stop unless they ask for work.',
+      'Call when a read-only plan is ready for approval; then wait. Not for executing the plan.',
     sideEffectClass: 'readonly',
     planMode: 'allow',
     requiresApproval: false,

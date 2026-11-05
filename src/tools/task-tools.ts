@@ -70,7 +70,12 @@ export const taskDefineTool: Tool = {
   description:
     'Define or update a task contract. Only for /goal or an explicit request for a task contract — not ordinary edits.\n' +
     'acceptance_criteria are machine-checked metrics ({metric, expected}). Operators: numeric >= <= > < == != (for example >=30 or ==4); string == and != (for example ==hi); contains; not-contains; exists; matches. Redefining a task_id updates it in place.',
-  metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
+  metadata: {
+    leanDescription:
+      'Define/update a task contract with machine-checkable acceptance. Not for ordinary chat.',
+    sideEffectClass: 'runtime_state',
+    planMode: 'allow',
+  },
   inputSchema: {
     type: 'object',
     properties: {
@@ -165,7 +170,12 @@ export const taskAcceptanceTool: Tool = {
   name: 'task_acceptance',
   description:
     'Evaluate a task against its evidence. Missing evidence for a required metric fails. Latest evidence per metric wins. Omit task_id to use the latest contract. Re-run after every repair.',
-  metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
+  metadata: {
+    leanDescription:
+      'Evaluate a task against latest evidence; missing evidence fails. Not for prose success.',
+    sideEffectClass: 'runtime_state',
+    planMode: 'allow',
+  },
   inputSchema: {
     type: 'object',
     properties: {
@@ -228,7 +238,11 @@ export const taskPlanUpdateTool: Tool = {
   name: 'task_plan_update',
   description:
     'Publish or update the plan of a task (3-8 concrete steps) for the unified task runtime. Each step: {step_id, title, status?, detail?} with status pending|in_progress|done|failed|skipped. Send the FULL step list every call (latest wins). Use during planning, and mark steps done/failed as execution progresses — this is what the user sees as progress.',
-  metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
+  metadata: {
+    leanDescription: 'Publish the 3-8 step plan of a task candidate. Not for ordinary chat.',
+    sideEffectClass: 'runtime_state',
+    planMode: 'allow',
+  },
   inputSchema: {
     type: 'object',
     properties: {
@@ -309,7 +323,12 @@ export const recordFailureTool: Tool = {
   name: 'record_failure',
   description:
     'Record a failure (symptom, stage, later diagnosis and root cause). Pass failure_id to update the same row or mark it resolved.',
-  metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
+  metadata: {
+    leanDescription:
+      'Record a failure with symptom, stage and later root cause. Not for unverified guesses.',
+    sideEffectClass: 'runtime_state',
+    planMode: 'allow',
+  },
   inputSchema: {
     type: 'object',
     properties: {
@@ -375,7 +394,12 @@ export const recordRepairTool: Tool = {
   name: 'record_repair',
   description:
     'Record the repair for a failure: what you changed, which files, whether a redeploy is needed/done. Pairs with record_failure — together they form the failure→diagnosis→repair trail the user reads.',
-  metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
+  metadata: {
+    leanDescription:
+      'Record the repair for a failure: what changed, files, redeploy needed. Not for the fix itself.',
+    sideEffectClass: 'runtime_state',
+    planMode: 'allow',
+  },
   inputSchema: {
     type: 'object',
     properties: {

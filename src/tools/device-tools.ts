@@ -122,7 +122,7 @@ export const deviceExecTool: Tool = {
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
     leanDescription:
-      'Run one shell command on the configured remote device over SSH; returns stdout, stderr and the exit code. Prefer the read-only device_* tools for standard observation, and one focused command per call. Destructive or lockout-risk commands (reboot, flashing, /boot or /etc writes, network changes, systemctl stop/disable/mask, ssh/account edits) stay gated until the user confirms or grants device trust.',
+      'Run one shell command on the device over SSH; destructive commands stay gated. Not for observation.',
     classification: { discovery: true },
     maxResultTokens: 6_000,
     truncationHint: 'output was cut — narrow the remote command to the slice you need',
@@ -231,7 +231,7 @@ export const deviceFileReadTool: Tool = {
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
     leanDescription:
-      'Read a text file from the configured device over SFTP (device target and credentials come from MOSS_DEVICE_*). Use device_exec for binaries or huge files; page a truncated read with offset/limit. Not for local files (read_file).',
+      'Read a text file from the device over SFTP; device_exec for binaries. Not for local files.',
     classification: { singleCallExempt: true, discovery: true },
     maxResultTokens: 10_000,
     truncationHint: 'the dropped region is not in context — page it with offset/limit',
@@ -286,7 +286,7 @@ export const deviceFileListTool: Tool = {
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
     leanDescription:
-      'List one directory on the configured device over SFTP (names, types, sizes). Not for local directories (list_directory); read files with device_file_read.',
+      'List a directory on the device over SFTP. Not for local directories (list_directory).',
     classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',
     transientRetry: true,
@@ -324,7 +324,7 @@ export const deviceFileWriteTool: Tool = {
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
     leanDescription:
-      'Write a file on the device over SFTP (inline content or upload a workspace file); parent directories must already exist (device_exec mkdir -p). Device credentials come from env/.env — never ask the user to paste a password or key.',
+      'Write a file on the device over SFTP (parents must exist). Not for local files (write_file).',
     sideEffectClass: 'device_mutation',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
@@ -501,7 +501,7 @@ export const deviceDeployTool: Tool = {
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
     leanDescription:
-      'Deploy a workspace artifact to the device as one recorded lifecycle: mkdir → upload → (chmod) → (start) → (health check); the record is appended to .moss/deployments.jsonl and success requires every requested step, health included. artifact_path must be inside the workspace; omit start_command for file-only deploys; health_command must exit 0 (health_expect regex optional). Credentials come from env/.env.',
+      'Deploy an artifact as one recorded lifecycle. Not for file-only copies (device_file_write).',
     sideEffectClass: 'device_mutation',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
@@ -614,7 +614,7 @@ export const deviceRoboticsStatusTool: Tool = {
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
     leanDescription:
-      'Detect the robotics stack on the device: TROS (/opt/tros, RDK) or ROS2 (/opt/ros/<distro>), ros2 path, TROS version, hbm presence. Call before ROS work — a plain host reports "none detected". Run ROS commands through device_exec after sourcing <installation>/setup.bash.',
+      'Detect the device TROS/ROS2 stack before ROS work. Not for general facts (device_probe).',
     hiddenFromModel: true,
     classification: { discovery: true },
     sideEffectClass: 'readonly',
@@ -726,7 +726,7 @@ export const deviceProbeTool: Tool = {
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
     leanDescription:
-      'Read-only device observation over SSH: kind=info first (identity/system facts), then processes/resources/temperature/network/cameras/robotics_status snapshots. Prefer these over device_exec for standard observation — readonly, parallel-safe, retried on transport errors. When asked about the board, probe kind=info before reading config or .env.',
+      'Read-only device SSH observation (info/processes/resources/temperature/network/cameras); prefer over device_exec.',
     classification: { discovery: true, singleCallExempt: true },
     sideEffectClass: 'readonly',
     transientRetry: true,

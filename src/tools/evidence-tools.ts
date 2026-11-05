@@ -85,6 +85,8 @@ export const recordEvidenceTool: Tool = {
     'Record one evidence row for an open /goal or task contract (metric, expected, observed) in .moss/evidence.jsonl. Do not call this for ordinary chat.\n' +
     'Pass expected + observed to auto-evaluate (expected ">=30", observed 31.2). An explicit result is only for external verdicts such as human observation. A result that conflicts with expected/observed is stored as inconclusive, not rewritten. source names the check (run_tests, exec, device_exec, human).',
   metadata: {
+    leanDescription:
+      'Record one evidence row for an open task (metric, expected, observed). Not for prose claims.',
     sideEffectClass: 'runtime_state',
     planMode: 'allow',
   },
