@@ -1055,6 +1055,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     pauseSpinner: () => spinner?.stop(),
     dispose: () => {
       try {
+        spinner?.stop();
+      } catch {
+        /* ignore */
+      }
+      try {
         flushHeldAnswer();
       } catch {
         /* ignore */

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import * as readline from 'node:readline';
+import { PassThrough } from 'node:stream';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import {
   loadMergedPromptHistory,
@@ -322,8 +323,53 @@ export async function runInteractive(
     (msg) => console.warn(`[moss] ${msg}`),
     cliLocale()
   );
+  // B123: the run window owns stdin. The readline async iterator keeps reading
+  // input even while `rl.pause()` is set, so a keystroke meant for a run-scoped
+  // question (`> 2`) used to be queued and replayed as a phantom chat prompt
+  // once the run ended (proved by `.moss/prompt-history.jsonl` containing the
+  // answer). Route bytes through one owner: the question reader, the run (which
+  // ignores ordinary typing, Ctrl+C is handled separately), or readline.
+  // readline puts its input stream into raw mode when it looks like a TTY (Esc
+  // and arrow-key handling depend on it), so the router stream mirrors stdin's
+  // terminal identity instead of hiding it behind a plain PassThrough.
+  const stdinIsTTY = Boolean(process.stdin.isTTY);
+  const replInput = new PassThrough() as PassThrough & {
+    isTTY?: boolean;
+    isRaw?: boolean;
+    setRawMode?: (mode: boolean) => void;
+  };
+  replInput.isTTY = stdinIsTTY;
+  if (stdinIsTTY) {
+    replInput.setRawMode = (mode: boolean) => {
+      process.stdin.setRawMode?.(mode);
+    };
+    Object.defineProperty(replInput, 'isRaw', {
+      get: () => Boolean(process.stdin.isRaw),
+    });
+  }
+  let questionPending = 0;
+  let runInputHinted = false;
+  const routeReplStdin = (chunk: Buffer): void => {
+    if (questionPending > 0) return;
+    if (taskRunInFlight) {
+      if (!runInputHinted) {
+        runInputHinted = true;
+        process.stderr.write(
+          `${ui.dim(
+            cliLocale() === 'zh'
+              ? '（运行期间的键入被忽略：Ctrl+C 暂停；被提问时会出现 > 提示）'
+              : '(input ignored while the run owns the terminal — Ctrl+C pauses; a question shows a > prompt)'
+          )}\n`
+        );
+      }
+      return;
+    }
+    replInput.write(chunk);
+  };
+  process.stdin.on('data', routeReplStdin);
+  process.stdin.once('end', () => replInput.end());
   const rl = readline.createInterface({
-    input: process.stdin,
+    input: replInput,
     output: process.stderr,
     prompt: '\n› ',
     completer: completeInteractiveCommand,
@@ -965,14 +1011,19 @@ export async function runInteractive(
       const restoreQuestionAsker = agent.setUserQuestionAsker(async (question, signal) => {
         renderer.pauseSpinner();
         process.stderr.write(`\n${question}\n`);
-        const line = await readStdinLine({
-          ...(signal ? { signal } : {}),
-          prompt: '> ',
-        });
-        if (line === null) {
-          throw new Error('interactive questions are unavailable in this run');
+        questionPending += 1;
+        try {
+          const line = await readStdinLine({
+            ...(signal ? { signal } : {}),
+            prompt: '> ',
+          });
+          if (line === null) {
+            throw new Error('interactive questions are unavailable in this run');
+          }
+          return line;
+        } finally {
+          questionPending -= 1;
         }
-        return line;
       });
       try {
         const code = await runTaskCommand(splitCommandArgs(rest), {
@@ -1018,7 +1069,12 @@ export async function runInteractive(
             process.stderr.write(`${line}\n`);
           }
         }
+        // The renderer owns a progress watchdog + spinner; without this the
+        // heartbeat kept printing "Still reasoning, waited Ns" at the prompt and
+        // its interval kept the process alive after /quit (observed in a PTY).
+        renderer.dispose();
         taskRunInFlight = false;
+        runInputHinted = false;
         rl.resume();
         rl.setPrompt('\n› ');
         rl.prompt();
@@ -1108,5 +1164,10 @@ export async function runInteractive(
   agent.unregisterPreToolHook('repl-checkpoint');
   agent.unregisterPostToolHook('repl-checkpoint-after');
   setCliApprovalAsker(null);
+  // The router keeps stdin flowing for the whole session; leaving it live held
+  // the event loop open after /quit (the CLI never exited in a PTY test).
+  process.stdin.off('data', routeReplStdin);
+  process.stdin.pause();
+  replInput.end();
   rl.close();
 }
