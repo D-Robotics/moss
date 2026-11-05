@@ -126,7 +126,7 @@ const run = (ws, provider, extra = {}) =>
   );
   assert.equal(result.outcome, 'aborted');
   const summary = summarizeTaskRun(result, 'en');
-  assert.match(summary, /^\/goal resume$/m);
+  assert.match(summary, /^\/run resume$/m);
   assert.match(summary, /next: moss task resume /);
   ok('an aborted run keeps /goal resume and adds the headless command');
 }
