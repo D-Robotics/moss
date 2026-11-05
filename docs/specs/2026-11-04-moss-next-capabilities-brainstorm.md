@@ -311,6 +311,25 @@ writePaths?, maxTurns?}]}`），不上 JS 沙箱、不能让计划调用模型 A
 - **成本**：中；**风险**：provider 视觉能力参差，需要 model capability guard（不能用不支持图片的模型）。
 - **优先级**：P1（若 RDK 产品线要"现场调试"，这是差异化）。
 
+**进度（2026-11-05，D7 第一片：`read_pdf` 已落地）**
+
+- ✅ 新工具 `read_pdf {path, pages?}`（`src/tools/read-pdf.ts`，仅 Node 内置模块，无新依赖）：解 PDF
+  对象/页树、FlateDecode 文本流、`Tj/TJ/'/"` 与 `Td/TD/T*/ET/Tm` 换行、字体 `/ToUnicode` CMap
+  （bfchar + 两种 bfrange）与 `/ActualText` 覆盖、WinAnsi 兜底；`pages` 支持 `2`/`1-2`/`2-`/`1, 3`；
+  输出带页头 `--- page N ---`，`maxResultTokens: 6000` + 截断提示；readonly、plan 允许、免审批；
+  32 MB 上限；扫描件/加密件明确拒绝并指向 `read_image`/解密，绝不假装读过。
+- 真实世界证据（对比 `pdftotext`，字符数/双向词覆盖）：RDK X5 训练量化文档 9592 vs 9234，97%/99%；
+  会员手册 7295 vs 7567，72%/99%；机器人实验室方案 8058 vs 8048，97%/97%；电子发票 344 vs 336，
+  98%/98%；26.6 MB 纯图手册被正确判为 image-only（pdftotext 同样 0 字符）；113.7 MB 超限拒绝。
+- 验收证据：确定性探针 `read-pdf`（19 条，原始字节 fixture：Tj/TJ/引号转义、两种 Flate 过滤器、
+  `/ToUnicode` bfchar+bfrange、`/ActualText`、按 Block 拼行、间接/继承 `/Resources`、页范围与非法范围、
+  扫描件/加密/截断/损坏 Flate 不抛、相对/绝对路径、缺文件/目录/空文件/超限、plain execute 路径）；
+  verify stage `read-pdf`（0.3s）。
+- 已知限制：无 OCR（扫描件拒绝）、不解密、只解 FlateDecode 文本流、无字体度量（阅读顺序与中英文空格
+  是启发式）、单次 32 MB 上限。
+- ⬜ 仍缺：D7 验收要求的"真实模型看接线图说明引脚"（需要视觉 provider 与真实照片）、`@file` 附件入口、
+  设备截图闭环。
+
 ### D8 代码智能（LSP / diagnostics）
 
 - **问题**：Moss 的"看代码"靠 search/exec；参考产品有 code intelligence（Claude 有 LSP plugin，
@@ -591,7 +610,7 @@ writePaths?, maxTurns?}]}`），不上 JS 沙箱、不能让计划调用模型 A
 | D4 MCP 协议                                         | ✅（resources/prompts） | `mcp_resource`/`mcp_prompt` 工具 + `moss mcp test` 三面清单 + verify stage `mcp-protocol`（mock stdio server，6 条）+ 真实 `moss mcp test rdk-docs`（6 工具、0 resources/0 prompts）。❌ elicitation / OAuth / `@uri` 引用（理由见 D4 进度）。    |
 | D5 编排                                             | 🟡                      | 声明式 `moss workflow`（JSON 计划、依赖波次、失败隔离、`.moss/workflows` 状态、resume、并发/步数 caps、`--mock` 离线演练）已落地，探针 10 条；缺：20 文件真实迁移验收跑、YAML、agent teams 共享任务板（D9）。                                     |
 | D6 记忆写路径                                       | ✅（显式版）            | `/remember` + `moss remember`（预览、去重、500 字符上限、可撤销）+ verify stage `remember`（6 条）+ 真实跨会话运行。❌ 自动记忆（刻意不做）。                                                                                                     |
-| D7 多模态                                           | 🟡                      | 已有 `read_image` 与图像预算（provider 请求只保留最新图）；缺：PDF / `@file` 附件、会话内图片引用。                                                                                                                                               |
+| D7 多模态                                           | 🟡                      | `read_pdf` 已落地（Flate、`/ToUnicode`+`/ActualText`、页范围、19 条探针；真实 RDK PDF 对 `pdftotext` 97%/99% 覆盖）；缺：真实视觉模型看接线图、`@file` 附件、设备截图闭环、OCR。                                                                  |
 | D8 代码智能（LSP / diagnostics）                    | 🟡                      | 聚合 `diagnostics` 工具已落地（tsc+eslint 归一化、9 条探针、真实全仓库运行 0 error）；缺：pytest 聚合、monorepo 扫描、LSP client 评估，以及验收要求的 bench A/B。                                                                                 |
 | D9 规则 4 类 + 团队策略                             | 🟡                      | 已有三类激活（always / globs / manual + `@rule:<name>` 请求注入，`rules-activation` 11 条断言）并且**可见**（`moss rules list [--json]`、`/rules`）。缺：面板式手动选择与团队级策略层。                                                           |
 | D10 产品化小件                                      | ✅                      | `moss skill list` 显示 scope/used/catalog/evals；本地 usage 计数；`moss skill create` 脚手架。缺：`/skills` 在 REPL/TUI 的同等信息（两者仍只列名字与 issues）。                                                                                   |
