@@ -35,6 +35,8 @@ import {
   projectGoalRunReviews,
 } from '../core/task-runtime/goal-runs.js';
 import type { GoalRunOutcome } from '../core/task-runtime/goal-runs.js';
+import { writeRunRecord } from '../core/run-ledger.js';
+import type { RunRecord, RunRecordStatus } from '../core/run-ledger.js';
 import { readReviewSummaries } from '../core/loop/review-ledger.js';
 import {
   formatGoalRunRows,
@@ -657,6 +659,55 @@ function listOptions(args: string[]): ListOptions {
  * Append the rollup row. A failed write warns once per run and never changes
  * the task exit code — the run's own verdict already happened.
  */
+/**
+ * B129: every task run also lands one unified record in `.moss/runs/<id>/run.json`
+ * so `moss runs list|show` can answer "what ran, how did it end, what next"
+ * without knowing the per-engine ledgers.
+ */
+function runRecordForTask(
+  result: Awaited<ReturnType<typeof runTask>>,
+  startedAt: number,
+  goal: string,
+  acceptanceCommand: string | undefined,
+  sessionKey: string
+): RunRecord {
+  const endedAt = Date.now();
+  const status: RunRecordStatus =
+    result.outcome === 'pass'
+      ? 'completed'
+      : result.outcome === 'aborted'
+        ? 'interrupted'
+        : result.outcome === 'blocked'
+          ? 'blocked'
+          : 'verify_failed';
+  const reason = result.failureDetail ?? result.blockedReason ?? result.verdictDetail;
+  return {
+    version: 1,
+    runId: result.snapshot.taskId,
+    kind: 'task',
+    status,
+    exitCode: result.outcome === 'pass' ? 0 : result.outcome === 'aborted' ? 130 : 1,
+    startedAt,
+    endedAt,
+    durationMs: Math.max(0, endedAt - startedAt),
+    goal,
+    taskId: result.snapshot.taskId,
+    sessionKey,
+    ...(acceptanceCommand ? { acceptanceCommand } : {}),
+    attempts: result.snapshot.attempt,
+    repairs: result.snapshot.repairs.length,
+    failures: result.snapshot.failures.length,
+    turns: result.turns,
+    ...(reason ? { reason } : {}),
+    ...(status === 'completed' ? {} : { next: `moss task resume ${result.snapshot.taskId}` }),
+    artifacts: {
+      taskEvents: '.moss/task-events.jsonl',
+      evidence: '.moss/evidence.jsonl',
+      acceptance: '.moss/acceptance.jsonl',
+    },
+  };
+}
+
 async function recordRun(
   ctx: TaskCommandContext,
   result: Awaited<ReturnType<typeof runTask>>,
@@ -681,6 +732,14 @@ async function recordRun(
     });
   } catch (err) {
     output('stderr', `[task] could not record the goal run: ${errorMessage(err)}\n`);
+  }
+  try {
+    await writeRunRecord(
+      ctx.workspace,
+      runRecordForTask(result, startedAt, goal, acceptanceCommand, ctx.sessionKey)
+    );
+  } catch (err) {
+    output('stderr', `[task] could not write the run ledger: ${errorMessage(err)}\n`);
   }
 }
 

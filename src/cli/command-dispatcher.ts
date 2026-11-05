@@ -313,6 +313,28 @@ export const COMMANDS: Record<string, CommandConfig> = {
     description: 'Verified run: intent in, acceptance-checked result out (moss task run shortcut)',
   },
 
+  // B129: one read path over every autonomous run, whatever engine produced it.
+  runs: {
+    name: 'runs',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runRunsCommand } = await import('./runs-command.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const workspace = ctx.workspace as string | undefined;
+      if (!workspace) {
+        console.error('[moss] runs could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      const code = await runRunsCommand(ctx.commandArgs, {
+        workspace,
+        ...(ctx.argv.includes('--json') ? { outputJson: true } : {}),
+      });
+      if (code !== 0) process.exitCode = code;
+    },
+    description: 'Unified run ledger: list/show/prune every task, loop and workflow run',
+  },
+
   skill: {
     name: 'skill',
     phase: CliPhase.WorkspaceReady,

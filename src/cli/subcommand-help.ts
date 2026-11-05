@@ -474,6 +474,10 @@ export async function renderSubcommandHelp(
     }
     case 'run':
       return runHelp(zh);
+    case 'runs': {
+      const { renderRunsUsage } = await import('./runs-command.js');
+      return renderRunsUsage(zh);
+    }
     case 'sessions':
       return sessionsHelp(zh);
     case 'web':

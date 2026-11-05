@@ -109,6 +109,7 @@ import { stage as taskSigintStage } from './stages/task-sigint.mjs';
 import { stage as taskQuestionAskStage } from './stages/task-question-ask.mjs';
 import { stage as runContextStage } from './stages/run-context.mjs';
 import { stage as readmeParityStage } from './stages/readme-parity.mjs';
+import { stage as runsLedgerStage } from './stages/runs-ledger.mjs';
 
 const STAGES = new Map(
   [
@@ -196,6 +197,7 @@ const STAGES = new Map(
     taskQuestionAskStage,
     runContextStage,
     readmeParityStage,
+    runsLedgerStage,
     taskFailReasonsStage,
   ].map((stage) => [stage.name, stage])
 );
@@ -277,6 +279,7 @@ const FAST_GATE = [
   'task-question-ask',
   'run-context',
   'readme-parity',
+  'runs-ledger',
   'task-fail-reasons',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
