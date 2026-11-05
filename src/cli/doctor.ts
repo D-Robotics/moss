@@ -20,6 +20,16 @@ import {
   getRecentFailoverEvents,
   parseFallbackProvidersEnv,
 } from '../provider/multi-provider-router.js';
+import { getEffectiveContextWindowTokens } from '../context/window-economics.js';
+import {
+  tinyWindowToolResultTokens,
+  TINY_TOOL_RESULT_WINDOW_TOKENS,
+} from '../context/window-economics.js';
+import {
+  tinyWindowToolSurfaceEnabled,
+  TINY_WINDOW_TOOL_NAMES,
+} from '../core/tools/tiny-window-tools.js';
+import { deriveMaxOutputTokens as deriveMaxOutputTokensForProfile } from './agent-runtime.js';
 import { isZhLocale, setupCopy } from './cli-locale.js';
 import { glossConfigValue, localizeConfigSource } from './config-snapshot.js';
 import { detectEnvCredentials } from './env-credentials.js';
@@ -856,6 +866,37 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
             uiText(
               `${humanTokens(derived ?? 0)} tokens (derived from the model and context window)`,
               `${humanTokens(derived ?? 0)} 词元（由模型和上下文窗口推算）`
+            )
+          )
+        );
+      }
+    }
+  }
+  // B74: a small window changes the tool surface, compaction strategy and
+  // tool-result cap. Show the resulting profile so a shrunken surface is not a
+  // mystery, and point at the knob that lifts it.
+  {
+    const window = options.config.contextTokens;
+    if (typeof window === 'number' && window > 0) {
+      const outputBudget =
+        options.config.maxOutputTokens ??
+        deriveMaxOutputTokensForProfile(window, options.config.model) ??
+        0;
+      const effectivePrompt = getEffectiveContextWindowTokens(window, outputBudget);
+      if (
+        tinyWindowToolSurfaceEnabled({ effectiveContextTokens: effectivePrompt }) ||
+        window <= TINY_TOOL_RESULT_WINDOW_TOKENS
+      ) {
+        const resultCap = tinyWindowToolResultTokens(effectivePrompt);
+        lines.push(
+          ok(
+            uiText('context profile', '上下文档位'),
+            uiText(
+              `small window: ${TINY_WINDOW_TOOL_NAMES.size} core tools, local (deterministic) compaction, ` +
+                `tool results capped at ${resultCap ?? 'default'} tokens. Raise agent.contextTokens ` +
+                `(or use a model with a bigger window) to get the full tool surface.`,
+              `小窗口档位：${TINY_WINDOW_TOOL_NAMES.size} 个核心工具、本地（确定性）压缩、` +
+                `工具结果上限 ${resultCap ?? '默认'} 词元。需要完整工具面请提高 agent.contextTokens（或换更大窗口的模型）。`
             )
           )
         );

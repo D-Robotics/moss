@@ -220,7 +220,10 @@ const { tinyWindowToolResultTokens } = await import(
 const { truncateToolOutput } = await import(
   pathToFileURL(path.join(root, 'dist/context/tool-output-truncate.js')).href
 );
+// The run passes the effective prompt budget (3414 = 4096 - 682 output), so the
+// cap it actually applies is 341; 409 is only what the raw window would give.
 assert.equal(tinyWindowToolResultTokens(4096), 409);
+assert.equal(tinyWindowToolResultTokens(tinyBudget), 341);
 assert.equal(tinyWindowToolResultTokens(8000), undefined);
 assert.equal(tinyWindowToolResultTokens(32000), undefined);
 const bigOutput = 'x'.repeat(6000);
@@ -299,6 +302,66 @@ assert.ok(
   'MOSS_TINY_WINDOW_TOOLS=0 must not announce a profile it disabled'
 );
 
+// ── doctor: the reduced profile must be inspectable without guessing. ───────
+async function bootDoctor(contextTokens) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tiny-doctor-'));
+  const configDir = path.join(home, 'config');
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(configDir, 'config.json'),
+    JSON.stringify({
+      provider: 'openai-compatible',
+      model: 'm',
+      baseUrl: 'http://127.0.0.1:9/v1',
+      apiKey: 'sk-test',
+      permissions: { defaultMode: 'full' },
+      agent: { contextTokens },
+    })
+  );
+  return await new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(root, 'dist/cli.js'), 'doctor'], {
+      cwd: home,
+      env: {
+        PATH: process.env.PATH,
+        HOME: home,
+        MOSS_CONFIG_DIR: configDir,
+        MOSS_NO_TUI: '1',
+        MOSS_NO_RDK_DOCS: '1',
+        MOSS_LANG: 'en',
+        MOSS_TRUST_WORKSPACE: '1',
+      },
+    });
+    let out = '';
+    child.stdout.on('data', (chunk) => {
+      out += String(chunk);
+    });
+    child.stderr.on('data', (chunk) => {
+      out += String(chunk);
+    });
+    const timer = setTimeout(() => child.kill('SIGKILL'), 60_000);
+    child.on('close', () => {
+      clearTimeout(timer);
+      fs.rmSync(home, { recursive: true, force: true });
+      resolve(out);
+    });
+  });
+}
+
+const tinyDoctor = await bootDoctor(4096);
+assert.ok(
+  tinyDoctor.includes('context profile') && tinyDoctor.includes('5 core tools'),
+  `doctor must show the reduced profile at 4096, got: ${tinyDoctor.slice(0, 400)}`
+);
+assert.ok(
+  tinyDoctor.includes('tool results capped at 341 tokens'),
+  'the doctor row must state the tool-result cap the run really applies'
+);
+const wideDoctor = await bootDoctor(32_000);
+assert.ok(
+  !wideDoctor.includes('context profile'),
+  'doctor must not show a small-window profile on a wide window'
+);
+
 console.log(
   `[tiny-window-surface] ok: 4096 window -> ${tinyBudget} prompt tokens / 682 output, ` +
     `${declared.length} core tools (${declared.join(', ')}), summary bounded to 2456 chars; ` +
@@ -307,5 +370,5 @@ console.log(
     `tool results capped to ${tinyWindowToolResultTokens(4096)} tokens at 4096, unchanged at 32k; ` +
     `small-context guidance frees ${fullPrompt.length - compactPrompt.length} chars, ` +
     `tiny tool prose totals ${tinyDescriptionChars} chars for ${TINY_WINDOW_TOOL_NAMES.size} tools, ` +
-    `schemas pruned by ${fullChars - prunedChars} chars`
+    `schemas pruned by ${fullChars - prunedChars} chars; doctor reports the profile at 4096 only`
 );
