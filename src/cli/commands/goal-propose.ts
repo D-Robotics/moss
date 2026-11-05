@@ -117,38 +117,128 @@ export function parseGoalCommandLine(line: string): ParsedGoalCommand | null {
 export type GoalInvocation =
   | { kind: 'usage' }
   | { kind: 'clear' }
-  | { kind: 'resume'; taskId?: string; acceptance?: string }
+  | {
+      kind: 'resume';
+      taskId?: string;
+      acceptance?: string;
+      maxRepairs?: number;
+      maxTurns?: number;
+    }
   | { kind: 'run'; goal: string; acceptance?: string; notice?: string }
   | { kind: 'propose'; goal: string; candidates: string[] };
 
+/** The parsed `/goal resume` plan, before the task id is resolved. */
+export type GoalResumeInvocation = Extract<GoalInvocation, { kind: 'resume' }>;
+
+/** Flags `/goal resume` shares with `moss task resume` (B114 / B117 parity). */
+const RESUME_FLAG_NAMES: readonly string[] = ['--accept', '--max-repairs', '--max-turns'];
+
+function resumeFlagName(token: string): string {
+  const eq = token.indexOf('=');
+  return token.startsWith('--') && eq > 0 ? token.slice(0, eq) : token;
+}
+
 /**
- * `/goal resume [<task_id>] [--accept "<cmd>"]` — the interactive twin of
- * `moss task resume <id> --accept "<cmd>"` (B98). Without --accept the newest
- * resumable task is used, exactly as before.
+ * Split a `/goal resume` tail into tokens, honoring both quote styles (a quoted
+ * run is one token even when it contains spaces) and `--flag=<value>` tails
+ * whose value may itself be quoted. Returns null for an unterminated quote or a
+ * quote glued to a bare word — those are usage errors, not commands we should
+ * silently re-interpret.
  */
-function parseResumeArgs(rest: string): { taskId?: string; acceptance?: string } | null {
-  const raw = rest.trim();
-  if (!raw) return {};
-  const marker = /(^|\s)--accept(\s+|=|$)/.exec(raw);
-  if (!marker) {
-    if (/\s/.test(raw)) return null;
-    return { taskId: raw };
+function tokenizeResumeArgs(raw: string): string[] | null {
+  const tokens: string[] = [];
+  let i = 0;
+  const isSpace = (ch: string | undefined): boolean => ch === undefined || /\s/.test(ch);
+  while (i < raw.length) {
+    if (isSpace(raw[i])) {
+      i += 1;
+      continue;
+    }
+    let value = '';
+    while (!isSpace(raw[i])) {
+      const ch = raw[i] ?? '';
+      if (ch === '"' || ch === "'") {
+        const close = raw.indexOf(ch, i + 1);
+        if (close === -1) return null;
+        value += raw.slice(i + 1, close);
+        i = close + 1;
+        // A quote must end the token; `"a"b` is ambiguous, so it is a usage error.
+        if (!isSpace(raw[i])) return null;
+        break;
+      }
+      value += ch;
+      i += 1;
+    }
+    tokens.push(value);
   }
-  const before = raw.slice(0, marker.index).trim();
-  if (/\s/.test(before)) return null;
-  let command = raw
-    .slice(marker.index)
-    .replace(/^\s*--accept(\s+|=|$)/, '')
-    .trim();
-  if (
-    (command.startsWith('"') && command.endsWith('"')) ||
-    (command.startsWith("'") && command.endsWith("'"))
-  ) {
-    command = command.slice(1, -1);
+  return tokens;
+}
+
+/** Budget values are non-negative safe integers; `-1`, `1.5` and `abc` are usage errors. */
+function parseResumeBudget(value: string | undefined): number | null {
+  if (value === undefined || !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+/**
+ * `/goal resume [<task_id>] [--accept "<cmd>"] [--max-repairs N] [--max-turns N]`
+ * — the interactive twin of `moss task resume <id> …` (B98 for the oracle,
+ * B117 for the retry budget). Flags may appear in any order. Without a task id
+ * the newest resumable task is used, exactly as before.
+ */
+function parseResumeArgs(rest: string): {
+  taskId?: string;
+  acceptance?: string;
+  maxRepairs?: number;
+  maxTurns?: number;
+} | null {
+  const tokens = tokenizeResumeArgs(rest.trim());
+  if (!tokens) return null;
+  const out: { taskId?: string; acceptance?: string; maxRepairs?: number; maxTurns?: number } = {};
+  const seen = new Set<string>();
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i] ?? '';
+    const eq = token.indexOf('=');
+    const name = resumeFlagName(token);
+    if (RESUME_FLAG_NAMES.includes(name)) {
+      if (seen.has(name)) return null;
+      seen.add(name);
+      const inline = token.startsWith('--') && eq > 0 ? token.slice(eq + 1) : undefined;
+      const value = inline ?? tokens[++i];
+      if (name === '--accept') {
+        let command = value;
+        if (inline === undefined) {
+          // Backward compatibility: `--accept npm test` (unquoted) consumes the
+          // rest of the line up to the next known flag.
+          if (command === undefined || RESUME_FLAG_NAMES.includes(resumeFlagName(command))) {
+            return null;
+          }
+          const parts = [command];
+          while (i + 1 < tokens.length) {
+            const next = tokens[i + 1] ?? '';
+            if (RESUME_FLAG_NAMES.includes(resumeFlagName(next))) break;
+            i += 1;
+            parts.push(next);
+          }
+          command = parts.join(' ');
+        }
+        if (!command) return null;
+        out.acceptance = command;
+        continue;
+      }
+      const budget = parseResumeBudget(value);
+      if (budget === null) return null;
+      if (name === '--max-repairs') out.maxRepairs = budget;
+      else out.maxTurns = budget;
+      continue;
+    }
+    // Unknown flags and stray negative numbers are usage errors, not task ids.
+    if (token.startsWith('-')) return null;
+    if (out.taskId !== undefined) return null;
+    out.taskId = token;
   }
-  command = command.trim();
-  if (!command) return null;
-  return { ...(before ? { taskId: before } : {}), acceptance: command };
+  return out;
 }
 
 /** How `/goal` should behave for this argument line. `/loop` does not call this. */
@@ -174,7 +264,7 @@ export function planGoalInvocation(rest: string, workspace: string): GoalInvocat
 }
 
 export const GOAL_USAGE =
-  'Usage: /goal <condition> [--accept "<verification command>"] | /goal resume [task_id] [--accept "<verification command>"] | /goal clear';
+  'Usage: /goal <condition> [--accept "<verification command>"] | /goal resume [task_id] [--accept "<verification command>"] [--max-repairs N] [--max-turns N] | /goal clear';
 
 export function acceptanceProposalLines(
   goal: string,
@@ -225,12 +315,51 @@ export function resolveLoopMaxIterations(
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
-/** Arguments for `/task resume` — optionally correcting the oracle (B98). */
-export function goalResumeArgs(options: { taskId?: string; acceptance?: string } = {}): string {
+/**
+ * Arguments for `/task resume` — optionally correcting the oracle (B98) and
+ * narrowing that retry's budget (B117). Flag order is fixed so the hand-off
+ * string is stable: taskId, --accept, --max-repairs, --max-turns.
+ */
+export function goalResumeArgs(
+  options: {
+    taskId?: string;
+    acceptance?: string;
+    maxRepairs?: number;
+    maxTurns?: number;
+  } = {}
+): string {
   const parts = ['resume'];
   if (options.taskId) parts.push(options.taskId);
   if (options.acceptance) parts.push('--accept', quoteCommandArg(options.acceptance));
+  for (const [flag, value] of [
+    ['--max-repairs', options.maxRepairs],
+    ['--max-turns', options.maxTurns],
+  ] as const) {
+    if (value === undefined) continue;
+    if (!Number.isSafeInteger(value) || value < 0) continue;
+    parts.push(flag, String(value));
+  }
   return parts.join(' ');
+}
+
+/**
+ * Translate a parsed `/goal resume` plan into the `/task resume ...` line that
+ * the REPL and the full-screen TUI dispatch (B98 oracle + B117 budget). The
+ * caller's resolved task id wins over the one the user typed: the REPL picks
+ * the newest resumable task when the line has no id, and the flags must land on
+ * that same task.
+ */
+export function goalResumeDispatchArgs(
+  plan: GoalResumeInvocation,
+  resolvedTaskId?: string
+): string {
+  const taskId = resolvedTaskId ?? plan.taskId;
+  return goalResumeArgs({
+    ...(taskId ? { taskId } : {}),
+    ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
+    ...(plan.maxRepairs !== undefined ? { maxRepairs: plan.maxRepairs } : {}),
+    ...(plan.maxTurns !== undefined ? { maxTurns: plan.maxTurns } : {}),
+  });
 }
 
 /** Arguments for `runTaskCommand` (`run <goal> [--accept "…"]`). */
