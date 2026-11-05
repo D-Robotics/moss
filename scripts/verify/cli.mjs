@@ -502,19 +502,28 @@ async function main() {
   while (pending.length > 0 || running.size > 0) {
     if (!failed) {
       for (;;) {
-        const index = pending.findIndex((name) =>
-          STAGES.get(name).requires.every((dependency) => completed.has(dependency))
+        const ready = (name) =>
+          STAGES.get(name).requires.every((dependency) => completed.has(dependency));
+        // Exclusive stages (timing-sensitive) run alone; deferring them until no
+        // ordinary stage is pending keeps the pool busy instead of idling while
+        // they hold the machine.
+        const ordinaryIndex = pending.findIndex(
+          (name) => !EXCLUSIVE_STAGES.has(name) && ready(name)
         );
-        if (index === -1) break;
-        const name = pending[index];
-        if (EXCLUSIVE_STAGES.has(name)) {
+        if (ordinaryIndex === -1) {
+          const exclusiveIndex = pending.findIndex(
+            (name) => EXCLUSIVE_STAGES.has(name) && ready(name)
+          );
+          if (exclusiveIndex === -1) break;
           if (running.size > 0) break;
-          pending.splice(index, 1);
+          const name = pending[exclusiveIndex];
+          pending.splice(exclusiveIndex, 1);
           launch(name);
           break;
         }
         if (running.size >= concurrency) break;
-        pending.splice(index, 1);
+        const name = pending[ordinaryIndex];
+        pending.splice(ordinaryIndex, 1);
         launch(name);
       }
     }
@@ -555,6 +564,13 @@ async function main() {
       summaryLines.push(`| ${name} | not run | - |`);
     }
   }
+
+  const slowest = [...results]
+    .sort((left, right) => right.durationMs - left.durationMs)
+    .slice(0, 5)
+    .map((entry) => `${entry.name} ${formatDuration(entry.durationMs)}`)
+    .join(', ');
+  if (slowest) console.log(`[verify] slowest stages: ${slowest}`);
 
   let budgetExceeded = false;
   let budgetNote = 'no budget';

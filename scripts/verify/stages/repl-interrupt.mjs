@@ -233,9 +233,13 @@ export const stage = {
         return drive(process.execPath, cliEntry, tempRoot, configDir, workspace, key);
       };
 
+      // Three PTY boots are independent: run them together (each has its own
+      // port/pty/workspace), which turns ~9s of serial booting into one boot.
+      const keys = ['esc', 'ctrlc', 'arrow'];
+      const results = new Map(await Promise.all(keys.map(async (key) => [key, await runKey(key)])));
       for (const key of ['esc', 'ctrlc']) {
         console.log(`[repl-interrupt] checking ${key} stops the stream`);
-        const result = await runKey(key);
+        const result = results.get(key);
         if (!(result.tokensBefore > 3)) {
           throw new Error(`the stub sent only ${result.tokensBefore} tokens before ${key}`);
         }
@@ -255,7 +259,7 @@ export const stage = {
       }
 
       console.log('[repl-interrupt] checking an arrow key does not interrupt');
-      const arrow = await runKey('arrow');
+      const arrow = results.get('arrow');
       if (arrow.tokensAfterKey < 20) {
         throw new Error(
           `an arrow key interrupted the run (only ${arrow.tokensAfterKey} more tokens); only a lone ESC may abort`

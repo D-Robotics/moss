@@ -162,7 +162,10 @@ while time.time() < deadline:
         except OSError: break
         if not data: break
         out += data
-    if b'5 core tools' in out: break
+    # The notice can be split by cursor moves/ANSI between words, so match on the
+    # stripped text instead of raw bytes: without this the probe always waited the
+    # full timeout (13s in the gate) even though the notice painted in ~2s.
+    if '5 core tools' in ANSI.sub('', out.decode('utf-8', 'replace')): break
 try: os.write(master, b'\x03\x03')
 except OSError: pass
 time.sleep(0.3)
@@ -182,7 +185,7 @@ print('NOTICE=%s' % ('yes' if '5 core tools' in flat else 'no'))
         WINDOW: String(contextTokens),
         // A tiny window breaks out as soon as the notice renders; a wide one has
         // nothing to wait for, so it only needs the probe window plus a margin.
-        WAIT_S: contextTokens <= 6_000 ? '12' : '3',
+        WAIT_S: contextTokens <= 6_000 ? '10' : '3',
       },
     });
     let out = '';
