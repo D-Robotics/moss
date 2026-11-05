@@ -243,10 +243,13 @@ async function verifyRepairLoop(
   deps: TaskEngineDeps,
   state: RunLoopState,
   provider: VerdictProvider,
-  maxRepairAttempts: number
+  maxRepairAttempts: number,
+  maxTurnsOverride?: number
 ): Promise<'accepted' | 'failed' | 'blocked' | 'budget'> {
   const { workspaceDir } = deps;
-  const maxTurns = deps.maxTurns ?? DEFAULT_MAX_TURNS;
+  // A resume may narrow the turn budget for this attempt (B114): retrying a
+  // failed goal should not silently grant the fresh-run default again.
+  const maxTurns = maxTurnsOverride ?? deps.maxTurns ?? DEFAULT_MAX_TURNS;
 
   while (true) {
     // Settled before abort: a turn can accept (or /goal clear) and the user
@@ -647,7 +650,7 @@ export async function runTask(
 export async function resumeTask(
   deps: TaskEngineDeps,
   taskId: string,
-  options: { acceptanceCommand?: string } = {}
+  options: { acceptanceCommand?: string; maxRepairAttempts?: number; maxTurns?: number } = {}
 ): Promise<TaskRunResult> {
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, taskId);
   if (!snapshot) throw new Error(`task ${taskId} not found`);
@@ -681,7 +684,8 @@ export async function resumeTask(
       deps,
       state,
       provider,
-      deps.maxRepairAttempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS
+      options.maxRepairAttempts ?? deps.maxRepairAttempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS,
+      options.maxTurns
     );
   } catch (err) {
     if (isUserAbort(err) || deps.signal?.aborted) {

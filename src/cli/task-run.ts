@@ -132,7 +132,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       `      --max-repairs N  诚实报告失败前的修复尝试次数（默认 ${DEFAULT_MAX_REPAIR_ATTEMPTS}）`,
       `      --max-turns N    模型轮次预算（默认 ${DEFAULT_MAX_TURNS}）`,
       '      --device ID      契约指定的目标设备标识',
-      '  resume <task_id> [--accept "<cmd>"]  恢复一个失败/中断/阻塞的任务（可改正验收命令）',
+      '  resume <task_id> [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  恢复一个失败/中断/阻塞的任务（可改正验收命令、给本次重试单独的预算）',
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
       '  list [--limit N] [--status pass|fail|blocked|aborted]  目标运行汇总：时间/结果/任务/轮次/耗时/目标；fail/blocked 行还会显示记录的失败原因（↳ 原因：…）与评审裁决（默认最近 20 条；表头给出全账本计数，--status 只筛表格与 JSON）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
@@ -161,7 +161,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     `      --max-repairs N  repair attempts before honest FAIL (default ${DEFAULT_MAX_REPAIR_ATTEMPTS})`,
     `      --max-turns N    agent turn budget (default ${DEFAULT_MAX_TURNS})`,
     '      --device ID      target device id for the contract',
-    '  resume <task_id> [--accept "<cmd>"]  resume a failed/abandoned/blocked task, optionally correcting the oracle',
+    '  resume <task_id> [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  resume a failed/abandoned/blocked task with an optional oracle fix and its own budget',
     '  status [task_id]     current phase, plan, failures, verdict (default: latest)',
     '  list [--limit N] [--status pass|fail|blocked|aborted]  goal-run rollup: time/outcome/task/turns/duration/goal; fail/blocked rows also show the recorded failure reason and review verdict (default 20; the header counts the whole ledger and --status narrows table and JSON)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
@@ -686,7 +686,17 @@ export async function runTaskCommand(
         },
       },
       taskId,
-      { ...(resumeFlags.accept ? { acceptanceCommand: resumeFlags.accept } : {}) }
+      {
+        ...(resumeFlags.accept ? { acceptanceCommand: resumeFlags.accept } : {}),
+        // B114: a resume is a retry, not a fresh run — let the caller narrow
+        // the repair/turn budget instead of silently granting the defaults.
+        ...(resumeFlags.maxRepairs !== undefined && Number.isFinite(resumeFlags.maxRepairs)
+          ? { maxRepairAttempts: resumeFlags.maxRepairs }
+          : {}),
+        ...(resumeFlags.maxTurns !== undefined && Number.isFinite(resumeFlags.maxTurns)
+          ? { maxTurns: resumeFlags.maxTurns }
+          : {}),
+      }
     );
     output('stdout', summarizeTaskRun(result, locale) + '\n');
     const usageLine = usageTap.line();
