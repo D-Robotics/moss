@@ -34,6 +34,7 @@ import {
   acceptanceProposalLines,
   GOAL_USAGE,
   goalResumeDispatchArgs,
+  resumeEchoLine,
   goalRunArgs,
   planGoalInvocation,
   resolveLoopMaxIterations,
@@ -884,6 +885,7 @@ export async function runInteractive(
           }
           taskId = resumable.taskId;
         }
+        process.stderr.write(`${resumeEchoLine(taskId, plan, cliLocale() === 'zh')}\n`);
         msg = `/task ${goalResumeDispatchArgs(plan, taskId)}`;
       } else if (plan.kind === 'propose') {
         for (const line of acceptanceProposalLines(plan.goal, plan.candidates)) {
@@ -955,6 +957,23 @@ export async function runInteractive(
       const { formatTurnUsage } = await import('./usage-display.js');
       const taskSessionKey = createCliSessionKey();
       const renderer = createCliRunRenderer({ workspaceDir: workspace, resumeHint: true });
+      // readline is paused for the whole run, so the normal approval asker can
+      // never resolve: an `ask_user_question` from the agent used to spin until
+      // the user hit Ctrl+C. Bind a run-scoped asker that reads stdin directly;
+      // a non-TTY run gets `null` and the tool declines so the agent continues.
+      const { readStdinLine } = await import('./stdin-line.js');
+      const restoreQuestionAsker = agent.setUserQuestionAsker(async (question, signal) => {
+        renderer.pauseSpinner();
+        process.stderr.write(`\n${question}\n`);
+        const line = await readStdinLine({
+          ...(signal ? { signal } : {}),
+          prompt: '> ',
+        });
+        if (line === null) {
+          throw new Error('interactive questions are unavailable in this run');
+        }
+        return line;
+      });
       try {
         const code = await runTaskCommand(splitCommandArgs(rest), {
           agent,
@@ -983,6 +1002,7 @@ export async function runInteractive(
             : `task run failed: ${message}\n`
         );
       } finally {
+        restoreQuestionAsker();
         process.off('SIGINT', abortTask);
         rl.off('SIGINT', abortTask);
         process.stdin.off('data', onTaskStdin);

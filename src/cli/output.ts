@@ -1051,6 +1051,8 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   return {
     detailMode,
     handle,
+    /** Stop the activity spinner while a host prompt (e.g. a question) takes the terminal. */
+    pauseSpinner: () => spinner?.stop(),
     dispose: () => {
       try {
         flushHeldAnswer();

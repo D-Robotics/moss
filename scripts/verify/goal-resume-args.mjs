@@ -18,9 +18,8 @@ import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
-const { planGoalInvocation, goalResumeArgs, goalResumeDispatchArgs, GOAL_USAGE } = await load(
-  'dist/cli/commands/goal-propose.js'
-);
+const { planGoalInvocation, goalResumeArgs, goalResumeDispatchArgs, resumeEchoLine, GOAL_USAGE } =
+  await load('dist/cli/commands/goal-propose.js');
 const { splitCommandArgs, parseFlags } = await load('dist/cli/task-run.js');
 
 let checks = 0;
@@ -169,6 +168,28 @@ assert.equal(dispatchedFlags.goal[0], 'task_latest');
 assert.equal(dispatchedFlags.maxRepairs, 0);
 assert.equal(dispatchedFlags.maxTurns, 1);
 ok('the interactive dispatch line carries the budget onto the resolved task');
+
+// --- the pre-run echo: which task the id-less form resolved to, what budget --
+assert.equal(
+  resumeEchoLine('task_abc', { maxRepairs: 0, maxTurns: 1 }, false),
+  'Resuming task_abc — repair budget 0, turn budget 1'
+);
+assert.equal(
+  resumeEchoLine('task_abc', { maxRepairs: 0, maxTurns: 1 }, true),
+  '继续 task_abc — 修复预算 0、回合预算 1'
+);
+assert.equal(
+  resumeEchoLine('task_abc', { acceptance: 'test -f x' }, false),
+  'Resuming task_abc — corrected acceptance command',
+  'a corrected oracle is mentioned without echoing the whole command'
+);
+assert.equal(
+  resumeEchoLine('task_abc', { acceptance: 'test -f x', maxTurns: 3 }, true),
+  '继续 task_abc — 回合预算 3、已改正验收命令'
+);
+assert.equal(resumeEchoLine('task_abc', {}, false), 'Resuming task_abc');
+assert.equal(resumeEchoLine('task_latest', { maxTurns: 2 }, true), '继续 task_latest — 回合预算 2');
+ok('the REPL echoes the resolved task and the retry budget before it runs');
 
 await fs.rm(tmp, { recursive: true, force: true });
 console.log(`[goal-resume-args] ${checks}/${checks} checks passed`);

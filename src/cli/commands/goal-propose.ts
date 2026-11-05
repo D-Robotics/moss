@@ -343,6 +343,27 @@ export function goalResumeArgs(
 }
 
 /**
+ * One line before an interactive resume starts: which task the id-less form
+ * resolved to, and the retry budget the user typed. Headless `task resume` prints
+ * the same facts in its summary; the REPL/TUI run silently until the verdict, so
+ * a long wrong-target resume would otherwise be invisible until it finished.
+ */
+export function resumeEchoLine(
+  taskId: string,
+  plan: { acceptance?: string; maxRepairs?: number; maxTurns?: number },
+  zh: boolean
+): string {
+  const parts: string[] = [];
+  if (plan.maxRepairs !== undefined)
+    parts.push(zh ? `修复预算 ${plan.maxRepairs}` : `repair budget ${plan.maxRepairs}`);
+  if (plan.maxTurns !== undefined)
+    parts.push(zh ? `回合预算 ${plan.maxTurns}` : `turn budget ${plan.maxTurns}`);
+  if (plan.acceptance) parts.push(zh ? '已改正验收命令' : 'corrected acceptance command');
+  const head = zh ? `继续 ${taskId}` : `Resuming ${taskId}`;
+  return parts.length > 0 ? `${head} — ${parts.join(zh ? '、' : ', ')}` : head;
+}
+
+/**
  * Translate a parsed `/goal resume` plan into the `/task resume ...` line that
  * the REPL and the full-screen TUI dispatch (B98 oracle + B117 budget). The
  * caller's resolved task id wins over the one the user typed: the REPL picks
