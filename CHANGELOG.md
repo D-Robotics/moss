@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### One run verb, three modifiers (B140)
+
+- `moss run` now hosts the loop and workflow engines too: `moss run "<intent>" --until "<cmd>"`
+  repeats run→check→fix until the command passes (loop engine), and `moss run --workflow
+<plan.json>` runs a declarative dependent-step plan (workflow engine). Together with
+  `--accept` and `--resume` (B139) the six engines collapse into one verb plus a modifier.
+  Conflicting modifiers and missing values are explicit exit-2 usage errors; `--workflow` is
+  used instead of `--plan` because `--plan` is the global plan-mode override.
+
+### 一个 run 动词 + 三个修饰符（B140）
+
+- `moss run` 现在也承载 loop 与 workflow 引擎：`moss run "<意图>" --until "<命令>"` 反复执行
+  run→check→fix 直到命令通过（loop 引擎）；`moss run --workflow <plan.json>` 跑声明式依赖步骤
+  （workflow 引擎）。加上 `--accept` 与 `--resume`（B139），六个引擎收敛成一个动词 + 修饰符。
+  互斥修饰符与缺失值都是明确的 exit 2 用法错误；修饰符用 `--workflow` 而不是 `--plan`，
+  因为 `--plan` 是全局 plan 模式开关。
+
 ### `moss run --resume [<id>]` (B139)
 
 - The hero command now has a resume form: `moss run --resume` continues the newest resumable task in

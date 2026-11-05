@@ -82,6 +82,7 @@ moss init        # 检测 test/build/lint 入口，写一份最小 AGENTS.md，�
 | 要一个**被验证的结果** | `moss run "<意图>" --accept "<验收命令>"`     |
 | 交给脚本 / CI          | `moss -p "..."` · `moss run ... --json`       |
 | 反复跑到外部命令通过   | `moss loop --until "npm test" "修到测试全绿"` |
+| 多步依赖（JSON 计划）  | `moss run --workflow plan.json`               |
 
 **4. 第一个"被验证的完成"：**
 

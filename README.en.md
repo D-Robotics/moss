@@ -81,6 +81,7 @@ moss init        # detect test/build/lint entry points, write a minimal AGENTS.m
 | Need a **verified result**              | `moss run "<intent>" --accept "<cmd>"`         |
 | Hand it to a script / CI                | `moss -p "..."` · `moss run ... --json`        |
 | Repeat until an external command passes | `moss loop --until "npm test" "fix the tests"` |
+| Dependent multi-step plan               | `moss run --workflow plan.json`                |
 
 **4. Your first verified completion:**
 
