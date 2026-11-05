@@ -23,9 +23,9 @@
 | `moss skill create\|list\|validate\|install\|update\|lock`                                                 | 技能管理 / 规范校验 / 带 hash 锁的安装与升级                                                                                                                     |
 | `moss update`                                                                                              | 打印升级命令（npm 全局或 git 克隆）；不执行                                                                                                                      |
 
-> `plugins` / `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback。`moss <command> --help` 仍给出该子命令自己的用法。
+> `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback；`plugins` 现在是本地能力包（`moss plugins validate/install/list/remove`）。`moss <command> --help` 仍给出该子命令自己的用法。
 
-日常斜杠命令：`/model` `/compact` `/run` `/plan` `/review` `/doctor` `/diff` `/permissions` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/run <条件>` 持续工作直到条件满足，`/run clear` 取消。`/resume` 恢复已保存的会话；`/tasks` 列出后台 shell 与子代理。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/run`）。`/run` 没带 `--accept` 时，从工作区已有的测试入口（`package.json` test、Makefile、pytest、`go.mod`）给出验收命令候选，找不到就直说，不编造。`/stop`（别名 `/abort`）只停本会话启动的后台进程。隐藏的 `/task` 是 Task OS 入口（status / timeline / resume / view / verify），`/task verify` 不调模型，只取一次裁决。PASS 只能来自 verdict provider。
+日常斜杠命令：`/model` `/compact` `/run` `/plan` `/review` `/runs` `/doctor` `/diff` `/permissions` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/run <条件>` 持续工作直到条件满足，`/run clear` 取消。`/resume` 恢复已保存的会话；`/tasks` 列出后台 shell 与子代理。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/run`）。`/run` 没带 `--accept` 时，从工作区已有的测试入口（`package.json` test、Makefile、pytest、`go.mod`）给出验收命令候选，找不到就直说，不编造。`/stop`（别名 `/abort`）只停本会话启动的后台进程。隐藏的 `/task` 是 Task OS 入口（status / timeline / resume / view / verify），`/task verify` 不调模型，只取一次裁决。PASS 只能来自 verdict provider。
 
 常用 flag：
 

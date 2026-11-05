@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### `/runs` in the REPL and TUI (B148)
+
+- The unified ledger was only reachable by leaving the session for `moss runs`. `/runs`
+  (list / show / export / prune, `--json`, `--kind`) now runs the same implementation inside
+  the REPL and the TUI, so "what ran, how did it end, what is next" is one keystroke away
+  mid-session. The command catalog, help, palette and REPL dispatch all know it, and the
+  filter header shows the matched total even when `--limit` pages the rows.
+
+### REPL/TUI 里也能直接 `/runs`（B148）
+
+- 统一账本此前只能退出会话用 `moss runs` 看。现在 `/runs`（list / show / export / prune，支持
+  `--json`、`--kind`）在 REPL 与 TUI 内复用同一实现——"跑了什么、怎么结束、下一步"在会话里一键可见。
+  命令目录、帮助、面板与 REPL 分发都认识它；带 `--limit` 分页时表头仍显示过滤后的总数。
+
 ### `moss runs list --kind` narrows the ledger by engine (B147)
 
 - The unified ledger has five kinds (`task`, `loop`, `workflow`, `chat`, `superagent`) but only
