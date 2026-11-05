@@ -110,7 +110,7 @@ import {
   abandonLiveGoal,
   acceptanceProposalLines,
   GOAL_USAGE,
-  goalResumeArgs,
+  goalResumeDispatchArgs,
   goalRunArgs,
   planGoalInvocation,
   resolveLoopMaxIterations,
@@ -2049,10 +2049,7 @@ export function TuiAppRoot({
         }
         if (plan.kind === 'resume') {
           await runTaskShellCommand(
-            goalResumeArgs({
-              ...(plan.taskId ? { taskId: plan.taskId } : {}),
-              ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
-            }),
+            goalResumeDispatchArgs(plan),
             args ? `/goal ${args}` : '/goal resume'
           );
           return true;

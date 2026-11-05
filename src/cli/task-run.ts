@@ -233,7 +233,8 @@ export function splitCommandArgs(line: string): string[] {
   return args;
 }
 
-function parseFlags(args: string[]): {
+/** Parse `run`/`resume` flags. Exported for the offline dispatch probe (B117). */
+export function parseFlags(args: string[]): {
   goal: string[];
   accept?: string;
   maxRepairs?: number;

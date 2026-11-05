@@ -33,7 +33,7 @@ import {
   abandonLiveGoal,
   acceptanceProposalLines,
   GOAL_USAGE,
-  goalResumeArgs,
+  goalResumeDispatchArgs,
   goalRunArgs,
   planGoalInvocation,
   resolveLoopMaxIterations,
@@ -884,10 +884,7 @@ export async function runInteractive(
           }
           taskId = resumable.taskId;
         }
-        msg = `/task ${goalResumeArgs({
-          taskId,
-          ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
-        })}`;
+        msg = `/task ${goalResumeDispatchArgs(plan, taskId)}`;
       } else if (plan.kind === 'propose') {
         for (const line of acceptanceProposalLines(plan.goal, plan.candidates)) {
           process.stderr.write(`${line}\n`);
