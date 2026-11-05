@@ -375,7 +375,7 @@ export const writeFileTool: Tool = {
       if (!displayPath.trim()) {
         return 'Error: write_file needs a path. Nothing was written.';
       }
-      const filePath = await safePath(displayPath, ctx.workspaceDir);
+      const filePath = await safePath(displayPath, ctx.workspaceDir, ctx.fileWriteRoots);
       const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
       if (stale) return `Error: ${stale}`;
 
@@ -799,7 +799,7 @@ async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string
 
       let buf = buffers.get(displayPath);
       if (!buf) {
-        const filePath = await safePath(displayPath, ctx.workspaceDir);
+        const filePath = await safePath(displayPath, ctx.workspaceDir, ctx.fileWriteRoots);
         let content: string;
         let encoding: TextEncoding = 'utf8';
         try {
@@ -935,7 +935,7 @@ export const editFileTool: Tool = {
       }
       const oldStr = input.old_string;
       const newStr = input.new_string;
-      const filePath = await safePath(displayPath, ctx.workspaceDir);
+      const filePath = await safePath(displayPath, ctx.workspaceDir, ctx.fileWriteRoots);
       let content: string;
       let encoding: TextEncoding = 'utf8';
       try {
@@ -1076,8 +1076,8 @@ export const moveFileTool: Tool = {
       if (!srcDisplay.trim() || !destDisplay.trim()) {
         return 'Error: move_file needs both source and destination paths. Nothing was moved.';
       }
-      const src = await safePath(srcDisplay, ctx.workspaceDir);
-      const dest = await safePath(destDisplay, ctx.workspaceDir);
+      const src = await safePath(srcDisplay, ctx.workspaceDir, ctx.fileWriteRoots);
+      const dest = await safePath(destDisplay, ctx.workspaceDir, ctx.fileWriteRoots);
       try {
         await fs.access(src);
       } catch {

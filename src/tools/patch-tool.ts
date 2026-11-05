@@ -97,7 +97,7 @@ export const applyPatchTool: Tool = {
 
     try {
       for (const hunk of parsed.hunks) {
-        const filePath = await safePath(hunk.path, ctx.workspaceDir);
+        const filePath = await safePath(hunk.path, ctx.workspaceDir, ctx.fileWriteRoots);
         const state = await loadState(hunk.path, filePath);
 
         if (hunk.type === 'add') {

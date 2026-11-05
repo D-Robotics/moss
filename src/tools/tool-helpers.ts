@@ -910,11 +910,16 @@ export async function childEnv(
   return (await openChildEnv(workspaceDir, signal)).env;
 }
 
-export async function safePath(inputPath: string, workspaceDir: string): Promise<string> {
+export async function safePath(
+  inputPath: string,
+  workspaceDir: string,
+  extraRoots?: readonly string[]
+): Promise<string> {
   const { resolved } = await assertSandboxPath({
     filePath: inputPath,
     cwd: workspaceDir,
     root: workspaceDir,
+    ...(extraRoots && extraRoots.length > 0 ? { extraRoots: [...extraRoots] } : {}),
   });
   return resolved;
 }

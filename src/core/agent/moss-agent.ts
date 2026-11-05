@@ -1339,6 +1339,7 @@ ${result.stderr ?? ''}`.trim();
       ...(options?.taskFlow === true ? { taskContracts: 'allow' as const } : {}),
       ...(options?.goalExecWait === true ? { goalExecWait: true as const } : {}),
       ...(this.config.execWriteRoots ? { execWriteRoots: this.config.execWriteRoots } : {}),
+      ...(this.config.fileWriteRoots ? { fileWriteRoots: this.config.fileWriteRoots } : {}),
       ...(this.config.osSandbox ? { osSandbox: true } : {}),
       mergeWorkspacePatch: async (leaseId, patchId) => {
         const result = await mergeLeasePatch({ parentWorkspace: workspaceDir, leaseId, patchId });

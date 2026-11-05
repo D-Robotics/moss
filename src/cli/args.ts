@@ -75,6 +75,13 @@ export interface ParsedCliArgs {
    * persisted; deny still wins over everything else.
    */
   toolRules?: { allow: string[]; deny: string[] };
+  /**
+   * `--add-dir <dir>`: extra working directories for this run. Their file
+   * tools (`read_file`/`write_file`/`edit_file`/move/patch) and statically
+   * detected shell writes may target them, and the environment layer names
+   * them. Unlike Claude Code, Moss does not load their AGENTS.md/skills.
+   */
+  addedDirs?: string[];
   outputFormat: 'text' | 'json' | 'stream-json';
   maxTurns?: number;
 
@@ -456,6 +463,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let maxTurns: number | undefined;
   let promptOnly = false;
   let toolRuleSpecs: ParsedCliArgs['toolRules'];
+  let addedDirs: string[] | undefined;
 
   const addToolRuleSpecs = (kind: 'allow' | 'deny', raw: string, flag: string): void => {
     const specs = raw
@@ -611,6 +619,19 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     }
     if (arg === '--trust-workspace') {
       trustWorkspace = true;
+      continue;
+    }
+    if (
+      arg === '--add-dir' ||
+      arg.startsWith('--add-dir=') ||
+      arg === '--addDir' ||
+      arg.startsWith('--addDir=')
+    ) {
+      const parsed = readValue(argv, i, '--add-dir');
+      const value = parsed.value.trim();
+      if (!value) throw new Error('--add-dir requires a directory path');
+      (addedDirs ??= []).push(value);
+      i = parsed.nextIndex;
       continue;
     }
     if (
@@ -824,6 +845,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     print,
     trustWorkspace,
     ...(toolRuleSpecs ? { toolRules: toolRuleSpecs } : {}),
+    ...(addedDirs ? { addedDirs } : {}),
     outputFormat,
     maxTurns,
     unknownCommand,

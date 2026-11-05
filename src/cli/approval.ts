@@ -121,6 +121,12 @@ export interface CliToolApprovalOptions {
   trustedTools?: readonly string[];
   deniedTools?: readonly string[];
   workspaceDir?: string;
+  /**
+   * `--add-dir` roots: the workspace-file-tool containment check accepts them
+   * as well, so file writes there are approved like workspace writes. The
+   * tools enforce the same roots; this is not a bypass.
+   */
+  additionalDirectories?: readonly string[];
 
   device?: { host: string; user?: string; port?: number } | null;
 
@@ -549,13 +555,18 @@ function workspaceMutationPaths(toolName: string, input: Record<string, unknown>
 async function workspaceMutationBlockReason(
   preview: CliToolApprovalPreview,
   input: Record<string, unknown>,
-  workspaceDir: string | undefined
+  workspaceDir: string | undefined,
+  additionalDirectories?: readonly string[]
 ): Promise<string | undefined> {
   if (!preview.workspaceFileMutation) return undefined;
   const root = workspaceDir || process.cwd();
+  const extraRoots =
+    additionalDirectories && additionalDirectories.length > 0
+      ? [...additionalDirectories]
+      : undefined;
   for (const filePath of workspaceMutationPaths(preview.toolName, input)) {
     try {
-      await assertSandboxPath({ filePath, cwd: root, root });
+      await assertSandboxPath({ filePath, cwd: root, root, ...(extraRoots ? { extraRoots } : {}) });
     } catch (err) {
       return `Workspace file tool blocked path outside the sandbox: ${sanitizeSecrets(String(filePath))}. ${sanitizeSecrets(err instanceof Error ? err.message : String(err))}`;
     }
@@ -1269,7 +1280,8 @@ export function createCliToolApprovalHook(
     const workspaceBlockReason = await workspaceMutationBlockReason(
       preview,
       request.input,
-      options.workspaceDir
+      options.workspaceDir,
+      options.additionalDirectories
     );
     if (workspaceBlockReason) {
       return settle({ approved: false, reason: workspaceBlockReason, denialClass: 'policy' });

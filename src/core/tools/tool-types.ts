@@ -86,6 +86,9 @@ export interface ToolContext {
    *  (same containment the file tools enforce). Undefined = unconstrained
    *  (full-access hosts / embedders take responsibility). */
   execWriteRoots?: string[];
+  /** Extra directories (`--add-dir`) the file tools may read and write, in
+   *  addition to `workspaceDir`. Undefined = workspace only. */
+  fileWriteRoots?: string[];
   asyncTaskRegistry?: MossAsyncTaskRegistry;
   toolCallId?: string;
   /** Optional callback for live tool output — the TUI / headless renderer

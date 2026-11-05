@@ -37,6 +37,9 @@ export interface EnvironmentContextOptions {
   now?: () => Date;
 
   includeGit?: boolean;
+
+  /** `--add-dir` roots: extra directories file tools may read and write. */
+  additionalDirectories?: readonly string[];
 }
 
 /** Current branch of the workspace, or null outside a git repo. */
@@ -55,6 +58,14 @@ export async function buildEnvironmentContextLayer(
   const lines: string[] = [];
 
   lines.push(`- Working directory: ${workspaceDir}`);
+  if (options.additionalDirectories && options.additionalDirectories.length > 0) {
+    // Name them so the model can use them directly; say that discovery files
+    // are NOT loaded from there, because the model would otherwise assume
+    // AGENTS.md/skills from that tree are in effect.
+    lines.push(
+      `- Additional directories (file tools may read and write; AGENTS.md/skills are not loaded from them): ${options.additionalDirectories.join(', ')}`
+    );
+  }
   lines.push(`- Platform: ${process.platform}`);
   lines.push(`- Device environment: ${formatDeviceEnvReport()}`);
   lines.push(`- Today's date: ${now().toISOString().slice(0, 10)}`);

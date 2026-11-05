@@ -64,6 +64,7 @@ import {
   shouldShowUntrustedFolderNotice,
 } from './config.js';
 import { shouldOpenResumePicker } from './args.js';
+import { resolveAdditionalDirectories } from './add-dir.js';
 import {
   PermissionRuleRegistry,
   parsePermissionRuleSpec,
@@ -501,6 +502,23 @@ export async function runCli(): Promise<void> {
     const gitignoreNotice = gitignoreNoticeForWorkspace(workspace);
     if (gitignoreNotice) console.error(gitignoreNotice);
   }
+  // `--add-dir` (Claude parity): extra directories this run's file tools may
+  // read/write. Validated here so a typo fails before the agent starts.
+  let additionalDirectories: string[];
+  try {
+    additionalDirectories = resolveAdditionalDirectories(workspace, parsedArgs.addedDirs);
+  } catch (err) {
+    console.error(`[moss] ${errorMessage(err)}`);
+    process.exit(ExitCode.CONFIG);
+  }
+  if (additionalDirectories.length > 0 && cliDetailForNotices !== 'quiet') {
+    console.error(
+      uiText(
+        `[moss] additional directories for this run: ${additionalDirectories.join(', ')} (file tools may read/write; no AGENTS.md/skills loaded from there)`,
+        `[moss] 本次运行的额外目录：${additionalDirectories.join('、')}（文件工具可读写；不从中加载 AGENTS.md/技能）`
+      )
+    );
+  }
   // Refreshed after the setup wizard. A const here used to freeze the preset
   // default, so the first question ignored the model the wizard had just saved.
   let model = resolvedConfig.model;
@@ -665,6 +683,7 @@ export async function runCli(): Promise<void> {
     touchedPaths,
   } = await createCliPromptSetup({
     workspace,
+    ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
     ...(configDir ? { configDir } : {}),
     initialText: process.argv.join(' '),
     // git status/log in the env layer is a subprocess chain; the TUI must not
@@ -790,6 +809,7 @@ export async function runCli(): Promise<void> {
     trustedTools: resolvedConfig.trustedTools,
     deniedTools: resolvedConfig.deniedTools,
     workspaceDir: workspace,
+    ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
     // "a" (don't ask again) persists to the user config only from a real
     // interactive terminal — piped/scripted answers stay session-scoped.
     persistTrust: process.stdin.isTTY === true,
@@ -940,10 +960,15 @@ export async function runCli(): Promise<void> {
     usingBundledDefault: resolvedConfig.usingBundledDefault,
     workspaceDir: workspace,
     // v0.9 W1: shell-write confinement. workspace-write/read-only confine
-    // statically-extracted exec write targets to the workspace (same
-    // boundary the file tools enforce); full-access leaves the shell
-    // unconstrained by explicit host choice.
-    ...(safetyMode === 'full-access' ? {} : { execWriteRoots: [workspace] }),
+    // statically-extracted exec write targets to the workspace plus any
+    // `--add-dir` roots (same boundary the file tools enforce); full-access
+    // leaves the shell unconstrained by explicit host choice.
+    ...(safetyMode === 'full-access'
+      ? {}
+      : { execWriteRoots: [workspace, ...additionalDirectories] }),
+    // File tools are confined to the workspace even in full-access; `--add-dir`
+    // widens that boundary for this run, exactly like Claude Code.
+    ...(additionalDirectories.length > 0 ? { fileWriteRoots: additionalDirectories } : {}),
     // D14: opt-in OS sandbox; full-access bypasses it by design.
     ...(resolvedConfig.permissions.osSandbox && safetyMode !== 'full-access'
       ? { osSandbox: true }

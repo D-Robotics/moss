@@ -165,6 +165,10 @@ export interface MossAgentConfig
 
   /** Shell-write confinement roots for exec tools (v0.9 W1). Undefined = unconstrained. */
   execWriteRoots?: string[];
+  /** Extra directories the file tools may touch (`--add-dir`), beyond the
+   *  workspace. Shell confinement uses `execWriteRoots`, which the CLI extends
+   *  with the same directories. */
+  fileWriteRoots?: string[];
   /** D14: pass the opt-in OS sandbox flag to exec tools (see docs/design/os-sandbox.md). */
   osSandbox?: boolean;
 

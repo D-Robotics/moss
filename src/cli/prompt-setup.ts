@@ -32,6 +32,8 @@ import { CapabilityRegistry } from '../core/capabilities/registry.js';
 
 export interface CliPromptSetupInput {
   workspace: string;
+  /** `--add-dir` roots, disclosed to the model by the environment layer. */
+  additionalDirectories?: readonly string[];
   configDir?: string;
   /** Initial text scanned for path tokens (the CLI's own argv). */
   initialText: string;
@@ -71,7 +73,11 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
   // The environment layer shells out to git (branch, status, log): the TUI paints
   // first and installs the layer when it lands; headless waits so the very first
   // prompt already carries the snapshot.
-  const envLayerPromise = buildEnvironmentContextLayer(workspace).then(installEnvLayer);
+  const envLayerPromise = buildEnvironmentContextLayer(workspace, {
+    ...(input.additionalDirectories && input.additionalDirectories.length > 0
+      ? { additionalDirectories: input.additionalDirectories }
+      : {}),
+  }).then(installEnvLayer);
   if (!input.deferEnvironmentLayer) await envLayerPromise;
   // Plan mode is a read-only contract, not only an approval setting. The layer
   // lives in the dynamic suffix (re-read every run) so a `/mode` switch applies

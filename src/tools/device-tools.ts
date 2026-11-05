@@ -376,7 +376,7 @@ export const deviceFileWriteTool: Tool = {
         return 'Error: device_file_write requires content or local_path.';
       }
       try {
-        localAbs = await safePath(String(input.local_path), ctx.workspaceDir);
+        localAbs = await safePath(String(input.local_path), ctx.workspaceDir, ctx.fileWriteRoots);
         await fs.access(localAbs);
       } catch (err) {
         return `Error: device_file_write local_path ${input.local_path}: ${errorMessage(err)}`;
@@ -543,7 +543,11 @@ export const deviceDeployTool: Tool = {
     if (typeof resolved === 'string') return resolved;
     let artifactAbs: string;
     try {
-      artifactAbs = await safePath(String(input.artifact_path ?? ''), ctx.workspaceDir);
+      artifactAbs = await safePath(
+        String(input.artifact_path ?? ''),
+        ctx.workspaceDir,
+        ctx.fileWriteRoots
+      );
       await fs.access(artifactAbs);
     } catch (err) {
       return `Error: device_deploy artifact_path ${input.artifact_path}: ${errorMessage(err)}`;
