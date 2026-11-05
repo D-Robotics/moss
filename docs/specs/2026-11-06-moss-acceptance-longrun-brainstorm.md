@@ -132,6 +132,7 @@ Moss 在"验收 + 目标任务"上的机制深度已经接近甚至超过产品�
 | P2     | 5.9 已完成（B97） 验收命令不可用/超时 → `blocked_on_user`（区分基础设施失败与工作失败，不耗修复预算）                                        | 探针 6/6 + 真实对照：修复前 113s/att:3 rep:2，修复后 38.9s/att:0 rep:0，退出码 1，blocked 原因进 timeline 与 `task list`                  | 已完成                        |
 | P2     | 5.10 已完成（B98） 修正 oracle：`moss task resume <id> --accept "<cmd>"`（append-only note + timeline 专用标签；blocked 文案给出可复制命令） | 探针 9/9 + 真实链：blocked 36s exit 1 → resume --accept 12s exit 0，timeline `Acceptance command updated`，`task list` pass 行            | 已完成                        |
 | P2     | 5.11 已完成（B99） 交互面闭环：`/goal resume [id] --accept "<cmd>"`（REPL/TUI 与 B98 对齐，自动补最新可恢复 id）                             | 探针 5/5 + 真实 PTY REPL：blocked 60s → `/goal resume --accept` → PASS，timeline `Acceptance command updated`                             | 已完成                        |
+| P2     | 5.12 已完成（B100） loop 账本读路径：`moss loop list` / `moss loop show`（最新在前、interrupted、每轮明细、`--json` 透传）                   | 探针 6/6 + 真实 loop：pass 11s / fail 2s，list 两行、show exit 0/1 正确、JSON 合法                                                        | 已完成                        |
 
 ## 6. 参考
 

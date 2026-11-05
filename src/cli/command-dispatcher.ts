@@ -331,19 +331,34 @@ export const COMMANDS: Record<string, CommandConfig> = {
     name: 'loop',
     phase: CliPhase.AgentReady,
     handler: async (ctx) => {
-      const { runLoopCommand } = await import('./loop-command.js');
+      const { readLoopHistoryCommand, runLoopCommand } = await import('./loop-command.js');
       const { ExitCode } = await import('./exit-codes.js');
       const workspace = ctx.workspace as string | undefined;
+      if (!workspace) {
+        console.error('[moss] loop could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      // History is a pure read of `.moss/loops/`: do not build a provider or an
+      // agent just to print it (and it works with no API key configured).
+      const sub = ctx.commandArgs[0];
+      if (sub === 'list' || sub === 'show') {
+        process.exitCode = await readLoopHistoryCommand(ctx.commandArgs, {
+          workspaceDir: workspace,
+          json: ctx.argv.includes('--json'),
+        });
+        return;
+      }
       const agent = ctx.agent as MossAgent | undefined;
-      if (!workspace || !agent) {
-        console.error('[moss] loop could not resolve the workspace/agent.');
+      if (!agent) {
+        console.error('[moss] loop could not resolve the agent.');
         process.exitCode = ExitCode.USAGE;
         return;
       }
       process.exitCode = await runLoopCommand(ctx.commandArgs, { agent, workspaceDir: workspace });
     },
     description:
-      'Closed loop: run the agent, check with your command, feed failures back (--until)',
+      'Closed loop: run the agent, check with your command, feed failures back (--until); `list|show` reads the ledger',
   },
 
   plugins: {

@@ -79,6 +79,7 @@ import { stage as goalPauseStage } from './stages/goal-pause.mjs';
 import { stage as goalRunsStage } from './stages/goal-runs.mjs';
 import { stage as acceptanceBlockedStage } from './stages/acceptance-blocked.mjs';
 import { stage as goalResumeArgsStage } from './stages/goal-resume-args.mjs';
+import { stage as loopHistoryStage } from './stages/loop-history.mjs';
 import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
 import { stage as mcpPromptSlashStage } from './stages/mcp-prompt-slash.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
@@ -146,6 +147,7 @@ const STAGES = new Map(
     goalRunsStage,
     acceptanceBlockedStage,
     goalResumeArgsStage,
+    loopHistoryStage,
     runTestsVerdictStage,
     mcpPromptSlashStage,
     contextSurfaceStage,
@@ -191,6 +193,7 @@ const FAST_GATE = [
   'goal-runs',
   'acceptance-blocked',
   'goal-resume-args',
+  'loop-history',
   'skill-catalog-usage',
   'tool-output-spill',
   'loop-command',

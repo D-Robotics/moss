@@ -72,6 +72,8 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
       '  --every 5m：两次尝试之间固定等待（支持 ms/s/m/h，默认 0 = 立即重试）。',
       '  --max-duration 30m：整轮墙钟上限，只在两次尝试之间检查（进行中的一轮不会被切断）。',
       '  每轮的退出码/耗时/检查输出尾部/改动会写进 .moss/loops/<runId>.jsonl（启动时打印路径）。',
+      '  moss loop list [--limit N] [--json]：历史运行（最新在前，离线读账本）。',
+      '  moss loop show [<run_id>|latest] [--json]：某次运行的每轮明细与检查输出。',
       '',
       '示例：',
       '  moss loop --until "npm run verify" "修复 verify 的失败项，最小改动"',
@@ -91,6 +93,8 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
     '  (an attempt already running is not cut off).',
     '  The ledger for every attempt (exit code, duration, check output tails) is',
     '  written to .moss/loops/<runId>.jsonl and the path is printed at startup.',
+    '  moss loop list [--limit N] [--json] reads the run history (offline, newest first).',
+    "  moss loop show [<run_id>|latest] [--json] prints one run's attempts and check tails.",
     '',
     'Examples:',
     '  moss loop --until "npm run verify" "fix the verify failures with minimal changes"',
@@ -412,4 +416,317 @@ export async function runLoopCommand(
     }
   }
   return await finish(false);
+}
+
+// --- history (read path) ------------------------------------------------------
+//
+// B94 wrote `.moss/loops/<runId>.jsonl` for every attempt, but nothing read it:
+// an overnight loop left evidence you had to `cat` and parse by hand. Cursor
+// shows run history; Claude's task list does the same for subagents. `moss loop
+// list|show` is the read path for the same ledger, and stays offline (no agent).
+
+export interface LoopRunSummary {
+  runId: string;
+  /** Path relative to the workspace, for the report line. */
+  ledger: string;
+  /** ISO time of the first attempt (or the summary when no attempts exist). */
+  startedAt?: string;
+  /** ISO time of the summary line; absent for interrupted runs. */
+  endedAt?: string;
+  passed: boolean;
+  /** Summary reason; absent when the loop never wrote its summary. */
+  reason?: LoopSummaryRecord['reason'];
+  attempts: number;
+  maxAttempts?: number;
+  totalDurationMs?: number;
+  until?: string;
+  /** No summary record: the process died, was killed, or is still running. */
+  interrupted: boolean;
+}
+
+interface LoopLedgerRead {
+  attempts: LoopAttemptRecord[];
+  summary?: LoopSummaryRecord;
+  torn: number;
+}
+
+function readLoopLedger(filePath: string): LoopLedgerRead {
+  const attempts: LoopAttemptRecord[] = [];
+  let summary: LoopSummaryRecord | undefined;
+  let torn = 0;
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return { attempts, torn };
+  }
+  for (const line of raw.split('\n')) {
+    if (line.trim() === '') continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (typeof parsed !== 'object' || parsed === null) throw new Error('not an object');
+      const record = parsed as { type?: unknown };
+      if (record.type === 'attempt') attempts.push(parsed as LoopAttemptRecord);
+      else if (record.type === 'summary') summary = parsed as LoopSummaryRecord;
+    } catch {
+      torn += 1;
+    }
+  }
+  return { attempts, ...(summary ? { summary } : {}), torn };
+}
+
+/** All loop ledgers, newest first (by summary time, then file mtime). */
+export function listLoopRuns(workspaceDir: string): LoopRunSummary[] {
+  const dir = path.join(workspaceDir, '.moss', 'loops');
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir).filter((name) => name.endsWith('.jsonl'));
+  } catch {
+    return [];
+  }
+  const runs: (LoopRunSummary & { sortAt: number })[] = [];
+  for (const name of names) {
+    const filePath = path.join(dir, name);
+    const { attempts, summary } = readLoopLedger(filePath);
+    const runId = summary?.runId ?? name.replace(/\.jsonl$/, '');
+    if (!summary && attempts.length === 0) continue;
+    let mtimeMs = 0;
+    try {
+      mtimeMs = fs.statSync(filePath).mtimeMs;
+    } catch {
+      mtimeMs = 0;
+    }
+    const sortAt = summary ? Date.parse(summary.at) || mtimeMs : mtimeMs;
+    runs.push({
+      runId,
+      ledger: path.relative(workspaceDir, filePath),
+      ...(attempts[0]?.at ? { startedAt: attempts[0].at } : {}),
+      ...(summary?.at ? { endedAt: summary.at } : {}),
+      passed: summary?.passed === true,
+      ...(summary?.reason ? { reason: summary.reason } : {}),
+      attempts: summary?.attempts ?? attempts.length,
+      ...(summary?.maxAttempts !== undefined ? { maxAttempts: summary.maxAttempts } : {}),
+      ...(summary?.totalDurationMs !== undefined
+        ? { totalDurationMs: summary.totalDurationMs }
+        : {}),
+      ...(summary?.until ? { until: summary.until } : {}),
+      interrupted: summary === undefined,
+      sortAt,
+    });
+  }
+  return runs
+    .sort((left, right) => right.sortAt - left.sortAt)
+    .map(({ sortAt: _drop, ...rest }) => rest);
+}
+
+function formatLoopDuration(ms: number | undefined): string {
+  if (ms === undefined || !Number.isFinite(ms)) return '—';
+  if (ms < 1_000) return `${String(Math.round(ms))}ms`;
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1_000);
+  return `${String(minutes)}m${String(seconds).padStart(2, '0')}s`;
+}
+
+function clipLine(text: string, limit: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length <= limit ? flat : `${flat.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function clockOf(iso: string | undefined): string {
+  if (!iso) return '--:--:--';
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? '--:--:--'
+    : date.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+}
+
+export function renderLoopRunRows(
+  runs: readonly LoopRunSummary[],
+  options: { zh?: boolean; limit?: number } = {}
+): string[] {
+  const zh = options.zh === true;
+  const limit = options.limit ?? 20;
+  const shown = runs.slice(0, limit);
+  if (shown.length === 0) {
+    return zh
+      ? [
+          '还没有 loop 运行记录。跑一个：`moss loop --until "<命令>" "<prompt>"`',
+          '（每轮的退出码/耗时/检查输出写进 `.moss/loops/<runId>.jsonl`）',
+        ]
+      : [
+          'no loop runs recorded yet (`moss loop --until "<command>" "<prompt>"` writes them)',
+          '  each attempt lands in `.moss/loops/<runId>.jsonl`',
+        ];
+  }
+  const lines: string[] = [
+    zh
+      ? `loop 运行记录（${String(runs.length)} 条，最新在前）`
+      : `loop runs (${String(runs.length)}, newest first)`,
+  ];
+  for (const run of shown) {
+    const outcome = run.passed ? 'pass' : run.interrupted ? 'interrupted' : 'fail';
+    const reason = run.interrupted
+      ? zh
+        ? '没有写 summary（中断或仍在运行）'
+        : 'no summary record (interrupted or still running)'
+      : run.reason === 'passed'
+        ? zh
+          ? '检查命令退出 0'
+          : 'check exited 0'
+        : run.reason === 'budget_exhausted'
+          ? zh
+            ? '墙钟预算用尽'
+            : 'wall-clock budget exhausted'
+          : zh
+            ? '轮次用尽'
+            : 'attempts exhausted';
+    const count = `${String(run.attempts)}/${String(run.maxAttempts ?? run.attempts)}`;
+    lines.push(
+      `  ${clockOf(run.startedAt)}  ${outcome.padEnd(11)}  ${run.runId.slice(-14).padEnd(14)}  att:${count.padEnd(5)} ${formatLoopDuration(run.totalDurationMs).padStart(7)}  ${clipLine(run.until ?? '', 56)}`
+    );
+    lines.push(`  ${' '.repeat(10)}  ↳ ${reason}${zh ? '' : ` · ${run.ledger}`}`);
+  }
+  if (runs.length > shown.length) {
+    lines.push(
+      zh
+        ? `  …还有 ${String(runs.length - shown.length)} 条（--limit 调整）`
+        : `  …${String(runs.length - shown.length)} more (raise --limit)`
+    );
+  }
+  return lines;
+}
+
+export function formatLoopRunDetail(
+  run: LoopRunSummary,
+  read: LoopLedgerRead,
+  options: { zh?: boolean } = {}
+): string[] {
+  const zh = options.zh === true;
+  const label = (en: string, zhLabel: string): string => (zh ? `${zhLabel}      ` : en.padEnd(10));
+  const lines = [
+    `${label('RUN', '运行')}${run.runId}`,
+    `${label('LEDGER', '账本')}${run.ledger}`,
+    `${label('UNTIL', '验收')}${run.until ?? '—'}`,
+    `${label('RESULT', '结果')}${
+      run.passed
+        ? 'passed'
+        : run.interrupted
+          ? zh
+            ? 'interrupted（没有 summary 记录）'
+            : 'interrupted (no summary record)'
+          : `failed${run.reason ? ` · ${run.reason}` : ''}`
+    }`,
+    `${label('ATTEMPTS', '轮次')}${String(run.attempts)}${run.maxAttempts !== undefined ? `/${String(run.maxAttempts)}` : ''} · ${formatLoopDuration(run.totalDurationMs)}${
+      read.summary && read.summary.maxDurationMs > 0
+        ? zh
+          ? ` · 墙钟上限 ${formatLoopDuration(read.summary.maxDurationMs)}`
+          : ` · max ${formatLoopDuration(read.summary.maxDurationMs)}`
+        : ''
+    }`,
+  ];
+  if (read.torn > 0) {
+    lines.push(
+      `${label('NOTE', '备注')}${zh ? `${String(read.torn)} 行无法解析（已跳过）` : `${String(read.torn)} unparseable line(s) skipped`}`
+    );
+  }
+  lines.push('');
+  lines.push(zh ? '每轮：' : 'attempts:');
+  for (const attempt of read.attempts) {
+    const check = attempt.check;
+    lines.push(
+      `  ${clockOf(attempt.at)}  #${String(attempt.attempt)}  agent ${formatLoopDuration(attempt.durationMs)}  check exit ${String(check.exitCode)} (${formatLoopDuration(check.durationMs)})  ${attempt.passed ? 'PASS' : 'fail'}`
+    );
+    if (attempt.agentError) {
+      lines.push(`      ${zh ? '模型错误' : 'agent error'}: ${clipLine(attempt.agentError, 160)}`);
+    }
+    const observed = clipLine(`${check.stdout}\n${check.stderr}`, 200);
+    if (observed !== '') lines.push(`      ${zh ? '检查输出' : 'check output'}: ${observed}`);
+  }
+  if (read.attempts.length === 0)
+    lines.push(zh ? '  （账本里没有 attempt 记录）' : '  (no attempt records)');
+  return lines;
+}
+
+export interface LoopHistoryContext {
+  workspaceDir: string;
+  /**
+   * `--json` is consumed by the top-level arg parser before dispatch, so the
+   * dispatcher forwards `ctx.argv.includes('--json')` here (same trap as
+   * `moss task list`). A `--json` left in argv still counts.
+   */
+  json?: boolean;
+}
+
+/** `moss loop list|show` — read the ledger without constructing an agent. */
+export async function readLoopHistoryCommand(
+  argv: readonly string[],
+  ctx: LoopHistoryContext
+): Promise<number> {
+  const zh = isZhLocale();
+  const sub = argv[0];
+  const wantJson = ctx.json === true || argv.includes('--json');
+  if (sub === 'list') {
+    let limit = 20;
+    for (let i = 1; i < argv.length; i += 1) {
+      const arg = argv[i] ?? '';
+      if (arg === '--json') continue;
+      if (arg === '--limit' || arg.startsWith('--limit=')) {
+        const raw = readValue(argv, i, '--limit');
+        if (!arg.includes('=')) i += 1;
+        const parsed = Number(raw);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+          console.error('moss loop list: --limit must be a positive integer');
+          return 2;
+        }
+        limit = parsed;
+        continue;
+      }
+      console.error(`moss loop list: unknown argument ${arg}`);
+      return 2;
+    }
+    const runs = listLoopRuns(ctx.workspaceDir);
+    if (wantJson) {
+      console.log(JSON.stringify(runs.slice(0, limit), null, 2));
+      return 0;
+    }
+    for (const line of renderLoopRunRows(runs, { zh, limit })) console.log(line);
+    return 0;
+  }
+  if (sub !== 'show') return 2;
+  const requested = argv.slice(1).find((arg) => !arg.startsWith('--')) ?? 'latest';
+  const runs = listLoopRuns(ctx.workspaceDir);
+  if (runs.length === 0) {
+    console.error(
+      zh
+        ? '没有 loop 运行记录。先跑：moss loop --until "<命令>" "<prompt>"'
+        : 'no loop runs recorded yet. Start one: moss loop --until "<command>" "<prompt>"'
+    );
+    return 1;
+  }
+  const run =
+    requested === 'latest'
+      ? runs[0]
+      : (runs.find((candidate) => candidate.runId === requested) ??
+        runs.find((candidate) => candidate.runId.startsWith(requested)));
+  if (!run) {
+    console.error(
+      zh
+        ? `找不到 run id ${requested}（用 \`moss loop list\` 看可用的 id）`
+        : `no loop run matches ${requested} (see \`moss loop list\`)`
+    );
+    return 1;
+  }
+  const read = readLoopLedger(path.join(ctx.workspaceDir, run.ledger));
+  if (wantJson) {
+    const records: unknown[] = [...read.attempts, ...(read.summary ? [read.summary] : [])];
+    console.log(JSON.stringify(records, null, 2));
+    return run.passed ? 0 : 1;
+  }
+  for (const line of formatLoopRunDetail(run, read, { zh })) console.log(line);
+  return run.passed ? 0 : 1;
 }
