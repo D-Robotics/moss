@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="356" viewBox="0 0 920 356" font-family="SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+  <rect width="920" height="356" rx="12" fill="#0d1117"/>
+  <rect x="1" y="1" width="918" height="354" rx="12" fill="none" stroke="#30363d"/>
+  <rect x="0" y="0" width="920" height="34" rx="12" fill="#161b22"/>
+  <rect x="0" y="22" width="920" height="12" fill="#161b22"/>
+  <circle cx="22" cy="17" r="6" fill="#ff5f56"/>
+  <circle cx="42" cy="17" r="6" fill="#ffbd2e"/>
+  <circle cx="62" cy="17" r="6" fill="#27c93f"/>
+  <text x="460" y="22" text-anchor="middle" font-size="12" fill="#8b949e">moss run — one intent in, one verified result out</text>
+
+  <text x="24" y="66" font-size="14" fill="#7ee787">$</text>
+  <text x="40" y="66" font-size="14" fill="#e6edf3">moss run "创建 hello.txt 内容为 MOSS_OK，然后自测" --accept "grep -qx MOSS_OK hello.txt"</text>
+
+  <text x="24" y="104" font-size="14" fill="#8b949e">◇</text>
+  <text x="44" y="104" font-size="14" fill="#c9d1d9">Working out the steps</text>
+
+  <text x="24" y="132" font-size="14" fill="#39c5cf">⏺</text>
+  <text x="44" y="132" font-size="14" fill="#e6edf3">write_file (hello.txt)</text>
+  <text x="44" y="154" font-size="13" fill="#7d8590">content: MOSS_OK</text>
+
+  <text x="24" y="182" font-size="14" fill="#8b949e">◇</text>
+  <text x="44" y="182" font-size="14" fill="#c9d1d9">Running acceptance: grep -qx MOSS_OK hello.txt</text>
+  <text x="24" y="208" font-size="14" fill="#3fb950">◇</text>
+  <text x="44" y="208" font-size="14" fill="#3fb950">Checks passed · acceptance command exited 0</text>
+
+  <text x="24" y="244" font-size="14" fill="#e6edf3">Task task_mw3vvoef_0f83qm — <tspan fill="#3fb950" font-weight="bold">PASS</tspan></text>
+  <text x="24" y="268" font-size="13" fill="#8b949e">phase: accepted · attempts: 1 · repairs: 0 · failures: 0 · turns: 1</text>
+
+  <text x="24" y="304" font-size="13" fill="#7d8590">PASS 来自 verdict provider（验收命令退出 0），不来自模型自述。</text>
+  <text x="24" y="328" font-size="13" fill="#7d8590">工件落在 .moss/：task-events.jsonl · evidence.jsonl · acceptance.jsonl</text>
+</svg>

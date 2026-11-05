@@ -2,200 +2,41 @@
 
 # Moss
 
-**One Intent → One Task → One Agent Loop → One Verified Result.**
-一句话意图 → 一个任务 → 一个 agent loop → 一个被验证的结果
+**一句话意图 → 一个任务 → 一次被验证的完成。**
+把"模型说完成了"变成"验收命令说完成了"——代码如此，机器人真机也如此。
 
+[![npm](https://img.shields.io/npm/v/@rdk-moss/agent.svg)](https://www.npmjs.com/package/@rdk-moss/agent)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-22.16%2B-339933.svg)](https://nodejs.org)
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#支持矩阵)
 
-**中文** · [English](https://github.com/D-Robotics/moss/blob/main/README.en.md)
+**中文** · [English](README.en.md)
 
 </div>
 
-Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器人开发的 **Agent Task OS**：
-把一句话意图变成带**可机检验收标准**的状态机任务，跑完 agent loop 后——**没有证据背书就不算完成**。
-它用 SSH 直连 RDK / Linux 真机，所以这里的"完成"可以是**板子真的做到了**。
-
-- TypeScript / ESM 单包 · Node ≥ 22.16.0 · Linux / macOS / Windows
-- 无账号、无云服务、无遥测——provider 就是普通 HTTP 端点
-- 四种交互面：全屏 TUI · readline REPL · headless CLI · 可嵌入 SDK
-
-## 环境
-
-先看 Node 版本（**硬性前提：Node ≥ 22.16.0**）：
-
-```bash
-node -v
-```
-
-没有合格 Node 时，先装再继续（可复制）：
-
-- **macOS：** `brew install node@22`，或 `nvm install 22 && nvm use 22` / `fnm install 22 && fnm use 22`
-- **Ubuntu / Debian：** NodeSource（[nodesource/distributions](https://github.com/nodesource/distributions)）或同上 nvm / fnm
-- **Windows（PowerShell）：** `winget install OpenJS.NodeJS.LTS`
-- **国内网络：** `npm config set registry https://registry.npmmirror.com`；nvm 下载 Node 可设 `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
-
-Node 低于 22.16 时，`npm install -g @rdk-moss/agent@latest`（以及源码路径的 `preinstall` / `prepare`）会**立刻非零退出**，打印当前 Node 版本和可复制的升级命令（含成功后再跑的 `npm install -g @rdk-moss/agent@latest`），**不会**留下坏掉的全局 `moss`。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
-
-### macOS
-
-Git 需要 Xcode Command Line Tools。没有 `git` 时运行 `xcode-select --install`。Moss 自己不需要 C 编译器，`cpu-features` 的可选原生构建失败也不影响运行。全局目录没有写权限时，用下面的用户级 prefix。
-
-### Windows
-
-先装 Git for Windows。PowerShell 的执行策略可能拦截 `moss.ps1`。只给当前用户放开脚本：
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-把 `%APPDATA%\npm` 加进 PATH。这是 npm 在 Windows 上的默认全局命令目录。
-
-## 快速开始
-
-**推荐（一行）：** 已装 Node ≥ 22.16 时：
-
 ```bash
 npm install -g @rdk-moss/agent@latest
-moss --version
-moss
+moss setup
+moss run "创建 hello.txt 内容为 MOSS_OK，然后自测" --accept "grep -qx MOSS_OK hello.txt"
 ```
 
-如果以前装过旧的未加 scope 的 `moss` 包，先执行 `npm uninstall -g moss`，否则两个包抢同一个 `moss` 命令，npm 会报 EEXIST。不要加 `--force`：它会同时留下旧包和 `@rdk-moss/agent`，之后再 `npm uninstall -g moss` 会把 `moss` 命令一起删掉。
+<img src="docs/assets/demo-run.svg" alt="moss run：意图进，验收过的 PASS 出" width="920">
 
-全局目录没有写权限（EACCES）时，把 prefix 放到用户目录，或改用 nvm（Node 装在家目录里）：
-
-```bash
-npm config set prefix ~/.npm-global
-```
-
-把 `~/.npm-global/bin` 加进 PATH，然后重新打开终端。
-
-<details>
-<summary>从源码开发（可选）</summary>
-
-贡献 / 改代码时用克隆。`npm ci` 会跑 `prepare`（先检查 Node，再 `npm run build`），所以不用再单独构建：
-
-```bash
-git clone https://github.com/D-Robotics/moss.git
-cd moss
-npm ci
-npm install -g --install-links .
-moss
-```
-
-npm 11 可能打印 `npm warn install-scripts`。`npm ci` 可能会点名 `ssh2` 和 `cpu-features`。接下来的 `npm install -g --install-links .` 还可能点名 `@rdk-moss/agent`（它的 `preinstall` 和 `prepare`）。这是提示，安装仍然成功：ssh2 没有可选的原生模块也能用，全局副本里已经有 `dist/`。不要运行 `npm audit fix --force`，它会改依赖版本，装完不能用。
-
-</details>
-
-没有可用配置时，`moss` 就在这个界面里设置（按数字选服务商，或按 Enter 使用环境里已有的 key，内容不会显示）。D-Robotics 地瓜网关是第一项，已经预选（地址 `https://ai-api.d-robotics.cc/v1`，默认模型 `deepseek-flash`，只问 key）。不想把 key 写进文件时，先指定服务商再写变量名：`moss config set provider d-robotics`，然后 `moss config set apiKeyEnv <变量名>`。只写 `apiKeyEnv`、不写服务商或地址时，会先问选哪一家，不会把 key 发给默认的 DeepSeek。设好后在同一会话里说：
+一次真实运行（deepseek-flash，本机；本次实测 10.7 秒）：
 
 ```text
-看一下这个目录里有什么
+◇ Working out the steps
+◇ Checks passed
+Task task_mw3vvoef_0f83qm — PASS
+phase: accepted · attempts: 1 · repairs: 0 · failures: 0 · turns: 1
 ```
 
-### 自定义 OpenAI 兼容网关
+`PASS` 不来自模型的自述，而来自验收命令退出 0。这是 Moss 与其他 agent 的根本区别：
+**没有证据背书就不算完成。**
 
-内置预设之外的网关用 `openai-compatible`。四条命令分别写入服务商、模型、地址和密钥变量名（`apiKeyEnv` 的值是变量名，不是密钥本身）：
-
-```bash
-moss config set provider openai-compatible
-moss config set model your-model-name
-moss config set baseUrl https://gw.example
-moss config set apiKeyEnv MY_GATEWAY_API_KEY
-export MY_GATEWAY_API_KEY=your-key
-moss doctor
-```
-
-`baseUrl` 末尾的 `/v1` 可写可不写。`https://gw.example` 和 `https://gw.example/v1` 都可以。Moss 自己拼接 `/v1/chat/completions`，不会变成 `/v1/v1`。不必写 `/chat/completions`，写了也会被去掉。`moss doctor` 核对服务商、模型、地址，以及密钥变量是否已设置。
-
-进到交互界面后：
-
-- `moss "整理这个项目的 README"` 直接派活；`@` 引用文件，`!` 执行 shell
-- `Shift+Tab` 在模式间切换（`plan` = 只读规划）；`/plan` 进入 plan 模式。`/mode` 仍可用一版
-- `Ctrl+V` 粘贴剪贴板图片 / Finder 文件 / 本地路径作为附件（macOS；Linux 用 wl-paste/xclip，Windows 用 PowerShell）
-- `/help` 看键位与命令，`/goal <条件>` 做到为止，`/model` 换模型
-
-<details>
-<summary>不装到 PATH 也能跑 · 一次性模式 · 会话恢复</summary>
-
-```bash
-node dist/cli.js --help                       # 直接跑构建产物
-moss "check disk usage"                       # 一次性模式（也支持管道：echo "list files" | moss）
-moss resume --last                            # 继续最近一次会话
-moss --no-tty                                 # 强制使用 readline REPL
-```
-
-</details>
-
-## 升级
-
-如果 `moss` 命令还来自旧的未加 scope 的包（包括 `npm link`），先执行 `npm uninstall -g moss`。否则新的全局安装会报 EEXIST，而这时 `moss --version` 看起来可能已经是新的。
-
-**npm 全局安装**（推荐路径）直接：
-
-```bash
-npm install -g @rdk-moss/agent@latest
-```
-
-**已有源码克隆**时，在它的上一级目录运行：
-
-```bash
-cd moss && git pull && npm ci && npm install -g --install-links .
-```
-
-`npm ci` 会重新构建。`--install-links` 把新的副本装进全局 prefix，而不只是重新编译克隆目录。`moss --version` 带短 commit 和构建日期，例如 `moss v0.26.0 (e8dc2e3, 2026-10-10)`。构建时工作区有未提交改动会写成 `e8dc2e3+dirty`。升级前后可以对上。
-
-`moss update` 按安装方式打印对应命令：npm 全局打印上面的 `@latest` 一行；找得到克隆就打印克隆升级行；都没有才打印 `git clone`。全局安装只在当前目录和 `./moss` 里找克隆。别的位置用 `moss update --dir <克隆>` 或 `MOSS_SOURCE_DIR`。它只打印命令，不执行。
-
-## 卸载
-
-```bash
-npm uninstall -g @rdk-moss/agent
-```
-
-这条只卸掉命令。下面的东西会留下：
-
-- 配置：Linux / macOS 是 `~/.config/moss`（设了 `XDG_CONFIG_HOME` 时在那里的 `moss`），Windows 是 `%APPDATA%\moss`。也检查 `~/.moss`
-- npx 缓存：`~/.moss/cache/npx`
-- 每个项目里的 `.moss/`（任务、会话、项目配置）
-- 源码克隆目录
-- npm 缓存，一般是 `~/.npm`
-- 原生模块缓存：`~/.cache/node-gyp`
-- prefix 里可能留下空的 `@rdk-moss` 目录：Linux / macOS 是 `$(npm prefix -g)/lib/node_modules/@rdk-moss`，Windows 是 `%APPDATA%\npm\node_modules\@rdk-moss`
-
-可以删：`~/.moss/cache/npx`、`~/.cache/node-gyp`、npm 缓存（`npm cache clean --force`）、空的 `@rdk-moss` 目录，以及你不再需要的克隆目录。删掉 `~/.config/moss`、`~/.moss` 或项目里的 `.moss/` 会同时去掉 key、设置和任务记录；只有确定不要这些数据时再删。
-
-## 板子无法访问外网 / 需要代理
-
-实验室 / 教室里的 RDK 板子常常**直连不了** GitHub、npm、Node 镜像和模型网关（TCP 超时）。第一步 `git clone` 就会卡住。
-
-**必设环境变量（正式推荐，仅此）：**
-
-```bash
-export HTTPS_PROXY=http://127.0.0.1:1080
-export HTTP_PROXY=http://127.0.0.1:1080
-export NO_PROXY=localhost,127.0.0.1,::1
-# 当前 Moss main（含 O83 / #81 起）会自动让 Node fetch 走上述代理，
-# 不必再设 NODE_USE_ENV_PROXY（那是旧 tip 的临时绕过，当前不需要）
-```
-
-端口与是否需要 `ssh -R` 隧道按现场配置。
-
-**板上首装注意：**
-
-1. **git clone：** 用 `git clone --depth 1 https://github.com/D-Robotics/moss.git`；完整 clone 在慢网 / 代理下容易 GnuTLS / early EOF。
-2. **npm：** 国内可 `npm config set registry https://registry.npmmirror.com`；镜像**不能代替** `HTTPS_PROXY`——仍需代理才能出网时两者都要。
-3. **Node：** 许多 RDK 镜像已带 Node ≥ 22.16；若需 nvm，安装脚本依赖 `raw.githubusercontent.com`，不出网会超时——优先用系统 Node，或经代理装。
-4. **用户级 prefix：** root 下 `npm i -g` 会写 `/usr`；推荐 `npm config set prefix "$HOME/.npm-global"` 并把 `bin` 加进 PATH。
-
-**如何确认代理生效（必须两条都过）：**
-
-1. 代理日志里有目标模型 / 网关主机的 `CONNECT`；
-2. 端到端拿到**有效回答**（`moss -p "…"` 退出码 0，不是「网络连接失败」）。
-
-**仅有 CONNECT、仍报网络失败 = 未过关。** 排查时可临时 `MOSS_NO_RDK_DOCS=1` 做对照；根因修复见 backlog **O87**（CONNECT 有、回答无），本 README 不替代该项。连接类错误请检查代理 / 防火墙，**不要**按「换更快的模型」处理。
+- **可机检的完成**：目标被编译成带验收命令的任务状态机，只有 verdict provider 能判 PASS
+- **真机也在回路里**：SSH 直连 RDK / Linux，部署→运行→测量→验收都留证据
+- **四种交互面同一套语义**：TUI · REPL · headless（脚本/CI）· SDK（semver 保护）
 
 ## 为什么是 Moss
 
@@ -203,268 +44,157 @@ export NO_PROXY=localhost,127.0.0.1,::1
 
 ```text
 task_define（目标 + 可机检验收标准）
-  → device_deploy / device_exec / run_tests（真实执行）
+  → 执行（读写文件 / 跑测试 / SSH 到板子）
   → record_evidence（Expected / Observed / Result 结构化证据）
   → task_acceptance（按 metric 匹配最新证据裁决）
 ```
 
-- **PASS 只能来自 verdict provider**（命令裁决 > 契约裁决）——模型散文永远不是事件
-- 缺证据 = 未完成；`latest-wins` 支持修复后复测
-- 每个任务走同一个事件驱动状态机：
-  `draft → planning → executing → verifying → diagnosing → repairing → reverifying → accepted | failed`
-- 完成门内置在 agent 里：一次 run 定义了任务却没有验收裁决时，终稿会被拦截一次并注入修正——不会无限劫持
+- **完成只能来自 verdict provider**（验收命令 > 任务契约）——模型散文永远不是事件
+- 缺证据 = 未完成；`latest-wins` 支持修完再测；修复次数用尽时任务诚实 FAIL 并给出续跑命令
+- 每个任务走同一个事件驱动状态机：`planning → executing → verifying → diagnosing → repairing → accepted | failed | blocked`
+- 所有产物落在工作区 `.moss/`：可复现、可审计、可被 CI 读取
 
-所有工件落在工作区 `.moss/`，这是可复现、可追踪、可分析的数据基础：
-`tasks.jsonl` · `task-events.jsonl` · `evidence.jsonl` · `deployments.jsonl` · `acceptance.jsonl` · `task-failures.jsonl` · `task-repairs.jsonl`。
+同一个内核还让"完成"可以发生在**真机**上：SSH 直连 RDK / Linux 板卡，部署、运行、测量、
+验收都在回路里——这是纯 IDE 型 agent 做不到的。
+
+## 上手
+
+**1. 装（一行，Node ≥ 22.16）：**
+
+```bash
+npm install -g @rdk-moss/agent@latest && moss setup
+```
+
+环境前提、升级/卸载、代理、Windows 与自定义网关见 [安装与运行环境](docs/install.md)。
+
+**2. 选一个交互面：**
+
+| 你在做什么             | 用这个                                        |
+| ---------------------- | --------------------------------------------- |
+| 想边聊边改、看流式输出 | `moss`（全屏 TUI；无 TTY 自动回退 REPL）      |
+| 只想问一次             | `moss "总结这个仓库的架构"`                   |
+| 要一个**被验证的结果** | `moss run "<意图>" --accept "<验收命令>"`     |
+| 交给脚本 / CI          | `moss -p "..."` · `moss run ... --json`       |
+| 反复跑到外部命令通过   | `moss loop --until "npm test" "修到测试全绿"` |
+
+**3. 第一个"被验证的完成"：**
+
+```bash
+moss run "创建 hello.txt 内容为 MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"
+moss task status --json                # 同一份事实，给脚本/CI 用
+```
+
+## 手感
+
+Moss 的交互目标是：**敢让它跑、随时能停、停了能续、错了能退**。
+一次 run 的生命周期是可预期的五段：`理解 → 计划 → 执行 → 验收 → 修复`；任何一段都能停，
+停下后状态在磁盘上，`resume` 从断点继续而不是重跑。
+
+| 你会做的            | 怎么按 / 怎么输                                                | 得到什么                                                             |
+| ------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 切换权限模式（TUI） | `Shift+Tab`（状态栏常驻 `manual / acceptEdits / plan / full`） | 从"每步都问"到"默认少问"，随时可回到最严格                           |
+| 停下当前动作        | `Esc`                                                          | 保留已完成的成果；任务运行里 `Ctrl+C` = **暂停而不是丢弃**           |
+| 续跑暂停的任务      | `/goal resume` / `moss task resume <id>`                       | 从磁盘状态继续，不重跑已完成的回合；预算可单独指定                   |
+| 撤销这一轮          | `/rewind`                                                      | 文件回到检查点版本，这一轮对话也从上下文撤回（试错成本降到一次按键） |
+| 看改动 / 审 diff    | `/diff` · `/review`                                            | 工作区差异 · 独立评审给出严重/重要/建议三档                          |
+| 管上下文            | `/compact` · `/todos` · `/context`                             | 压缩历史、看计划进度、看窗口用量                                     |
+| 长任务结束后        | 直接问                                                         | 下一次聊天自动带上一次运行的 task id、失败原因与续跑命令（只带一次） |
+
+失败时只给"原因 + 下一步命令"，不要求你回头查文档；`moss doctor` 体检、
+`MOSS_STARTUP_TIMING=1` 定位启动慢在哪一阶段。
 
 ## 能力
 
-**写代码。** agent loop 负责轮次控制、上下文压缩与预算、nudge、loop guard；**45 个内置工具**开箱即用（含 **12 个 SSH 设备工具**），覆盖读写文件与补丁、代码搜索、进程与后台任务、联网抓取与搜索、类型 / lint 诊断、跑测试与修复验证、子代理、任务契约。写类工具走审批。会话可保存 / 搜索 / 导出 / fork；`/compact` 压缩历史，`/rewind` 从检查点撤销文件编辑，`/diff` 看改动，`/review` 审查 diff（或某个 GitHub PR）找 bug 与安全问题。
+**写代码。** agent loop 管轮次、上下文压缩、nudge 与 loop guard；**51 个内置工具**
+覆盖读写/补丁/搜索、进程与后台任务、联网抓取、类型与 lint 诊断、跑测试、子代理、任务契约。
+写类工具走审批；会话可保存 / 搜索 / 导出 / fork。**13 个设备工具**把 SSH 真机操作
+纳入同一套证据与验收；`moss device fleet` 一条命令做多机只读巡检。
 
-**子代理。** `create_subagent` 派生有 scope 限定的子代理（explore / plan / verify / full），可后台运行、可 `fan_out_subagents` 并发扇出并聚合摘要；写类子代理可跑在独立 git worktree 里，产物以三方补丁合并回父工作区。
+**长任务。** `/goal` 与 `moss run` 用同一套任务状态机；`moss loop` 做"跑一轮→用你的命令验收→
+失败把输出喂回下一轮"的本地闭环；`moss task status|timeline|list` 是离线读路径；中断的任务
+`resume` 时先按当前工作区验收再决定要不要花执行回合。写类子代理可跑在独立 worktree 里，产物以
+三方补丁合并回父工作区。
 
-**连真机。** 用 SSH 直连 RDK / Linux 板卡。只读：`device_info` · `device_processes` · `device_resources` · `device_temperature` · `device_network` · `device_cameras` · `device_robotics_status` · `device_file_read` · `device_file_list`；写类（逐次审批）：`device_exec` · `device_file_write` · `device_deploy`。注册成清单后可一条命令做多机只读巡检：
+**扩展。** MCP 客户端（stdio + streamable HTTP，工具懒加载）、轻量 skills（渐进披露）、
+自定义斜杠命令、文件定义子代理、生命周期 hook、本地能力包（plugins）、
+板卡手册由内置 rdk-docs MCP 供给。
+
+**嵌入与自动化。** `-p` 的末行是稳定契约：只有 `accepted` 才 exit 0；"未验证"与"未完成"
+可区分（exit 9）。`--output-format json|stream-json` 给 CI 消费；`src/index.ts` 的导出面受
+semver 保护，`examples/` 是可运行的集成示例。
+
+## 连真机
 
 ```bash
-export MOSS_DEVICE_HOST=<board> MOSS_DEVICE_PORT=22 MOSS_DEVICE_USER=root MOSS_DEVICE_PASSWORD=...
-
 moss device add rdk-01 192.168.1.10 --user root --kind rdk
-moss device list
 moss device test rdk-01
-moss device fleet info --devices rdk-01,rdk-02,rdk-03 --concurrency 4
+moss device fleet info --devices rdk-01,rdk-02 --concurrency 4
+
+# `--accept` 换成你自己的验收脚本：退出码 0 即通过，其余都算没完成
+moss run "相机管线保持 30 FPS 持续 60 秒：部署、运行、记录证据、验收" \
+  --accept "python3 bench/check_fps.py --min 30"
 ```
 
-一个真实目标长这样，agent 会从目标里发现该用哪些设备工具，逐条验收标准记录 Expected/Observed/Result 证据：
+板端推理依赖（hobot_dnn / TROS）见 [RDK 板端依赖](docs/rdk-board-deps.md)。
+
+## 与最佳产品的关系
+
+|            | Moss                                  | Claude Code       | Cursor     |
+| ---------- | ------------------------------------- | ----------------- | ---------- |
+| 形态       | 终端 TUI / REPL / headless / SDK      | 终端 + IDE 插件   | IDE 为主   |
+| 完成判定   | **验收命令 / 证据裁决**               | 模型判断 + hook   | 模型判断   |
+| 长任务     | 任务状态机 + 账本 + 中断续跑          | 会话上下文        | Agent 面板 |
+| 真机闭环   | **SSH 原生（部署-测量-验收）**        | 无                | 无         |
+| 账号与数据 | 本地优先，无账号无遥测，自有 provider | 需要账号          | 需要账号   |
+| 可嵌入     | semver-protected SDK                  | headless 输出契约 | 无         |
+
+Moss 不试图做 IDE：它做的是**可验证执行的运行时**，所以既能当日常 coding agent，
+也能当机器人闭环里的裁决器。
+
+## 质量
 
 ```bash
-moss --print "定义任务：相机管线保持 30 FPS 持续 60 秒；部署、运行、记录证据、验收"
+npm run check    # prettier + eslint(0 warning) + typecheck
+npm run verify   # 交付门：static + build + smoke + examples，目标 ≤60s
+npm run bench    # 能力基准（DeepSeek 基准模型）；bench:swe / bench:deepswe / bench:device
 ```
 
-板卡手册（烧录、引脚、TROS / hobot_dnn、规格）由内置 rdk-docs MCP 供给，默认钉在 `rdk-docs-mcp@0.3.0`（BM25 + 标题融合、`noGoodMatch`、`alt_queries`、板型过滤；默认命中是 title/url/anchor/snippet，`verbose` 才带分数；`get_page` 默认返回匹配的 section，`full` 才读整页）。默认在后台连接，不需要设备目标（`MOSS_DEVICE_HOST` 或 `.moss/devices.json` 都不是前置条件），也不阻塞交互界面。自定义或尚未发布的版本可用 `"rdkDocs": {"package": "../rdk-docs-mcp"}` 或 `MOSS_RDK_DOCS_PACKAGE` 指向 npm spec、本地目录或 tarball；该值会作为代码执行，只使用可信来源。`MOSS_NO_RDK_DOCS=1`、`"rdkDocs": false` 或 `"rdkDocs": {"enabled": false}` 关闭；同名 `mcp.json` 条目整段替换内置项。服务器能力随版本而异，Moss 先查询工具清单再按实际 schema 调用。连不上时本会话不查手册，没有缓存，也没有离线副本。审计与保留标准见 [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md)。
-
-**扩展。** MCP 客户端（stdio + streamable HTTP，工具懒加载）；轻量 skills（`.moss/skills/<name>/SKILL.md`，渐进披露，`$ARGUMENTS` 传参）；自定义斜杠命令（`.moss/commands/<name>.md`）；人设（`.moss/soul.md`）；生命周期 hook。
-
-**嵌入与自动化。** headless 输出是给脚本 / CI 用的稳定契约；把任务跑到裁决位时，**只有 accepted 才退出码 0**。`-p` 末行「未验证 / Unverified」（声称检查通过但本会话未跑过）退出码为 **9**（`ExitCode.INCOMPLETE`），与真正完成（0）区分。注意：未验证与未完成同为退出码 9，脚本需看末行区分（「未验证：」/ `Unverified:` 对比「未完成：」/ `Incomplete:`）：
-
-```bash
-moss --print "summarize this repository"
-moss --output-format json "..."     # 或 stream-json（system/init → assistant → user → result）
-
-moss task run --goal "创建 hello.txt 内容为 MOSS_OK 并验证内容" --accept "grep -q MOSS_OK hello.txt"
-moss task status && moss task timeline
-moss tasks list                     # 只读查看机器人闭环产物
-```
-
-`src/index.ts` 的导出面是受 semver 保护的合同，由 `test/sdk-contract.spec.mjs` 快照锁定；`examples/` 下三个可运行集成（`npm run examples`）。
-
-**Super-agent（可选）。** 接入 DeepSeek 官方原型核心，负责授权接单、持久化工单和独立 Moss worker 调度；执行仍走原生工具、安全审批与 Task Runtime 验收。支持本地 CLI/SDK，成果留在独立 worktree。见[接入说明](docs/superagent.md)、[Spec](docs/specs/moss-superagent.md)和[验收记录](docs/specs/moss-superagent-acceptance.md)。
-
-**SDK 工具后置 hook 与结构化结果（0.x 行为变更）。** 通过 `MossAgent.registerPostToolHook` 或
-`ToolHookRegistry.registerPost` 注册的观察型 hook 应返回 `null`（JavaScript 运行时也可返回
-`undefined`）；这样不会因 hook 本身丢弃原来的结构化内容。返回 `{ result: string }` 表示替换
-文本，即使字符串与原结果相同，Moss 也会丢弃此前的结构化块，避免旧内容绕过脱敏；后置失败 hook
-同样遵循这一规则。工具结果被拒绝或取消时不会保留未授权或已取消执行的结构化结果。文本结果仍遵循
-正常的输出限制。
-
-MossAgent 向模型投影已保存的工具结果时，以记录中存在的 `content` 文本为准，包括空字符串；旧的结构化文本不会
-重新追加。旧会话如果依赖空 `content` 旁的结构化文本，模型可能看到更少内容；原记录不会因此修改。
-如需恢复，可在新会话重新执行工具，或将历史复制到新会话，由宿主检查并脱敏后把所需文本放入副本的
-`content`，同时移除副本中过时的结构化数据。**完全没有 `content` 字段**的旧结果仍会回退读取已保存
-的结构化文本；如含不应发送给模型的原始内容，宿主应在恢复前先处理这些记录。
-
-新写入的非文本结构化结果超限时，`structuredContent` 仍按原有上限替换为文本截断提示；持久化工具
-结果可带可选数字字段 `_structuredContentTruncated`，供恢复后安全生成模型侧提示。这个新字段不改变
-SDK 的 `content` 或已截断的 `structuredContent` 值；旧记录没有该标记时无法安全恢复截断提示。
-
-独立调用 `PiAiLLMProvider` 时，提供的结构化文本仍可能追加到 `content`；可选远程压缩也会发送记录中的
-结构化内容。宿主将旧消息交给这些入口前，需要检查并移除或脱敏不应发送的结构化数据。
-
-## 板端推理依赖（RDK）
-
-> **不要**再用 `http://sdk.d-robotics.cc:8080/simple/`（已下线，连接失败）。  
-> **不要**再用 `http(s)://archive.d-robotics.cc/simple/`（不是可用的 pip 索引，HTTPS 返回 404）。
-
-### 按 OS / 板型选接口
-
-| 板型 / 场景                                         | 应使用                                                         |
-| --------------------------------------------------- | -------------------------------------------------------------- |
-| RDK X5，RDK OS ≥ 3.5.0（`rdk_x5`）                  | 板端自带 **`hbm_runtime`**；**禁止** `pip install hbm_runtime` |
-| RDK X5 历史 demo（`rdk_x5_legacy` / OS &lt; 3.5.0） | 下方已核实 X5 1.0.3 whl，或板端 `hobot_dnn`                    |
-| RDK X3                                              | 下方已核实 X3 1.0.3 whl，或板端 `hobot_dnn`                    |
-| RDK S 系列                                          | 板端 `hbm_runtime`；不要装 X5 的 `hobot_dnn`                   |
-
-权威说明：[Model Zoo 推理接口参考](https://developer.d-robotics.cc/model_zoo_doc/infer_api_ref)。
-
-### 仅 legacy 的 whl（已核实 HTTP 200）
-
-文档里**只**出现下面两条直链；Moss **不会**自动装包。
-
-```bash
-# X5 legacy
-wget -nc https://archive.d-robotics.cc/downloads/rdk_model_zoo/rdk_x5/bpu_infer_lib_x5-1.0.3-py3-none-any.whl
-pip install bpu_infer_lib_x5-1.0.3-py3-none-any.whl
-
-# X3
-wget -nc https://archive.d-robotics.cc/downloads/rdk_model_zoo/rdk_x3/bpu_infer_lib_x3-1.0.3-py3-none-any.whl
-pip install bpu_infer_lib_x3-1.0.3-py3-none-any.whl
-```
-
-### 缺少 libhbucp.so
-
-多为 pip 覆盖了系统 hobot / hbm 包，或系统 &lt; 3.5.0 却跑新 Model Zoo。**禁止** `pip install hbm_runtime`。优先烧录 ≥ 3.5.0 且自带运行时的镜像；若曾用 pip 覆盖，卸载 pip 副本后 `apt` 重装 `hobot-dnn` 并 `ldconfig`。`moss doctor` 会警告旧 pip 源，并可选探测上述 whl 是否可达。
-
-## 命令参考
-
-| 子命令                                                                     | 用途                                                                                |
-| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `moss`（或 `moss "prompt"`）                                               | 交互界面 / 一次性模式                                                               |
-| `moss setup` · `moss auth status\|logout`                                  | 配置向导 · 查看登录态 / 删除已存 key                                                |
-| `moss doctor`（别名 `moss status`）                                        | 体检配置 / 凭证 / 工作区 / 运行时                                                   |
-| `moss config show\|env\|init\|set\|unset\|validate`                        | 配置读写；`moss config --help` 是键的完整参考，`moss config env` 是环境变量权威清单 |
-| `moss resume` · `moss fork` · `moss sessions list\|delete\|search\|export` | 会话恢复 / 分叉 / 管理                                                              |
-| `moss task run\|resume\|status\|timeline`                                  | 统一任务运行时（目标进 → 已验证结果出）                                             |
-| `moss tasks list\|evidence\|deployments\|acceptance\|device`               | 只读巡检机器人闭环产物                                                              |
-| `moss device add\|list\|remove\|test\|fleet`                               | 设备清单与多机只读巡检                                                              |
-| `moss mcp add\|list\|remove\|test`                                         | MCP 服务器管理                                                                      |
-| `moss skill create\|list\|validate\|install\|update\|lock`                 | 技能管理 / 规范校验 / 带 hash 锁的安装与升级                                        |
-| `moss update`                                                              | 打印升级命令（npm 全局或 git 克隆）；不执行                                         |
-
-> `plugins` / `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback。`moss <command> --help` 仍给出该子命令自己的用法。
-
-日常斜杠命令：`/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff` `/permissions` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/goal <条件>` 持续工作直到条件满足，`/goal clear` 取消。`/resume` 恢复已保存的会话；`/tasks` 列出后台 shell 与子代理。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/goal`）。`/goal` 没带 `--accept` 时，从工作区已有的测试入口（`package.json` test、Makefile、pytest、`go.mod`）给出验收命令候选，找不到就直说，不编造。`/stop`（别名 `/abort`）只停本会话启动的后台进程。隐藏的 `/task` 是 Task OS 入口（status / timeline / resume / view / verify），`/task verify` 不调模型，只取一次裁决。PASS 只能来自 verdict provider。
-
-常用 flag：
-
-| Flag                                                  | 作用                                                                                     |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `-m/--model` · `--provider` · `--base-url`            | 仅本次运行覆盖                                                                           |
-| `-C/--cd <dir>` · `-c/--config k=v`                   | 换工作区 · 覆盖 profile/model/policy                                                     |
-| `--read-only` · `--workspace-write` · `--full-access` | 本次运行的模式覆盖。`workspace-write` 只约束 Moss 自己的文件工具，shell 没有操作系统沙箱 |
-| `--trust-device`                                      | 本进程允许毁灭性设备操作                                                                 |
-| `--accept-edits` · `--ask-for-approval <p>`           | 审批行为                                                                                 |
-| `-p/--print` · `--json` · `--output-format <f>`       | 一次性 / 机器可读输出                                                                    |
-
-常用环境变量（完整见 `moss config env`）：`MOSS_PROFILE` · `MOSS_WORKSPACE` · `MOSS_SAFETY_MODE` · `MOSS_APPROVAL_POLICY` · `MOSS_MAX_AGENT_TURNS` · `MOSS_CONTEXT_TOKENS` · `MOSS_BUDGET_MAX_*` · `MOSS_DEVICE_*` · `MOSS_NO_RDK_DOCS`。
-
-> **头号坑**：模型相关设置**只认配置文件**。`MOSS_MODEL` / `MOSS_PROVIDER` / `MOSS_BASE_URL` / `MOSS_API_KEY` 即使设了也会被忽略——请用 `moss setup` 或 `moss config set`。
-
-未指定配置文件时，Moss 读取用户配置，并把工作区 `.moss/config.json` 当作项目默认值合并进去（用户配置优先）。`--config-file` 或 `MOSS_CONFIG_FILE` 只加载那个文件，项目 `.moss/config.json` 这一层不会进入本次配置。
-
-## 界面语言
-
-**英文是默认界面语言。** 中文是完整的可选界面语言，只影响界面文案、帮助、错误和配置向导。助手回复仍跟随用户消息的语言，不跟这个设置走。
-
-```bash
-moss --lang zh                         # 仅本次运行
-MOSS_LANG=zh moss                      # 进程环境变量（项目 .env 不能设置）
-moss config set language zh            # 记在用户配置 ~/.config/moss/config.json
-moss config set language auto          # 默认：仅当系统区域以 zh 开头时用中文
-```
-
-优先级：`--lang` > `MOSS_LANG` > 用户配置 `language` > 系统区域。`C`、`POSIX`、`C.UTF-8` 不是语言，会落到下一个变量（`LC_ALL`、`LC_MESSAGES`、`LANG`）；都不是语言时界面保持英文。项目 `.moss/config.json` 和项目 `.env` 不能设置界面语言。
-
-交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为英语。
-
-## 安全与隐私
-
-- **v0.26 起默认 full**：本地写操作与**可逆**设备变更跳过逐次询问。毁灭性设备操作（重启、刷机、写入 `/boot` 或 `/etc`、改网络、卸系统包、停掉 ssh）仍要确认——full 对齐的是 Claude Code 的「默认少问」，不是对真机的 `--dangerously-skip-permissions`。
-- **四态交互模式**（Shift+Tab 循环，或 `/plan` 进入 plan；`/mode` 仍可用一版）：
-
-  | 模式           | 行为                                                                                              |
-  | -------------- | ------------------------------------------------------------------------------------------------- |
-  | `manual`       | 写操作与设备变更逐次询问                                                                          |
-  | `acceptEdits`  | 工作区内文件工具编辑自动通过，shell 与设备变更仍询问                                              |
-  | `plan`         | 只读规划，写操作与设备变更被拦                                                                    |
-  | `full`（默认） | 本地写与可逆设备操作跳过询问；毁灭性设备操作 TTY 确认、headless 拒绝。deny 规则与本机硬拦截仍生效 |
-
-- **`workspace-write` 不是操作系统沙箱。** `workspace-write` 只约束 Moss 自己的文件工具。终端命令照常运行，没有操作系统沙箱。`write_file`、`edit_file`、`multi_edit`、`move_file`、`apply_patch` 写在工作区内；`exec` 默认没有 Landlock、bubblewrap 或 seatbelt。静态扫描会拦下它能看见的一部分出区写（重定向、`cp`、`mv`），挡不住子进程里的 `node` / `python`（例如写入 `/tmp`）。shell 的安全来自输出脱敏和写回防护。
-  **可选**的操作系统沙箱已实现（D14）：`permissions.osSandbox: true` 或 `MOSS_OS_SANDBOX=1` 时，`exec`/后台 exec 在 macOS 走 seatbelt、Linux 走 bubblewrap（仅工作区可写、`/tmp` 只读、无网络、`.git/hooks` 写拒绝）；缺后端会拒绝执行而不是退回普通 shell；`full-access` 模式按设计不进入。默认仍关闭，见 [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md)。
-- **权限规则**（`/permissions`，任何模式生效，deny 优先于一切含 full）：
-  - 三级 `allow` / `ask` / `deny`，优先级 deny > ask > allow；
-  - 语法 `ToolName(pattern)`，用 moss 原生工具名：`/permissions add deny "read_file(./.env)"`、`/permissions add allow "exec(npm run *)"`；
-  - 会话级规则下一个工具调用即生效；`/permissions persist` 写用户配置重启仍生效；
-  - `--read-only` / `MOSS_SAFETY_MODE=read-only` 是压过任何模式（含 full）的只读上限。
-- **本机硬拦截永不撤**：本机 `exec` 的毁灭性命令（`rm -rf /` 等）与路径逃逸在 full 模式下同样被拦——full 跳过的是询问，不是检查。设备侧的同一类命令不硬拦死：TTY 确认、allow 规则，或显式信任之后会真的执行。
-- **PreToolUse 钩子返回 `ask`（O157）**：钩子 exit 0 且输出 `hookSpecificOutput.permissionDecision: "ask"`（claude 格式）或 `decision: "ask"`（moss 格式，等价字段）时，交互模式下弹出 Moss 的确认（y/a/n），写明是哪个钩子要求确认和它给的理由；任何模式都会问，full 也一样。`y` / `a` 只放行这一次（`a` 不记住，下次该钩子仍会问），`n` 按拦截处理。`-p` 和没有交互终端的运行无法确认，按拒绝处理，末行「被拦」、exit 9。多个钩子合并时 deny > ask > allow；deny 规则和本机硬拦截仍优先。`blocking: false` 的钩子不能限制调用，它的 `ask` 和 `deny` 一样被忽略。与 Claude Code 一致的是 ask 会弹确认；Moss 另外规定：`-p` 下按拒绝处理，`a` 只放行这一次、不加入信任，exit 非 0 的钩子即使输出 ask 也按拒绝处理（O135）。
-- **受保护路径（O94）只是尽力拦截，不是沙箱**：文件工具与 shell 命令直接写入、删除或移动受保护路径（如 `~/.ssh`、`.git/` 内的文件）时，即使在 full 模式下也要确认一次；`git commit`、`git checkout` 等 git 自身对 `.git/` 的写入不弹确认。shell 这一层靠解析命令行识别写入目标，属于尽力拦截，不是操作系统沙箱。通过脚本间接写入（如 `python x.py`、`node -e`、`bash -c`）由 O101 三层处理：内联代码与工作区脚本在执行前走同一套确认（`-p` 下拒绝）；绕过前两层的改动在命令结束后用元数据快照检出，标成「已被修改」并让 run outcome 未完成（退出非 0），不自动还原。shell 层仍是尽力拦截，不是沙箱；`exec_background` 在进程完全退出时同样做第三层对比。单条前台命令里的 `&` / `nohup` 延后写入，以及 Moss 进程退出后的写入，仍是已知局限。
-- **显式信任设备**（任一即可；deny 仍赢）：`--trust-device`（仅本进程）、`MOSS_DEVICE_TRUST=full`、`permissions.deviceTrust=full`、`permissions.trustedDevices` 或 `MOSS_DEVICE_TRUST_DEVICES`（逗号分隔的 host / device id）。确认框里选 `a` 只信任提示里写明的范围（例如同一 unit 的 `systemctl restart` 或 `stop`，或同一命令前缀），不是整台设备的全部毁灭性操作。读取 `/etc/shadow`、私钥、`sshd_config`、`authorized_keys` 归入 `sensitive`：同样要确认，但文案和证据不把它叫成毁灭性修改。确认与拒绝文案跟随界面语言（`--lang`、`MOSS_LANG` 或用户配置 `language`；否则系统区域以 `zh` 开头时为简体中文）。每次决定写入 `.moss/evidence.jsonl`（`metric: device_policy`），有进行中的任务时同时写入时间线 `note`。策略说明见 [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md)。
-- **旧键兼容**（一版宽限）：`profile` / `trustedTools` / `deniedTools` / `safetyMode` / `approvalPolicy` 读入即按映射表翻译（cautious→manual+只读上限、balanced→manual、autonomous→full、trustedTools→allow 规则、deniedTools→deny 规则），写侧提示 deprecated，新配置请用 `permissions.*` 块。
-- **Moss 启动的程序不从工作区取（O158）**：启动探测、shell 解析、git 探测、hook 的启动命令、MCP 服务器等 Moss 自己启动的程序，一律解析成绝对路径，只查 PATH 里的绝对目录，跳过空项、`.`、相对路径和工作区内的目录；Windows 子进程设 `NoDefaultCurrentDirectoryInExePath=1`。**已知限制**：在 PATH 含工作区目录的环境里启动 moss（例如 `npx` / `npm run` 带来的 `node_modules/.bin`）时，模型 exec 的命令和 hook 脚本内部调用的程序沿用这个 PATH，会使用项目里的同名工具。
-- **hook 启动命令的安全解析范围（O164）**：Moss 只对 hook 命令开头的那个程序名做上面的安全解析。用了环境变量前缀（`FOO=1 git`）、`exec` / `env` / `command`、引号、子 shell、分号或重定向时，按普通 shell 查找；若以 `npx` / `npm run` 启动，PATH 里的 `node_modules/.bin` 会被用到。用户级 hook 建议写成 `程序名 参数` 或绝对路径。项目 hook（`.moss/config.json`）只在你信任该文件夹后才运行；信任文件夹等于信任项目代码，包括项目 hook 和 `node_modules/.bin` 里的程序。
-- **`.env` 不能改系统位置（O164）**：`SystemRoot`、`windir`、`SystemDrive`、`ProgramFiles`（含 `(x86)`、`ProgramW6432`）、`PSModulePath`、`NoDefaultCurrentDirectoryInExePath` 与 `PATH`、`PATHEXT`、`ComSpec`、`TEMP`/`TMP` 一样不能由 `.env` 设置；Moss 拼系统程序路径（如后台任务用的 `powershell.exe`）时只用加载 `.env` 之前的环境。子进程的 PATH 被清空（只剩 `.`、空项）时换成一个不存在的绝对目录，不会留空串。
-- **hook 输出超过捕获上限即拦截（O162）**：每个 hook 的 stdout / stderr 各有 10 MiB 捕获上限；一旦有输出被截断，判定（最后一行 JSON）就不可信，所有阻塞类事件（`PreToolUse`、`UserPromptSubmit`、`PermissionRequest`、`Stop`）一律按拦截失败关闭——退出码与可读部分说了什么都不算数。`blocking: false` 的 hook 不能收紧任何调用，其输出超限同样不拦截。
-- **脚本的参数不是删除（O168）**：解释器脚本形式的参数（`python3 x.py $HOME`、`node x.js "$PWD"`）、`sh x.sh` 的参数、`.`/`source` 的操作数与裸 `.` 不再触发「删除受保护祖先」规则——正常命令不再被误拦，非 git 目录也不再被说成 git 仓库内部文件。豁免与 cd 一样仅限该路径未在命令其他位置出现；直接点名受保护路径（`$HOME/.ssh`、`.git/config`）、内联形式与真实删除行为不变，实际写入仍由脚本扫描与运行后快照兜底。
-- **git 的 pack 旗标按可执行拦截（O169）**：`git clone --upload-pack=<cmd>`、`git fetch/push --upload-pack/--receive-pack=<cmd>`（含空格分开与 clone 的 `-u` 短旗标）会让 git 执行该命令，与 `git -c`、`--ext-diff` 等一样在执行前拦截；`git push -u origin main`（设上游）不受影响。
-- **hook 抛异常一律拦截（O165）**：处理 hook 时抛出的任何异常都按拦截失败关闭并给出可见提示（PreToolUse 拦下调用、PermissionRequest 拒绝、UserPromptSubmit 拒绝提示词）；抛异常的 Stop hook 是终局否决——不强制续跑、不再调用模型，headless 以未完成（exit 9）结束。`-p` 下 UserPromptSubmit 被拦时末行「被拦」、exit 9（原为 exit 8）。
-- **shell 执行类环境变量与 tmux/screen 拦截（O170）**：`BASH_ENV`、`ENV`、`PROMPT_COMMAND`、`ZDOTDIR`、`BASH_FUNC_*` 的赋值让 shell 执行代码，`tmux new-session/run-shell/send-keys`、`screen` 携带命令时在 Moss 进程树外执行——均按可执行形式在执行前拦截。环境变量仅在同行有 POSIX shell 头时报（`ENV=production npm start` 不误拦）；`tmux ls`/`attach` 等无命令形态不受影响。
-- 凭据只从 `.env` 或环境变量读，绝不硬编码、不进日志、不传子进程、不写设备清单。
-- 无账号、无云服务、无遥测；provider 是普通 HTTP 端点。
-
-## 质量门与基准
-
-```bash
-npm run check          # prettier + eslint（0 warning）+ typecheck，三者并行
-npm run verify:quick   # static + smoke。交付前的轻量检查，不是每一轮
-npm run verify         # static + build + smoke + 3 个 examples —— 交付门，目标 ≤60s
-npm run smoke          # CLI 冒烟：--version / --help / config --help / PTY 启动（先 build）
-npm run examples       # 四个离线嵌入示例（SDK 契约的活文档，先 build）
-
-# 行为 spec 套件已于 2026-11-04 移除（git 历史保留）；全平台 / Node 24 证据由
-# .github/workflows/deep.yml 的夜跑与 tag 矩阵提供。设计见 docs/design/ci-and-verify.md
-
-```
-
-基准结果留在 `bench/results/`（不入库）：
-
-- `npm run bench` · `npm run bench:ab -- reasoning-high` · `npm run bench:noise`：agent 能力、A/B 与噪声带
-- `npm run bench:swe` · `npm run bench:tb`：SWE-bench Verified 锁定子集 · Terminal-Bench
-- `npm run bench:deepswe`：DeepSWE v1.1，同一模型下和其他 harness 比（经 Pier 跑，已发布分数在 `bench/boards/deepswe-v1.1-harness.json`）
-- `npm run bench:device -- --dry`（或 `--target sim` / `--target real`）：RDK 板卡任务成功率。Moss 裁决通过、且独立探测与证据一致才算 PASS，见 [`docs/bench/device-bench.md`](docs/bench/device-bench.md)
-- `npm run bench:tui-feel`：TUI 体感 · `node scripts/task-os-metrics.mjs`：Task OS 指标（轮次 / 工具 / 成功率）
-
-版本号表示**当前能力级别**：`main` 是滚动线，tag 只在 `npm run verify` 全绿（内含 examples）+ 该 commit 的 deep 矩阵全绿后打。详见 [`docs/release-policy.md`](docs/release-policy.md)。
-
-## 调优开关（环境变量）
-
-这些开关默认都不需要；只有遇到明确症状时才设。每一条都能用一次真实运行验证。
-
-| 变量                      | 作用                                                                                                                                                                | 什么时候用                                                                      |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `MOSS_LEAN_TOOLS`         | 工具描述换用精简档（`ToolMetadata.leanDescription`）：`=1` 强制精简、`=0` 强制完整；不设时 **上下文窗口 ≤ 64,000 tokens 自动精简**                                  | 小窗口模型（32k/64k）每轮省约 200–700 tokens 的工具声明；或想强制对比两种工具面 |
-| `MOSS_STARTUP_TIMING`     | 启动时向 stderr 打一行分阶段耗时：`entry/proxy/config/env/prompt/agent/mcp/probe/skills/total`（TUI 另有 `commands/tui-import/composer`；TUI 不等待 `env`/`probe`） | 启动变慢时先定位是哪一段，而不是猜                                              |
-| `MOSS_VERIFY_CONCURRENCY` | `npm run verify` 的并发度（默认 4，`1` = 串行基线）；`startup-timing` 等耗时敏感项独占                                                                              | 排查验证门抖动，或核对并发带来的加速                                            |
-| `MOSS_NO_TUI`             | 强制 readline REPL（不进全屏 TUI）                                                                                                                                  | 终端不兼容、要复制纯文本，或调试 TUI 之外的行为                                 |
-
-验证方式举例（都在本机可跑）：
-
-```bash
-MOSS_STARTUP_TIMING=1 node dist/cli.js -p "hi" 2>&1 | grep "startup] timing"
-MOSS_LEAN_TOOLS=1 node scripts/measure-tool-surface.mjs   # 声明字符数与默认档对比
-VERIFY_CONCURRENCY=1 npm run verify                      # 与默认并发对照
-```
+行为不靠"读代码觉得对"：关键用户可见行为都有可复跑的探针（`scripts/verify/stages/*`，
+含 PTY 终端行为与离线任务引擎场景），改坏会在 `npm run verify` 里直接红；
+真实模型回归另见 `npm run bench` 与 CI 夜跑矩阵。支持矩阵与验证方式见
+[发布策略](docs/release-policy.md)。
 
 ## 支持矩阵
 
-| 维度     | 支持                                                             | 验证方式                                              |
-| -------- | ---------------------------------------------------------------- | ----------------------------------------------------- |
-| Node     | ≥ 22.16.0                                                        | Fast gate 22.16 + deep 矩阵（22.16 三平台、24 Linux） |
-| 平台     | Linux / macOS / Windows                                          | deep 矩阵（同一 verify 命令，Windows 无 PTY smoke）   |
-| provider | deepseek / qwen / openai / anthropic / openai-compatible         | 冒烟 + examples                                       |
-| 交互面   | TTY：全屏 TUI；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL | PTY smoke（macOS/Linux）+ TUI bench                   |
+| 维度     | 支持                                                     | 验证方式                                       |
+| -------- | -------------------------------------------------------- | ---------------------------------------------- |
+| Node     | ≥ 22.16.0                                                | fast gate 22.16 + deep 矩阵（三平台、Node 24） |
+| 平台     | Linux / macOS / Windows                                  | 同一 verify 命令；Windows 无 PTY smoke         |
+| provider | deepseek / qwen / openai / anthropic / openai-compatible | 冒烟 + examples                                |
+| 交互面   | TTY：全屏 TUI；非 TTY / `MOSS_NO_TUI=1` / Windows：REPL  | PTY smoke（macOS/Linux）+ TUI bench            |
+
+## 安全与隐私
+
+默认 `full` 是"默认少问"，不是关闭检查：deny 规则与本机硬拦截永远优先，毁灭性设备操作仍要确认，
+`--read-only` 是压过一切的只读上限。无账号、无云服务、无遥测；provider 是普通 HTTP 端点；
+凭据只从 `.env` 或环境变量读。shell 默认没有操作系统沙箱（可选 seatbelt / bubblewrap），
+完整语义见 [安全与隐私](docs/safety.md)。
+
+## 已知边界
+
+- "未验证"与"未完成"同为 exit 9，脚本需要看末行区分
+- `workspace-write` 只约束 Moss 自己的文件工具，不约束 shell 子进程
+- 子代理与后台任务的编辑不进 `/rewind` 检查点
+- 板端推理依赖不自动安装（见 [RDK 板端依赖](docs/rdk-board-deps.md)）
+- Windows 无 PTY smoke；版本与 tag 策略见 [发布策略](docs/release-policy.md)
 
 ## 文档
 
-- [嵌入宿主的持久补充指令与会话消费回执](docs/sdk-durable-steering.md)
-
-- [`AGENTS.md`](AGENTS.md) —— 架构、分层规则、子系统导航、工程约定（工作合同）
-- [`docs/release-policy.md`](docs/release-policy.md) —— 一个版本 / tag 声称了什么，又没声称什么
-- [`docs/capability-layer.md`](docs/capability-layer.md) —— MCP / device / skill 能力层
-- [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md) —— `exec` 的可选操作系统沙箱（默认关）
-- [`docs/cli-parity/`](docs/cli-parity/) —— 与 Claude Code / codex 的命令面基线对照；真实终端清单见 [`tui-real-terminals.md`](docs/cli-parity/tui-real-terminals.md)
-- [`docs/bench/device-bench.md`](docs/bench/device-bench.md) —— 设备任务基准怎么跑、指标怎么算
-- [`CHANGELOG.md`](CHANGELOG.md) —— 未发版改动
-- [`docs/superpowers/plans/`](docs/superpowers/plans/) —— 设计与路线图记录
+- [安装与运行环境](docs/install.md) · [安全与隐私](docs/safety.md) · [命令与配置参考](docs/cli-reference.md)
+- [RDK 板端依赖](docs/rdk-board-deps.md) · [能力层（MCP / device / skill）](docs/capability-layer.md)
+- [AGENTS.md](AGENTS.md)（工程合同） · [CHANGELOG](CHANGELOG.md) · [发布策略](docs/release-policy.md)
+- [与 Claude Code / codex 的命令面基线](docs/cli-parity/) · [设计记录](docs/superpowers/plans/)
 
 ## License
 
-MIT（见 [`LICENSE`](LICENSE)）。
+MIT（见 [LICENSE](LICENSE)）。
