@@ -23,7 +23,7 @@ import {
   renderNodeDoctorLine,
 } from './doctor.js';
 import { isZhLocale } from './cli-locale.js';
-import { PermissionRuleRegistry } from './permission-rules.js';
+import { PermissionRuleRegistry, unmatchedRuleToolNames } from './permission-rules.js';
 import { workspaceWriteLimit } from './workspace-write-copy.js';
 import { formatCliInteractionModeLabel, type CliInteractionMode } from './interaction-mode.js';
 
@@ -526,22 +526,11 @@ function unmatchedRuleToolLines(
   knownToolNames: readonly string[],
   zh: boolean
 ): string[] {
-  const known = new Set(knownToolNames.map((name) => name.toLowerCase()));
-  const seen = new Set<string>();
-  const lines: string[] = [];
-  for (const rule of rules) {
-    const tool = rule.toolName.trim();
-    if (!tool || /[*?[\]]/.test(tool)) continue;
-    const key = tool.toLowerCase();
-    if (known.has(key) || seen.has(key)) continue;
-    seen.add(key);
-    lines.push(
-      zh
-        ? `  ⚠ 规则 ${tool} 没有匹配的已注册工具——检查拼写；这条规则永远不会生效`
-        : `  ⚠ rule ${tool} matches no registered tool — check the spelling; it never applies`
-    );
-  }
-  return lines;
+  return unmatchedRuleToolNames(rules, knownToolNames).map((tool) =>
+    zh
+      ? `  ⚠ 规则 ${tool} 没有匹配的已注册工具——检查拼写；这条规则永远不会生效`
+      : `  ⚠ rule ${tool} matches no registered tool — check the spelling; it never applies`
+  );
 }
 
 export function renderCliPermissions(

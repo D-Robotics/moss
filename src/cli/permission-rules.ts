@@ -225,6 +225,32 @@ export function extractRuleOperand(
   return undefined;
 }
 
+/**
+ * Literal tool names in `rules` that no registered tool provides: a typo, a
+ * renamed tool, or a rule written for a server that never connects. Such a rule
+ * parses, shows up in the rule count, and then matches nothing — a deny rule in
+ * that state protects nothing. Glob patterns are skipped (they cannot be checked
+ * exactly) and `mcp__…` names are skipped (MCP tools register after the
+ * handshake, so a startup audit would flag healthy rules).
+ */
+export function unmatchedRuleToolNames(
+  rules: readonly PermissionRule[],
+  knownToolNames: readonly string[]
+): string[] {
+  const known = new Set(knownToolNames.map((name) => name.toLowerCase()));
+  const seen = new Set<string>();
+  const unmatched: string[] = [];
+  for (const rule of rules) {
+    const tool = rule.toolName.trim();
+    if (!tool || /[*?[\]]/.test(tool) || tool.toLowerCase().startsWith('mcp__')) continue;
+    const key = tool.toLowerCase();
+    if (known.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    unmatched.push(tool);
+  }
+  return unmatched;
+}
+
 // ── matching ─────────────────────────────────────────────────────────────────
 
 /** micromatch options identical to the trustedTools matcher (approval.ts). */

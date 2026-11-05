@@ -63,6 +63,7 @@ import { shouldOpenResumePicker } from './args.js';
 import {
   PermissionRuleRegistry,
   parsePermissionRuleSpec,
+  unmatchedRuleToolNames,
   type PermissionRule,
   type ResolvedPermissionRules,
 } from './permission-rules.js';
@@ -1120,6 +1121,22 @@ export async function runCli(): Promise<void> {
       );
       mcpRegistry = null;
     }
+  }
+  // A literal permission rule naming a tool that no longer exists parses fine,
+  // counts in `/permissions`, and then matches nothing — a deny rule in that
+  // state silently protects nothing. Surface it once at startup (headless users
+  // never open `/permissions`); glob and `mcp__…` rules are skipped because the
+  // former cannot be checked exactly and the latter register after the handshake.
+  for (const tool of unmatchedRuleToolNames(
+    startupPermissionRules,
+    agent.tools.getAll().map((tool) => tool.name)
+  )) {
+    console.error(
+      uiText(
+        `[moss] permission rule "${tool}" names no registered tool — it never applies (fix it in /permissions)`,
+        `[moss] 权限规则 "${tool}" 没有匹配的已注册工具——永远不会生效（在 /permissions 里修正）`
+      )
+    );
   }
   startupTiming.mark('mcp');
   // One source for both `/mcp` views: the registry's live statuses (a `deferred`
