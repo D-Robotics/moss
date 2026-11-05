@@ -67,6 +67,7 @@ import { compactPath, label, ui } from './ui.js';
 import { runWorkingTreeDiff } from '../utils/git-spawn.js';
 import { formatLocalCommandOutput } from './tui-utils.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
+import type { RewindResult } from './file-checkpoint.js';
 import { errorMessage } from '../errors.js';
 import { interruptNoticeLine, isUserAbortErrorText, tui } from './tui/copy.js';
 
@@ -245,6 +246,42 @@ export async function runInteractive(
 
   const runtimeDir = runtime?.runtimeDir ?? path.join(workspace, '.moss', 'runtime');
   let checkpointStore = new FileCheckpointStore({ runtimeDir, sessionKey });
+  /**
+   * Open a checkpoint with the stored message count so `/rewind` can drop the
+   * turn from the LLM context too (Claude's "restore code and conversation").
+   * A failed count must not block the turn: the file restore still works.
+   */
+  const openCheckpoint = async (label: string): Promise<void> => {
+    let messageCount = 0;
+    try {
+      messageCount = await agent.countSessionMessages(sessionKey);
+    } catch {
+      messageCount = 0;
+    }
+    checkpointStore.open(label, messageCount);
+  };
+  /**
+   * `/rewind` restores files and, when the checkpoint recorded a message count,
+   * drops the turn from the LLM context as well — Claude Code's "restore code
+   * and conversation" in one step. A failed truncation is reported, never
+   * silently pretended: the files are already back.
+   */
+  const rewindConversationAt = async (result: RewindResult): Promise<void> => {
+    if (result.messageCount === undefined) return;
+    try {
+      const { truncated } = await agent.rewindConversation(sessionKey, result.messageCount);
+      console.error(
+        truncated > 0
+          ? `[rewind] Dropped ${truncated} message(s) from the LLM context: this turn is no longer remembered.`
+          : '[rewind] LLM context was already at or before this checkpoint.'
+      );
+    } catch (err) {
+      console.error(
+        `[rewind] Files are restored, but the conversation could not be rewound: ${errorMessage(err)}`
+      );
+    }
+  };
+
   const parsePatchPaths = (patch: string): string[] => {
     const out: string[] = [];
     for (const m of patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm))
@@ -393,7 +430,7 @@ export async function runInteractive(
       if (handled) {
         const submitText: string | null = pendingSubmit;
         if (submitText) {
-          checkpointStore.open(`custom: ${String(submitText).slice(0, 60)}`);
+          await openCheckpoint(`custom: ${String(submitText).slice(0, 60)}`);
           const stop = await runReplTurn(agent, String(submitText), {
             sessionKey,
             onAgentEvent: (event) => recordAgentEvent(event),
@@ -466,6 +503,7 @@ export async function runInteractive(
               );
               for (const p of result.skipped) console.error(`  ⊘ ${p}`);
             }
+            await rewindConversationAt(result);
           }
         }
       } else if (arg) {
@@ -484,6 +522,7 @@ export async function runInteractive(
             );
             for (const p of result.skipped) console.error(`  ⊘ ${p}`);
           }
+          await rewindConversationAt(result);
         }
       } else {
         const list = checkpointStore.list();
@@ -926,7 +965,7 @@ export async function runInteractive(
         skills: options.skills ?? [],
       });
       if (resolved.kind === 'custom' || resolved.kind === 'skill') {
-        checkpointStore.open(`${resolved.kind}: ${resolved.prompt.slice(0, 60)}`);
+        await openCheckpoint(`${resolved.kind}: ${resolved.prompt.slice(0, 60)}`);
         const stop = await runReplTurn(agent, resolved.prompt, {
           sessionKey,
           onAgentEvent: (event) => recordAgentEvent(event),
@@ -975,7 +1014,7 @@ export async function runInteractive(
       continue;
     }
 
-    checkpointStore.open(msg.slice(0, 60));
+    await openCheckpoint(msg.slice(0, 60));
     const stop = await runReplTurn(agent, msg, {
       sessionKey,
       onAgentEvent: (event) => recordAgentEvent(event),

@@ -134,7 +134,9 @@ export interface TuiAppOptions {
   /** Called after the boot transcript has painted the current MCP snapshot. */
   onMcpUiReady?: () => void;
   /** File checkpoint restore for /rewind (host wires the checkpoint store). */
-  rewindTo?: (seq: number) => { ok: boolean; detail: string };
+  rewindTo?: (
+    seq: number
+  ) => { ok: boolean; detail: string } | Promise<{ ok: boolean; detail: string }>;
   listCheckpoints?: () => Array<{ seq: number; label: string; files: number }>;
   /** Injected task runtime (specs); created from workspaceDir when omitted. */
   runtime?: TaskRuntime;
@@ -155,7 +157,7 @@ export interface TuiAppOptions {
    * open a file checkpoint for the turn, which is what makes `/rewind` able to
    * restore anything later.
    */
-  onTurnStart?: (message: string) => void;
+  onTurnStart?: (message: string) => void | Promise<void>;
   /**
    * `/clear` starts a new conversation. The host rebinds checkpoints (and
    * anything else keyed by the session) to this key; the previous conversation

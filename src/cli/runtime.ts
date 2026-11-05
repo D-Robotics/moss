@@ -2002,7 +2002,15 @@ export async function runCli(): Promise<void> {
         ...(replayRows ? { replayRows } : {}),
         // The checkpoint is what `/rewind` restores from; without this call the
         // store records nothing and every rewind silently did nothing (D1).
-        onTurnStart: (message) => checkpointStore.open(message.slice(0, 60)),
+        onTurnStart: async (message) => {
+          let messageCount = 0;
+          try {
+            messageCount = await agent.countSessionMessages(session.sessionKey);
+          } catch {
+            messageCount = 0;
+          }
+          checkpointStore.open(message.slice(0, 60), messageCount);
+        },
         onNewSession: (next) => {
           currentSessionKey = next;
           checkpointStore = new FileCheckpointStore({
@@ -2033,14 +2041,26 @@ export async function runCli(): Promise<void> {
             label: cp.label,
             files: cp.fileCount,
           })),
-        rewindTo: (seq) => {
+        rewindTo: async (seq) => {
           try {
             const result = checkpointStore.rewindTo(seq);
             if (!result.found) return { ok: false, detail: `no checkpoint ${seq}` };
             const skipped = result.skipped.length > 0 ? `, ${result.skipped.length} skipped` : '';
+            let conversation = '';
+            if (result.messageCount !== undefined) {
+              try {
+                const { truncated } = await agent.rewindConversation(
+                  session.sessionKey,
+                  result.messageCount
+                );
+                if (truncated > 0) conversation = `, ${truncated} message(s) dropped`;
+              } catch {
+                conversation = ', conversation not rewound';
+              }
+            }
             return {
               ok: true,
-              detail: `${result.restored.length} file(s) restored${skipped}`,
+              detail: `${result.restored.length} file(s) restored${skipped}${conversation}`,
             };
           } catch (err) {
             return { ok: false, detail: errorMessage(err) };

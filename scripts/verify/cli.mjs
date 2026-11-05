@@ -73,6 +73,7 @@ import { stage as skillHookOnceStage } from './stages/skill-hook-once.mjs';
 import { stage as cliToolRulesStage } from './stages/cli-tool-rules.mjs';
 import { stage as addDirStage } from './stages/add-dir.mjs';
 import { stage as checkpointPersistStage } from './stages/checkpoint-persist.mjs';
+import { stage as rewindConversationStage } from './stages/rewind-conversation.mjs';
 import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
 import { stage as mcpPromptSlashStage } from './stages/mcp-prompt-slash.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
@@ -134,6 +135,7 @@ const STAGES = new Map(
     cliToolRulesStage,
     addDirStage,
     checkpointPersistStage,
+    rewindConversationStage,
     runTestsVerdictStage,
     mcpPromptSlashStage,
     contextSurfaceStage,

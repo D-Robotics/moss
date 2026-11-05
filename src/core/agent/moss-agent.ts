@@ -1109,6 +1109,12 @@ ${result.stderr ?? ''}`.trim();
     return { fixed: result.fixed, message: describeBestOfNOutcome(result) };
   }
 
+  /** Stored LLM message count, used as the rollback point of a checkpoint. */
+  async countSessionMessages(sessionKey: string): Promise<number> {
+    const store = this.config.sessionStore;
+    return (await store.loadMessages(sessionKey)).length;
+  }
+
   /** Rewind persisted LLM context while retaining the visual transcript. */
   async rewindConversation(
     sessionKey: string,

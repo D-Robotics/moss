@@ -1262,7 +1262,7 @@ export function TuiAppRoot({
 
   const runTurn = useCallback(
     async (message: string) => {
-      options.onTurnStart?.(message);
+      await options.onTurnStart?.(message);
       // Rows committed from this run on — the plan gate asks whether the run
       // actually produced a plan (tools were used, or a substantial answer).
       const firstRowId = store.nextId;
@@ -2434,7 +2434,7 @@ export function TuiAppRoot({
           );
         } else {
           const seq = Number(arg);
-          const result = options.rewindTo?.(seq);
+          const result = await options.rewindTo?.(seq);
           printBlock('Rewind', [
             result?.ok
               ? tui('restored checkpoint {seq}: {detail}', { seq, detail: result.detail })
@@ -3030,8 +3030,12 @@ export function TuiAppRoot({
         const picked = checkpoints[rewindCursor];
         setRewindOpen(false);
         if (picked) {
-          const result = options.rewindTo?.(picked.seq);
-          setStatusLine(result?.detail ?? tui('rewind to {seq} failed', { seq: picked.seq }));
+          const pending = options.rewindTo?.(picked.seq);
+          if (pending) {
+            void Promise.resolve(pending)
+              .then((result) => setStatusLine(result.detail))
+              .catch(() => setStatusLine(tui('rewind to {seq} failed', { seq: picked.seq })));
+          }
         }
         return;
       }
