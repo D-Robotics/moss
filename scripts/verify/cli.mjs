@@ -112,6 +112,7 @@ import { stage as readmeParityStage } from './stages/readme-parity.mjs';
 import { stage as runsLedgerStage } from './stages/runs-ledger.mjs';
 import { stage as taskArtifactsStage } from './stages/task-artifacts.mjs';
 import { stage as loopRunRecordStage } from './stages/loop-run-record.mjs';
+import { stage as capabilitiesStage } from './stages/capabilities.mjs';
 
 const STAGES = new Map(
   [
@@ -202,6 +203,7 @@ const STAGES = new Map(
     runsLedgerStage,
     taskArtifactsStage,
     loopRunRecordStage,
+    capabilitiesStage,
     taskFailReasonsStage,
   ].map((stage) => [stage.name, stage])
 );
@@ -286,6 +288,7 @@ const FAST_GATE = [
   'runs-ledger',
   'task-artifacts',
   'loop-run-record',
+  'capabilities',
   'task-fail-reasons',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;

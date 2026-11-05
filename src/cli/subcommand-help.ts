@@ -470,6 +470,10 @@ export async function renderSubcommandHelp(
     }
     case 'run':
       return runHelp(zh);
+    case 'capabilities': {
+      const { renderCapabilitiesUsage } = await import('./capabilities-command.js');
+      return renderCapabilitiesUsage(zh);
+    }
     case 'artifacts': {
       const { renderArtifactsUsage } = await import('./artifacts-command.js');
       return renderArtifactsUsage(zh);

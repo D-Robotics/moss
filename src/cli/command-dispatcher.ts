@@ -267,6 +267,30 @@ export const COMMANDS: Record<string, CommandConfig> = {
     description:
       'Optional Super-agent admission, durable tickets and isolated verified Moss workers',
   },
+  // One screen for the capability surface: workspace command, no model config.
+  capabilities: {
+    name: 'capabilities',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runCapabilitiesCommand } = await import('./capabilities-command.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const workspace = ctx.workspace as string | undefined;
+      if (!workspace) {
+        console.error('[moss] capabilities could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      const code = await runCapabilitiesCommand(ctx.commandArgs, {
+        workspace,
+        ...(typeof ctx.configDir === 'string' ? { configDir: ctx.configDir } : {}),
+        ...(ctx.argv.includes('--json') ? { outputJson: true } : {}),
+      });
+      if (code !== 0) process.exitCode = code;
+    },
+    description:
+      'One screen for what this install can do: tools, skills, commands, agents, hooks, MCP, devices',
+  },
+
   // Read-only closed-loop inspection: workspace command, no model config needed.
   artifacts: {
     name: 'artifacts',
