@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### TUI first screen matches the REPL (B137)
+
+- The TUI banner now carries the same context as the REPL welcome: a `last run: <status> · <age> ·
+<kind> <id> — <goal>` row and a `Next:` line that can be the ledger's resume command (or
+  `moss runs` / `moss init` / the verified-run command). Both surfaces read one helper, so the story
+  cannot drift; the post-setup TUI path uses it too.
+- A PTY probe boots the real TUI against a seeded failed run and asserts the first frame contains
+  `last run: verify_failed`, the goal, and `Next: moss task resume …`.
+
+### TUI 首屏与 REPL 对齐（B137）
+
+- TUI banner 现在带上与 REPL 欢迎屏相同的上下文：`last run: <状态> · <多久前> · <kind> <id> — <目标>`
+  一行，以及 `Next:` 行（可以是账本里的续跑命令，或 `moss runs` / `moss init` / 验证式运行命令）。
+  两个界面读同一个 helper，不会漂移；setup 完成后的 TUI 路径也用它。
+- 新增 PTY 探针：用预置的失败运行启动真实 TUI，断言首帧包含 `last run: verify_failed`、目标与
+  `Next: moss task resume …`。
+
 ### First screen answers last-run / next-step (B136)
 
 - The REPL welcome now reads the unified run ledger and AGENTS.md: it prints the newest run
