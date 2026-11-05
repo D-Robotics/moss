@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Headless `-p` runs join the unified ledger (B134)
+
+- A headless `moss -p "…"` run now records the same `.moss/runs/<runId>/run.json` row, using the
+  completion gate's own outcome (`completed` / `incomplete` / `verify_failed` / `blocked` /
+  `unverified`) so the printed last line and `moss runs` can never disagree. Non-completed rows carry
+  the gate reason and an actionable `next` step; the session transcript is the artifact. Interactive
+  REPL turns deliberately write nothing — a conversation is not an auditable run.
+
+### headless `-p` 运行进入统一账本（B134）
+
+- `moss -p "…"` 现在写同一条 `.moss/runs/<runId>/run.json`，状态直接来自完成门裁决
+  （`completed` / `incomplete` / `verify_failed` / `blocked` / `unverified`），所以终端最后一行与
+  `moss runs` 不会互相矛盾。非通过行带裁决原因与可执行的 `next` 步骤，会话转录作为工件。
+  交互式 REPL 回合刻意不写记录——对话不是可审计运行。
+
 ### `moss capabilities`: one screen for the capability surface (B133)
 
 - Tools, built-in slash commands, skills (workspace/user), custom commands, project sub-agents
