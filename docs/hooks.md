@@ -67,6 +67,44 @@ for blocking events; hook `stderr` becomes the block reason.
 deny, and `Stop` ignores non-JSON noise on stdout — a broken hook cannot quietly
 approve a run.
 
+## Skill-declared hooks
+
+A skill can ship its own guards instead of asking the user to edit config: put
+the hook entries in a JSON file next to `SKILL.md` and name it in the
+frontmatter. The file uses the exact schema above (same `matcher`/`if`/
+`timeoutMs`/`http` handling, same fail-closed rules):
+
+```yaml
+---
+name: release-guard
+description: Release checklist that verifies the bundle before it ships.
+hooks: hooks.json
+---
+```
+
+```json
+{
+  "PreToolUse": [
+    { "matcher": "exec", "if": "exec(git push *)", "command": "node scripts/require-green.mjs" }
+  ],
+  "PostToolUse": [{ "matcher": "write_file", "command": "node scripts/check-bundle.mjs" }]
+}
+```
+
+Invoking the skill (`skill` tool) makes those entries active **for the rest of
+the session**; the skill tool reports how many hooks it activated. Re-invoking
+the same skill replaces its entries. Only tool events are accepted from a skill
+(`PreToolUse`, `PostToolUse`, `PostToolUseFailure`): any other event is dropped
+with a warning, so an installed skill cannot veto `Stop` or compactions behind
+the user's back. The path must stay inside the skill directory, and a declared
+file that is missing, unparseable, or not a JSON object fails the skill load —
+a guard the user installed never silently disappears. Hooks are activated in
+the parent session even when the skill body is forked or run in the background.
+
+This mirrors Claude Code's skill-frontmatter hooks (there: inline YAML, active
+for the rest of the session after invoke); Moss uses a named file because
+SKILL.md frontmatter is deliberately a shallow YAML subset.
+
 ## Recipe: do not end a run over an unverified change
 
 [`docs/hooks/stop-verified-completion.mjs`](hooks/stop-verified-completion.mjs)

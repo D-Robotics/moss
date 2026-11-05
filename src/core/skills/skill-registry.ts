@@ -284,6 +284,25 @@ export function readSkillManifest(
     });
   }
   const globs = asStringList(parsed.fields.globs);
+  // D11: `hooks: hooks.json` — a skill-owned hook file next to SKILL.md. The
+  // path must stay inside the skill dir so a downloaded skill cannot point the
+  // hook runner at an arbitrary file.
+  const rawHooks = asString(parsed.fields['hooks'])?.trim();
+  let hooks: string | undefined;
+  if (rawHooks !== undefined) {
+    const normalized = rawHooks.replace(/\\/g, '/');
+    const escapes =
+      normalized.length === 0 || path.isAbsolute(rawHooks) || normalized.split('/').includes('..');
+    if (escapes) {
+      issues.push({
+        code: 'unsafe-hooks-path',
+        file,
+        message: `hooks "${rawHooks}" must be a relative path inside the skill directory; ignored`,
+      });
+    } else {
+      hooks = normalized;
+    }
+  }
   return {
     issues,
     manifest: {
@@ -299,6 +318,7 @@ export function readSkillManifest(
       ...(background === true ? { background: true } : {}),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
+      ...(hooks ? { hooks } : {}),
       metadata,
       globs,
       scope,

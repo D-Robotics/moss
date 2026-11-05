@@ -1,6 +1,7 @@
 import type { ToolApprovalRequest, ToolApprovalDecision } from '../core/agent/agent-hooks.js';
 import type { ToolCall, ToolResult } from '../core/tools/tool-types.js';
 import type { HooksConfig, HookCommandConfig } from './config.js';
+import { activeSkillHookEntries, type SkillHookEvent } from '../core/skills/skill-hooks.js';
 import { claudeToolInput, claudeToolName, hookMatcherMatches } from './claude-compat.js';
 import { redactEgress } from '../safety/tool-output-redact.js';
 import { CompactHookRegistry } from '../core/loop/compact-hooks.js';
@@ -701,9 +702,16 @@ export function createConfiguredHookCallbacks(
   hooks: HooksConfig | undefined,
   opts: { workspaceDir: string; tuiMode?: boolean }
 ): ConfiguredHookCallbacks {
-  const pre = hooks?.PreToolUse ?? [];
-  const post = hooks?.PostToolUse ?? [];
-  const postFailure = hooks?.PostToolUseFailure ?? [];
+  // D11: skill-declared hooks are activated mid-session (the skill tool writes
+  // module state), so the three tool events resolve their lists at call time.
+  // Everything else stays static: a skill may not attach to lifecycle events.
+  const toolEventEntries = (event: SkillHookEvent): HookCommandConfig[] => [
+    ...((hooks?.[event] ?? []) as HookCommandConfig[]),
+    ...(activeSkillHookEntries(event) as HookCommandConfig[]),
+  ];
+  const pre = (): HookCommandConfig[] => toolEventEntries('PreToolUse');
+  const post = (): HookCommandConfig[] => toolEventEntries('PostToolUse');
+  const postFailure = (): HookCommandConfig[] => toolEventEntries('PostToolUseFailure');
   const permissionDenied = hooks?.PermissionDenied ?? [];
   const userPrompt = dropIfOnNonToolEvent('UserPromptSubmit', hooks?.UserPromptSubmit ?? []);
   const permission = dropIfOnNonToolEvent('PermissionRequest', hooks?.PermissionRequest ?? []);
@@ -764,112 +772,106 @@ export function createConfiguredHookCallbacks(
       : `Blocked by ${event} hook: ${hookReason(r, parsed)}`;
   };
 
-  const onBeforeToolExec =
-    pre.length === 0
-      ? undefined
-      : async (request: ToolApprovalRequest): Promise<PreToolUseDecision> => {
-          // O157: deny > ask > allow. Every matching hook runs, so a deny after
-          // an ask still blocks; asks are collected for one confirmation.
-          // O165: anything thrown while running a PreToolUse hook (a bad
-          // matcher, a formatting bug) used to escape as a tool error; now it
-          // blocks the call with a visible notice — a safety gate fails closed.
-          try {
-            const asks: PreToolUseHookAsk[] = [];
-            // Claude semantics: a rewrite replaces the whole tool input object;
-            // when several hooks rewrite, the last one wins (deny still wins).
-            let updatedInput: Record<string, unknown> | undefined;
-            for (const hook of pre) {
-              if (!toolNameMatches(hook, request.tool.name)) continue;
-              if (!hookIf.matches(hook, request.tool.name, request.input)) continue;
-              const r = await runHook(
-                hook,
-                {
-                  event: 'PreToolUse',
-                  toolName: request.tool.name,
-                  input: request.input,
-                  ...claudePayload(hook, request.tool.name, request.input),
-                },
-                cwd,
-                timeoutFor(hook)
-              );
-              const parsed = parseHookJson(r.stdout);
-              if (preToolUseBlocks(hook, r, parsed)) {
-                return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
-              }
-              if (hookFailed(r)) notice('PreToolUse', hook, r, false);
-              if (hook.blocking !== false && parsed?.updatedInput) {
-                updatedInput = parsed.updatedInput;
-              }
-              // A blocking:false hook cannot restrict the call, so its ask is
-              // ignored like its deny. preToolUseBlocks already refused non-zero.
-              if (
-                hook.blocking !== false &&
-                r.outcome === 'exit' &&
-                isAskDecision(parsed?.decision)
-              ) {
-                const reason = parsed?.reason?.trim().slice(0, 500);
-                asks.push({
-                  command: hookTarget(hook),
-                  ...(hook.source ? { source: hook.source } : {}),
-                  ...(reason ? { reason } : {}),
-                });
-              }
-            }
-            if (asks.length > 0) {
-              return {
-                approved: false,
-                reason: hookAskHeadlessReason(asks, 'print'),
-                hookAsks: asks,
-              };
-            }
-            return {
-              approved: true,
-              ...(updatedInput ? { updatedInput } : {}),
-            };
-          } catch (err) {
-            const line = hookFailedLine('PreToolUse', errorMessage(err));
-            process.stderr.write(`[hooks] ${line}\n`);
-            return { approved: false, reason: line };
-          }
+  // Always defined: a skill may activate PreToolUse hooks after startup, so the
+  // composition point must exist even when the static list is empty. With no
+  // entries it returns approved and the approval gate still runs.
+  const onBeforeToolExec = async (request: ToolApprovalRequest): Promise<PreToolUseDecision> => {
+    const entries = pre();
+    if (entries.length === 0) return { approved: true };
+    // O157: deny > ask > allow. Every matching hook runs, so a deny after
+    // an ask still blocks; asks are collected for one confirmation.
+    // O165: anything thrown while running a PreToolUse hook (a bad
+    // matcher, a formatting bug) used to escape as a tool error; now it
+    // blocks the call with a visible notice — a safety gate fails closed.
+    try {
+      const asks: PreToolUseHookAsk[] = [];
+      // Claude semantics: a rewrite replaces the whole tool input object;
+      // when several hooks rewrite, the last one wins (deny still wins).
+      let updatedInput: Record<string, unknown> | undefined;
+      for (const hook of entries) {
+        if (!toolNameMatches(hook, request.tool.name)) continue;
+        if (!hookIf.matches(hook, request.tool.name, request.input)) continue;
+        const r = await runHook(
+          hook,
+          {
+            event: 'PreToolUse',
+            toolName: request.tool.name,
+            input: request.input,
+            ...claudePayload(hook, request.tool.name, request.input),
+          },
+          cwd,
+          timeoutFor(hook)
+        );
+        const parsed = parseHookJson(r.stdout);
+        if (preToolUseBlocks(hook, r, parsed)) {
+          return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
+        }
+        if (hookFailed(r)) notice('PreToolUse', hook, r, false);
+        if (hook.blocking !== false && parsed?.updatedInput) {
+          updatedInput = parsed.updatedInput;
+        }
+        // A blocking:false hook cannot restrict the call, so its ask is
+        // ignored like its deny. preToolUseBlocks already refused non-zero.
+        if (hook.blocking !== false && r.outcome === 'exit' && isAskDecision(parsed?.decision)) {
+          const reason = parsed?.reason?.trim().slice(0, 500);
+          asks.push({
+            command: hookTarget(hook),
+            ...(hook.source ? { source: hook.source } : {}),
+            ...(reason ? { reason } : {}),
+          });
+        }
+      }
+      if (asks.length > 0) {
+        return {
+          approved: false,
+          reason: hookAskHeadlessReason(asks, 'print'),
+          hookAsks: asks,
         };
+      }
+      return {
+        approved: true,
+        ...(updatedInput ? { updatedInput } : {}),
+      };
+    } catch (err) {
+      const line = hookFailedLine('PreToolUse', errorMessage(err));
+      process.stderr.write(`[hooks] ${line}\n`);
+      return { approved: false, reason: line };
+    }
+  };
 
-  const onToolResult =
-    post.length === 0 && postFailure.length === 0
-      ? undefined
-      : (call: ToolCall, result: ToolResult): void => {
-          const failed = Boolean(result.isError);
-          // PostToolUse stays "every call"; PostToolUseFailure is the extra
-          // event for failed calls (Claude Code parity, same payload).
-          const events: HookEventName[] = ['PostToolUse'];
-          if (failed) events.push('PostToolUseFailure');
-          for (const event of events) {
-            const hooksForEvent = event === 'PostToolUse' ? post : postFailure;
-            for (const hook of hooksForEvent) {
-              if (!toolNameMatches(hook, call.name)) continue;
-              if (!hookIf.matches(hook, call.name, call.input)) continue;
-              void runHook(
-                hook,
-                {
-                  event,
-                  toolName: call.name,
-                  input: call.input,
-                  result: result.content,
-                  isError: failed,
-                },
-                cwd,
-                timeoutFor(hook)
-              )
-                .then((r) => {
-                  if (r.exitCode !== 0) {
-                    process.stderr.write(
-                      `${hookExitedLine(event, r.exitCode, r.stderr, call.name)}\n`
-                    );
-                  }
-                })
-                .catch(() => {});
+  // Always defined for the same reason: a skill may add post hooks mid-session.
+  const onToolResult = (call: ToolCall, result: ToolResult): void => {
+    const failed = Boolean(result.isError);
+    // PostToolUse stays "every call"; PostToolUseFailure is the extra
+    // event for failed calls (Claude Code parity, same payload).
+    const events: HookEventName[] = ['PostToolUse'];
+    if (failed) events.push('PostToolUseFailure');
+    for (const event of events) {
+      const hooksForEvent = event === 'PostToolUse' ? post() : postFailure();
+      for (const hook of hooksForEvent) {
+        if (!toolNameMatches(hook, call.name)) continue;
+        if (!hookIf.matches(hook, call.name, call.input)) continue;
+        void runHook(
+          hook,
+          {
+            event,
+            toolName: call.name,
+            input: call.input,
+            result: result.content,
+            isError: failed,
+          },
+          cwd,
+          timeoutFor(hook)
+        )
+          .then((r) => {
+            if (r.exitCode !== 0) {
+              process.stderr.write(`${hookExitedLine(event, r.exitCode, r.stderr, call.name)}\n`);
             }
-          }
-        };
+          })
+          .catch(() => {});
+      }
+    }
+  };
 
   const runSessionStart = async (): Promise<void> => {
     for (const hook of sessionStart) {
@@ -1125,8 +1127,8 @@ export function createConfiguredHookCallbacks(
       tuiMode = on;
     },
     hasHooks:
-      pre.length +
-        post.length +
+      pre().length +
+        post().length +
         userPrompt.length +
         permission.length +
         sessionStart.length +

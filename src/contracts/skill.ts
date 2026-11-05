@@ -42,6 +42,7 @@ export type SkillIssueCode =
   | 'unknown-background'
   | 'unknown-effort'
   | 'resource-oversize'
+  | 'unsafe-hooks-path'
   | 'evals-invalid';
 
 export interface SkillIssue {
@@ -77,6 +78,9 @@ export interface SkillCatalogPort {
 }
 
 /** One installed skill, as the agent sees it. */
+/** Tool events a skill-declared hooks file may attach to (D11). */
+export type SkillHookEvent = 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure';
+
 export interface SkillManifest {
   name: string;
   description: string;
@@ -92,6 +96,12 @@ export interface SkillManifest {
   allowedTools: string[];
   /** Spec `disallowed-tools`: tools hidden for the rest of the run. */
   disallowedTools: string[];
+  /**
+   * D11 skill-declared hooks: a JSON file (relative to the skill dir) using the
+   * same hook-entry schema as `.moss/config.json`. Loaded when the skill is
+   * invoked and active for the rest of the session; tool events only.
+   */
+  hooks?: string;
   /**
    * D11 `context: fork` — the skill body runs in an isolated sub-agent and only
    * its summary returns to the parent context. Omitted = inline (the default).

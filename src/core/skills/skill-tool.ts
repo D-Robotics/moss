@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import { findSkill, parseSkillFile, type SkillManifest } from './skill-registry.js';
+import { activateSkillHooks, describeActivatedSkillHooks, parseSkillHooks } from './skill-hooks.js';
 import { applySkillToolScope, describeSkillToolScope } from './skill-tool-scope.js';
 import { recordSkillUse } from './skill-usage.js';
 import {
@@ -103,6 +105,60 @@ function clampBytes(text: string, maxBytes: number): string {
   return `${text.slice(0, end).trimEnd()}${notice}`;
 }
 
+const SKILL_HOOKS_MAX_BYTES = 256 * 1024;
+
+interface SkillHooksActivation {
+  note?: string;
+  warnings: string[];
+  error?: string;
+}
+
+/**
+ * D11: read the skill's `hooks.json`, validate it, and make it active for the
+ * rest of the session. Fail closed: a declared-but-broken hooks file fails the
+ * skill load instead of silently running without the guard the user installed.
+ */
+function activateHooksForSkill(skill: SkillManifest): SkillHooksActivation {
+  if (!skill.hooks) return { warnings: [] };
+  if (skill.dir.startsWith('builtin:')) return { warnings: [] };
+  const dir = path.resolve(skill.dir);
+  const file = path.resolve(dir, skill.hooks);
+  const relative = path.relative(dir, file);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return { warnings: [], error: `hooks path "${skill.hooks}" escapes the skill directory` };
+  }
+  let raw: string;
+  try {
+    const stat = fs.statSync(file);
+    if (stat.size > SKILL_HOOKS_MAX_BYTES) {
+      return {
+        warnings: [],
+        error: `hooks file is larger than ${String(SKILL_HOOKS_MAX_BYTES / 1024)} KiB`,
+      };
+    }
+    raw = fs.readFileSync(file, 'utf8');
+  } catch {
+    return { warnings: [], error: `hooks file "${skill.hooks}" was declared but cannot be read` };
+  }
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(raw);
+  } catch {
+    return { warnings: [], error: `hooks file "${skill.hooks}" is not valid JSON` };
+  }
+  const parsed = parseSkillHooks(skill.name, parsedJson);
+  if (!parsed.ok) return { warnings: [], error: parsed.error };
+  activateSkillHooks(parsed.hooks);
+  const hasHooks =
+    parsed.hooks.events.PreToolUse !== undefined ||
+    parsed.hooks.events.PostToolUse !== undefined ||
+    parsed.hooks.events.PostToolUseFailure !== undefined;
+  return {
+    warnings: parsed.hooks.warnings,
+    ...(hasHooks ? { note: describeActivatedSkillHooks(parsed.hooks) } : {}),
+  };
+}
+
 export function createSkillTool(
   skills: readonly SkillManifest[] | (() => readonly SkillManifest[])
 ): Tool<SkillToolInput> {
@@ -147,6 +203,13 @@ export function createSkillTool(
         return `Unknown skill "${input.name}". Available skills: ${available}`;
       }
       const args = typeof input.args === 'string' ? input.args : '';
+      // D11 skill-declared hooks: activate before any branch so inline, fork and
+      // background loads all leave the session under the skill's guard.
+      const skillHooks = activateHooksForSkill(skill);
+      if (skillHooks.error) {
+        return `Skill "${skill.name}" was not loaded: ${skillHooks.error}. Fix the hooks file (or remove the \`hooks\` field) and retry.`;
+      }
+      const hookNote = [...skillHooks.warnings, skillHooks.note ?? ''].filter(Boolean).join('\n');
       const previousArgs = loaded.get(skill.name);
       if (previousArgs !== undefined && previousArgs === args) {
         return `Skill "${skill.name}" is already loaded in this run (see the earlier # Skill block). Repeating it would only spend context.`;
@@ -216,6 +279,7 @@ export function createSkillTool(
           '',
           'The skill body is running in an isolated background sub-agent; this turn does not block on it.',
           `Poll it with subagent_status (taskId="${taskId}", wait=true to block), read its final summary with subagent_resume, or stop it with subagent_stop.`,
+          ...(hookNote ? ['', hookNote] : []),
         ].join('\n');
       }
       if (skill.context === 'fork') {
@@ -246,7 +310,8 @@ export function createSkillTool(
         ]
           .filter(Boolean)
           .join(', ');
-        return `# Skill: ${skill.name} (forked sub-agent ${forked.runId}, ${status}${detail ? ` · ${detail}` : ''})\n\nThe skill body ran in an isolated sub-agent; only this summary returns to the parent context.\n\n${forked.summary}`;
+        const forkNote = hookNote ? `\n\n${hookNote}` : '';
+        return `# Skill: ${skill.name} (forked sub-agent ${forked.runId}, ${status}${detail ? ` · ${detail}` : ''})\n\nThe skill body ran in an isolated sub-agent; only this summary returns to the parent context.\n\n${forked.summary}${forkNote}`;
       }
       const maxBodyBytes = SKILL_TOOL_MAX_RESULT_TOKENS * BYTES_PER_TOKEN - WRAPPER_RESERVE_BYTES;
       const clipped = clampBytes(body, Math.max(1_000, maxBodyBytes));
@@ -270,7 +335,9 @@ export function createSkillTool(
           : undefined;
       // D10: local counters power `/skills` cost-vs-usage visibility.
       recordSkillUse(ctx.workspaceDir, skill.name);
-      const notes = [scopeNote, policyNote].filter((note): note is string => note !== undefined);
+      const notes = [scopeNote, policyNote, hookNote].filter(
+        (note): note is string => note !== undefined && note !== ''
+      );
       return notes.length > 0 ? `${wrapped}\n\n${notes.join('\n')}` : wrapped;
     },
   };
