@@ -186,6 +186,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 - 完成门（acceptance completion gate）在 MossAgent 内置：本 run 定义过 task_define 而无验收裁决时，
   终稿会被拦截一次并注入修正（跑 task_acceptance / 修复 / 诚实报 FAIL），之后放行——不无限劫持。
   runtime 已裁决过（engine 或上一 run 落过 accepted）时直接放行。
+- **审查失败以结构化记录为准**：验证完成门（Cursor 式"检查自己的改动"）在 run 内调用过审查工具时，读 `.moss/review.jsonl` 最新记录（与 `moss review check` 同一份 verdict/findings）而不是只靠结果散文——critical/important 计数与 record id 直接进修正文案；早于本次 run 的旧记录不会拦；散文正则只留给没有账本记录的子代理审查。`review_changes` 的结果即使被截断/改写，FAIL 也不会漏。
 - Robotics benchmark：`bench/tasks/device-*` 设备任务用 `requiresEnv`（无 MOSS_DEVICE_HOST 时跳过不判负）
   与 `passEnv`（凭据从父进程透传，不进仓库）；真实样本：device-observe-evidence 与
   device-deploy-verify（tier:hard）均已 1/1 PASS（deepseek-flash 驱动真机全链）。

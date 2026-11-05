@@ -1819,6 +1819,7 @@ ${result.stderr ?? ''}`.trim();
     const verificationGate = createVerificationCompletionGate({
       ...(this.config.reviewMode ? { reviewMode: this.config.reviewMode } : {}),
       ...(this.config.verificationGate === false ? { enabled: false } : {}),
+      ...(this.config.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
     });
     const backgroundLifecycleGate = createBackgroundLifecycleGate({ sessionKey });
     // B04: a plan-mode turn that did real work must end with an submitted plan

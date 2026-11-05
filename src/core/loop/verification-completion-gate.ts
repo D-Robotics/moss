@@ -20,6 +20,7 @@
  */
 import type { Message } from '../session/session-jsonl.js';
 import type { AgentLoopExtensions } from './agent-loop-types.js';
+import { readLatestReviewSummary, type ReviewLedgerSummary } from './review-ledger.js';
 
 /** Tools that change files: a run that called any of these must verify. */
 const MUTATION_TOOLS = new Set([
@@ -199,13 +200,54 @@ export function evaluateAutoReviewRequirement(
   };
 }
 
+/**
+ * The review record that belongs to this run. A record from an earlier session
+ * in the same workspace must not hold this answer; a half-written line is
+ * already skipped by the reader. Only when the run itself reviewed something
+ * (tool call present) do we trust the ledger over the prose.
+ */
+function reviewInThisRun(
+  calls: readonly RecordedCall[],
+  latestReview: ReviewLedgerSummary | undefined,
+  messages: readonly Message[]
+): ReviewLedgerSummary | undefined {
+  if (!latestReview) return undefined;
+  if (!calls.some((call) => REVIEW_TOOLS.has(call.name))) return undefined;
+  const runStart = messages.find((message) => typeof message.timestamp === 'number')?.timestamp;
+  if (typeof runStart !== 'number') return latestReview;
+  // The reviewer writes the record during the run; allow a little clock slack.
+  return latestReview.createdAtMs >= runStart - 5_000 ? latestReview : undefined;
+}
+
 export function evaluateVerificationCompletionGate(request: {
   response: string;
   messages: readonly Message[];
+  /** Latest `.moss/review.jsonl` record, when the host can provide it. */
+  latestReview?: ReviewLedgerSummary;
 }): VerificationGateDecision {
   const calls = collectCalls(request.messages);
-  const reviewFailure = findUnresolvedReviewFailure(calls);
-  if (reviewFailure && !FINDINGS_ACK_RE.test(request.response)) {
+  const structured = reviewInThisRun(calls, request.latestReview, request.messages);
+  // Structured verdict wins when available: it is computed from the findings in
+  // `review-tools.ts`, the same record `moss review check` exits on. The prose
+  // scan stays for reviews that produced no ledger record (sub-agent reviews).
+  const proseFailure = structured ? undefined : findUnresolvedReviewFailure(calls);
+  const structuredFailure = structured?.verdict === 'fail' ? structured : undefined;
+  if ((proseFailure || structuredFailure) && !FINDINGS_ACK_RE.test(request.response)) {
+    if (structuredFailure) {
+      const counts = structuredFailure.findings;
+      return {
+        ok: false,
+        kind: 'review-fail',
+        reason: `the latest review record is FAIL (${String(counts.critical)} critical, ${String(counts.important)} important) and the answer does not address it`,
+        correction:
+          `The independent reviewer returned FAIL: ${String(counts.critical)} critical, ` +
+          `${String(counts.important)} important, ${String(counts.suggestion)} suggestion finding(s) ` +
+          `(record ${structuredFailure.id}; \`moss review check\` exits 1 on it). Fix the blocking ` +
+          'findings and call review_changes again so a new record passes, or report exactly which ' +
+          'findings are still open and why — do not present the change as done while a critical ' +
+          'finding is open.',
+      };
+    }
     return {
       ok: false,
       kind: 'review-fail',
@@ -252,7 +294,12 @@ const REVIEW_REPAIR_LIMIT = 3;
  *   "done" over a critical finding.
  */
 export function createVerificationCompletionGate(
-  options: { reviewMode?: 'off' | 'manual' | 'auto'; enabled?: boolean } = {}
+  options: {
+    reviewMode?: 'off' | 'manual' | 'auto';
+    enabled?: boolean;
+    /** Enables the structured `.moss/review.jsonl` verdict; absent = prose only. */
+    workspaceDir?: string;
+  } = {}
 ): NonNullable<AgentLoopExtensions['completionGate']> {
   if (options.enabled === false) {
     // P0-b escape valve: a host that turns the gate off gets a no-op, not a
@@ -279,7 +326,14 @@ export function createVerificationCompletionGate(
         retryLimit: GATE_RETRY_CEILING,
       };
     }
-    const decision = evaluateVerificationCompletionGate(request);
+    const latestReview = options.workspaceDir
+      ? readLatestReviewSummary(options.workspaceDir)
+      : undefined;
+    const decision = evaluateVerificationCompletionGate({
+      response: request.response,
+      messages: request.messages,
+      ...(latestReview ? { latestReview } : {}),
+    });
     if (decision.ok) return { ok: true as const };
     if (decision.kind === 'review-fail') {
       // Bounded: after the last repair cycle the run is allowed to end; the
