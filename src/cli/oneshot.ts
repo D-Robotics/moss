@@ -289,7 +289,7 @@ const ROUTED_ONE_SHOT_TOOLS = new Set([
  * Centralized so the two stay consistent.
  */
 export const WEB_ELIGIBLE_PROMPT_RE =
-  /今[天日]|最近|最新|现在|当前|当下|本周|本月|今年|current|latest|recent|today|this (?:week|month|year)|now\b|大事件|新闻|动态|发生了什么|有什么新|新进展|热点|头条|速报|web_?search|web_?fetch|search the web|google|bing|搜一下|联网|网上|官网|文档站|https?:\/\/|怎么用|怎么办|怎么实现|如何使用|如何实现|查一下|查下|找一下|找下|找方案|查方案|查文档|看文档|参考文档|latest\s+api|api\s+reference|sdk\s+docs?|how\s+to\b|docs?\b|example|示例|报错|错误信息|stack\s*trace|exception/i;
+  /今[天日]|最近|最新|现在|当前|当下|本周|本月|今年|current|latest|recent|today|this (?:week|month|year)|now\b|大事件|新闻|动态|发生了什么|有什么新|what'?s\s+new|what\s+is\s+new|新进展|热点|头条|速报|web_?search|web_?fetch|search the web|google|bing|搜一下|联网|网上|官网|文档站|https?:\/\/|怎么用|怎么办|怎么实现|如何使用|如何实现|查一下|查下|找一下|找下|找方案|查方案|查文档|看文档|参考文档|release\s+notes?|changelog|change\s*log|发版说明|更新日志|版本说明|官方文档|下载地址|latest\s+api|api\s+reference|sdk\s+docs?|how\s+to\b|docs?\b|example|示例|报错|错误信息|stack\s*trace|exception|look\s+(?:it\s+)?up|lookup|find\s+out\s+(?:about|what)|browse|homepage|official\s+(?:site|docs?|page|website|web\s*site)|website|web\s*site|文档/i;
 
 export function isWebEligiblePrompt(message: string): boolean {
   return WEB_ELIGIBLE_PROMPT_RE.test(message);
