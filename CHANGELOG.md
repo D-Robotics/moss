@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### `moss capabilities`: one screen for the capability surface (B133)
+
+- Tools, built-in slash commands, skills (workspace/user), custom commands, project sub-agents
+  (only in a trusted folder), hooks by event, MCP servers and registered devices in one read-only
+  view. `--json` exposes the same snapshot; the command is a workspace command, so it works with no
+  model configuration. Answers "what can this install do" without visiting `/skills`, `/agents`,
+  `moss device`, `moss mcp` and `moss skill` separately.
+
+### `moss capabilities`：一屏看清能力面（B133）
+
+- 工具、内置斜杠命令、技能（工作区/用户）、自定义命令、项目子代理（仅信任文件夹加载）、
+  按事件统计的钩子、MCP 服务器、已注册设备，一屏只读总览；`--json` 给同一份快照。
+  它是 WorkspaceReady 命令，不需要模型配置——不用分别去 `/skills`、`/agents`、`moss device`、
+  `moss mcp`、`moss skill` 查。
+
 ### Loop runs join the unified ledger (B132)
 
 - `moss loop` now writes the same `.moss/runs/<runId>/run.json` record as the task engine:

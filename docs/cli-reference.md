@@ -16,6 +16,7 @@
 | `moss resume` · `moss fork` · `moss sessions list\|delete\|search\|export`                                 | 会话恢复 / 分叉 / 管理                                                                                 |
 | `moss task run\|resume\|status\|timeline`                                                                  | 统一任务运行时（目标进 → 已验证结果出）                                                                |
 | `moss artifacts [contracts\|tasks\|history\|evidence\|deployments\|acceptance\|device\|failures] [--json]` | 只读巡检闭环工件（不需要模型配置）；`moss tasks …` 是等价旧别名                                        |
+| `moss capabilities [--json]`                                                                               | 一屏总览能力面：工具 / 斜杠命令 / 技能 / 自定义命令 / 子代理 / 钩子 / MCP / 设备（只读）               |
 | `moss device add\|list\|remove\|test\|fleet`                                                               | 设备清单与多机只读巡检                                                                                 |
 | `moss mcp add\|list\|remove\|test`                                                                         | MCP 服务器管理                                                                                         |
 | `moss skill create\|list\|validate\|install\|update\|lock`                                                 | 技能管理 / 规范校验 / 带 hash 锁的安装与升级                                                           |

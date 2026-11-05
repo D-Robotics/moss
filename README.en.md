@@ -108,7 +108,8 @@ Failures print a reason **and** the next command; `moss doctor` checks the insta
 **Write code.** The agent loop handles turns, compaction, nudges and loop guards; **51 built-in
 tools** cover read/write/patch/search, processes and background jobs, web fetch/search, type and
 lint diagnostics, test running, sub-agents and task contracts. Write tools go through approvals;
-sessions can be saved / searched / exported / forked. **13 device tools** bring SSH hardware work
+sessions can be saved / searched / exported / forked. One screen for what this install can do:
+`moss capabilities` (tools / skills / commands / agents / hooks / MCP / devices, read-only, no model config). **13 device tools** bring SSH hardware work
 into the same evidence and acceptance model; `moss device fleet` inspects many boards in one command.
 
 **Long runs.** `/goal` and `moss run` share one task state machine; `moss loop` repeats
