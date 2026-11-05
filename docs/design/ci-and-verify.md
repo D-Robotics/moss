@@ -174,6 +174,24 @@ not part of this design.
 4. If it needs tools CI must install, prefer a workflow step that installs the
    tool and then calls the same stage, so local and CI share the check.
 
+## Keeping the 60s gate
+
+The gate grew from four stages to 85+, so two mechanical rules keep it inside
+the budget (both are enforced by the runner, not by convention):
+
+- **Exclusive stages run last.** A timing-sensitive stage (`startup-timing`)
+  holds the machine alone; the scheduler defers it until no ordinary stage is
+  pending, so the pool never idles while it runs.
+- **PTY probes break on painted text, not on a full timeout.** The tiny-window
+  TUI probe used to wait its whole 12s deadline because the notice is split by
+  ANSI cursor moves; matching on ANSI-stripped text made the stage 13s → 1.3s.
+  Independent PTY boots in one stage run concurrently (`repl-interrupt`: 9.6s →
+  3.9s).
+
+`npm run verify` prints a `slowest stages:` line after the summary. Treat a jump
+there as the signal to trim the stage rather than to raise the budget; the gate's
+contract is still "the command people actually run".
+
 ## Cost
 
 - Per push: one ~1-minute Ubuntu job (cache hit) instead of six suite legs

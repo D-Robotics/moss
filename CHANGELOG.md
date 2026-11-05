@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Verification gate back under budget (B141)
+
+- `npm run verify` dropped from 51.0s to 43.0s without removing a single stage:
+  the tiny-window TUI probe now breaks as soon as the notice is painted (ANSI
+  cursor moves split the phrase, so it used to wait out its full 12s deadline:
+  13s → 1.3s), the three independent `repl-interrupt` PTY boots run concurrently
+  (9.6s → 3.9s), and the exclusive `startup-timing` stage is deferred until no
+  ordinary stage is pending so the pool never idles behind it.
+- The summary now prints a `slowest stages:` line, so the next regression is
+  visible in the gate output instead of discovered as a budget failure.
+
+### 验证门回到预算内（B141）
+
+- `npm run verify` 从 51.0s 降到 43.0s，没有删掉任何一个 stage：tiny-window TUI 探针在
+  提示真正绘制后立即退出（ANSI 光标移动会拆开短语，旧逻辑因此总是等满 12s：13s → 1.3s）；
+  `repl-interrupt` 的三次独立 PTY 启动改为并发（9.6s → 3.9s）；排他的 `startup-timing`
+  被推迟到没有普通 stage 待跑时，池子不再为它空转。
+- summary 之后新增 `slowest stages:` 行，下一次回归会直接出现在门禁输出里，而不是以
+  预算失败的形式被发现。
+
 ### One run verb, three modifiers (B140)
 
 - `moss run` now hosts the loop and workflow engines too: `moss run "<intent>" --until "<cmd>"`
