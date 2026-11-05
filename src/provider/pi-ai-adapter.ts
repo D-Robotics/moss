@@ -24,6 +24,7 @@ import { processEvent, convertStreamEvent } from './pi-ai-stream-parser.js';
 import { PiAiFirstEventTimeoutError, startFirstEventWatchdog } from './pi-ai-watchdog.js';
 import { ErrorCode, isMossError, MossError } from '../errors.js';
 import { classifyProviderError, renderProviderErrorSurface } from './error-classify.js';
+import { noteProviderRejectsImageInput } from './image-capability.js';
 
 const log = providerLogger('provider:pi-ai');
 
@@ -41,6 +42,7 @@ function throwUserFacingProviderError(err: unknown): never {
     errorMessage: message,
     ...(status !== undefined ? { status } : {}),
   });
+  if (surface.category === 'images_not_supported') noteProviderRejectsImageInput();
   const surfaced = new MossError({
     code:
       surface.category === 'auth'

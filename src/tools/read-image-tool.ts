@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Tool, ToolContext, StructuredToolResult } from '../core/tools/tool-types.js';
 import type { ToolContentBlock } from '../contracts/messages.js';
 import { resolveReadPath } from '../safety/read-scope.js';
+import { providerRejectsImageInput } from '../provider/image-capability.js';
 
 /**
  * Largest image `read_image` attaches to the conversation. The bytes travel as
@@ -71,7 +72,18 @@ export async function prepareImageInput(
 ): Promise<PreparedImage> {
   const shown = String(input.path ?? '').trim();
   if (!shown) return { ok: false, text: 'Error: read_image needs a path.' };
-  if (ctx.supportsImages === false) {
+  if (ctx.supportsImages === false || providerRejectsImageInput()) {
+    if (providerRejectsImageInput() && ctx.supportsImages !== false) {
+      return {
+        ok: false,
+        text:
+          `Error: ${shown} was not attached — this session's endpoint already rejected image input ` +
+          '(`invalid_image_url`/unsupported image content) on an earlier turn, so retrying would fail the ' +
+          'same way. Describe the file in text instead (read_file for text, exec with `file`/`xxd` for ' +
+          'bytes). If the gateway does support images, set agent.supportsImages true and start a new ' +
+          'session, or run `moss config set agent.supportsImages false` to make this the default.',
+      };
+    }
     return {
       ok: false,
       text:

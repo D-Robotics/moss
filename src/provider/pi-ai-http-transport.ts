@@ -18,6 +18,7 @@
 import type { PiAiStreamFunction, PiAiStreamEvent } from './pi-ai-adapter.js';
 import type { Context as PiContext, Model as PiModel, SimpleStreamOptions } from './pi-ai-types.js';
 import { buildApiV1Url } from './api-v1-url.js';
+import { providerRejectsImageInput } from './image-capability.js';
 import { fetchWithConnectionContext } from './connection-error.js';
 import { providerStopSignal } from './output-limit.js';
 import { ErrorCode, errorMessage, MossError } from '../errors.js';
@@ -360,6 +361,15 @@ export function openAiChatMessages(context: PiContext): OpenAiChatMessage[] {
 }
 
 function piMessagesToOpenAI(context: PiContext): OpenAiChatMessage[] {
+  // A text-only endpoint rejects the whole request when any historical message
+  // carries an image, so one accidental attachment poisons every later turn of
+  // the session (the retry fails before any tool can run). Once the provider has
+  // said so, send a placeholder instead of the bytes: the transcript keeps the
+  // image (switching to a vision model in a new process still works), and the
+  // conversation continues instead of failing forever.
+  const omitImages = providerRejectsImageInput();
+  const omittedImageText =
+    '[image omitted: this endpoint rejected image input earlier in this session]';
   const out: OpenAiChatMessage[] = [];
   if (context.systemPrompt) {
     out.push({ role: 'system', content: context.systemPrompt });
@@ -376,6 +386,9 @@ function piMessagesToOpenAI(context: PiContext): OpenAiChatMessage[] {
           if (block.type === 'text') {
             textParts.push(block.text);
             contentParts.push({ type: 'text', text: block.text });
+          } else if (omitImages) {
+            textParts.push(omittedImageText);
+            contentParts.push({ type: 'text', text: omittedImageText });
           } else {
             contentParts.push({
               type: 'image_url',

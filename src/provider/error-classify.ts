@@ -574,8 +574,8 @@ const COPY = {
     'This model does not support tool calls, so tool tasks may fail. Switch to a tools-capable model in settings (qwen3, qwen3-coder, llama3.1, gpt-4.x, or similar).',
   ],
   images: [
-    '当前模型不接受图片输入，这次请求里的图片被拒。用 /model 换一个视觉模型；若只用文本模型，执行 `moss config set agent.supportsImages false`，read_image 会在发请求前直接说明原因。',
-    'This model does not accept image input, so the images in this request were rejected. Switch to a vision model with /model; if you only use text models, run `moss config set agent.supportsImages false` so read_image explains this before the request is sent.',
+    '当前模型不接受图片输入，这次请求里的图片被拒。用 /model 换一个视觉模型；若只用文本模型，执行 `moss config set agent.supportsImages false`，read_image 会在发请求前直接说明原因。本会话后续请求会用文本占位符代替图片，不再重复失败。',
+    'This model does not accept image input, so the images in this request were rejected. Switch to a vision model with /model; if you only use text models, run `moss config set agent.supportsImages false` so read_image explains this before the request is sent. Later requests in this session replace the image with a text placeholder instead of failing again.',
   ],
   empty: [
     '模型返回空内容（常见于思考类模型把所有输出放进 reasoning）。请到设置把「推理可见度」改为「stream」让思考过程可见，或换一个非纯思考模型。',

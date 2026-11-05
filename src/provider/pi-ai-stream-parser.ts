@@ -1,6 +1,7 @@
 import type { LLMResponse, LLMStreamEvent, LLMContentBlock } from '../core/llm/llm-provider.js';
 import { providerLogger } from './redacted-log.js';
 import { classifyProviderError } from './error-classify.js';
+import { noteProviderRejectsImageInput } from './image-capability.js';
 import { isContextOverflowError } from './errors.js';
 import { isOutputLimitStopReason } from './output-limit.js';
 import {
@@ -202,6 +203,7 @@ export function processEvent(
             ? (errPayload.abortReason as 'user' | 'server' | 'timeout')
             : undefined,
       });
+      if (surface.category === 'images_not_supported') noteProviderRejectsImageInput();
       throw new PiAiProviderRuntimeError({
         message: rawErrorMessage,
         surface,
