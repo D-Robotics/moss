@@ -71,19 +71,22 @@ try {
   assert.equal(failLedger.length, 1);
   const failRun = failLedger[0].replace(/\.jsonl$/, '');
   const failRecords = readLedger(failRun);
-  assert.equal(failRecords.length, 3, 'two attempts + one summary');
+  assert.equal(failRecords.length, 4, 'start + two attempts + one summary');
+  assert.equal(failRecords[0].type, 'start', 'the run opens with a pid-bearing start record');
+  assert.equal(typeof failRecords[0].pid, 'number');
+  assert.equal(failRecords[0].until, 'false');
   assert.deepEqual(
-    failRecords.slice(0, 2).map((r) => [r.type, r.attempt, r.check.exitCode, r.passed]),
+    failRecords.slice(1, 3).map((r) => [r.type, r.attempt, r.check.exitCode, r.passed]),
     [
       ['attempt', 1, 1, false],
       ['attempt', 2, 1, false],
     ]
   );
-  assert.ok(failRecords[0].durationMs >= 0);
-  assert.equal(failRecords[2].type, 'summary');
-  assert.equal(failRecords[2].passed, false);
-  assert.equal(failRecords[2].attempts, 2);
-  assert.equal(failRecords[2].reason, 'attempts_exhausted');
+  assert.ok(failRecords[1].durationMs >= 0);
+  assert.equal(failRecords[3].type, 'summary');
+  assert.equal(failRecords[3].passed, false);
+  assert.equal(failRecords[3].attempts, 2);
+  assert.equal(failRecords[3].reason, 'attempts_exhausted');
   ok('every attempt is recorded and the summary names attempts_exhausted');
 
   // 2. A passing first attempt: the summary says passed, not "no attempts".

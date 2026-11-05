@@ -161,7 +161,7 @@ const showFail = await capture(() =>
   readLoopHistoryCommand(['show', 'latest'], { workspaceDir: ws })
 );
 assert.equal(showFail.code, 1, 'a failed/interrupted latest run exits 1');
-assert.match(showFail.out, /no summary record/);
+assert.match(showFail.out, /no summary (record|and the process is gone)/);
 const showPrefix = await capture(() =>
   readLoopHistoryCommand(['show', 'loop-fa'], { workspaceDir: ws })
 );

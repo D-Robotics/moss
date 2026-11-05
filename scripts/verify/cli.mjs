@@ -82,6 +82,7 @@ import { stage as goalResumeArgsStage } from './stages/goal-resume-args.mjs';
 import { stage as loopHistoryStage } from './stages/loop-history.mjs';
 import { stage as loopWatchStage } from './stages/loop-watch.mjs';
 import { stage as reviewVerdictStage } from './stages/review-verdict.mjs';
+import { stage as loopStatusStage } from './stages/loop-status.mjs';
 import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
 import { stage as mcpPromptSlashStage } from './stages/mcp-prompt-slash.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
@@ -152,6 +153,7 @@ const STAGES = new Map(
     loopHistoryStage,
     loopWatchStage,
     reviewVerdictStage,
+    loopStatusStage,
     runTestsVerdictStage,
     mcpPromptSlashStage,
     contextSurfaceStage,
@@ -200,6 +202,7 @@ const FAST_GATE = [
   'loop-history',
   'loop-watch',
   'review-verdict',
+  'loop-status',
   'skill-catalog-usage',
   'tool-output-spill',
   'loop-command',

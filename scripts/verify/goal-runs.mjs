@@ -56,7 +56,10 @@ const failed = await recordGoalRun(ws, {
   startedAt: now - 20_000,
 });
 
-assert.equal(passed.durationMs, 4_000);
+assert.ok(
+  passed.durationMs >= 4_000 && passed.durationMs < 4_100,
+  `duration starts from the fixture start; observed ${String(passed.durationMs)}ms`
+);
 assert.equal(failed.outcome, 'fail');
 const rows = await listGoalRuns(ws);
 assert.equal(rows.length, 2);

@@ -34,6 +34,18 @@ export interface LoopOptions {
   watchTimeoutMs: number;
 }
 
+/** First line of a run: lets `loop list` tell "still running" from "killed". */
+interface LoopStartRecord {
+  type: 'start';
+  runId: string;
+  at: string;
+  /** OS process id of the loop; liveness is checked when no summary exists. */
+  pid: number;
+  until: string;
+  maxAttempts: number;
+  prompt: string;
+}
+
 /** One line per attempt, so an overnight loop can be audited afterwards. */
 interface LoopAttemptRecord {
   type: 'attempt';
@@ -372,7 +384,7 @@ export async function runLoopCommand(
   const ledgerPath = path.join(ctx.workspaceDir, '.moss', 'loops', `${runIdBase}.jsonl`);
   const ledgerLabel = path.relative(ctx.workspaceDir, ledgerPath);
   let ledgerBroken = false;
-  const appendLedger = (record: LoopAttemptRecord | LoopSummaryRecord): void => {
+  const appendLedger = (record: LoopStartRecord | LoopAttemptRecord | LoopSummaryRecord): void => {
     if (ledgerBroken) return;
     try {
       fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
@@ -404,6 +416,15 @@ export async function runLoopCommand(
     }
   };
   const loopStartedAt = Date.now();
+  appendLedger({
+    type: 'start',
+    runId: runIdBase,
+    at: new Date(loopStartedAt).toISOString(),
+    pid: process.pid,
+    until: options.until,
+    maxAttempts: options.maxAttempts,
+    prompt: options.prompt.slice(0, 500),
+  });
   let attempts = 0;
   let pendingWaitMs = 0;
   let lastCheck: CheckResult = { exitCode: 1, stdout: '', stderr: '' };
@@ -575,18 +596,28 @@ export interface LoopRunSummary {
   until?: string;
   /** External signal path when the run used `--watch`. */
   watch?: string;
-  /** No summary record: the process died, was killed, or is still running. */
+  /**
+   * `passed`/`failed` from the summary; without one, `running` when the start
+   * record's pid is still alive and `interrupted` when it is not (killed,
+   * crashed, or a ledger from before start records existed).
+   */
+  status: 'passed' | 'failed' | 'running' | 'interrupted';
+  /** Process id from the start record, for `loop show` / `--json`. */
+  pid?: number;
+  /** No usable end state: running now or died without a summary. */
   interrupted: boolean;
 }
 
 interface LoopLedgerRead {
   attempts: LoopAttemptRecord[];
+  start?: LoopStartRecord;
   summary?: LoopSummaryRecord;
   torn: number;
 }
 
 function readLoopLedger(filePath: string): LoopLedgerRead {
   const attempts: LoopAttemptRecord[] = [];
+  let start: LoopStartRecord | undefined;
   let summary: LoopSummaryRecord | undefined;
   let torn = 0;
   let raw: string;
@@ -601,13 +632,28 @@ function readLoopLedger(filePath: string): LoopLedgerRead {
       const parsed: unknown = JSON.parse(line);
       if (typeof parsed !== 'object' || parsed === null) throw new Error('not an object');
       const record = parsed as { type?: unknown };
-      if (record.type === 'attempt') attempts.push(parsed as LoopAttemptRecord);
+      if (record.type === 'start') start = parsed as LoopStartRecord;
+      else if (record.type === 'attempt') attempts.push(parsed as LoopAttemptRecord);
       else if (record.type === 'summary') summary = parsed as LoopSummaryRecord;
     } catch {
       torn += 1;
     }
   }
-  return { attempts, ...(summary ? { summary } : {}), torn };
+  return { attempts, ...(start ? { start } : {}), ...(summary ? { summary } : {}), torn };
+}
+
+/**
+ * Same-host liveness check for a loop pid. EPERM means the process exists but
+ * belongs to someone else — still "running", so this is the conservative answer.
+ */
+export function isLoopProcessAlive(pid: number | undefined): boolean {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: unknown) {
+    return (error as NodeJS.ErrnoException | undefined)?.code === 'EPERM';
+  }
 }
 
 /** All loop ledgers, newest first (by summary time, then file mtime). */
@@ -622,9 +668,9 @@ export function listLoopRuns(workspaceDir: string): LoopRunSummary[] {
   const runs: (LoopRunSummary & { sortAt: number })[] = [];
   for (const name of names) {
     const filePath = path.join(dir, name);
-    const { attempts, summary } = readLoopLedger(filePath);
-    const runId = summary?.runId ?? name.replace(/\.jsonl$/, '');
-    if (!summary && attempts.length === 0) continue;
+    const { attempts, start, summary } = readLoopLedger(filePath);
+    const runId = summary?.runId ?? start?.runId ?? name.replace(/\.jsonl$/, '');
+    if (!summary && attempts.length === 0 && !start) continue;
     let mtimeMs = 0;
     try {
       mtimeMs = fs.statSync(filePath).mtimeMs;
@@ -632,6 +678,14 @@ export function listLoopRuns(workspaceDir: string): LoopRunSummary[] {
       mtimeMs = 0;
     }
     const sortAt = summary ? Date.parse(summary.at) || mtimeMs : mtimeMs;
+    const running = summary === undefined && isLoopProcessAlive(start?.pid);
+    const status: LoopRunSummary['status'] = summary
+      ? summary.passed
+        ? 'passed'
+        : 'failed'
+      : running
+        ? 'running'
+        : 'interrupted';
     runs.push({
       runId,
       ledger: path.relative(workspaceDir, filePath),
@@ -640,12 +694,19 @@ export function listLoopRuns(workspaceDir: string): LoopRunSummary[] {
       passed: summary?.passed === true,
       ...(summary?.reason ? { reason: summary.reason } : {}),
       attempts: summary?.attempts ?? attempts.length,
-      ...(summary?.maxAttempts !== undefined ? { maxAttempts: summary.maxAttempts } : {}),
+      ...(summary?.maxAttempts !== undefined
+        ? { maxAttempts: summary.maxAttempts }
+        : start?.maxAttempts !== undefined
+          ? { maxAttempts: start.maxAttempts }
+          : {}),
       ...(summary?.totalDurationMs !== undefined
         ? { totalDurationMs: summary.totalDurationMs }
         : {}),
       ...(summary?.until ? { until: summary.until } : {}),
+      ...(start?.until && !summary?.until ? { until: start.until } : {}),
       ...(summary?.watch ? { watch: summary.watch } : {}),
+      status,
+      ...(start?.pid !== undefined ? { pid: start.pid } : {}),
       interrupted: summary === undefined,
       sortAt,
     });
@@ -705,26 +766,38 @@ export function renderLoopRunRows(
       : `loop runs (${String(runs.length)}, newest first)`,
   ];
   for (const run of shown) {
-    const outcome = run.passed ? 'pass' : run.interrupted ? 'interrupted' : 'fail';
-    const reason = run.interrupted
-      ? zh
-        ? '没有写 summary（中断或仍在运行）'
-        : 'no summary record (interrupted or still running)'
-      : run.reason === 'passed'
+    const outcome =
+      run.status === 'passed'
+        ? 'pass'
+        : run.status === 'running'
+          ? 'running'
+          : run.status === 'interrupted'
+            ? 'interrupted'
+            : 'fail';
+    const reason =
+      run.status === 'running'
         ? zh
-          ? '检查命令退出 0'
-          : 'check exited 0'
-        : run.reason === 'budget_exhausted'
+          ? `进行中（pid ${String(run.pid)}）`
+          : `in progress (pid ${String(run.pid)})`
+        : run.status === 'interrupted'
           ? zh
-            ? '墙钟预算用尽'
-            : 'wall-clock budget exhausted'
-          : run.reason === 'watch_timeout'
+            ? '没有写 summary 且进程已不在（被杀/崩溃/旧账本）'
+            : 'no summary and the process is gone (killed, crashed, or a pre-start-record ledger)'
+          : run.reason === 'passed'
             ? zh
-              ? '外部信号等待超时'
-              : 'watch timed out'
-            : zh
-              ? '轮次用尽'
-              : 'attempts exhausted';
+              ? '检查命令退出 0'
+              : 'check exited 0'
+            : run.reason === 'budget_exhausted'
+              ? zh
+                ? '墙钟预算用尽'
+                : 'wall-clock budget exhausted'
+              : run.reason === 'watch_timeout'
+                ? zh
+                  ? '外部信号等待超时'
+                  : 'watch timed out'
+                : zh
+                  ? '轮次用尽'
+                  : 'attempts exhausted';
     const count = `${String(run.attempts)}/${String(run.maxAttempts ?? run.attempts)}`;
     lines.push(
       `  ${clockOf(run.startedAt)}  ${outcome.padEnd(11)}  ${run.runId.slice(-14).padEnd(14)}  att:${count.padEnd(5)} ${formatLoopDuration(run.totalDurationMs).padStart(7)}  ${clipLine(run.until ?? '', 56)}`
@@ -753,14 +826,19 @@ export function formatLoopRunDetail(
     `${label('LEDGER', '账本')}${run.ledger}`,
     `${label('UNTIL', '验收')}${run.until ?? '—'}`,
     ...(run.watch ? [`${label('WATCH', '外部信号')}${run.watch}`] : []),
+    ...(run.pid !== undefined ? [`${label('PID', '进程')}${String(run.pid)}`] : []),
     `${label('RESULT', '结果')}${
-      run.passed
+      run.status === 'passed'
         ? 'passed'
-        : run.interrupted
+        : run.status === 'running'
           ? zh
-            ? 'interrupted（没有 summary 记录）'
-            : 'interrupted (no summary record)'
-          : `failed${run.reason ? ` · ${run.reason}` : ''}`
+            ? 'running（进行中，还没有 summary）'
+            : 'running (no summary yet)'
+          : run.status === 'interrupted'
+            ? zh
+              ? 'interrupted（没有 summary 且进程已退出）'
+              : 'interrupted (no summary and the process is gone)'
+            : `failed${run.reason ? ` · ${run.reason}` : ''}`
     }`,
     `${label('ATTEMPTS', '轮次')}${String(run.attempts)}${run.maxAttempts !== undefined ? `/${String(run.maxAttempts)}` : ''} · ${formatLoopDuration(run.totalDurationMs)}${
       read.summary && read.summary.maxDurationMs > 0
