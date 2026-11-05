@@ -152,12 +152,6 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
-        command: '/skills',
-        description: 'list discovered skills; create more with moss skill create',
-        hidden: true,
-        availableDuringRun: 'immediate',
-      },
-      {
         command: '/paste',
         args: '[prompt]',
         description:
@@ -286,6 +280,10 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         args: '[pause|resume|drop|clear]',
         description: 'inspect or control the input queue',
         hidden: true,
+        // Mid-run input only exists in the TUI: the REPL cannot type while a
+        // turn is running, so advertising these on the repl surface made the
+        // catalog claim commands that answer "unknown command".
+        surfaces: ['tui'],
         availableDuringRun: 'immediate',
       },
       {
@@ -293,6 +291,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         args: '<constraint>',
         description: 'inject a constraint into the live run',
         hidden: true,
+        surfaces: ['tui'],
         availableDuringRun: 'immediate',
       },
     ],
@@ -338,15 +337,6 @@ const RETIRED_SLASH: Readonly<
     command: '/mode',
     migration:
       'Switch modes with Shift+Tab (TUI), /plan, or /permissions. /mode remains for one version.',
-  },
-  '/steer': {
-    command: '/steer',
-    migration: 'A message sent during a run steers it. /steer remains as a hidden alias.',
-  },
-  '/queue': {
-    command: '/queue',
-    migration:
-      'A message sent during a run queues when it cannot steer. /queue remains as a hidden alias.',
   },
 };
 

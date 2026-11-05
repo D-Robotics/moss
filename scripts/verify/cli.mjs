@@ -52,6 +52,7 @@ import { stage as skillForkStage } from './stages/skill-fork.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
 import { stage as replInterruptStage } from './stages/repl-interrupt.mjs';
 import { stage as helpSurfaceStage } from './stages/help-surface.mjs';
+import { stage as slashDispatchStage } from './stages/slash-dispatch.mjs';
 
 const STAGES = new Map(
   [
@@ -83,6 +84,7 @@ const STAGES = new Map(
     contextSurfaceStage,
     replInterruptStage,
     helpSurfaceStage,
+    slashDispatchStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -115,6 +117,7 @@ const FAST_GATE = [
   'context-surface',
   'repl-interrupt',
   'help-surface',
+  'slash-dispatch',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 
