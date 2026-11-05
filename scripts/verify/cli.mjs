@@ -39,6 +39,7 @@ import { stage as compactionWindowClampStage } from './stages/compaction-window-
 import { stage as windowEconomicsStage } from './stages/window-economics.mjs';
 import { stage as tinyWindowSurfaceStage } from './stages/tiny-window-surface.mjs';
 import { stage as readImageStage } from './stages/read-image.mjs';
+import { stage as readPdfStage } from './stages/read-pdf.mjs';
 import { stage as planEndStage } from './stages/plan-end.mjs';
 import { stage as rulesActivationStage } from './stages/rules-activation.mjs';
 import { stage as subagentResumeStage } from './stages/subagent-resume.mjs';
@@ -81,6 +82,7 @@ const STAGES = new Map(
     windowEconomicsStage,
     tinyWindowSurfaceStage,
     readImageStage,
+    readPdfStage,
     planEndStage,
     rulesActivationStage,
     subagentPromptStage,
@@ -124,6 +126,7 @@ const FAST_GATE = [
   'window-economics',
   'tiny-window-surface',
   'read-image',
+  'read-pdf',
   'plan-end',
   'rules-activation',
   'subagent-prompt-contract',
