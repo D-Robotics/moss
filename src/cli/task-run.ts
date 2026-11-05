@@ -11,7 +11,13 @@
  * Exit code 0 only when the task reached accepted (PASS).
  */
 import path from 'node:path';
-import { runTask, resumeTask, summarizeTaskRun } from '../core/task/task-engine.js';
+import {
+  DEFAULT_MAX_REPAIR_ATTEMPTS,
+  DEFAULT_MAX_TURNS,
+  runTask,
+  resumeTask,
+  summarizeTaskRun,
+} from '../core/task/task-engine.js';
 import { createAgentTurnRunner } from '../core/task/agent-turn.js';
 import {
   getTaskStateSnapshot,
@@ -123,8 +129,8 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       '',
       '  run <goal...>        端到端跑一个任务（计划 → 执行 → 验证 → 修复 → 验收）',
       '      --accept "<cmd>"  验收权威：命令必须以退出码 0 结束',
-      '      --max-repairs N  诚实报告失败前的修复尝试次数（默认 2）',
-      '      --max-turns N    模型轮次预算（默认 8）',
+      `      --max-repairs N  诚实报告失败前的修复尝试次数（默认 ${DEFAULT_MAX_REPAIR_ATTEMPTS}）`,
+      `      --max-turns N    模型轮次预算（默认 ${DEFAULT_MAX_TURNS}）`,
       '      --device ID      契约指定的目标设备标识',
       '  resume <task_id> [--accept "<cmd>"]  恢复一个失败/中断/阻塞的任务（可改正验收命令）',
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
@@ -137,8 +143,8 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       '',
       '选项：',
       '  --accept "<cmd>"   验收命令（退出码必须是 0）',
-      '  --max-repairs N    诚实报告失败前的修复次数（默认 2）',
-      '  --max-turns N      模型轮次预算（默认 8）',
+      `  --max-repairs N    诚实报告失败前的修复次数（默认 ${DEFAULT_MAX_REPAIR_ATTEMPTS}）`,
+      `  --max-turns N      模型轮次预算（默认 ${DEFAULT_MAX_TURNS}）`,
       '  --device ID        目标设备标识',
       '',
       '示例：',
@@ -152,8 +158,8 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     '',
     '  run <goal...>        run a task end to end (plan → execute → verify → repair → accept)',
     '      --accept "<cmd>"  acceptance authority: command must exit 0',
-    '      --max-repairs N  repair attempts before honest FAIL (default 2)',
-    '      --max-turns N    agent turn budget (default 8)',
+    `      --max-repairs N  repair attempts before honest FAIL (default ${DEFAULT_MAX_REPAIR_ATTEMPTS})`,
+    `      --max-turns N    agent turn budget (default ${DEFAULT_MAX_TURNS})`,
     '      --device ID      target device id for the contract',
     '  resume <task_id> [--accept "<cmd>"]  resume a failed/abandoned/blocked task, optionally correcting the oracle',
     '  status [task_id]     current phase, plan, failures, verdict (default: latest)',
@@ -166,8 +172,8 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     '',
     'Options:',
     '  --accept "<cmd>"   acceptance command (must exit 0)',
-    '  --max-repairs N    repair attempts before FAIL (default 2)',
-    '  --max-turns N      agent turn budget (default 8)',
+    `  --max-repairs N    repair attempts before FAIL (default ${DEFAULT_MAX_REPAIR_ATTEMPTS})`,
+    `  --max-turns N      agent turn budget (default ${DEFAULT_MAX_TURNS})`,
     '  --device ID        target device id',
     '',
     'Examples:',

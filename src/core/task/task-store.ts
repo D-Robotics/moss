@@ -582,7 +582,7 @@ export function localizeTaskDetail(detail: string, zh: boolean = isEffectiveUiZh
   if (!zh) return detail;
   const exact = TASK_DETAIL_ZH[detail];
   if (exact) return exact;
-  const failed = /^verification failed after (\d+) attempts \(repair budget exhausted\)$/.exec(
+  const failed = /^verification failed after (\d+) attempts? \(repair budget exhausted\)$/.exec(
     detail
   );
   if (failed) return `验证失败，已尝试 ${failed[1]} 次（修复次数已用尽）`;

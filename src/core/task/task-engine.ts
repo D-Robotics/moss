@@ -361,8 +361,15 @@ async function verifyRepairLoop(
     });
 
     if (state.repairsUsed >= maxRepairAttempts) {
+      // The agent may verify inside its own turn (`/task verify` tool), which
+      // appends its own `verification_started`. The ledger then counts more
+      // attempts than the engine's repair count, and "after 1 attempts" made
+      // `task list` (att:2) contradict the failure line. Report the number the
+      // ledger will show, with singular/plural grammar.
+      const settled = await getTaskStateSnapshot(workspaceDir, state.taskId);
+      const attempts = Math.max(settled?.attempt ?? 0, state.repairsUsed + 1);
       await appendTaskEvent(workspaceDir, state.taskId, 'task_failed', {
-        detail: `verification failed after ${state.repairsUsed + 1} attempts (repair budget exhausted)`,
+        detail: `verification failed after ${attempts} attempt${attempts === 1 ? '' : 's'} (repair budget exhausted)`,
       });
       return 'failed';
     }
