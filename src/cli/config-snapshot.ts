@@ -88,6 +88,9 @@ const ZH_FIELD: Record<string, string> = {
   guardrails: '护栏',
   'max turns': '最大轮次',
   'context tokens': '上下文词元',
+  images: '图片输入',
+  'review mode': '评审模式',
+  'verification gate': '验证门',
   'reasoning budget': '推理强度',
   'max output': '最大输出',
   compaction: '压缩',
@@ -276,6 +279,27 @@ const FIELDS = {
   contextTokens: [
     'context tokens',
     (c: ResolvedCliConfig) => `${c.contextTokens} ${sourceNote(c.contextTokensSource)}`,
+  ],
+  supportsImages: [
+    'images',
+    (c: ResolvedCliConfig) =>
+      `${
+        c.supportsImages === false
+          ? uiText('text-only (agent.supportsImages=false)', '仅文本（agent.supportsImages=false）')
+          : uiText('image input allowed', '允许图片输入')
+      } ${sourceNote(c.supportsImagesSource ?? 'default')}`,
+  ],
+  reviewMode: [
+    'review mode',
+    (c: ResolvedCliConfig) =>
+      `${c.reviewMode ?? uiText('manual', 'manual')} ${sourceNote(c.reviewMode ? 'configured' : 'default')}`,
+  ],
+  verificationGate: [
+    'verification gate',
+    (c: ResolvedCliConfig) =>
+      `${c.verificationGate === false ? uiText('off', '关闭') : uiText('on', '开启')} ${sourceNote(
+        c.verificationGateSource ?? 'default'
+      )}`,
   ],
   reasoningBudget: [
     'reasoning budget',
