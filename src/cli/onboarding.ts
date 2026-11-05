@@ -496,9 +496,44 @@ export function permissionRuleLines(
   });
 }
 
+/**
+ * Rules whose tool name is not registered any more (typo, renamed tool, MCP
+ * server not connected) parse fine and then match nothing. A deny rule in that
+ * state protects nothing, so the view names it instead of showing a healthy
+ * count. Patterns with glob syntax are skipped: they cannot be checked exactly.
+ */
+function unmatchedRuleToolLines(
+  rules: readonly import('./permission-rules.js').PermissionRule[],
+  knownToolNames: readonly string[],
+  zh: boolean
+): string[] {
+  const known = new Set(knownToolNames.map((name) => name.toLowerCase()));
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const rule of rules) {
+    const tool = rule.toolName.trim();
+    if (!tool || /[*?[\]]/.test(tool)) continue;
+    const key = tool.toLowerCase();
+    if (known.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    lines.push(
+      zh
+        ? `  ⚠ 规则 ${tool} 没有匹配的已注册工具——检查拼写；这条规则永远不会生效`
+        : `  ⚠ rule ${tool} matches no registered tool — check the spelling; it never applies`
+    );
+  }
+  return lines;
+}
+
 export function renderCliPermissions(
   runtime: CliRuntimeStatus = {},
-  options: { verbose?: boolean; locale?: string; currentMode?: CliInteractionMode } = {}
+  options: {
+    verbose?: boolean;
+    locale?: string;
+    currentMode?: CliInteractionMode;
+    /** Registered tool names, so a rule naming a typo'd tool can be flagged. */
+    knownToolNames?: readonly string[];
+  } = {}
 ): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
@@ -520,6 +555,10 @@ export function renderCliPermissions(
   // T03 getter; the config view covers the startup rules).
   const liveRules = rt.permissionsRules?.().rules ?? [];
   const sources = rt.permissionsRules?.().sources ?? {};
+  const unmatchedRuleLines =
+    options.knownToolNames && options.knownToolNames.length > 0
+      ? unmatchedRuleToolLines(liveRules, options.knownToolNames, zh)
+      : [];
   const allowCount = liveRules.filter((r) => r.level === 'allow').length;
   const askCount = liveRules.filter((r) => r.level === 'ask').length;
   const denyCount = liveRules.filter((r) => r.level === 'deny').length;
@@ -539,6 +578,7 @@ export function renderCliPermissions(
             `    ${zh ? '无规则（默认 full 模式下可用 /permissions 添加 deny 规则）' : 'none (add deny rules with /permissions in the default full mode)'}`,
           ]),
       ...permissionRuleLines(liveRules, sources),
+      ...unmatchedRuleLines,
       ...(permissions && permissions.legacyKeysUsed.length > 0
         ? [
             `  ${label(zh ? '旧键迁移' : 'legacy keys')} ${permissions.legacyKeysUsed.join(', ')} ${zh ? '（已按迁移表翻译，建议改用 permissions.* 新键）' : '(migrated on read — prefer the permissions.* keys)'}`,
@@ -583,6 +623,7 @@ export function renderCliPermissions(
         : `allow ${allowCount} · ask ${askCount} · deny ${denyCount}`
     }`,
     ...(liveRules.length > 0 ? permissionRuleLines(liveRules, sources) : []),
+    ...unmatchedRuleLines,
     '',
     zh
       ? '  增删规则：/permissions add|remove|persist（下一次工具调用即生效）'

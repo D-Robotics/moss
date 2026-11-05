@@ -175,6 +175,7 @@ const permissionsCommand: CommandSpec = {
           verbose: verb === '--verbose' || trimmed === 'verbose',
           locale: ctx.locale,
           currentMode: getCliInteractionMode(),
+          knownToolNames: ctx.agent.tools.getAll().map((tool) => tool.name),
         })
       );
       return;
