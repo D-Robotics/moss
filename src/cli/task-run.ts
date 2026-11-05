@@ -4,7 +4,7 @@
  *
  *   moss task run <goal...> [--accept "<cmd>"] [--max-repairs N] [--max-turns N] [--device ID]
  *   moss task resume <task_id> [--accept "<cmd>"]
- *   moss task status [task_id]      (default: latest)
+ *   moss task status [task_id] [--json]   (default: latest; --json prints one object)
  *   moss task timeline [task_id]
  *   moss task list [--limit N] [--status pass|fail|blocked|aborted] [--json]   (goal-run rollup, newest first)
  *
@@ -36,11 +36,25 @@ import {
 } from '../core/task-runtime/goal-runs.js';
 import type { GoalRunOutcome } from '../core/task-runtime/goal-runs.js';
 import { readReviewSummaries } from '../core/loop/review-ledger.js';
-import { formatGoalRunRows, projectGoalRunFailures, readFailureRecords } from './task-list.js';
+import {
+  formatGoalRunRows,
+  projectFailureReasons,
+  projectGoalRunFailures,
+  readFailureRecords,
+} from './task-list.js';
+import type { GoalRunFailure } from './task-list.js';
+import { persistedAcceptanceCommand } from '../core/task/acceptance-authority.js';
 import { errorMessage } from '../errors.js';
 import { listDeploymentRecords } from '../device/deployment.js';
 import { resolveDefaultDeviceTarget } from '../device/device-target.js';
-import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
+import { isResumableTaskPhase, latestTaskFailureDetail } from '../contracts/task-runtime.js';
+import type {
+  TaskEvent,
+  TaskPhase,
+  TaskPlanStep,
+  TaskStateSnapshot,
+  TaskStatusView,
+} from '../contracts/task-runtime.js';
 import { cliLocale, isZhLocale } from './cli-locale.js';
 import { formatTaskProgressLine } from './task-card.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
@@ -133,7 +147,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       `      --max-turns N    模型轮次预算（默认 ${DEFAULT_MAX_TURNS}）`,
       '      --device ID      契约指定的目标设备标识',
       '  resume <task_id> [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  恢复一个失败/中断/阻塞的任务（可改正验收命令、给本次重试单独的预算）',
-      '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
+      '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新；--json 输出单个对象供自动化）',
       '  list [--limit N] [--status pass|fail|blocked|aborted]  目标运行汇总：时间/结果/任务/轮次/耗时/目标；fail/blocked 行还会显示记录的失败原因（↳ 原因：…）与评审裁决（默认最近 20 条；表头给出全账本计数，--status 只筛表格与 JSON）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
       '  view [种类]          只读工件：`tasks` | `history` | `evidence` | `deployments` | `failures`',
@@ -162,7 +176,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     `      --max-turns N    agent turn budget (default ${DEFAULT_MAX_TURNS})`,
     '      --device ID      target device id for the contract',
     '  resume <task_id> [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  resume a failed/abandoned/blocked task with an optional oracle fix and its own budget',
-    '  status [task_id]     current phase, plan, failures, verdict (default: latest)',
+    '  status [task_id]     current phase, plan, failures, verdict (default: latest; --json prints one object for automation)',
     '  list [--limit N] [--status pass|fail|blocked|aborted]  goal-run rollup: time/outcome/task/turns/duration/goal; fail/blocked rows also show the recorded failure reason and review verdict (default 20; the header counts the whole ledger and --status narrows table and JSON)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
     '  view [kind]          read-only artifacts: tasks | history | evidence | deployments | failures',
@@ -370,6 +384,72 @@ export function formatTaskStatus(
     );
   }
   return lines.join('\n');
+}
+
+/**
+ * `moss task status --json` — the machine-readable twin of `formatTaskStatus`.
+ *
+ * One object with the same facts the human view renders (phase/status/attempts/
+ * plan/timeline) plus the fields automation needs to decide what to do next:
+ * `resumable`, the persisted acceptance command, the latest failure and the
+ * engine's final failure detail. IDs stay raw (never localized); only `timeline`
+ * reuses the human formatter, one line per entry, so CI logs read like the CLI.
+ */
+export interface TaskStatusJson {
+  taskId: string;
+  goal: string;
+  phase: TaskPhase;
+  /** Three-way label for automation: `completed` (settled), `live`, `blocked`. */
+  status: 'completed' | 'live' | 'blocked';
+  attempt: number;
+  repairs: number;
+  failures: number;
+  evidence: number;
+  resumable: boolean;
+  acceptanceCommand: string | null;
+  lastFailure: GoalRunFailure | null;
+  blockedReason: string | null;
+  engineFailure: string | null;
+  plan: { stepId: string; title: string; status: TaskPlanStep['status'] }[];
+  timeline: string[];
+}
+
+/** Collapse the snapshot's five-way `statusView` into the three-way JSON label. */
+export function taskStatusLabel(statusView: TaskStatusView): 'completed' | 'live' | 'blocked' {
+  if (statusView === 'completed') return 'completed';
+  if (statusView === 'blocked') return 'blocked';
+  return 'live';
+}
+
+export async function buildTaskStatusJson(
+  workspaceDir: string,
+  snapshot: TaskStateSnapshot,
+  events: readonly TaskEvent[]
+): Promise<TaskStatusJson> {
+  const acceptanceCommand = await persistedAcceptanceCommand(workspaceDir, snapshot.taskId);
+  const lastFailure = projectFailureReasons(snapshot.failures).get(snapshot.taskId) ?? null;
+  const timeline = formatTaskTimeline(buildTaskTimeline([...events]));
+  return {
+    taskId: snapshot.taskId,
+    goal: snapshot.goal,
+    phase: snapshot.phase,
+    status: taskStatusLabel(snapshot.statusView),
+    attempt: snapshot.attempt,
+    repairs: snapshot.repairs.length,
+    failures: snapshot.failures.length,
+    evidence: snapshot.evidenceCount,
+    resumable: isResumableTaskPhase(snapshot.phase),
+    acceptanceCommand: acceptanceCommand ?? null,
+    lastFailure,
+    blockedReason: snapshot.blockedReason ?? null,
+    engineFailure: latestTaskFailureDetail(events) ?? null,
+    plan: snapshot.plan.map((step) => ({
+      stepId: step.stepId,
+      title: step.title,
+      status: step.status,
+    })),
+    timeline: timeline.split('\n').filter((line) => line.length > 0),
+  };
 }
 
 async function latestSnapshot(workspace: string): Promise<TaskStateSnapshot | null> {
@@ -739,10 +819,16 @@ export async function runTaskCommand(
   }
 
   if (sub === 'status') {
-    const snapshot = commandArgs[1]
-      ? await getTaskStateSnapshot(ctx.workspace, commandArgs[1])
+    const json = ctx.outputJson === true || commandArgs.includes('--json');
+    const taskId = commandArgs.slice(1).find((arg) => !arg.startsWith('-'));
+    const snapshot = taskId
+      ? await getTaskStateSnapshot(ctx.workspace, taskId)
       : await latestSnapshot(ctx.workspace);
     if (!snapshot) {
+      if (json) {
+        output('stdout', `${JSON.stringify(null, null, 2)}\n`);
+        return 0;
+      }
       output(
         'stdout',
         zh
@@ -752,6 +838,11 @@ export async function runTaskCommand(
       return 0;
     }
     const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
+    if (json) {
+      const status = await buildTaskStatusJson(ctx.workspace, snapshot, events);
+      output('stdout', `${JSON.stringify(status, null, 2)}\n`);
+      return 0;
+    }
     output(
       'stdout',
       formatTaskStatus(snapshot, formatTaskTimeline(buildTaskTimeline(events))) + '\n'

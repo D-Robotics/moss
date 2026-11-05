@@ -100,6 +100,7 @@ import { stage as diagnosticsStage } from './stages/diagnostics.mjs';
 import { stage as taskReviewStage } from './stages/task-review.mjs';
 import { stage as taskFailReasonsStage } from './stages/task-fail-reasons.mjs';
 import { stage as taskStatusStage } from './stages/task-status.mjs';
+import { stage as taskStatusJsonStage } from './stages/task-status-json.mjs';
 import { stage as repairBudgetStage } from './stages/repair-budget.mjs';
 import { stage as resumeBudgetStage } from './stages/resume-budget.mjs';
 import { stage as resumeVerifyFirstStage } from './stages/resume-verify-first.mjs';
@@ -182,6 +183,7 @@ const STAGES = new Map(
     diagnosticsStage,
     taskReviewStage,
     taskStatusStage,
+    taskStatusJsonStage,
     repairBudgetStage,
     resumeBudgetStage,
     resumeVerifyFirstStage,
@@ -258,6 +260,7 @@ const FAST_GATE = [
   'diagnostics',
   'task-review',
   'task-status',
+  'task-status-json',
   'repair-budget',
   'resume-budget',
   'resume-verify-first',
