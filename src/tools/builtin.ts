@@ -19,6 +19,7 @@ import {
 } from './create-subagent.js';
 import { mergeSubagentPatchTool } from './merge-subagent-patch.js';
 import { readImageTool } from './read-image-tool.js';
+import { readPdfTool } from './read-pdf.js';
 import { reviewChangesTool } from './review-tools.js';
 import { createWebFetchTool } from './web-fetch.js';
 import { createWebSearchTool } from './web-search.js';
@@ -577,6 +578,7 @@ function isWindowsMissingCommand(stderr: string): boolean {
 export const builtinTools: Tool[] = [
   readFileTool,
   readImageTool,
+  readPdfTool,
   writeFileTool,
   editFileTool,
   multiEditTool,

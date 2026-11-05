@@ -203,6 +203,7 @@ export function extractRuleOperand(
   // `deny list_directory(./private)` parsed fine yet never matched anything.
   if (
     toolName === 'read_image' ||
+    toolName === 'read_pdf' ||
     toolName === 'list_directory' ||
     toolName === 'search_files' ||
     toolName === 'search_code'
