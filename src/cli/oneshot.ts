@@ -414,6 +414,7 @@ export async function runOneShot(
   options: RunOneShotOptions = {}
 ): Promise<StopHookResult> {
   const sessionKey = options.sessionKey || createCliSessionKey();
+  const runStartedAt = Date.now();
   const outputFormat = options.outputFormat || 'text';
   const stdout = options.stdout ?? process.stdout;
   const workspaceDir = options.cwd ?? process.cwd();
@@ -847,23 +848,25 @@ export async function runOneShot(
 
   // O98: never end a text `--print` run on a false success. Resolve a stable
   // RunOutcome; always print the conclusion line (完成 / 未完成 / 未验证 / …).
+  // B129 follow-up: the same outcome is what a headless run records in the
+  // unified ledger, so the printed line and `moss runs` can never disagree.
+  const outcome = resolveRunOutcome({
+    tracker: completionTracker,
+    finalText: typeof finalResult?.result === 'string' ? finalResult.result : state.finalText,
+    request: message,
+    ...(finalResult && isHeadlessResultError(finalResult)
+      ? { runError: finalResult.error ?? String(finalResult.subtype) }
+      : {}),
+    ...(typeof process.exitCode === 'number' ? { errorExitCode: process.exitCode } : {}),
+    ...(stopResult.blocked
+      ? { blocked: true, ...(stopResult.reason ? { blockedReason: stopResult.reason } : {}) }
+      : {}),
+    ...(inputBlockedReason
+      ? { inputBlocked: inputBlockedReason, inputBlockedZh: inputBlockedReason }
+      : {}),
+  });
   if (outputFormat === 'text') {
     const lang = isZhLocale() ? 'zh' : 'en';
-    const outcome = resolveRunOutcome({
-      tracker: completionTracker,
-      finalText: typeof finalResult?.result === 'string' ? finalResult.result : state.finalText,
-      request: message,
-      ...(finalResult && isHeadlessResultError(finalResult)
-        ? { runError: finalResult.error ?? String(finalResult.subtype) }
-        : {}),
-      ...(typeof process.exitCode === 'number' ? { errorExitCode: process.exitCode } : {}),
-      ...(stopResult.blocked
-        ? { blocked: true, ...(stopResult.reason ? { blockedReason: stopResult.reason } : {}) }
-        : {}),
-      ...(inputBlockedReason
-        ? { inputBlocked: inputBlockedReason, inputBlockedZh: inputBlockedReason }
-        : {}),
-    });
     const line = formatOutcomeLine(outcome, lang);
     if (line) stdout.write(`\n${line}\n`);
     if (outcome.exitCode !== 0) {
@@ -885,6 +888,35 @@ export async function runOneShot(
       process.exitCode = ExitCode.INCOMPLETE;
     }
     if (options.headless && stopResult.blocked) process.exitCode = ExitCode.INCOMPLETE;
+  }
+
+  // B129 follow-up: headless `moss -p` runs join the unified ledger. Interactive
+  // host turns do not: a conversation is not an auditable run. A goal-verify
+  // continuation re-enters this function, so only the outermost run records.
+  if (options.headless === true && !options.goalVerifyDepth) {
+    try {
+      const [{ writeRunRecord }, { buildChatRunRecord }] = await Promise.all([
+        import('../core/run-ledger.js'),
+        import('./chat-run-record.js'),
+      ]);
+      await writeRunRecord(
+        workspaceDir,
+        buildChatRunRecord({
+          runId:
+            options.runId ??
+            `chat-${runStartedAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          status: outcome.status,
+          exitCode: outcome.exitCode,
+          reason: outcome.reason,
+          prompt: message,
+          sessionKey,
+          startedAt: runStartedAt,
+          endedAt: Date.now(),
+        })
+      );
+    } catch (err) {
+      process.stderr.write(`[moss] could not write the run ledger: ${errorMessage(err)}\n`);
+    }
   }
 
   return stopResult;

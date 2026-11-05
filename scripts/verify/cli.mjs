@@ -113,6 +113,7 @@ import { stage as runsLedgerStage } from './stages/runs-ledger.mjs';
 import { stage as taskArtifactsStage } from './stages/task-artifacts.mjs';
 import { stage as loopRunRecordStage } from './stages/loop-run-record.mjs';
 import { stage as capabilitiesStage } from './stages/capabilities.mjs';
+import { stage as chatRunRecordStage } from './stages/chat-run-record.mjs';
 
 const STAGES = new Map(
   [
@@ -204,6 +205,7 @@ const STAGES = new Map(
     taskArtifactsStage,
     loopRunRecordStage,
     capabilitiesStage,
+    chatRunRecordStage,
     taskFailReasonsStage,
   ].map((stage) => [stage.name, stage])
 );
@@ -289,6 +291,7 @@ const FAST_GATE = [
   'task-artifacts',
   'loop-run-record',
   'capabilities',
+  'chat-run-record',
   'task-fail-reasons',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;

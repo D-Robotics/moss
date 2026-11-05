@@ -51,6 +51,8 @@ export interface RunRecord {
     evidence?: string;
     acceptance?: string;
     loopLedger?: string;
+    /** Headless chat runs: the session transcript. */
+    session?: string;
   };
 }
 
