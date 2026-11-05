@@ -269,6 +269,15 @@
   不声明 capability，避免 server 发出无法应答的请求）、OAuth（凭据仍只走 env/config header）。
   这两项保持为待做方向，不计入"已落地"。
 
+- **进展（2026-11-05，D4 第四片：prompts → slash）**：Claude Code 把每个 MCP prompt 暴露成一等斜杠命令；
+  Moss 不扩服务器命名空间，而是在 `/mcp` 下补齐用户侧入口：`/mcp prompts`（列出模板 + 每服务器失败行）、
+  `/mcp prompt <server> <name> key=value...`（`prompts/get` 展开后作为一轮发送，REPL 与 TUI 共用
+  `runRegistryCommand` 的 `submitPrompt`）。`CommandSpec.requiresArgs` 让裸 `/mcp` 仍走宿主的状态面板。
+  落地位置：`McpToolRegistry.promptCatalog()` / `expandPrompt()`、`CliRuntimeStatus.mcpPrompts`、
+  `src/cli/commands/registry.ts`；verify stage `mcp-prompt-slash`（9 条断言，mock stdio fixture，
+  覆盖目录/展开/未知服务器/坏参数/requiresArgs 拆分）；真实 deepseek-flash PTY 跑通
+  `/mcp prompts` 与 `/mcp prompt mock greet who=Ada`。未做仍是 elicitation / OAuth。
+
   真实 server 实测（2026-11-05，`moss mcp test rdk-docs`）：连接成功、**6 个工具**、
   **0 resources / 0 prompts**——rdk-docs 目前只发布工具，所以"真实 resources 列表可见"以
   mock server 的协议级证据为准，rdk-docs 侧诚实记为"server 未发布资源"。

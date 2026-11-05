@@ -65,6 +65,22 @@ export interface CliRuntimeStatus {
     toolCount?: number;
     error?: string;
   }>;
+  /**
+   * Live MCP prompt templates (`/mcp prompts`) and expansion (`/mcp prompt`).
+   * Claude Code surfaces server prompts as first-class slash commands; Moss
+   * keeps them under one `/mcp` command so a server cannot grow the slash
+   * namespace (and so the catalog stays explicit and reviewable).
+   */
+  mcpPrompts?:
+    | {
+        catalog: () => Promise<import('../core/mcp/registry.js').McpPromptCatalog>;
+        expand: (
+          server: string,
+          name: string,
+          args: Record<string, string>
+        ) => Promise<{ text: string; messages: number }>;
+      }
+    | undefined;
 }
 
 interface ToolGroupSummary {
@@ -82,7 +98,12 @@ function loadDefaultRuntimeConfig(): ResolvedCliConfig {
   }
 }
 
-function createDefaultRuntime(): Required<CliRuntimeStatus> {
+/** Everything the welcome screen reads has a default; MCP prompts stay optional. */
+type DefaultRuntimeStatus = Required<Omit<CliRuntimeStatus, 'mcpPrompts'>> & {
+  mcpPrompts: CliRuntimeStatus['mcpPrompts'];
+};
+
+function createDefaultRuntime(): DefaultRuntimeStatus {
   return {
     workspace: WORKSPACE,
     runtimeDir: path.join(WORKSPACE, '.moss'),
@@ -94,6 +115,7 @@ function createDefaultRuntime(): Required<CliRuntimeStatus> {
     permissionsRules: () => ({ rules: [], sources: {} }),
     hooksConfig: {},
     listMcpServers: () => [],
+    mcpPrompts: undefined,
     permissionRuleRegistry: new PermissionRuleRegistry(),
     config: loadDefaultRuntimeConfig(),
   };

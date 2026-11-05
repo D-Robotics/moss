@@ -17,7 +17,12 @@ import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
 import { uiText } from '../../utils/ui-language.js';
 import { McpClient } from './client.js';
-import type { McpServerConfig, McpToolCallResult, McpToolDescriptor } from './types.js';
+import type {
+  McpPromptMessage,
+  McpServerConfig,
+  McpToolCallResult,
+  McpToolDescriptor,
+} from './types.js';
 
 const log = getRootLogger().child('mcp:registry');
 
@@ -77,6 +82,23 @@ export interface McpCatalogEntry {
   description: string;
 }
 
+/**
+ * Prompt catalog for user-invoked slash commands (Claude Code exposes MCP
+ * prompts as `/<server>:<prompt>`; Moss keeps one `/mcp` command and lists the
+ * templates under it, so a server cannot grow the slash namespace).
+ */
+export interface McpPromptCatalogEntry {
+  server: string;
+  name: string;
+  description?: string;
+  arguments: { name: string; description?: string; required: boolean }[];
+}
+
+export interface McpPromptCatalog {
+  prompts: McpPromptCatalogEntry[];
+  failures: { server: string; error: string }[];
+}
+
 /** [a-zA-Z0-9_-] segment for wire names; anything else collapses to '_'. */
 function sanitizeSegment(value: string): string {
   const cleaned = value.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -121,6 +143,24 @@ export function mcpToolWireName(server: string, tool: string): string {
 
 export function mcpServerWirePrefix(server: string): string {
   return `mcp__${sanitizeSegment(server)}__`;
+}
+
+/** Flatten `prompts/get` messages into the text a turn receives. */
+function formatPromptMessages(messages: readonly McpPromptMessage[]): string {
+  return messages
+    .map((message) => {
+      const blocks = Array.isArray(message.content) ? message.content : [message.content];
+      const text = blocks
+        .map((block) => {
+          if (block.type === 'text') return block.text;
+          if (block.type === 'image')
+            return `[image ${block.mimeType}, ${block.data.length} base64 chars]`;
+          return '[resource content]';
+        })
+        .join('\n');
+      return `${message.role}:\n${text}`;
+    })
+    .join('\n\n');
 }
 
 function toolCallResultToText(result: McpToolCallResult): string {
@@ -304,6 +344,106 @@ export class McpToolRegistry {
   }
 
   /**
+   * Resolve a server to a live client for prompt work, reusing the meta-tool's
+   * rules: a deferred server starts now, a connecting one is awaited, and a
+   * dropped one gets the single reconnect attempt. Throws MossError otherwise.
+   */
+  private async promptClient(entry: ServerEntry, signal?: AbortSignal): Promise<McpClient> {
+    if (entry.status.state === 'deferred') {
+      this.ensureStarted(entry);
+      await entry.ready;
+    }
+    await this.waitUntilReady(entry, signal);
+    if (entry.status.state === 'connected') return entry.client;
+    if (!entry.connectedOnce) throw this.serverDidNotStart(entry.status.name, entry.status.error);
+    if (!(await this.reconnect(entry))) {
+      throw new MossError({
+        code: ErrorCode.TOOL_EXECUTION_FAILED,
+        message: uiText(
+          `mcp prompts on "${entry.status.name}" are not callable: server state is "${entry.status.state}".`,
+          `「${entry.status.name}」的提示词不可调用：服务器状态为「${entry.status.state}」。`
+        ),
+        hint: uiText(
+          `Run "moss mcp test ${entry.status.name}" to see the connection error, then retry.`,
+          `运行 "moss mcp test ${entry.status.name}" 查看连接错误后重试。`
+        ),
+        recoverable: true,
+      });
+    }
+    return entry.client;
+  }
+
+  /**
+   * List every configured server's prompt templates for `/mcp prompts`.
+   * A broken server becomes a per-server failure row instead of hiding the
+   * prompts the healthy servers do expose.
+   */
+  async promptCatalog(signal?: AbortSignal): Promise<McpPromptCatalog> {
+    const prompts: McpPromptCatalogEntry[] = [];
+    const failures: { server: string; error: string }[] = [];
+    for (const entry of this.entries) {
+      try {
+        const client = await this.promptClient(entry, signal);
+        const list = await client.listPrompts({ signal });
+        for (const prompt of list) {
+          prompts.push({
+            server: entry.status.name,
+            name: prompt.name,
+            ...(prompt.description ? { description: prompt.description } : {}),
+            arguments: (prompt.arguments ?? []).map((argument) => ({
+              name: argument.name,
+              required: argument.required === true,
+              ...(argument.description ? { description: argument.description } : {}),
+            })),
+          });
+        }
+      } catch (error) {
+        failures.push({
+          server: entry.status.name,
+          error: errorMessage(error).split('\n')[0] ?? uiText('connection failed', '连接失败'),
+        });
+      }
+    }
+    return { prompts, failures };
+  }
+
+  /**
+   * Expand one prompt into the text a turn receives (`/mcp prompt ...`).
+   * Missing arguments are the server's business: `prompts/get` validates them.
+   */
+  async expandPrompt(
+    server: string,
+    name: string,
+    args: Record<string, string>,
+    signal?: AbortSignal
+  ): Promise<{ text: string; messages: number }> {
+    const entry = this.entryFor(server);
+    if (!entry) {
+      throw new MossError({
+        code: ErrorCode.USER_INPUT_INVALID,
+        message: uiText(`Unknown MCP server "${server}".`, `未知的 MCP 服务器「${server}」。`),
+        hint: uiText(
+          'List configured servers with "moss mcp list".',
+          '用 "moss mcp list" 查看已配置的服务器。'
+        ),
+      });
+    }
+    const client = await this.promptClient(entry, signal);
+    const result = await client.getPrompt(name, args, { signal });
+    if (result.messages.length === 0) {
+      throw new MossError({
+        code: ErrorCode.TOOL_EXECUTION_FAILED,
+        message: uiText(
+          `MCP prompt "${name}" on "${server}" returned no messages.`,
+          `「${server}」上的 MCP 提示词「${name}」没有返回内容。`
+        ),
+        recoverable: true,
+      });
+    }
+    return { text: formatPromptMessages(result.messages), messages: result.messages.length };
+  }
+
+  /**
    * Lazy reconnect for a dropped server: rebuild the client, retry the
    * handshake once, refresh descriptors. Only an unexpected drop ('failed')
    * heals — an explicit closeAll ('closed') stays closed, and the counter
@@ -315,8 +455,10 @@ export class McpToolRegistry {
       code: ErrorCode.TOOL_EXECUTION_FAILED,
       message: uiText(`"${name}" did not start: ${why}`, `「${name}」没有启动：${why}`),
       hint: uiText(
-        'The server was not reachable. This session will not wait on another handshake.',
-        '服务器连不上。本会话不会再等一次握手。'
+        'The server was not reachable. This session will not wait on another handshake. ' +
+          `Run "moss mcp test ${name}" to see the connection error, then check the command in mcp.json.`,
+        '服务器连不上。本会话不会再等一次握手。' +
+          `运行 "moss mcp test ${name}" 查看连接错误，再检查 mcp.json 里的命令。`
       ),
       recoverable: true,
     });
@@ -724,20 +866,7 @@ export class McpToolRegistry {
         if (result.messages.length === 0) {
           return `MCP prompt "${name}" returned no messages.`;
         }
-        return result.messages
-          .map((message) => {
-            const blocks = Array.isArray(message.content) ? message.content : [message.content];
-            const text = blocks
-              .map((block) => {
-                if (block.type === 'text') return block.text;
-                if (block.type === 'image')
-                  return `[image ${block.mimeType}, ${block.data.length} base64 chars]`;
-                return '[resource content]';
-              })
-              .join('\n');
-            return `${message.role}:\n${text}`;
-          })
-          .join('\n\n');
+        return formatPromptMessages(result.messages);
       },
     };
   }

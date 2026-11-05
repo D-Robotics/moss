@@ -552,6 +552,42 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 | B81 | P1     | **技能不能自带 hooks，保护只能整机配**：技能/能力包是 Moss 当前的交付单元，但`hooks` 只存在于用户/项目配置——一个技能想声明「改这个包之前先跑冒烟脚本」只能写进 README 让用户手抄；Claude Code 的 skill frontmatter 已支持 `hooks`（invoke 后整个会话生效，`once` 只跑一次），Moss 的 skills 有正文/工具/模型/后台却独缺这层「运行中的确定性控制」                                                                                           | **已实现并验证（2026-11-05）**：SKILL.md frontmatter 新增 `hooks: <相对路径>`，指向技能目录内的 hooks JSON（schema 与 `.moss/config.json` 完全一致：matcher/if/timeoutMs/http）；`skill` 工具加载时读取并校验，成功则调用 `activateSkillHooks` 会话粘性激活，失败（缺失/坏 JSON/非对象/越界路径）令技能加载失败并给出可读原因；`src/cli/hooks.ts` 的 PreToolUse/PostToolUse/PostToolUseFailure 改为**调用时解析**静态条目+技能条目，其余事件保持静态（技能只能挂工具事件，不能 veto Stop/压缩）；`onBeforeToolExec`/`onToolResult` 因可晚到而常驻定义                                         | 见本节末 B81 证据                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 已验收（探针 6/6 + 真实模型 E2E 拦截 rm -rf）                                                                                     |
 | B82 | P1     | **`run_tests` 把「退出码 0 但输出不是已知 reporter」判成失败**：harness 的契约是「测试命令的退出码就是裁决」（Claude Code / Cursor 都只读 exit code，计数只是展示糖），而 `judge()` 的 unknown 分支直接写 `tests_pass=false`——真实 deepseek-flash 会话里模型因此多花一轮 `exec` 去证明「绿了」，`record_evidence`/`task_acceptance` 的 `tests_pass` 也会把绿跑记成 false                                                                    | **已实现并验证（2026-11-05）**：exit 0 且计数无法解析 → `✅ exit 0 (pass/fail counts could not be parsed)` + `tests_pass=true`，并保留一句诚实的 caveat（计数不可用，静默/空测试脚本看起来一样，要看原始输出用 exec）；非零退出/超时/spawn 失败/无 runner/裸调用仍为 `tests_pass=false`；`executePlan` 的汇总把 unknown（现在只来自该分支）计入 passed，多命令 suite 的 `overall tests_pass` 不再自相矛盾                                                                                                                                                                                     | 见本节末 B82 证据                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 已验收（探针 6/6 + 真实模型 E2E：tests_pass=true 被模型接受、不再补 exec）                                                        |
 | B83 | P2     | **verify stage 阻塞事件循环，扭曲并发 stage 的计时**（上一轮 B82 验收时发现）：`repl-interrupt` / `context-surface` / `slash-dispatch` / `smoke` / `todos-view` / `build` 在 orchestrator 里用 `spawnSync` 跑 tsc/PTY/python 驱动，阻塞期间同池其他 stage 的 child `close` 回调无法运行——B82 新 stage 内部实测 0.7s，全门里却被记成 17.7s；只把 `repl-interrupt` 与它同池就复现 10s 差。这会误导 60s 预算与「最长 stage」判断（B80 的前提） | **已实现并验证（2026-11-05）**：六个 stage 全部改用 `scripts/verify/lib/proc.mjs` 的异步 `runProcess` / `captureProcess`；`python3 --version` 一次性探测也改异步；add 了 `MOSS_VERIFY_CLI_ENTRY` 兼容不动；`docs/design/ci-and-verify.md` 写明「新 stage 不得同步阻塞事件循环」的规则与这次证据                                                                                                                                                                                                                                                                                               | 验收：全门里 `run-tests-verdict` 0.7s（顺序/单独跑同为 0.7s，差 ≤1s）；六个 stage 单独跑全绿；`npm run verify` PASS 36.9s（改前 46.3s）；`npm run check` 绿                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 已验收（全门 38.2s/36.9s 两次 PASS，stage 计时差归零）                                                                            |
+| B84 | P1     | **MCP prompts 只有模型能用，用户不能触发**（D4 最后一片，Claude Code parity）：Claude Code 把每个 MCP prompt 暴露成一等斜杠命令；Moss 已有 `mcp_prompt` 工具（模型可调用），但 REPL/TUI 用户无法列出或运行服务器模板，`/mcp` 只显示服务器状态                                                                                                                                                                                               | **已实现并验证（2026-11-05）**：`McpToolRegistry.promptCatalog()`（健康服务器的模板 + 坏服务器单列失败行）与 `expandPrompt()`（`prompts/get` → 一轮文本）；`CliRuntimeStatus.mcpPrompts` 由 runtime 注入；`/mcp prompts`（别名 `/mcp list`）列出 `server/name (args?) — 描述` 并提示运行方式；`/mcp prompt <server> <name> key=value...` 展开后经共享 `submitPrompt` 作为一轮发送（REPL 与 TUI 同一条 dispatcher）；新增 `CommandSpec.requiresArgs`，裸 `/mcp` 仍留给宿主的富状态面板；未知服务器/未知 prompt/坏参数都报错且不提交空轮                                                        | 见本节末 B84 证据                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 已验收（探针 9/9 + 真实 deepseek-flash PTY 两轮）                                                                                 |
+
+**B84 证据（2026-11-05，已实跑：确定性探针 9/9 + 真实 deepseek-flash PTY）**：
+
+```
+node scripts/verify/mcp-prompt-slash.mjs
+  ok promptCatalog lists templates and keeps a broken server as a failure row
+  ok expandPrompt renders prompts/get messages for a turn
+  ok unknown server and unknown prompt reject instead of submitting empty text
+  ok /mcp prompts lists templates and failure rows
+  ok /mcp prompt submits the expanded template as a turn
+  ok /mcp prompt without a name prints usage instead of submitting
+  ok /mcp prompt rejects a non key=value argument
+  ok /mcp prompt reports a failed expansion instead of a turn
+  ok /mcp list is an alias for /mcp prompts
+  9/9 checks passed
+```
+
+- 真实模型 E2E（deepseek-flash@latest，`MOSS_NO_TUI=1` 的 REPL + PTY，工作区 `.moss/mcp.json` 指向
+  `scripts/verify/fixtures/mcp-mock-server.mjs`）：
+
+  ```
+  › /mcp prompts
+  MCP prompts
+  mock/greet (who) — Greeting template
+
+  Run one with: /mcp prompt <server> <name> key=value...
+
+  › /mcp prompt mock greet who=Ada
+  Running MCP prompt "greet" from "mock" (1 message).
+  Hello! Quick note: I'm Moss, not Ada — ...   ← 模型收到 "Hello Ada" 后真实回复
+  ```
+
+- 回归对照（同环境真跑）：裸 `/mcp` 仍打印 `MCP / ● mock — connected (4 tools, lazy)`，
+  `requiresArgs` 没有抢走宿主状态面板。
+- 质量门：`npm run check` 绿；`npm run verify` PASS（见提交说明）。
 
 **B83 证据（2026-11-05，已实跑：计时对照 + 全门回归）**：
 

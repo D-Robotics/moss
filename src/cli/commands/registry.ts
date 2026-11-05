@@ -133,6 +133,12 @@ export interface CommandSpec {
   summary: string;
   /** Raw prompt body for a file-based command. Built-ins omit it. */
   body?: string;
+  /**
+   * Match only when arguments are present, so the host keeps owning the bare
+   * form (`/mcp` has a rich panel in the TUI while `/mcp prompts` works in both
+   * surfaces through this registry).
+   */
+  requiresArgs?: boolean;
   run(ctx: CommandContext, args: string): Promise<void> | void;
 }
 
@@ -967,6 +973,130 @@ const skillsCommand: CommandSpec = {
   },
 };
 
+function mcpUsage(): string {
+  return uiText(
+    [
+      'Usage:',
+      '  /mcp prompts                                list MCP prompt templates',
+      '  /mcp prompt <server> <name> [key=value...]  expand one prompt and run it',
+      '',
+      'The bare /mcp command still shows server status.',
+    ].join('\n'),
+    [
+      '用法：',
+      '  /mcp prompts                                列出 MCP 提示词模板',
+      '  /mcp prompt <server> <name> [key=value...]  展开一条提示词并作为一轮发送',
+      '',
+      '裸 /mcp 仍然显示服务器状态。',
+    ].join('\n')
+  );
+}
+
+const mcpCommand: CommandSpec = {
+  name: '/mcp',
+  requiresArgs: true,
+  summary: 'list MCP prompt templates or run one as a turn',
+  async run(ctx, args) {
+    const tokens = args.split(/\s+/).filter(Boolean);
+    const sub = tokens[0] ?? '';
+    const rest = tokens.slice(1);
+
+    if (sub === 'prompts' || sub === 'list') {
+      const prompts = ctx.runtime?.mcpPrompts;
+      if (!prompts) {
+        ctx.say('error', uiText('MCP is not loaded in this session.', '本会话没有加载 MCP。'));
+        return;
+      }
+      const catalog = await prompts.catalog();
+      const lines: string[] = [];
+      if (catalog.prompts.length === 0 && catalog.failures.length === 0) {
+        lines.push(
+          uiText(
+            'No MCP prompt templates: the configured servers expose none.',
+            '没有 MCP 提示词模板：已配置的服务器没有暴露 prompts。'
+          )
+        );
+      }
+      for (const prompt of catalog.prompts) {
+        const params = prompt.arguments
+          .map((argument) => `${argument.name}${argument.required ? '' : '?'}`)
+          .join(', ');
+        const suffix = params ? ` (${params})` : '';
+        lines.push(
+          `${prompt.server}/${prompt.name}${suffix}${
+            prompt.description ? ` — ${prompt.description}` : ''
+          }`
+        );
+      }
+      for (const failure of catalog.failures) {
+        lines.push(
+          uiText(
+            `${failure.server}: prompts unavailable — ${failure.error}`,
+            `${failure.server}: 提示词不可用 — ${failure.error}`
+          )
+        );
+      }
+      if (catalog.prompts.length > 0) {
+        lines.push(
+          '',
+          uiText(
+            'Run one with: /mcp prompt <server> <name> key=value...',
+            '运行一条：/mcp prompt <server> <name> key=value...'
+          )
+        );
+      }
+      ctx.say('system', ['MCP prompts', ...lines].join('\n'));
+      return;
+    }
+
+    if (sub === 'prompt') {
+      const [server, name, ...pairs] = rest;
+      if (!server || !name) {
+        ctx.say('error', mcpUsage());
+        return;
+      }
+      const values: Record<string, string> = {};
+      for (const pair of pairs) {
+        const at = pair.indexOf('=');
+        if (at <= 0) {
+          ctx.say(
+            'error',
+            uiText(`Argument "${pair}" is not key=value.`, `参数「${pair}」不是 key=value 形式。`)
+          );
+          return;
+        }
+        values[pair.slice(0, at)] = pair.slice(at + 1);
+      }
+      const prompts = ctx.runtime?.mcpPrompts;
+      if (!prompts) {
+        ctx.say('error', uiText('MCP is not loaded in this session.', '本会话没有加载 MCP。'));
+        return;
+      }
+      try {
+        const expanded = await prompts.expand(server, name, values);
+        if (!ctx.submitPrompt) {
+          // A host without a turn queue still shows what the prompt expands to.
+          ctx.say('system', expanded.text);
+          return;
+        }
+        ctx.say(
+          'system',
+          uiText(
+            `Running MCP prompt "${name}" from "${server}" (${expanded.messages} message${expanded.messages === 1 ? '' : 's'}).`,
+            `正在运行「${server}」的 MCP 提示词「${name}」（${expanded.messages} 条消息）。`
+          )
+        );
+        ctx.submitPrompt(expanded.text);
+      } catch (error) {
+        ctx.say('error', errorMessage(error));
+      }
+      return;
+    }
+
+    ctx.say('error', mcpUsage());
+  },
+};
+
 const COMMANDS: readonly CommandSpec[] = [
   todosCommand,
   statusCommand,
@@ -983,6 +1113,7 @@ const COMMANDS: readonly CommandSpec[] = [
   stopCommand,
   contextCommand,
   skillsCommand,
+  mcpCommand,
   usageCommand,
   exportCommand,
 ];
@@ -1012,7 +1143,9 @@ export function findRegistryCommand(
       (command) => command.name === head || command.aliases?.includes(head as `/${string}`)
     ) ?? customCommands.find((command) => command.name === head);
   if (!spec) return null;
-  return { spec, args: trimmed.slice(head.length).trim() };
+  const args = trimmed.slice(head.length).trim();
+  if (spec.requiresArgs && args.length === 0) return null;
+  return { spec, args };
 }
 
 export async function runRegistryCommand(

@@ -1814,6 +1814,17 @@ export async function runCli(): Promise<void> {
           }
         : {}),
       listMcpServers: listMcpServerStatuses,
+      // D4 parity: MCP prompts are user-invocable (`/mcp prompts`,
+      // `/mcp prompt <server> <name> [k=v...]`) in both the REPL and the TUI.
+      ...(mcpRegistry
+        ? {
+            mcpPrompts: {
+              catalog: () => mcpRegistry.promptCatalog(),
+              expand: (server: string, name: string, args: Record<string, string>) =>
+                mcpRegistry.expandPrompt(server, name, args),
+            },
+          }
+        : {}),
     });
     // v0.17: interactive TTY sessions get the full-screen TUI (ink); non-TTY
     // pipes and MOSS_NO_TUI=1 keep the readline REPL. The TUI is dynamically

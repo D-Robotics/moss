@@ -147,7 +147,8 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       },
       {
         command: '/mcp',
-        description: 'list MCP server status',
+        args: '[prompts | prompt <server> <name> [k=v...]]',
+        description: 'MCP server status; list prompt templates or run one as a turn',
         hidden: true,
         availableDuringRun: 'immediate',
       },
