@@ -121,6 +121,7 @@ import {
   rewriteSlashInput,
 } from '../interactive-commands.js';
 import { cliLocale } from '../cli-locale.js';
+import { renderPausedGoalLines } from '../goal-pause.js';
 import { handleCompactCommand } from '../compact-command.js';
 import { createCliSessionKey } from '../session.js';
 import {
@@ -1622,6 +1623,23 @@ export function TuiAppRoot({
         } finally {
           abortRef.current = undefined;
           const halted = controller.signal.aborted;
+          if (halted) {
+            // Esc pauses a goal run: say so instead of leaving only a bare
+            // "interrupted" line, and name the resume path.
+            const candidate = runtime
+              .taskSummaries()
+              .filter((task) => isGoalResumeCandidate(task))
+              .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+            for (const line of renderPausedGoalLines(
+              candidate
+                ? { taskId: candidate.taskId, goal: candidate.goal, phase: 'paused' }
+                : null,
+              cliLocale()
+            )) {
+              appendRow(store, 'system', line);
+            }
+            handle.notify();
+          }
           endRun(store, halted);
           const runtimeSettled = await settleRuntime(halted);
           if (runtimeSettled) appendTaskVerdictIfAny(runStartedAtRef.current ?? 0);

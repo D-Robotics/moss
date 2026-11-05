@@ -75,6 +75,7 @@ import { stage as addDirStage } from './stages/add-dir.mjs';
 import { stage as checkpointPersistStage } from './stages/checkpoint-persist.mjs';
 import { stage as rewindConversationStage } from './stages/rewind-conversation.mjs';
 import { stage as loopLedgerStage } from './stages/loop-ledger.mjs';
+import { stage as goalPauseStage } from './stages/goal-pause.mjs';
 import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
 import { stage as mcpPromptSlashStage } from './stages/mcp-prompt-slash.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
@@ -138,6 +139,7 @@ const STAGES = new Map(
     checkpointPersistStage,
     rewindConversationStage,
     loopLedgerStage,
+    goalPauseStage,
     runTestsVerdictStage,
     mcpPromptSlashStage,
     contextSurfaceStage,
@@ -183,6 +185,7 @@ const FAST_GATE = [
   'skill-catalog-usage',
   'tool-output-spill',
   'loop-command',
+  'loop-ledger',
   'mcp-protocol',
   'remember',
   'startup-timing',
@@ -196,6 +199,7 @@ const FAST_GATE = [
   'run-tests-verdict',
   'mcp-prompt-slash',
   'context-surface',
+  'goal-pause',
   'repl-interrupt',
   'help-surface',
   'slash-dispatch',

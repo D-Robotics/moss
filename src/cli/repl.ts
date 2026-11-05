@@ -70,6 +70,7 @@ import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js
 import type { RewindResult } from './file-checkpoint.js';
 import { errorMessage } from '../errors.js';
 import { interruptNoticeLine, isUserAbortErrorText, tui } from './tui/copy.js';
+import { renderPausedGoalLines, type PausedGoalCandidate } from './goal-pause.js';
 
 let currentModel = '';
 
@@ -918,6 +919,32 @@ export async function runInteractive(
       }
       taskRunInFlight = true;
       rl.pause();
+      // Ctrl+C pauses, it does not kill the CLI: the run gets an AbortSignal,
+      // the task engine records the interruption and the state stays resumable.
+      const taskController = new AbortController();
+      let lastAbortAt = 0;
+      const abortTask = (): void => {
+        if (taskController.signal.aborted) {
+          // A second press shortly after the first is usually readline and the
+          // raw stdin byte reporting the same Ctrl+C; only a deliberate second
+          // press (>=400ms later) is the hard-stop escape hatch.
+          if (Date.now() - lastAbortAt >= 400) process.exit(130);
+          return;
+        }
+        lastAbortAt = Date.now();
+        taskController.abort();
+      };
+      // readline is paused, and the terminal is in raw mode during a run, so
+      // Ctrl+C arrives as a 0x03 byte rather than SIGINT. Without this listener
+      // the run simply ignored Ctrl+C; keep SIGINT for non-raw terminals.
+      const onTaskStdin = (chunk: Buffer | string): void => {
+        const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+        if (bytes.includes(0x03)) abortTask();
+      };
+      process.on('SIGINT', abortTask);
+      rl.on('SIGINT', abortTask);
+      process.stdin.on('data', onTaskStdin);
+      process.stdin.resume();
       const { parseLlmUsageStdout, runTaskCommand, splitCommandArgs } =
         await import('./task-run.js');
       const { formatTurnUsage } = await import('./usage-display.js');
@@ -928,6 +955,7 @@ export async function runInteractive(
           agent,
           workspace,
           sessionKey: taskSessionKey,
+          signal: taskController.signal,
           onAgentEvent: (event) => {
             trackTodos(event as MossAgentEvent);
             renderer.handle(event as MossAgentEvent);
@@ -950,6 +978,21 @@ export async function runInteractive(
             : `task run failed: ${message}\n`
         );
       } finally {
+        process.off('SIGINT', abortTask);
+        rl.off('SIGINT', abortTask);
+        process.stdin.off('data', onTaskStdin);
+        if (taskController.signal.aborted) {
+          const { listTaskStateSnapshots } = await import('../core/index.js');
+          const resumable = (await listTaskStateSnapshots(workspace))
+            .filter((snapshot) => isResumableTaskPhase(snapshot.phase))
+            .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+          const candidate: PausedGoalCandidate | null = resumable
+            ? { taskId: resumable.taskId, goal: resumable.goal, phase: 'paused' }
+            : null;
+          for (const line of renderPausedGoalLines(candidate, cliLocale())) {
+            process.stderr.write(`${line}\n`);
+          }
+        }
         taskRunInFlight = false;
         rl.resume();
         rl.setPrompt('\n› ');

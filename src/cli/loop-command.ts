@@ -112,16 +112,16 @@ function readValue(argv: readonly string[], index: number, flag: string): string
 const MAX_EVERY_MS = 24 * 60 * 60 * 1000;
 
 /** `250ms` / `30s` / `5m` / `1h` / bare seconds; 0 disables the delay. */
-export function parseLoopDuration(raw: string): number {
+export function parseLoopDuration(raw: string, flag = '--every'): number {
   const text = raw.trim().toLowerCase();
   const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)?$/.exec(text);
-  if (!match) throw new Error(`a duration like 30s, 5m, 1h is expected (got "${raw}")`);
+  if (!match) throw new Error(`${flag} needs a duration like 30s, 5m, 1h (got "${raw}")`);
   const value = Number(match[1]);
   const unit = match[2] ?? 's';
   const multiplier = unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : 3_600_000;
   const ms = Math.round(value * multiplier);
   if (!Number.isFinite(ms) || ms < 0 || ms > MAX_EVERY_MS) {
-    throw new Error(`the duration must be between 0 and 24h (got "${raw}")`);
+    throw new Error(`${flag} must be between 0 and 24h (got "${raw}")`);
   }
   return ms;
 }
@@ -155,13 +155,13 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
     if (arg === '--every' || arg.startsWith('--every=')) {
       const raw = readValue(argv, i, '--every');
       if (!arg.includes('=')) i += 1;
-      everyMs = parseLoopDuration(raw);
+      everyMs = parseLoopDuration(raw, '--every');
       continue;
     }
     if (arg === '--max-duration' || arg.startsWith('--max-duration=')) {
       const raw = readValue(argv, i, '--max-duration');
       if (!arg.includes('=')) i += 1;
-      maxDurationMs = parseLoopDuration(raw);
+      maxDurationMs = parseLoopDuration(raw, '--max-duration');
       continue;
     }
     rest.push(arg);
