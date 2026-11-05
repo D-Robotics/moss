@@ -18,7 +18,8 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const { runAcceptanceCommandInWorkspace } = await load('dist/core/task/acceptance-command.js');
-const { runTask } = await load('dist/core/task/task-engine.js');
+const { runTask, resumeTask } = await load('dist/core/task/task-engine.js');
+const { persistedAcceptanceCommand } = await load('dist/core/task/acceptance-authority.js');
 const { recordGoalRun } = await load('dist/core/task-runtime/goal-runs.js');
 const { formatGoalRunRows } = await load('dist/cli/task-list.js');
 
@@ -125,6 +126,37 @@ assert.equal(failing.outcome, 'fail');
 assert.ok(repairCalls.includes('repairing'), 'a genuine failure still gets repaired');
 ok('an ordinary failure still enters repair (the short-circuit is specific)');
 
+// The blocked reason tells the user to correct the oracle and resume. That must
+// actually work: `resumeTask(..., {acceptanceCommand})` records an auditable
+// note and the next verdict uses the new command (B98 closes B97's loop).
+const resumed = await resumeTask(
+  {
+    workspaceDir: ws,
+    runTurn: async () => 'wrote blocked.txt',
+  },
+  blockedResult.snapshot.taskId,
+  { acceptanceCommand: 'true' }
+);
+assert.equal(resumed.outcome, 'pass');
+assert.equal(resumed.snapshot.phase, 'accepted');
+assert.equal(await persistedAcceptanceCommand(ws, blockedResult.snapshot.taskId), 'true');
+ok('resume --accept replaces the persisted oracle and the task can pass');
+assert.ok(resumed.timeline.includes('Acceptance command updated'), resumed.timeline);
+ok('the timeline shows the oracle correction instead of an anonymous note');
+
+const again = await resumeTask(
+  {
+    workspaceDir: ws,
+    runTurn: async () => 'should not run',
+  },
+  blockedResult.snapshot.taskId
+).then(
+  () => 'resumed',
+  (err) => String(err instanceof Error ? err.message : err)
+);
+assert.match(String(again), /already accepted/);
+ok('the original command stays in history while the accepted task is closed');
+
 const row = await recordGoalRun(ws, {
   taskId: snapshots.taskId,
   goal: 'write a file',
@@ -144,4 +176,4 @@ assert.ok(
 ok('the goal rollup carries the blocked reason into `moss task list`');
 
 await fs.rm(tmp, { recursive: true, force: true });
-console.log(`[acceptance-blocked] ${checks}/6 checks passed`);
+console.log(`[acceptance-blocked] ${checks}/9 checks passed`);

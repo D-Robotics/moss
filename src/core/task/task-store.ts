@@ -22,6 +22,7 @@ import {
   deriveTaskOutcome,
   latestTaskFailureDetail,
   isTerminalTaskPhase,
+  ACCEPTANCE_COMMAND_NOTE_KIND,
 } from '../../contracts/task-runtime.js';
 import type {
   FailureRecord,
@@ -612,16 +613,29 @@ export function localizeTaskDetail(detail: string, zh: boolean = isEffectiveUiZh
 export function buildTaskTimeline(events: TaskEvent[]): TaskTimelineEntry[] {
   return foldTaskEvents(events).applied.map((event) => {
     const aborted = event.type === 'task_failed' && event.data?.detail === 'aborted';
-    const label = aborted ? uiText('Task aborted', '任务已中止') : timelineLabel(event.type);
+    const oracleNote =
+      event.type === 'note' &&
+      event.data?.kind === ACCEPTANCE_COMMAND_NOTE_KIND &&
+      typeof event.data.acceptanceCommand === 'string'
+        ? event.data.acceptanceCommand
+        : undefined;
+    const label =
+      typeof oracleNote === 'string'
+        ? uiText('Acceptance command updated', '验收命令已更新')
+        : aborted
+          ? uiText('Task aborted', '任务已中止')
+          : timelineLabel(event.type);
     const raw = aborted
       ? undefined
-      : typeof event.data?.detail === 'string'
-        ? event.data.detail
-        : typeof event.data?.reason === 'string'
-          ? event.data.reason
-          : typeof event.data?.goal === 'string'
-            ? event.data.goal
-            : undefined;
+      : typeof oracleNote === 'string'
+        ? oracleNote
+        : typeof event.data?.detail === 'string'
+          ? event.data.detail
+          : typeof event.data?.reason === 'string'
+            ? event.data.reason
+            : typeof event.data?.goal === 'string'
+              ? event.data.goal
+              : undefined;
     const detail = raw === undefined ? undefined : localizeTaskDetail(raw);
     return { at: event.timestamp, label, ...(detail ? { detail } : {}), phase: event.phase };
   });

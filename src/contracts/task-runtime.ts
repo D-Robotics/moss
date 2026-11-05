@@ -72,6 +72,13 @@ export type TaskEventType =
   | 'task_resumed'
   | 'note';
 
+/**
+ * `note` payload kind that corrects the task's persisted acceptance command.
+ * Lives in the contract so the store can label the event without importing the
+ * core authority module (and creating a cycle).
+ */
+export const ACCEPTANCE_COMMAND_NOTE_KIND = 'acceptance_command';
+
 /** A plan step as shown to the user (not the internal todo list). */
 export interface TaskPlanStep {
   stepId: string;

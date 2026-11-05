@@ -3,7 +3,7 @@
  * One natural-language goal in, one verified result out:
  *
  *   moss task run <goal...> [--accept "<cmd>"] [--max-repairs N] [--max-turns N] [--device ID]
- *   moss task resume <task_id>
+ *   moss task resume <task_id> [--accept "<cmd>"]
  *   moss task status [task_id]      (default: latest)
  *   moss task timeline [task_id]
  *   moss task list [--limit N] [--json]   (goal-run rollup, newest first)
@@ -120,7 +120,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       '      --max-repairs N  诚实报告失败前的修复尝试次数（默认 2）',
       '      --max-turns N    模型轮次预算（默认 8）',
       '      --device ID      契约指定的目标设备标识',
-      '  resume <task_id>     恢复一个失败/中断/阻塞的任务',
+      '  resume <task_id> [--accept "<cmd>"]  恢复一个失败/中断/阻塞的任务（可改正验收命令）',
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
       '  list [--limit N]     目标运行汇总：时间/结果/任务/轮次/耗时/目标（默认最近 20 条）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
@@ -149,7 +149,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     '      --max-repairs N  repair attempts before honest FAIL (default 2)',
     '      --max-turns N    agent turn budget (default 8)',
     '      --device ID      target device id for the contract',
-    '  resume <task_id>     resume a failed/abandoned/blocked task',
+    '  resume <task_id> [--accept "<cmd>"]  resume a failed/abandoned/blocked task, optionally correcting the oracle',
     '  status [task_id]     current phase, plan, failures, verdict (default: latest)',
     '  list [--limit N]     goal-run rollup: time/outcome/task/turns/duration/goal (default 20)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
@@ -624,7 +624,8 @@ export async function runTaskCommand(
   }
 
   if (sub === 'resume') {
-    const taskId = commandArgs[1];
+    const resumeFlags = parseFlags(commandArgs.slice(1));
+    const taskId = resumeFlags.goal[0];
     if (!taskId) {
       output(
         'stderr',
@@ -647,12 +648,13 @@ export async function runTaskCommand(
           output('stderr', `${formatTaskProgressLine(progress.phase)}\n`);
         },
       },
-      taskId
+      taskId,
+      { ...(resumeFlags.accept ? { acceptanceCommand: resumeFlags.accept } : {}) }
     );
     output('stdout', summarizeTaskRun(result, locale) + '\n');
     const usageLine = usageTap.line();
     if (usageLine) output('stdout', `${usageLine}\n`);
-    await recordRun(ctx, result, startedAt, result.snapshot.goal, undefined, output);
+    await recordRun(ctx, result, startedAt, result.snapshot.goal, resumeFlags.accept, output);
     return result.outcome === 'pass' ? 0 : 1;
   }
 

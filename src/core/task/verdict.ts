@@ -98,12 +98,12 @@ function commandVerdictProvider(
         result.failureKind === 'timeout'
           ? {
               kind: 'acceptance_timeout' as const,
-              detail: `acceptance command timed out — the harness cannot decide; fix the command or raise its budget, then resume\n${detail}`,
+              detail: `acceptance command timed out — the harness cannot decide; fix the command or raise its budget, then resume with \`moss task resume ${taskId} --accept "<command>"\`\n${detail}`,
             }
           : result.failureKind === 'command_unavailable'
             ? {
                 kind: 'acceptance_command_unavailable' as const,
-                detail: `acceptance command is unavailable (exit ${result.exitCode}) — nothing the agent writes can fix a missing command; install it or correct --accept, then resume\n${detail}`,
+                detail: `acceptance command is unavailable (exit ${result.exitCode}) — nothing the agent writes can fix a missing command; install it, or correct the oracle with \`moss task resume ${taskId} --accept "<command>"\`\n${detail}`,
               }
             : undefined;
       return {

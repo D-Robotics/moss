@@ -25,7 +25,10 @@ import {
   tryAppendTaskEvent,
 } from './task-store.js';
 import { injectExperienceIntoPrompt } from '../experience/experience-library.js';
-import { persistedAcceptanceCommand } from './acceptance-authority.js';
+import {
+  persistedAcceptanceCommand,
+  setPersistedAcceptanceCommand,
+} from './acceptance-authority.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
 import type { AgentTurnResult } from './agent-turn.js';
 import {
@@ -634,7 +637,11 @@ export async function runTask(
  * `task_resumed`. A lock timeout cannot write that event, so a task left in
  * executing (or any other live phase) is resumed in place.
  */
-export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<TaskRunResult> {
+export async function resumeTask(
+  deps: TaskEngineDeps,
+  taskId: string,
+  options: { acceptanceCommand?: string } = {}
+): Promise<TaskRunResult> {
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, taskId);
   if (!snapshot) throw new Error(`task ${taskId} not found`);
   if (snapshot.phase === 'accepted') throw new Error(`task ${taskId} is already accepted`);
@@ -648,7 +655,13 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
   ) {
     await appendTaskEvent(deps.workspaceDir, taskId, 'task_resumed', { detail: 'resumed by user' });
   }
-  const command = await persistedAcceptanceCommand(deps.workspaceDir, taskId);
+  // A resume may correct the oracle (B98): the blocked reason told the user to
+  // fix the command, so `--accept` must actually be able to replace it. The
+  // correction is a note event after task_resumed (notes are illegal from a
+  // terminal phase), keeping the original command auditable.
+  const override = options.acceptanceCommand?.trim();
+  if (override) await setPersistedAcceptanceCommand(deps.workspaceDir, taskId, override);
+  const command = override || (await persistedAcceptanceCommand(deps.workspaceDir, taskId));
   const provider =
     deps.verdictProvider ??
     createTaskVerdictProvider({

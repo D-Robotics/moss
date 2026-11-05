@@ -235,7 +235,8 @@ export const taskAcceptanceTool: Tool = {
         `${result.detail}\n\n` +
         'Stop here. The acceptance harness itself is unusable, so every repair and every retry ' +
         'will produce the same verdict. Tell the user which command is missing or timed out and ' +
-        'what to install or fix; the task can be resumed after that.'
+        'what to install or fix; they can then resume with a corrected oracle: ' +
+        `\`moss task resume ${task.taskId} --accept "<command>"\`.`
       );
     }
     // A command verdict has no task ID of its own. When the caller selected
