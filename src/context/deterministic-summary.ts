@@ -4,6 +4,30 @@ import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 const DEFAULT_SUMMARY_FALLBACK = 'No prior history.';
 const DETERMINISTIC_SUMMARY_MAX_CHARS = 12_000;
 const DETERMINISTIC_NOTE_MAX_CHARS = 900;
+/**
+ * A deterministic summary replaces the messages it summarizes, so it must never
+ * be larger than them: the template alone can exceed a small dropped window and
+ * turn a "compaction" into context growth. Half the dropped characters is the
+ * practical ceiling; the absolute minimum keeps one useful note for tiny drops.
+ */
+const DETERMINISTIC_SUMMARY_REPLACEMENT_RATIO = 0.5;
+const DETERMINISTIC_SUMMARY_MIN_CHARS = 400;
+
+function estimateMessagesChars(messages: Message[]): number {
+  let total = 0;
+  for (const message of messages) {
+    if (typeof message.content === 'string') {
+      total += message.content.length;
+      continue;
+    }
+    for (const block of message.content) {
+      if (block.type === 'text') total += block.text?.length ?? 0;
+      else if (block.type === 'tool_use') total += JSON.stringify(block.input ?? {}).length;
+      else if (block.type === 'tool_result') total += (block.content ?? '').length;
+    }
+  }
+  return total;
+}
 
 function truncateMiddle(text: string, maxChars: number): string {
   const clean = String(text ?? '')
@@ -89,6 +113,14 @@ function extractPrimaryUserGoal(messages: Message[]): string {
 
 export function buildDeterministicCompactionSummary(messages: Message[], reason: string): string {
   if (messages.length === 0) return DEFAULT_SUMMARY_FALLBACK;
+  const droppedChars = estimateMessagesChars(messages);
+  const budget = Math.max(
+    DETERMINISTIC_SUMMARY_MIN_CHARS,
+    Math.min(
+      DETERMINISTIC_SUMMARY_MAX_CHARS,
+      Math.floor(droppedChars * DETERMINISTIC_SUMMARY_REPLACEMENT_RATIO)
+    )
+  );
   const primaryGoal = extractPrimaryUserGoal(messages);
   const firstCount = 8;
   const lastCount = 18;
@@ -111,12 +143,12 @@ export function buildDeterministicCompactionSummary(messages: Message[], reason:
   let used = 0;
   for (const item of selected) {
     const note = fallbackMessageNote(item.message, item.index);
-    if (used + note.length > DETERMINISTIC_SUMMARY_MAX_CHARS) break;
+    if (used + note.length > budget) break;
     notes.push(note);
     used += note.length;
   }
 
-  return [
+  const full = [
     '## 0. 历史脉络',
     `本摘要由本地规则生成，用于防止上下文裁剪时失去主线。触发原因：${reason}。`,
     '## 1. 主要目标',
@@ -141,4 +173,16 @@ export function buildDeterministicCompactionSummary(messages: Message[], reason:
   ]
     .filter(Boolean)
     .join('\n\n');
+  if (full.length <= budget) return full;
+  // Small dropped windows cannot pay for the full section template; keep the
+  // goal and the excerpts so the summary still replaces more than it adds.
+  const compact = [
+    '## 0. 历史脉络',
+    `本摘要由本地规则生成（触发：${reason}）。`,
+    '## 1. 主要目标',
+    primaryGoal,
+    '## 9. 后续工作所需上下文',
+    notes.length > 0 ? notes.join('\n') : '（无逐条摘录）',
+  ].join('\n\n');
+  return truncateMiddle(compact, budget);
 }

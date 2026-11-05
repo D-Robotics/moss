@@ -190,6 +190,7 @@ export interface OverflowRecoveryParams {
     sessionKey: string;
     runId: string;
     forceCompaction?: boolean;
+    skipLlmCompaction?: boolean;
     abortSignal?: AbortSignal;
   }) => Promise<{
     summary?: string;

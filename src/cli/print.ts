@@ -69,6 +69,8 @@ export type HeadlessCompactionEvent = {
   tokens_before?: number;
   tokens_after?: number;
   kept_tool_names?: number;
+  /** The model summary timed out; a deterministic local summary was used. */
+  degraded?: boolean;
 };
 
 export type HeadlessToolResultBlock = {
@@ -650,6 +652,7 @@ export function formatHeadlessStreamEvent(
       if (event.tokensBefore !== undefined) compaction.tokens_before = event.tokensBefore;
       if (event.tokensAfter !== undefined) compaction.tokens_after = event.tokensAfter;
       if (event.keptToolNames !== undefined) compaction.kept_tool_names = event.keptToolNames;
+      if (event.degraded) compaction.degraded = true;
       return [compaction];
     }
     case 'tool_progress':

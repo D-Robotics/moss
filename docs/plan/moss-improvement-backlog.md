@@ -529,6 +529,7 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 | B58 | P2     | **诊断视图不报行为开关**：`moss config show`（B56）已列 images / 评审模式 / 完成门，但 `moss doctor` 与 `/doctor` 完全看不到——用户「截图被拒」「评审为什么跑了」「旧跑为何被拦」时打开的诊断页反而比配置页少信息                                                                                                                                                               | **已实现并验证（2026-11-05）**：`cli/doctor.ts` 新增 `renderBehaviorDoctor()`（三行 ok：图片输入 / 评审模式 / 验证门，含来源与中英），`cli/onboarding.ts` 的 `renderCliSessionDoctor`（`/doctor`）加同一组行；新增 verify stage `doctor-behavior`：真 `moss doctor` + 临时 HOME（`agent.supportsImages=false`、`review.mode=auto`、`MOSS_VERIFICATION_GATE=0`）断言三行                                                                                                                                                                                                                       | 改后 `moss doctor`（默认）：`images: image input allowed (default)` / `review mode: manual (default)` / `verification gate: on (default)`；配置+env：`images: text-only (agent.supportsImages=false) (user)` / `review mode: auto (config or env)` / `verification gate: off (env)`；中文：`图片输入：允许图片输入（默认）`、`评审模式：auto（配置或环境变量）`、`验证门：关闭（环境变量）`；`/doctor`（真 PTY）同三行（`text-only (agent.supportsImages=false, user)`、`auto (config or env)`、`off (env)`）；负向控制：去掉 CLI 里的 `renderBehaviorDoctor` 调用 → stage 失败并点名三行，恢复后 1.8s 通过；`npm run check` 绿、`npm run verify` PASS 49.4s / 52.5s                                                                                                     |
 | B59 | P2     | **lean 档只覆盖一半工具**：B08 给 15 个工具写了短描述，但 main-headless 的 20 个声明里仍有 10 个只有长版（`list_directory` 283 / `run_tests` 256 / `write_file` 246 / `apply_patch` 231 / `todo_write` 217 / `exec_logs` 187 / `move_file` 186 / 还有 exec\_\* 小工具），小窗口（≤64k，Cursor/Claude Code 按窗口发精简声明的做法）省不下来                                     | **已实现并验证（2026-11-05）**：给 17 个工具补 `leanDescription`（文件/编辑族 `write_file`/`multi_edit`/`list_directory`/`move_file`/`apply_patch`、任务族 `todo_write`、验证族 `run_tests`、后台族 `exec_logs`、交互族 `ask_user_question`/`exit_plan`、设备族 `device_file_read`/`device_file_list`、子代理族 `create_subagent`/`fan_out_subagents`/`merge_subagent_patch`/`subagent_status`/`subagent_stop`），长版按 B08 规矩补「不是用来做什么」的否定句；`measure-tool-surface --check` 新增**覆盖不变式**：main-headless/main-tty/main-plan 里声明且描述 ≥150 字符的工具必须有 lean 档 | lean 覆盖 15→**33/49 工具**（可见 42 个中 32 个）；同一构建内 lean 声明总量：main-headless 11,803→**10,834**（−969，≈−242 tokens）、main-tty 16,261→**14,735**（−1,526，≈−382）、main-plan 12,182→**11,114**、main-qa −969；子代理 scope：device-read −567、explore −567、verify −986、plan −728；净代价：默认长版 +491（headless 13,524→14,015）/ +550（tty 19,774→20,324），换的是否定句与 patch 匹配规则等关键约束；真 CLI wire（脚本化 provider 记录请求体，`MOSS_LEAN_TOOLS=1`）：`write_file` 246→141、`list_directory` 283→163、`apply_patch` 399→189、`todo_write` 301→140、`run_tests` 321→188、`move_file` 270→155、`device_file_read` 438→228；负向控制：删掉 `write_file` 的 lean 档 → `--check` 失败并点名；`npm run check` 绿、`npm run verify` PASS 52.2s |
 | B60 | P2     | **启动图里还白付 110 个 undici 模块**：`runCli()` 第一件事就 `await ensureKeepAliveDispatcherInstalled()`（为 O83 代理语义），把 undici 整包（110 模块，单进程冷 import 128ms）拖进每次启动；交互式 composer 要等它，`--help`/REPL 都付                                                                                                                                        | **已实现并验证（2026-11-05）**：改为「配了代理才在启动时装，否则首个真实请求时由 `fetchWithConnectionContext` 懒装」——`keep-alive-dispatcher` 导出 `hasProxyConfigured()`，`runtime.ts` 只在 HTTP(S)\_PROXY 存在时 eager 安装                                                                                                                                                                                                                                                                                                                                                                 | 见本节末 B60 证据                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 持续进行                                                                                                                          |
+| B61 | P1     | **压缩准备超时=静默跳过**（B13 首片）：`runWithCompactionPrepareTimeout` 30s 超时后 `runCompactionCore` 只 `log.warn` 一句，本次压缩被放弃、上下文原样跑——用户看不到降级，小窗口模型随后撞上限                                                                                                                                                                                 | **已实现并验证（2026-11-05）**：`compaction-timeout` 增加类型化 `CompactionPrepareTimeoutError` + `isCompactionPrepareTimeout()`；`runCompactionCore` 在超时（非用户 abort）时打一条结构化 warn（phase/timeoutMs/elapsedMs/messages/runId/sessionKey），再以 `skipLlmCompaction: true` 重试一次确定性摘要；`compaction` 事件带 `degraded: true`，TUI 行 / REPL 横幅 / `--output-format stream-json` 都显示「deterministic summary (the model summary timed out)」；`deterministic-summary` 的预算改成「不超过被替换消息字符数的 50%」（下限 400、上限 12k），保证降级摘要不会让上下文变大     | 见本节末 B61 证据                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 已验收（B13 首片；B13 余量=超时成因与 reserveTokens 关系未定位）                                                                  |
 
 **B32 证据（2026-11-05，已实跑）**：模块加载计数器（`module.registerHooks`）跑 7 次真实 `-p`：
 
@@ -537,6 +538,33 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 - 改造后 370 个：上述 8 个消失，新增 3 行的 `cli/diff-preview.js`；
 - 墙钟中位 583ms → 606ms（min 564 → 559）——**噪声内，本轮只声称图更小**；
 - 行为：`-p` 让模型把文件 20 行改掉，headless diff 预览仍**恰好 14 行**后打印 `... 27 more lines ...`（`DIFF_PREVIEW_LINES` 语义未变）。
+
+**B61 证据（2026-11-05，已实跑：模块级探针 + 真 CLI E2E + 三种渲染面）**：B13 的真实现象是压缩准备 30s 超时后
+只留一行 log、上下文原样继续；小窗口模型下一轮就撞上限，而用户不知道该做什么。
+
+- 模块级探针（`scripts/verify/compaction-timeout-fallback.mjs`，`MOSS_COMPACTION_PREPARE_TIMEOUT_MS=120`）：
+  prepare 第一次调用挂起 → 输出 `prepare calls (skipLlmCompaction): [false, true]`；warn 为
+  `proactive compaction prepare timed out; using the deterministic summary` +
+  `{phase: proactive, timeoutMs: 120, elapsedMs: 127, messages: 2}`；`compaction` 事件 `degraded: true`；
+  outcome `succeeded: true, degraded: true`，总耗时 131ms（降级路径不花模型时间）。
+- 真 CLI E2E（脚本化 provider 每次响应延迟 400ms、`agent.contextTokens=1200`、
+  `MOSS_COMPACTION_PREPARE_TIMEOUT_MS=100`）：3 次 POST = 主请求 / 汇总请求（`tools: 0`，被超时中止）/ 压缩后的主请求；
+  `--output-format stream-json` 里 `{"type":"compaction", "summary_chars":1262, "dropped_messages":1,
+"tokens_before":434, "tokens_after":375, "degraded":true}` —— 降级摘要**确实缩小**了上下文；
+  文本模式的用户可见横幅为
+  `· context compacted 1 messages into 1262 chars · deterministic summary (the model summary timed out)`，
+  同一 run 的 stderr 有结构化 warn（阶段/超时/耗时/消息数/runId/sessionKey）。
+- 写第一版时 E2E 暴露出一个真问题：确定性摘要模板本身约 1.4k 字符，小窗口下会让「压缩」把
+  tokens 从 434 涨到 863（`tokens_after > tokens_before`）。于是把 `deterministic-summary` 的预算改成
+  `min(12k, max(400, 丢弃字符数 × 50%))`，超预算时退化为「历史脉络 + 主要目标 + 第 9 节摘录」的紧凑模板并截断；
+  改后同场景 434 → 375。探针另断言：1 条短消息的窗口摘要 ≤400 字符、40 条大窗口摘要 ≤50% 且 ≤12k。
+- 三条渲染面都实跑过：TUI 行（`compacted N earlier messages · now ~X tokens · deterministic summary (the model
+summary timed out)`，中文本地化同键）、REPL/oneshot 横幅（文本模式 E2E 实际打印，见上）、headless JSON（`degraded: true`）。
+- 回归门：新 verify stage `compaction-timeout-fallback`（0.3s，放进 FAST_GATE）。负向控制：把
+  `isCompactionPrepareTimeout()` 改成恒 false（超时不被识别）→ 探针失败 `no compaction event was pushed`；
+  恢复后 3 checks passed。
+- 质量门：`npm run check` 绿；`npm run verify` PASS 60.9s（本机本次 `static` 38.9s + `skill-fork` 19.1s 的并行波动，
+  新增 stage 仅 0.3s；前一轮同门 52.6s 可对照）。
 
 **B60 证据（2026-11-05，已实跑，模块图 + A/B 墙钟 + 代理语义）**：`cli/runtime.ts` 的 `runCli()` 开头无条件
 `await ensureKeepAliveDispatcherInstalled()`，而该函数 `import('undici')` 会拉起整包 110 个模块（本机单进程冷 import
@@ -1543,6 +1571,10 @@ entry 的成本**按模块个数线性**，不是某个"大模块"；后续 H1 �
 最小切片：把超时原因结构化进一条 warn（耗时、块数、窗口、阶段），并为「超时后」增加一次快速确定性摘要
 （不带 LLM 的 deterministic fallback）而不是什么都不做；探针用 60 条预置消息 + 小窗口复现（mock LLM 下不超时，
 需真实 LLM 或注入慢 summarize）。风险：确定性摘要质量低，必须标记 `degraded` 并保留 B02 指针，不能冒充完整摘要。
+
+**B13 首片已落地（2026-11-05）**：超时不再静默跳过——结构化 warn + 确定性摘要重试 + `degraded` 事件/横幅/JSON，
+确定性摘要自身也按「不超过被替换内容的 50%」设预算（详见 B61）。仍未定位：为什么 summarize 会 >30s
+（`reserveTokens`/`keepRecentTokens` 默认 20000 与小窗口的关系），或是否该在超时后再试一次带更长超时的 LLM 摘要。
 
 **B14 验证门串行执行，墙钟紧贴 CI 预算（P0，基础设施；对应 CR/B15 之外的独立发现）**
 `scripts/verify/cli.mjs` 原来是 `for (const name of stages) { await stage.run() }`：`static`（prettier+eslint+tsc）

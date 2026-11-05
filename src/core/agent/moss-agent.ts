@@ -1824,6 +1824,7 @@ ${result.stderr ?? ''}`.trim();
         messages: compactMessages,
         forceCompaction,
         includeThinking,
+        skipLlmCompaction,
         abortSignal,
       }) => {
         const usage: AgentLoopLlmUsage[] = [];
@@ -1840,6 +1841,7 @@ ${result.stderr ?? ''}`.trim();
           systemPrompt,
           charsPerTokenUnit: resolveContextCharsPerTokenUnit(),
           forceCompaction,
+          ...(skipLlmCompaction ? { skipLlmCompaction: true } : {}),
           remoteCompactProvider: this.remoteCompactProvider,
           includeThinking,
           transcriptPath: store.transcriptPath?.(sessionKey),

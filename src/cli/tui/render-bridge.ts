@@ -731,7 +731,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
           event.tokensAfter !== undefined
             ? tui(' · now ~{count} tokens', { count: event.tokensAfter })
             : ''
-        }`
+        }${event.degraded ? tui(' · deterministic summary (the model summary timed out)') : ''}`
       );
       store.version++;
       break;

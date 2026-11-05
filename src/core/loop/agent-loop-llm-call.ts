@@ -44,6 +44,7 @@ export interface ExecuteLlmTurnParams {
     runId: string;
     forceCompaction?: boolean;
     includeThinking?: boolean;
+    skipLlmCompaction?: boolean;
     abortSignal?: AbortSignal;
   }) => Promise<{
     summary?: string;

@@ -4,7 +4,11 @@ import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import { buildCompactionCheckpointOutline, type CompactHookRegistry } from './compact-hooks.js';
 import type { Message } from '../session/session-jsonl.js';
 import { summarizeDroppedMessages } from './agent-loop-context-prep.js';
-import { runWithCompactionPrepareTimeout } from './compaction-timeout.js';
+import {
+  isCompactionPrepareTimeout,
+  resolveCompactionPrepareTimeoutMs,
+  runWithCompactionPrepareTimeout,
+} from './compaction-timeout.js';
 import { notifyReadContextDropped } from '../../context/read-context-events.js';
 import type { AgentLoopLlmUsage } from './agent-loop-types.js';
 
@@ -35,6 +39,8 @@ export interface AgentLoopPrepareCompaction {
     runId: string;
     forceCompaction?: boolean;
     includeThinking?: boolean;
+    /** Retry path only: skip the LLM summarizer and use the local deterministic one. */
+    skipLlmCompaction?: boolean;
     abortSignal?: AbortSignal;
   }): Promise<{
     summary?: string;
@@ -51,6 +57,8 @@ export interface AgentLoopCompactionOutcome {
   succeeded: boolean;
   retrySameTurn: boolean;
   compactionSummary?: Message;
+  /** The LLM summary timed out and a deterministic local summary was used. */
+  degraded?: boolean;
 }
 
 interface CompactionCoreParams {
@@ -111,18 +119,52 @@ async function runCompactionCore(
     });
     preHookRan = true;
 
-    const prep = await runWithCompactionPrepareTimeout(
-      (prepareAbortSignal) =>
-        prepareCompaction({
-          messages: currentMessages,
-          sessionKey,
-          runId,
-          forceCompaction,
-          includeThinking,
-          abortSignal: prepareAbortSignal,
-        }),
-      { abortSignal, label: errorLabel }
-    );
+    // B13: a slow summarizer must not leave the context over budget with only a
+    // log line. On timeout, retry once with the local deterministic summary
+    // (no model call, so it cannot time out the same way) and mark the result
+    // as degraded so the transcript says the summary is not the LLM's.
+    let degraded = false;
+    const prepareStartedAt = Date.now();
+    let prep: Awaited<ReturnType<AgentLoopPrepareCompaction>>;
+    try {
+      prep = await runWithCompactionPrepareTimeout(
+        (prepareAbortSignal) =>
+          prepareCompaction({
+            messages: currentMessages,
+            sessionKey,
+            runId,
+            forceCompaction,
+            includeThinking,
+            abortSignal: prepareAbortSignal,
+          }),
+        { abortSignal, label: errorLabel }
+      );
+    } catch (error) {
+      if (!isCompactionPrepareTimeout(error) || abortSignal?.aborted) throw error;
+      const timeoutMs = resolveCompactionPrepareTimeoutMs();
+      onWarn?.(`${errorLabel} compaction prepare timed out; using the deterministic summary`, {
+        phase: errorLabel,
+        timeoutMs,
+        elapsedMs: Date.now() - prepareStartedAt,
+        messages: currentMessages.length,
+        runId,
+        sessionKey,
+      });
+      degraded = true;
+      prep = await runWithCompactionPrepareTimeout(
+        (prepareAbortSignal) =>
+          prepareCompaction({
+            messages: currentMessages,
+            sessionKey,
+            runId,
+            forceCompaction,
+            includeThinking,
+            skipLlmCompaction: true,
+            abortSignal: prepareAbortSignal,
+          }),
+        { abortSignal, label: `${errorLabel}-deterministic` }
+      );
+    }
 
     const checkpointOutline =
       prep.checkpointOutline ?? buildCompactionCheckpointOutline(prep.summary);
@@ -180,6 +222,7 @@ async function runCompactionCore(
       tokensBefore,
       tokensAfter,
       keptToolNames,
+      ...(degraded ? { degraded: true } : {}),
     });
 
     const stats = computeStats({
@@ -209,6 +252,7 @@ async function runCompactionCore(
       succeeded: true,
       retrySameTurn: true,
       compactionSummary,
+      ...(degraded ? { degraded: true } : {}),
     };
   } catch (error) {
     if (preHookRan && !postHookRan) {

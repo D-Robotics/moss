@@ -1,5 +1,27 @@
 const DEFAULT_COMPACTION_PREPARE_TIMEOUT_MS = 30_000;
 
+/**
+ * Typed so callers can tell "the LLM summarizer was too slow" apart from a real
+ * abort: only the former is worth retrying with the deterministic fallback.
+ */
+export class CompactionPrepareTimeoutError extends Error {
+  readonly label: string;
+  readonly timeoutMs: number;
+
+  constructor(label: string, timeoutMs: number) {
+    super(`${label} compaction prepare timed out after ${timeoutMs}ms`);
+    this.name = 'CompactionPrepareTimeoutError';
+    this.label = label;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export function isCompactionPrepareTimeout(error: unknown): error is CompactionPrepareTimeoutError {
+  if (error instanceof CompactionPrepareTimeoutError) return true;
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /compaction prepare (?:timed out|timeout)/i.test(message);
+}
+
 export function resolveCompactionPrepareTimeoutMs(): number {
   const raw = Number(process.env.MOSS_COMPACTION_PREPARE_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw > 0) {
@@ -32,7 +54,7 @@ export async function runWithCompactionPrepareTimeout<T>(
   }
 
   const timeoutController = new AbortController();
-  const timeoutError = new Error(`${label} compaction prepare timed out after ${timeoutMs}ms`);
+  const timeoutError = new CompactionPrepareTimeoutError(label, timeoutMs);
   const signal = options.abortSignal
     ? AbortSignal.any([options.abortSignal, timeoutController.signal])
     : timeoutController.signal;

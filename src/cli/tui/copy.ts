@@ -228,6 +228,7 @@ export const ZH: Readonly<Record<string, string>> = {
   ' · saved ~{count} tokens': ' · 省下约 {count} 词元',
   'compacted {count} earlier messages': '已合并 {count} 条更早消息',
   ' · now ~{count} tokens': ' · 现在约 {count} 词元',
+  ' · deterministic summary (the model summary timed out)': ' · 本地确定性摘要（模型摘要超时）',
 
   // ── help overlay (app.ts / help.ts) ────────────────────────────────────
   Language: '语言',

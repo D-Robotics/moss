@@ -17,7 +17,7 @@ import {
   formatBackgroundCompletionNotice,
   formatBackgroundCompletionFlash,
 } from './background-completion-ui.js';
-import { isZhLocale } from './cli-locale.js';
+import { isZhLocale, uiText } from './cli-locale.js';
 import {
   chatInterruptNoticeLine,
   chrome,
@@ -904,7 +904,16 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         if (!isQuiet) {
           breakAnswerForStatus();
           stderrLine(
-            `${mark()} context ${ui.dim(`compacted ${event.droppedMessages} messages into ${event.summaryChars} chars`)}`
+            `${mark()} context ${ui.dim(
+              `compacted ${event.droppedMessages} messages into ${event.summaryChars} chars${
+                event.degraded
+                  ? uiText(
+                      ' · deterministic summary (the model summary timed out)',
+                      ' · 本地确定性摘要（模型摘要超时）'
+                    )
+                  : ''
+              }`
+            )}`
           );
         }
         break;

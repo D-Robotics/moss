@@ -427,6 +427,8 @@ export type MossAgentEvent =
       /** Distinct tool names retained in the post-compaction context (summary
        * quality signal: did we keep the work-in-flight tool surface?). */
       keptToolNames?: number;
+      /** The LLM summary timed out and a deterministic local one replaced it. */
+      degraded?: boolean;
     }
   | { type: 'microcompact'; compressedCount: number; savedChars: number; savedTokens: number }
   | {

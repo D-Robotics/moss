@@ -34,6 +34,7 @@ import { stage as reviewPipelineStage } from './stages/review-pipeline.mjs';
 import { stage as clipboardPasteStage } from './stages/clipboard-paste.mjs';
 import { stage as compactionHistoryStage } from './stages/compaction-history.mjs';
 import { stage as compactionSummaryStage } from './stages/compaction-summary.mjs';
+import { stage as compactionTimeoutFallbackStage } from './stages/compaction-timeout-fallback.mjs';
 import { stage as readImageStage } from './stages/read-image.mjs';
 import { stage as planEndStage } from './stages/plan-end.mjs';
 import { stage as rulesActivationStage } from './stages/rules-activation.mjs';
@@ -68,6 +69,7 @@ const STAGES = new Map(
     clipboardPasteStage,
     compactionHistoryStage,
     compactionSummaryStage,
+    compactionTimeoutFallbackStage,
     readImageStage,
     planEndStage,
     rulesActivationStage,
@@ -103,6 +105,7 @@ const FAST_GATE = [
   'clipboard-paste',
   'compaction-history',
   'compaction-summary',
+  'compaction-timeout-fallback',
   'read-image',
   'plan-end',
   'rules-activation',

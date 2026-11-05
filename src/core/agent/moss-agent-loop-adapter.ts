@@ -250,6 +250,7 @@ export function createMossAgentLoopEventAdapter(
               ...(event.tokensBefore !== undefined ? { tokensBefore: event.tokensBefore } : {}),
               ...(event.tokensAfter !== undefined ? { tokensAfter: event.tokensAfter } : {}),
               ...(event.keptToolNames !== undefined ? { keptToolNames: event.keptToolNames } : {}),
+              ...(event.degraded ? { degraded: true } : {}),
             },
           ];
         case 'context_action': {

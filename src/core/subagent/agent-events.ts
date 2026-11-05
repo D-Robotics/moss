@@ -66,6 +66,8 @@ type MiniAgentEventPayload =
       tokensBefore?: number;
       tokensAfter?: number;
       keptToolNames?: number;
+      /** The LLM summary timed out and a deterministic local one replaced it. */
+      degraded?: boolean;
     }
   | { type: 'context_overflow_compact'; error: string; recoveryLevel?: number }
   | { type: 'retry'; attempt: number; delay: number; error: string; category?: LlmErrorCategory }
