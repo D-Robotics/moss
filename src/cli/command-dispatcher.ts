@@ -267,27 +267,24 @@ export const COMMANDS: Record<string, CommandConfig> = {
     description:
       'Optional Super-agent admission, durable tickets and isolated verified Moss workers',
   },
-  tasks: {
-    name: 'tasks',
+  // Read-only closed-loop inspection: workspace command, no model config needed.
+  artifacts: {
+    name: 'artifacts',
     phase: CliPhase.WorkspaceReady,
     handler: async (ctx) => {
-      const { runTasksCommand } = await import('./tasks-commands.js');
+      const { runArtifactsCommand } = await import('./artifacts-command.js');
       const { ExitCode } = await import('./exit-codes.js');
-      const workspace = ctx.workspace;
+      const workspace = ctx.workspace as string | undefined;
       if (!workspace) {
-        console.error('[moss] tasks could not resolve the workspace.');
+        console.error('[moss] artifacts could not resolve the workspace.');
         process.exitCode = ExitCode.USAGE;
         return;
       }
-      try {
-        await runTasksCommand(ctx.commandArgs, workspace);
-      } catch (err) {
-        console.error(`[moss] tasks failed: ${err instanceof Error ? err.message : String(err)}`);
-        process.exitCode = ExitCode.USAGE;
-      }
+      const code = await runArtifactsCommand(ctx.commandArgs, { workspace });
+      if (code !== 0) process.exitCode = code;
     },
     description:
-      'Inspect robotics loop artifacts: tasks, evidence, deployments, acceptance, device',
+      'Read-only closed-loop artifacts: contracts, evidence, deployments, acceptance, device, timeline',
   },
 
   task: {

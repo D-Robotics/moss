@@ -28,10 +28,10 @@ export type CliCommand =
   | 'workflow'
   | 'migrate'
   | 'sessions'
-  | 'tasks'
   | 'task'
   | 'run'
   | 'runs'
+  | 'artifacts'
   | 'review'
   | 'loop'
   | 'remember'
@@ -244,10 +244,10 @@ export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'plugins',
   'workflow',
   'migrate',
-  'tasks',
   'task',
   'run',
   'runs',
+  'artifacts',
   'review',
   'loop',
   'remember',
@@ -282,6 +282,8 @@ const COMMAND_ALIASES: Record<string, { command: CliCommand; args: readonly stri
   install: { command: 'setup', args: [] },
   login: { command: 'setup', args: [] },
   logout: { command: 'auth', args: ['logout'] },
+  // B131: folded into `moss task artifacts`; keep the old verb working.
+  tasks: { command: 'artifacts', args: [] },
 };
 
 /** `status` is not a subcommand; a typo of it still points at `doctor`. */

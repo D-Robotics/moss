@@ -462,10 +462,6 @@ export async function renderSubcommandHelp(
         en: 'The migrate subsystem is not implemented in this build.',
         zh: '这个构建没有迁移子系统。',
       });
-    case 'tasks': {
-      const { renderTasksUsage } = await import('./tasks-commands.js');
-      return renderTasksUsage(zh);
-    }
     case 'superagent':
       return superagentHelp(zh);
     case 'task': {
@@ -474,6 +470,10 @@ export async function renderSubcommandHelp(
     }
     case 'run':
       return runHelp(zh);
+    case 'artifacts': {
+      const { renderArtifactsUsage } = await import('./artifacts-command.js');
+      return renderArtifactsUsage(zh);
+    }
     case 'runs': {
       const { renderRunsUsage } = await import('./runs-command.js');
       return renderRunsUsage(zh);

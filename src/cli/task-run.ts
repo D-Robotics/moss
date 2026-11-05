@@ -21,14 +21,12 @@ import {
 import { createAgentTurnRunner } from '../core/task/agent-turn.js';
 import {
   getTaskStateSnapshot,
-  listFailures,
   listTaskEvents,
   listTaskStateSnapshots,
   buildTaskTimeline,
   formatTaskTimeline,
   localizeTaskDetail,
 } from '../core/task/task-store.js';
-import { listEvidenceRecords } from '../core/task-runtime/artifacts.js';
 import {
   recordGoalRun,
   listGoalRuns,
@@ -47,7 +45,6 @@ import {
 import type { GoalRunFailure } from './task-list.js';
 import { persistedAcceptanceCommand } from '../core/task/acceptance-authority.js';
 import { errorMessage } from '../errors.js';
-import { listDeploymentRecords } from '../device/deployment.js';
 import { resolveDefaultDeviceTarget } from '../device/device-target.js';
 import { isResumableTaskPhase, latestTaskFailureDetail } from '../contracts/task-runtime.js';
 import type {
@@ -125,7 +122,7 @@ export function interactiveTaskUsageLines(): readonly string[] {
       '/task list [--limit N] [--status pass|fail|blocked|aborted] [--json]',
       '/task resume [标识]',
       '/task verify [标识]',
-      '/task view [种类]',
+      '/task artifacts [种类]',
     ];
   }
   return [
@@ -134,7 +131,7 @@ export function interactiveTaskUsageLines(): readonly string[] {
     '/task list [--limit N] [--status pass|fail|blocked|aborted] [--json]',
     '/task resume [id]',
     '/task verify [id]',
-    '/task view [kind]',
+    '/task artifacts [kind]',
   ];
 }
 
@@ -152,7 +149,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新；--json 输出单个对象供自动化）',
       '  list [--limit N] [--status pass|fail|blocked|aborted]  目标运行汇总：时间/结果/任务/轮次/耗时/目标；fail/blocked 行还会显示记录的失败原因（↳ 原因：…）与评审裁决（默认最近 20 条；表头给出全账本计数，--status 只筛表格与 JSON）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
-      '  view [种类]          只读工件：`tasks` | `history` | `evidence` | `deployments` | `failures`',
+      '  artifacts [种类]     只读工件：`contracts` | `tasks` | `history` | `evidence` | `deployments` | `acceptance` | `device` | `failures`',
       '  verify [task_id]     用裁决器复验一次（不发起模型回合）',
       '',
       '只有任务被验收（通过）时退出码才是 0。',
@@ -181,7 +178,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     '  status [task_id]     current phase, plan, failures, verdict (default: latest; --json prints one object for automation)',
     '  list [--limit N] [--status pass|fail|blocked|aborted]  goal-run rollup: time/outcome/task/turns/duration/goal; fail/blocked rows also show the recorded failure reason and review verdict (default 20; the header counts the whole ledger and --status narrows table and JSON)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
-    '  view [kind]          read-only artifacts: tasks | history | evidence | deployments | failures',
+    '  artifacts [kind]     read-only artifacts: contracts | tasks | history | evidence | deployments | acceptance | device | failures',
     '  verify [task_id]     re-run the verdict once (no model turn)',
     '',
     'Exit code is 0 only when the task is accepted (PASS).',
@@ -941,71 +938,11 @@ export async function runTaskCommand(
     return result.exitCode;
   }
 
-  if (sub === 'view') {
-    const kind = commandArgs[1] || 'tasks';
-    const known = ['tasks', 'history', 'evidence', 'deployments', 'failures'];
-    if (!known.includes(kind)) {
-      output(
-        'stderr',
-        `unknown kind "${kind}" — use tasks | history | evidence | deployments | failures\n`
-      );
-      return 2;
-    }
-    if (kind === 'tasks' || kind === 'history') {
-      const snapshots = await listTaskStateSnapshots(ctx.workspace);
-      if (snapshots.length === 0) {
-        output('stdout', 'No tasks in this workspace.\n');
-        return 0;
-      }
-      if (kind === 'tasks') {
-        output(
-          'stdout',
-          snapshots
-            .map((snapshot) => `${snapshot.taskId}  ${snapshot.phase}  ${snapshot.goal}`)
-            .join('\n') + '\n'
-        );
-        return 0;
-      }
-      const blocks: string[] = [];
-      for (const snapshot of snapshots) {
-        const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
-        blocks.push(`${snapshot.taskId}\n${formatTaskTimeline(buildTaskTimeline(events))}`);
-      }
-      output('stdout', blocks.join('\n') + '\n');
-      return 0;
-    }
-    if (kind === 'evidence') {
-      const records = await listEvidenceRecords(ctx.workspace, 200);
-      output(
-        'stdout',
-        records.length === 0
-          ? 'No evidence recorded.\n'
-          : records
-              .map((record) => `${record.result}  ${record.metric} = ${record.observed ?? '?'}`)
-              .join('\n') + '\n'
-      );
-      return 0;
-    }
-    if (kind === 'deployments') {
-      const records = await listDeploymentRecords(ctx.workspace);
-      output(
-        'stdout',
-        records.length === 0
-          ? 'No deployments recorded.\n'
-          : records
-              .map((record) => `${record.deploymentId}  ${record.status}  ${record.remotePath}`)
-              .join('\n') + '\n'
-      );
-      return 0;
-    }
-    const failures = await listFailures(ctx.workspace);
-    output(
-      'stdout',
-      failures.length === 0
-        ? 'No failures recorded.\n'
-        : failures.map((failure) => `${failure.taskId}  ${failure.symptom}`).join('\n') + '\n'
-    );
-    return 0;
+  // B131: `moss tasks …` folded into `moss artifacts`; both spellings are read
+  // paths over the same inspectors. `view` stays as a deprecated alias.
+  if (sub === 'view' || sub === 'artifacts') {
+    const { runArtifactsCommand } = await import('./artifacts-command.js');
+    return runArtifactsCommand(commandArgs.slice(1), { workspace: ctx.workspace, output });
   }
 
   output(

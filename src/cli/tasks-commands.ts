@@ -1,5 +1,6 @@
 /**
- * `moss tasks` — human-facing visibility into the robotics closed loop
+ * `moss task artifacts` — human-facing visibility into the robotics closed loop
+ * (formerly `moss tasks`; the verb is kept as an alias)
  * artifacts under the workspace: task contracts, recorded evidence,
  * deployments, acceptance verdicts, and the live device target.
  */
@@ -19,7 +20,7 @@ export function renderTasksUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
     return [
       '用法：',
-      '  moss tasks [list|evidence|deployments|acceptance|device] [--json]',
+      '  moss task artifacts [contracts|evidence|deployments|acceptance|device] [--json]',
       '',
       '  list          任务目标、状态和验收标准（默认）',
       '  evidence      已记录的证据（指标 / 期望 / 观测 / 结果）',
@@ -31,13 +32,13 @@ export function renderTasksUsage(zh: boolean = isZhLocale()): string {
       '  --json        机器可读输出',
       '',
       '示例：',
-      '  moss tasks list',
-      '  moss tasks evidence --json',
+      '  moss artifacts',
+      '  moss artifacts evidence --json',
     ].join('\n');
   }
   return [
     'Usage:',
-    '  moss tasks [list|evidence|deployments|acceptance|device] [--json]',
+    '  moss artifacts [contracts|evidence|deployments|acceptance|device] [--json]',
     '',
     '  list          task contracts with status and acceptance criteria (default)',
     '  evidence      recorded evidence records (metric / expected / observed / result)',
@@ -49,8 +50,8 @@ export function renderTasksUsage(zh: boolean = isZhLocale()): string {
     '  --json        machine-readable output',
     '',
     'Examples:',
-    '  moss tasks list',
-    '  moss tasks evidence --json',
+    '  moss artifacts',
+    '  moss artifacts evidence --json',
   ].join('\n');
 }
 
