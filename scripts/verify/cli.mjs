@@ -36,6 +36,7 @@ import { stage as compactionHistoryStage } from './stages/compaction-history.mjs
 import { stage as compactionSummaryStage } from './stages/compaction-summary.mjs';
 import { stage as compactionTimeoutFallbackStage } from './stages/compaction-timeout-fallback.mjs';
 import { stage as compactionWindowClampStage } from './stages/compaction-window-clamp.mjs';
+import { stage as windowEconomicsStage } from './stages/window-economics.mjs';
 import { stage as readImageStage } from './stages/read-image.mjs';
 import { stage as planEndStage } from './stages/plan-end.mjs';
 import { stage as rulesActivationStage } from './stages/rules-activation.mjs';
@@ -72,6 +73,7 @@ const STAGES = new Map(
     compactionSummaryStage,
     compactionTimeoutFallbackStage,
     compactionWindowClampStage,
+    windowEconomicsStage,
     readImageStage,
     planEndStage,
     rulesActivationStage,
@@ -109,6 +111,7 @@ const FAST_GATE = [
   'compaction-summary',
   'compaction-timeout-fallback',
   'compaction-window-clamp',
+  'window-economics',
   'read-image',
   'plan-end',
   'rules-activation',

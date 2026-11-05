@@ -12,6 +12,12 @@ export const WARNING_BAND_TOKENS = 20_000;
 
 const MIN_EFFECTIVE_WINDOW = 4_000;
 
+/**
+ * Absolute floor for the prompt budget of a very small window. It is a floor on
+ * the *reported* budget, never an excuse to exceed the configured window.
+ */
+const MIN_PROMPT_TOKENS = 512;
+
 function resolveAutoCompactBufferRatio(): number {
   return parseEnvBoundedFloat('MOSS_AUTOCOMPACT_BUFFER_RATIO', 0.18, 0.05, 0.5);
 }
@@ -31,15 +37,31 @@ export function getEffectiveContextWindowTokens(
   contextWindowTokens: number,
   maxOutputTokens: number
 ): number {
+  const configured = Math.max(1, Math.floor(contextWindowTokens));
   const reserved = Math.min(Math.max(0, maxOutputTokens), SUMMARY_OUTPUT_CAP_TOKENS);
-  return Math.max(MIN_EFFECTIVE_WINDOW, contextWindowTokens - reserved);
+  const usablePrompt = Math.max(0, configured - reserved);
+  // B65: the old `max(MIN_EFFECTIVE_WINDOW, window - reserved)` floor could
+  // report MORE prompt budget than the window has (a 4096-token model whose
+  // output reservation is 1024 has 3072 prompt tokens, but the floor reported
+  // 4000). The loop then grew the prompt past the provider's context limit and
+  // the request failed with a context-length error instead of compacting first.
+  // The floor may only lift the *reported* budget up to the window, never past it.
+  const floor = Math.min(
+    MIN_EFFECTIVE_WINDOW,
+    Math.max(MIN_PROMPT_TOKENS, Math.floor(configured * 0.4))
+  );
+  return Math.min(configured, Math.max(Math.min(floor, configured), usablePrompt));
 }
 
 export function getProactiveCompactThreshold(effectiveContextWindowTokens: number): number {
-  return Math.max(
-    MIN_EFFECTIVE_WINDOW,
-    effectiveContextWindowTokens - resolveDynamicBuffer(effectiveContextWindowTokens)
-  );
+  const effective = Math.max(1, Math.floor(effectiveContextWindowTokens));
+  // The 4k floor is meaningful for a 32k window (it fires at 14.9k, from the
+  // buffer) but on a small window it sat AT the window, so the proactive check
+  // could never fire and only the hard cap ran. A floor at 75% of the effective
+  // budget keeps the check usable without compacting on every turn.
+  const floor = Math.min(MIN_EFFECTIVE_WINDOW, Math.max(1, Math.floor(effective * 0.75)));
+  const byBuffer = effective - resolveDynamicBuffer(effective);
+  return Math.min(effective - 1, Math.max(floor, byBuffer));
 }
 
 export function getContextWarningThreshold(effectiveContextWindowTokens: number): number {
