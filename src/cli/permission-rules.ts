@@ -14,8 +14,11 @@ import { ErrorCode, throwMoss } from '../errors.js';
 /** Rule level: deny beats ask beats allow (deny wins in ANY mode incl. full). */
 export type PermissionLevel = 'allow' | 'ask' | 'deny';
 
-/** Where a rule came from: user config / workspace config / live session. */
-export type PermissionRuleSource = 'user' | 'workspace' | 'session';
+/**
+ * Where a rule came from: user config / workspace config / live session /
+ * read-only organization policy (D9: `MOSS_POLICY_FILE`, highest priority).
+ */
+export type PermissionRuleSource = 'user' | 'workspace' | 'session' | 'policy';
 
 /**
  * A single permission rule. `toolName` may carry a micromatch glob (e.g.
@@ -34,7 +37,7 @@ export interface PermissionRule {
 /** Merged, ready-to-evaluate rule table plus its source files. */
 export interface ResolvedPermissionRules {
   rules: readonly PermissionRule[];
-  sources: { userPath?: string; workspacePath?: string };
+  sources: { userPath?: string; workspacePath?: string; policyPath?: string };
 }
 
 /** Tool side-effect classes (mirrors core tool-types — kept literal so this
@@ -522,10 +525,13 @@ export function resolvePermissionDecision(
     return { decision: 'allow', reason: 'no-approval-needed' };
   }
 
-  // 3. ask rules (full skips them — PRD decision 3).
-  if (input.mode !== 'full' && !input.readOnlyCeiling) {
+  // 3. ask rules (full skips user/workspace ask rules — PRD decision 3).
+  // A POLICY ask rule is different: it is an organization control, not a user
+  // preference, so `--full-access` must not silently auto-approve it.
+  if (input.mode !== 'full' || !input.readOnlyCeiling) {
     for (const rule of resolved.rules) {
       if (rule.level !== 'ask') continue;
+      if (input.mode === 'full' && rule.source !== 'policy') continue;
       if (matchPermissionRule(rule, input.toolName, input.operand)) {
         return { decision: 'ask-rule', matchedRule: rule };
       }

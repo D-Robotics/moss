@@ -441,8 +441,14 @@ pytest 以 `-q --tb=line --no-header -p no:cacheprovider` 运行，失败行归�
     （并断言命中后 prompt 字节确实变多）、未命中层为空、managed 同名覆盖 + notices、managed 正文进稳定层
     且工作区副本不出现、`rules list` JSON 正确报告 description class 与 managed scope；`npm run verify`
     PASS（49.0s，预算 60s ok）。
-  - 仍缺（诚实记录）：团队级 **allowlist/deny 策略文件**（工具/设备/命令级）仍由现有 permissions 规则承担，
-    没有"组织策略文件"这一层；`@rule` 之外的**交互式 picker** 未做。
+  - **组织策略文件（2026-11-05 第三片）**：`MOSS_POLICY_FILE=<file.json>` 加载只读组织策略
+    `{ "version": 1, "allow": [...], "ask": [...], "deny": [...] }`，规则 spec 直接复用
+    `parsePermissionRuleSpec`（`exec(rm *)`、`device_*` 等与 `permissions.*` 完全一致），source 标 `policy`。
+    语义：deny 在一切模式（含 full）赢；policy ask 在 full 也强制审批（组织控制，不是用户偏好）；
+    文件缺失/JSON 坏/版本不对/规则非法一律启动报错（fail closed，绝不静默降级）；启动 stderr 公告策略路径与条数。
+    `org-policy` stage 13 条：加载/相对路径/拒绝矩阵 + 真实 `resolvePermissionDecision`（full 下 deny、full 下 ask、
+    manual 下 allow、`device_*` glob）+ 真实 `moss -p --mock` 启动公告。
+  - 仍缺（诚实记录）：交互式规则 picker 未做。
 
 ### D10 产品化小件（让能力被发现）
 

@@ -70,6 +70,7 @@ import {
   type PermissionRule,
   type ResolvedPermissionRules,
 } from './permission-rules.js';
+import { loadOrgPolicy, orgPolicyNotice } from './org-policy.js';
 import { createConfiguredGuardrailHooks } from './guardrails.js';
 import { mossConfigDirs } from './protected-path-prompt.js';
 import {
@@ -720,7 +721,11 @@ export async function runCli(): Promise<void> {
   // /permissions add and 'a' grants. The live getter snapshots per tool call
   // so a new rule takes effect on the very next call (PRD W2 运行中生效).
   const permissionRuleRegistry = new PermissionRuleRegistry();
+  // D9 policy layer: an org-owned read-only file outranks user/workspace
+  // rules. Loading happens once at startup; a malformed file fails closed.
+  const orgPolicy = loadOrgPolicy(process.env, workspace);
   const startupPermissionRules: PermissionRule[] = [
+    ...orgPolicy.rules,
     ...resolvedConfig.permissions.allow.map((spec) =>
       parsePermissionRuleSpec(spec, 'user', 'allow')
     ),
@@ -732,11 +737,16 @@ export async function runCli(): Promise<void> {
     ...(resolvedConfig.projectConfigPath
       ? { workspacePath: resolvedConfig.projectConfigPath }
       : {}),
+    ...(orgPolicy.path ? { policyPath: orgPolicy.path } : {}),
   };
   const livePermissionRules = (): ResolvedPermissionRules => ({
     rules: [...startupPermissionRules, ...permissionRuleRegistry.list()],
     sources: permissionRuleSources,
   });
+  {
+    const notice = orgPolicyNotice(orgPolicy, isZhLocale());
+    if (notice) console.error(notice);
+  }
   const deviceTarget = resolveDefaultDeviceTarget();
   if (deviceTarget) {
     promptLayers.set({
