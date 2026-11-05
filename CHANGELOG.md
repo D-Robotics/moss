@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### First screen answers last-run / next-step (B136)
+
+- The REPL welcome now reads the unified run ledger and AGENTS.md: it prints the newest run
+  (`last run: unverified · 9m ago · chat … — <goal>`) and a `Next` line that is a command, not a
+  greeting — a failed/paused run surfaces its recorded resume command, otherwise `moss runs`, and a
+  brand-new project points at `moss init` (or the verified-run command once AGENTS.md exists).
+
+### 首屏回答"上次跑得怎样 / 下一步做什么"（B136）
+
+- REPL 欢迎屏现在读统一运行账本与 AGENTS.md：打印最近一次运行（`last run: unverified · 9m ago ·
+chat … — <目标>`），`Next` 行给出的是命令而不是寒暄——失败/暂停运行直接给账本里记录的续跑命令，
+  否则给 `moss runs`；全新项目指向 `moss init`（已有 AGENTS.md 时给验证式运行命令）。
+
 ### `moss init`: onboarding to the first verified result (B135)
 
 - Detects the entry points a project actually has (`package.json` scripts, `Makefile` test target,

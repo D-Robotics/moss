@@ -106,7 +106,7 @@ stopped; the state lives on disk and `resume` continues from the breakpoint inst
 | Manage context               | `/compact` · `/todos` · `/context`                                  | Compress history, watch the plan, inspect the window                             |
 | After a long run             | just ask                                                            | The next chat turn carries the task id, failure reason and resume command (once) |
 
-Failures print a reason **and** the next command; `moss doctor` checks the install and
+The first screen shows the last run (status / age / goal) and a next step — a failed run surfaces its own `moss task resume <id>` instead of a generic greeting. Failures print a reason **and** the next command; `moss doctor` checks the install and
 `MOSS_STARTUP_TIMING=1` shows which startup phase is slow.
 
 ## Capabilities
