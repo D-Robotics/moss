@@ -760,6 +760,33 @@ export async function runLoopCommand(
       ...(summaryWatch ? { watch: summaryWatch } : {}),
     };
     appendLedger(summary);
+    // B129 follow-up: the loop is an autonomous run too; give `moss runs` one
+    // row for it (never fatal — the ledger above is the source of truth).
+    try {
+      const [{ writeRunRecord }, { buildLoopRunRecord }] = await Promise.all([
+        import('../core/run-ledger.js'),
+        import('./loop-run-record.js'),
+      ]);
+      await writeRunRecord(
+        ctx.workspaceDir,
+        buildLoopRunRecord({
+          runId: runIdBase,
+          passed,
+          reason,
+          attempts,
+          prompt: options.prompt,
+          startedAt: loopStartedAt,
+          endedAt: Date.now(),
+          until: options.until,
+          lastCheckExitCode: lastCheck.exitCode,
+          ledgerPath: ledgerLabel,
+        })
+      );
+    } catch (error) {
+      say(
+        `[loop] could not write the run ledger (${error instanceof Error ? error.message : String(error)}); carrying on`
+      );
+    }
     if (passed) {
       console.log(
         zh
