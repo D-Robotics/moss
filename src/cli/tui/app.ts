@@ -1275,6 +1275,18 @@ export function TuiAppRoot({
     [options.agent, sessionKey, setInput]
   );
 
+  // B145: a finished run changes what the ledger says, so the composer hint is
+  // recomputed (boot/setup used to be the only writers, leaving a stale resume
+  // suggestion after a run completed).
+  const refreshComposerSuggestion = useCallback(() => {
+    const context = renderWelcomeContextLines(
+      options.workspaceDir,
+      activeUiLocale(options.locale) === 'zh'
+    );
+    composerSuggestionRef.current = context.suggestion;
+    handle.notify();
+  }, [handle, options.locale, options.workspaceDir]);
+
   const runTurn = useCallback(
     async (message: string) => {
       await options.onTurnStart?.(message);
@@ -1383,6 +1395,7 @@ export function TuiAppRoot({
       }
       const runtimeSettled = await settleRuntime(halted);
       if (runtimeSettled && startedAt !== undefined) appendTaskVerdictIfAny(startedAt);
+      refreshComposerSuggestion();
       notifyAttention(halted ? tui('run interrupted') : tui('run finished'));
       // Plan-mode exit ritual (the reference's `Ready to code?` gate): a
       // finished plan-mode run that actually produced a plan — it explored
@@ -1411,6 +1424,7 @@ export function TuiAppRoot({
       options.agent,
       runtime,
       sessionKey,
+      refreshComposerSuggestion,
       settleRuntime,
       settleDialog,
       store,
@@ -1661,6 +1675,7 @@ export function TuiAppRoot({
           runStartedAtRef.current = undefined;
           absorbDeferredSteers(halted);
           setStatusLine(undefined);
+          refreshComposerSuggestion();
           handle.notify();
           // A chat turn drains from its own completion. A task run does not go
           // through that path, so messages queued while it was in flight would
@@ -1695,6 +1710,7 @@ export function TuiAppRoot({
       printBlock,
       printCommandError,
       runtime,
+      refreshComposerSuggestion,
       sessionKey,
       settleRuntime,
       store,
