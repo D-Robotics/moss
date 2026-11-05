@@ -80,6 +80,7 @@ Prerequisites, upgrade/uninstall, proxies, Windows and custom gateways: [Install
 
 ```bash
 moss run "create hello.txt containing MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"
+moss runs                              # one ledger for every autonomous run: status / reason / next
 moss task status --json                # the same facts, for scripts and CI
 ```
 

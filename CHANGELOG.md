@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### One run ledger: `moss runs` (B130)
+
+- Every `moss run` / `moss task run|resume` now also writes
+  `.moss/runs/<runId>/run.json` with the completion-gate status vocabulary
+  (`completed` / `incomplete` / `verify_failed` / `blocked` / `unverified`) plus
+  `interrupted` for a paused, resumable run — the same record shape every future
+  engine (loop, workflow, superagent) will write.
+- `moss runs [list] [--limit N] [--status <s>] [--json]`, `moss runs show
+[<id>|latest] [--json]` and `moss runs prune [--keep N] [--dry-run] [--json]` are
+  the single read path: status, reason, `next:` command, counts, artifacts.
+  Malformed records are skipped instead of breaking the list, ids cannot escape
+  `.moss/runs/`, and pruning keeps the newest N.
+
+### 统一运行账本：`moss runs`（B130）
+
+- 每次 `moss run` / `moss task run|resume` 现在同时写 `.moss/runs/<runId>/run.json`，
+  状态复用完成门词汇（`completed` / `incomplete` / `verify_failed` / `blocked` /
+  `unverified`），另加 `interrupted` 表示暂停可续；这也是后续 loop / workflow /
+  superagent 共用的记录形状。
+- `moss runs [list] [--limit N] [--status <s>] [--json]`、`moss runs show
+[<id>|latest] [--json]`、`moss runs prune [--keep N] [--dry-run] [--json]` 是唯一读路径：
+  状态、原因、`next:` 命令、计数与工件。坏记录跳过不影响列表，id 不能逃出
+  `.moss/runs/`，prune 保留最新 N 条。
+
 ### Product page and the `moss run` shortcut (B127, B128)
 
 - `README.md` / `README.en.md` are now product pages instead of install manuals: hero with a real
