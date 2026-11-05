@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Super-agent tickets join the unified ledger — and can finally write (B149, B150)
+
+- `kind: superagent` is no longer an empty filter: every ticket that ends leaves
+  `.moss/runs/<ticketId>/run.json` with the ticket title as the goal, the native task id,
+  the fixed acceptance command, the worktree path, the superagent sqlite artifact and a
+  `moss superagent retry <id>` next step when blocked. `moss runs` / `--kind superagent` /
+  `exports` now cover all five engines.
+- Real run found a blocker first: workers were spawned with `--workspace-write`, which maps
+  to the `manual` interaction mode; a non-interactive worker cannot approve anything, so
+  every `write_file` was denied and a ticket burned 18 attempts into `blocked` without
+  creating a file. Run jobs now inherit the operator's resolved mode through the worker
+  policy file (assess stays read-only); the worktree still isolates the work.
+- After the fix the same flow completes: real repo + `moss superagent init/submit/work` →
+  ticket `completed`, `ok.txt` written in its worktree, oracle passed, ledger row
+  `pass · superagent · 20.3s`.
+
+### Super-agent 工单进入统一账本，并且终于能写文件（B149、B150）
+
+- `kind: superagent` 不再是空集：每个结束的工单都会写 `.moss/runs/<ticketId>/run.json`——
+  目标取工单标题、带原生 task id、固定验收命令、worktree 路径、superagent sqlite 工件，
+  blocked 时给出 `moss superagent retry <id>` 下一步。`moss runs` / `--kind superagent` /
+  `export` 现在覆盖全部五个引擎。
+- 真实运行先发现了阻断：worker 被以 `--workspace-write` 启动，而该 flag 会映射到 `manual`
+  交互模式；非交互 worker 无法审批，于是所有 `write_file` 被拒，工单烧掉 18 次尝试进入
+  `blocked` 却没写出任何文件。现在 run job 通过 worker policy 继承操作者的解析模式
+  （assess 仍为只读），worktree 隔离不变。
+- 修复后同一流程完成：真实 repo + `moss superagent init/submit/work` → 工单 `completed`、
+  `ok.txt` 写进它的 worktree、外部 oracle 通过、账本行 `pass · superagent · 20.3s`。
+
 ### `/runs` in the REPL and TUI (B148)
 
 - The unified ledger was only reachable by leaving the session for `moss runs`. `/runs`
