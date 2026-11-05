@@ -230,6 +230,8 @@ export const deviceFileReadTool: Tool = {
     'Read a text file from the configured device over SFTP. Returns the file content (use device_exec for binaries or huge files).\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    leanDescription:
+      'Read a text file from the configured device over SFTP (device target and credentials come from MOSS_DEVICE_*). Use device_exec for binaries or huge files; page a truncated read with offset/limit. Not for local files (read_file).',
     classification: { singleCallExempt: true, discovery: true },
     maxResultTokens: 10_000,
     truncationHint: 'the dropped region is not in context — page it with offset/limit',
@@ -283,6 +285,8 @@ export const deviceFileListTool: Tool = {
     'List one directory on the configured device over SFTP (names, types, sizes).\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    leanDescription:
+      'List one directory on the configured device over SFTP (names, types, sizes). Not for local directories (list_directory); read files with device_file_read.',
     classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',
     transientRetry: true,

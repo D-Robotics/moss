@@ -98,8 +98,10 @@ function collectQuestions(input: Record<string, unknown>): unknown[] {
 export const askUserQuestionTool: Tool = {
   name: 'ask_user_question',
   description:
-    "Ask 1–3 structured questions when the user's answer would change the approach. Do not ask permission to continue a plan you already chose. Put a recommended option first and mark it (Recommended).",
+    "Ask 1–3 structured questions when the user's answer would change the approach. Do not ask permission to continue a plan you already chose. Put a recommended option first and mark it (Recommended). Not for small talk or for confirming an obvious next step.",
   metadata: {
+    leanDescription:
+      'Ask 1–3 structured questions when the answer would change the approach; put (Recommended) first. Not for permission to continue a plan you chose.',
     classification: { discovery: true },
     sideEffectClass: 'runtime_state',
     planMode: 'allow',

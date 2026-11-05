@@ -170,6 +170,8 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     'Do not use for quick usage, config, or short-answer questions.',
   ].join(' '),
   metadata: {
+    leanDescription:
+      'Spawn a sub-agent with its own scope and context: explore/plan/verify/full; omit scope to infer from the task (fix/implement→full). maxTurns defaults per scope. Put acceptance in implement/fix tasks; empty child output is failure. Not for quick config or short answers.',
     classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',
@@ -600,6 +602,8 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     'Do not use for quick help or one-line answers.',
   ].join(' '),
   metadata: {
+    leanDescription:
+      "Run 2-N independent sub-agents concurrently and cite each child's paths, commands and output — a merge without evidence is unverified. Omit scope to infer per task; empty child output is FAILED, and one task belongs in create_subagent. cross_review=true adds one read-only reviewer per implementation task that must emit VERDICT: PASS|FAIL. Not for quick help.",
     classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',
@@ -880,6 +884,8 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
     'Use wait=false for a non-blocking status snapshot, or wait=true when you need the final completion summary.',
   ].join(' '),
   metadata: {
+    leanDescription:
+      'Snapshot (wait=false) or wait for (wait=true) a create_subagent background task; wait returns the final summary.',
     classification: { discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -960,6 +966,8 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
     'Use when a long-running sub-agent is no longer useful or should yield control back to the parent task.',
   ].join(' '),
   metadata: {
+    leanDescription:
+      'Stop a create_subagent background task that is no longer useful, returning control to the parent task.',
     classification: { discovery: true },
     sideEffectClass: 'subagent',
     planMode: 'allow',

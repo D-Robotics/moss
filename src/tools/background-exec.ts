@@ -443,8 +443,11 @@ export const execLogsTool: Tool = {
   name: 'exec_logs',
   description:
     'Read the status and recent output of a background command started by exec(run_in_background). ' +
-    'Omit `id` to list them. wait_for blocks until a line matches, so start-then-test is one call.',
+    'Omit `id` to list them. wait_for blocks until a line matches, so start-then-test is one call. ' +
+    'Not for starting a command (exec with run_in_background) or for foreground output (exec).',
   metadata: {
+    leanDescription:
+      'Status and recent output of an exec(run_in_background) command; omit id to list them. wait_for blocks until a line matches. Not for starting one (exec).',
     sideEffectClass: 'readonly',
     planMode: 'allow',
   },

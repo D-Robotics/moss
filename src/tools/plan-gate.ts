@@ -23,8 +23,10 @@ export const exitPlanTool: Tool<ExitPlanInput> = {
   description:
     'Call when a read-only plan is ready for the user to approve. ' +
     'This does not edit files and does not switch modes by itself: after it, wait for the user, ' +
-    'then stop unless they ask for work.',
+    'then stop unless they ask for work. Not for asking a clarifying question (ask_user_question).',
   metadata: {
+    leanDescription:
+      'Call when a read-only plan is ready for approval; it edits nothing and switches no mode. Then wait for the user and stop unless they ask for work.',
     sideEffectClass: 'readonly',
     planMode: 'allow',
     requiresApproval: false,

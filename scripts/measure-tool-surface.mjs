@@ -213,6 +213,22 @@ function check() {
       );
     }
   }
+  // B08 lean tier coverage: a declared tool whose description is long enough to
+  // matter for a small window must ship a short variant, otherwise the lean
+  // surface is only lean for whichever tools happened to be done first.
+  const LEAN_REQUIRED_DESCRIPTION_CHARS = 150;
+  for (const scenarioId of ['main-headless', 'main-tty', 'main-plan']) {
+    for (const name of names(scenarioId)) {
+      const tool = builtinTools.find((candidate) => candidate.name === name);
+      if (!tool) throw new Error(`${scenarioId} declares unknown tool ${name}`);
+      if (tool.metadata?.leanDescription) continue;
+      if (String(tool.description ?? '').length < LEAN_REQUIRED_DESCRIPTION_CHARS) continue;
+      throw new Error(
+        `declared tool ${name} has a ${String(tool.description ?? '').length}-char description but no lean tier (${scenarioId})`
+      );
+    }
+  }
+
   const plainDeclarations = buildProviderToolDeclarations(builtinTools);
   const plainExec = plainDeclarations.find((entry) => entry.name === 'exec');
   process.env.MOSS_LEAN_TOOLS = '1';

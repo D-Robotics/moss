@@ -354,6 +354,8 @@ export const writeFileTool: Tool = {
   description:
     'Create or overwrite a workspace file (parent directories are created). Not for a targeted change in an existing file — edit_file or multi_edit replaces just that region and keeps the rest. If the path exists, read_file it once this session first.',
   metadata: {
+    leanDescription:
+      'Create or overwrite a file (parent dirs created); read_file an existing path once first. Not for targeted changes — use edit_file/multi_edit.',
     classification: { singleCallExempt: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
@@ -1010,6 +1012,8 @@ export const multiEditTool: Tool = {
   description:
     'Apply several edit_file replacements in one call (same match rules, in order, all-or-nothing). Prefer this for 2+ edits. Not for creating files (write_file) or for changes in different files that need separate review (one edit_file per file).',
   metadata: {
+    leanDescription:
+      'Apply several edit_file replacements in one call (same rules, in order, all-or-nothing); prefer for 2+ edits. Not for new files (write_file).',
     classification: { surgicalEdit: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
@@ -1042,8 +1046,10 @@ export const multiEditTool: Tool = {
 export const moveFileTool: Tool = {
   name: 'move_file',
   description:
-    'Move or rename a workspace path. overwrite=true requires a prior read_file of an existing destination. Not for editing a file in place — edit_file keeps the path and changes the content.',
+    'Move or rename a workspace path. overwrite=true requires a prior read_file of an existing destination. Not for editing a file in place — edit_file keeps the path and changes the content. A move keeps the content and changes only the path; use write_file for new content.',
   metadata: {
+    leanDescription:
+      'Move or rename a workspace path; overwrite=true needs a read_file of the destination first. Not for in-place edits (edit_file) or new content (write_file).',
     classification: { singleCallExempt: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
@@ -1186,6 +1192,8 @@ export const listDirectoryTool: Tool = {
   description:
     'List a directory (depth default 1, max 5). Directories end with /, symlinks with @. Skips node_modules, .git, and dist. Not for finding files by name pattern (search_files) or matching contents (search_code); it only lists what is there. A path outside the workspace is still listed.',
   metadata: {
+    leanDescription:
+      'List a directory (depth 1, max 5; dirs end with /, symlinks with @; skips node_modules/.git/dist). Not for finding by name (search_files) or content (search_code).',
     classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',

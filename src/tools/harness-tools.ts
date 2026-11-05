@@ -21,8 +21,10 @@ const DEFAULT_TEST_TIMEOUT_MS = 120_000;
 export const runTestsTool: Tool = {
   name: 'run_tests',
   description:
-    'Run one test file or one explicit test command and return pass/fail counts. Pass file for the spec you changed. A call with no file and no command does not start the suite. Pass suite=true only when the user asked for the whole suite or you are delivering.',
+    'Run one test file or one explicit test command and return pass/fail counts. Pass file for the spec you changed. A call with no file and no command does not start the suite. Pass suite=true only when the user asked for the whole suite or you are delivering. Not for installing dependencies or starting a dev server (exec).',
   metadata: {
+    leanDescription:
+      'Run one test file or one explicit command; returns pass/fail counts. No file and no command starts nothing; suite=true only for the whole suite or delivery. Not for installing deps (exec).',
     classification: { verifyShell: true },
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',

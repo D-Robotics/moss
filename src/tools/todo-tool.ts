@@ -95,8 +95,10 @@ async function applyTodoToLiveTask(
 export const todoWriteTool: Tool = {
   name: 'todo_write',
   description:
-    'Replace the checklist. Use for 3+ steps; skip a single trivial step. Exactly one item is in_progress. Each call sends the full list. When a live task exists this writes its plan steps (same list, one source of truth).',
+    'Replace the checklist. Use for 3+ steps; skip a single trivial step. Exactly one item is in_progress. Each call sends the full list. When a live task exists this writes its plan steps (same list, one source of truth). Not for recording acceptance or evidence — that is record_evidence/task_acceptance.',
   metadata: {
+    leanDescription:
+      "Replace the checklist for 3+ steps; exactly one item is in_progress; each call sends the whole list. A live task's plan becomes these steps.",
     sideEffectClass: 'runtime_state',
     planMode: 'allow',
     retainResult: true,
