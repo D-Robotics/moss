@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### The composer hint refreshes after every run (B145)
+
+- B144 computed the empty-composer hint only at boot, so a finished run left a stale
+  `Resume with …` (or a stale `/init`) in the input box. A chat turn, a task run, a resume and
+  an interrupt now recompute it from the ledger when they settle, so the hint names the run
+  that actually needs attention next.
+
+### 每次运行结束后刷新输入框提示（B145）
+
+- B144 只在启动/配置完成时计算空输入框提示，运行结束后仍显示旧内容（旧的 `继续：…` 或 `/init`）。
+  现在聊天回合、任务运行、resume 与中断在收尾时都会重新读账本并刷新提示，指向上一次真正需要处理的运行。
+
 ### The empty composer suggests the next step (B144)
 
 - The TUI composer placeholder used to be the same prompt in every workspace. It now reads
