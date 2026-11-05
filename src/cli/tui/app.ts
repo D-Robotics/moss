@@ -86,6 +86,7 @@ import {
 } from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
+import { renderWelcomeContextLines } from '../onboarding.js';
 import { wrapApprovalAsker, wrapApprovalViewAsker } from '../permission-request.js';
 import {
   formatDiffRunFailure,
@@ -1098,6 +1099,14 @@ export function TuiAppRoot({
     for (const server of liveMcpServers ?? []) {
       appendRow(store, 'system', formatMcpStatusLine(server));
     }
+    // B137: the first screen answers "what happened last, what now" — same
+    // ledger read as the REPL welcome, so both surfaces tell one story.
+    const welcomeContext = renderWelcomeContextLines(
+      options.workspaceDir,
+      activeUiLocale(options.locale) === 'zh'
+    );
+    for (const line of welcomeContext.lines) appendRow(store, 'detail', line);
+    appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
     options.onMcpUiReady?.();
     // Crash/quit recovery: history survives per-message, but a bare `moss`
     // used to start blank with no path back. One hint row names the newest
@@ -2855,7 +2864,12 @@ export function TuiAppRoot({
       options.onFirstRunReady?.(bundle);
       setupSecretRef.current = '';
       setSetupView(undefined);
-      appendRow(store, 'system', tui('Next: ask me to look around this folder.'));
+      const readyContext = renderWelcomeContextLines(
+        options.workspaceDir,
+        activeUiLocale(options.locale) === 'zh'
+      );
+      for (const line of readyContext.lines) appendRow(store, 'detail', line);
+      appendRow(store, 'system', tui('Next: {command}', { command: readyContext.next }));
       appendRow(store, 'system', tui(WORKSPACE_WRITE_LIMIT_EN));
       handle.notify();
     },

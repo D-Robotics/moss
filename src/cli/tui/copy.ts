@@ -176,6 +176,7 @@ export const ZH: Readonly<Record<string, string>> = {
 
   // ── composer placeholder (transcript.ts) ───────────────────────────────
   'Next: ask me to look around this folder.': '下一步：让我看看这个目录里有什么。',
+  'Next: {command}': '下一步：{command}',
   "workspace-write confines Moss's own file tools. Shell commands run normally without an OS sandbox.":
     '`workspace-write` 只约束 Moss 自己的文件工具。终端命令照常运行，没有操作系统沙箱。',
   'terminal is shorter than 10 rows': '终端高度不足 10 行',
