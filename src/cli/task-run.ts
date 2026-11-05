@@ -30,7 +30,7 @@ import {
 } from '../core/task-runtime/goal-runs.js';
 import type { GoalRunOutcome } from '../core/task-runtime/goal-runs.js';
 import { readReviewSummaries } from '../core/loop/review-ledger.js';
-import { formatGoalRunRows } from './task-list.js';
+import { formatGoalRunRows, projectGoalRunFailures, readFailureReasons } from './task-list.js';
 import { errorMessage } from '../errors.js';
 import { listDeploymentRecords } from '../device/deployment.js';
 import { resolveDefaultDeviceTarget } from '../device/device-target.js';
@@ -128,7 +128,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       '      --device ID      契约指定的目标设备标识',
       '  resume <task_id> [--accept "<cmd>"]  恢复一个失败/中断/阻塞的任务（可改正验收命令）',
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
-      '  list [--limit N] [--status pass|fail|blocked|aborted]  目标运行汇总：时间/结果/任务/轮次/耗时/目标（默认最近 20 条；表头给出全账本计数，--status 只筛表格与 JSON）',
+      '  list [--limit N] [--status pass|fail|blocked|aborted]  目标运行汇总：时间/结果/任务/轮次/耗时/目标；fail/blocked 行还会显示记录的失败原因（↳ 原因：…）与评审裁决（默认最近 20 条；表头给出全账本计数，--status 只筛表格与 JSON）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
       '  view [种类]          只读工件：`tasks` | `history` | `evidence` | `deployments` | `failures`',
       '  verify [task_id]     用裁决器复验一次（不发起模型回合）',
@@ -157,7 +157,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     '      --device ID      target device id for the contract',
     '  resume <task_id> [--accept "<cmd>"]  resume a failed/abandoned/blocked task, optionally correcting the oracle',
     '  status [task_id]     current phase, plan, failures, verdict (default: latest)',
-    '  list [--limit N] [--status pass|fail|blocked|aborted]  goal-run rollup: time/outcome/task/turns/duration/goal (default 20; the header counts the whole ledger and --status narrows table and JSON)',
+    '  list [--limit N] [--status pass|fail|blocked|aborted]  goal-run rollup: time/outcome/task/turns/duration/goal; fail/blocked rows also show the recorded failure reason and review verdict (default 20; the header counts the whole ledger and --status narrows table and JSON)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
     '  view [kind]          read-only artifacts: tasks | history | evidence | deployments | failures',
     '  verify [task_id]     re-run the verdict once (no model turn)',
@@ -698,7 +698,12 @@ export async function runTaskCommand(
     const records = await listGoalRuns(ctx.workspace);
     // The review verdict is only recorded in `.moss/review.jsonl`; project the
     // record that fell inside each run's window so a row says *why* it failed.
-    const rows = projectGoalRunReviews(records, readReviewSummaries(ctx.workspace));
+    // Failures recorded by the agent (`.moss/task-failures.jsonl`) explain a
+    // fail/blocked row the acceptance command alone cannot.
+    const rows = projectGoalRunFailures(
+      projectGoalRunReviews(records, readReviewSummaries(ctx.workspace)),
+      readFailureReasons(ctx.workspace)
+    );
     const scoped = parsed.status ? rows.filter((row) => row.outcome === parsed.status) : rows;
     const newestFirst = [...scoped].sort((left, right) => right.endedAt - left.endedAt);
     if (parsed.json || ctx.outputJson === true) {
