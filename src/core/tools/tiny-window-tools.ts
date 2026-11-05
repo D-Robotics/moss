@@ -53,3 +53,22 @@ export function tinyWindowToolSurfaceEnabled(params: {
 export function toolAllowedOnTinyWindow(name: string): boolean {
   return TINY_WINDOW_TOOL_NAMES.has(name);
 }
+
+/**
+ * B72: on a tiny window these five declarations are ~26% of the whole prompt,
+ * and most of that is prose. Keep the constraint the model needs per tool and
+ * drop the enumerations -- they mostly name tools this surface does not offer.
+ */
+const TINY_WINDOW_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  exec: 'Run a shell command (cwd does not persist; use absolute paths, no cd).',
+  read_file:
+    'Read a file with line numbers; page with offset (1-based) and limit. Do not copy the line numbers into edits.',
+  write_file: 'Create or overwrite a file with the full content.',
+  edit_file:
+    'Replace an exact string in an existing file. read_file it first; include no line-number prefixes.',
+  list_directory: 'List one directory level.',
+};
+
+export function tinyWindowToolDescription(name: string, description: string | undefined): string {
+  return TINY_WINDOW_TOOL_DESCRIPTIONS[name] ?? description ?? '';
+}

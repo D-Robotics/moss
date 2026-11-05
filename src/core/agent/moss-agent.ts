@@ -14,6 +14,7 @@ import {
 } from '../tools/background-process-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import {
+  tinyWindowToolDescription,
   tinyWindowToolSurfaceEnabled,
   toolAllowedOnTinyWindow,
 } from '../tools/tiny-window-tools.js';
@@ -1363,11 +1364,24 @@ ${result.stderr ?? ''}`.trim();
         planMode: this.config.planModeActive?.() === true,
       }) &&
       (options?.toolFilter?.(tool) ?? true);
+    // B72: on a tiny window the five declarations are a quarter of the prompt;
+    // their long descriptions enumerate tools this surface does not offer.
+    const slimTinyWindowTool = (tool: Tool): Tool => {
+      if (!tinyToolSurface) return tool;
+      const slim = tinyWindowToolDescription(tool.name, tool.description);
+      // The wire prefers `metadata.leanDescription` on any window <=64k (all tiny
+      // windows qualify), so set both: `description` stays the host-facing text.
+      return {
+        ...tool,
+        description: slim,
+        metadata: { ...(tool.metadata ?? {}), leanDescription: slim },
+      };
+    };
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
       filterToolsForRun(
         [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
         visibleForRun
-      );
+      ).map(slimTinyWindowTool);
     const allTools = resolveRunTools();
     const hostResolveMissingTool = this.config.resolveMissingTool;
     // A name that appears after the tool list was built (MCP handshake, or
@@ -1383,7 +1397,8 @@ ${result.stderr ?? ''}`.trim();
       if (!hostResolveMissingTool) return undefined;
       const resolved = await hostResolveMissingTool(name, signal);
       if (!resolved) return undefined;
-      return filterToolsForRun([resolved], visibleForRun)[0];
+      const tool = filterToolsForRun([resolved], visibleForRun)[0];
+      return tool ? slimTinyWindowTool(tool) : undefined;
     };
 
     const toolCtx: ToolContext = {

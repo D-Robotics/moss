@@ -14,8 +14,12 @@ import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const { builtinTools } = await import(pathToFileURL(path.join(root, 'dist/tools/builtin.js')).href);
-const { TINY_WINDOW_AUTO_CONTEXT_TOKENS, TINY_WINDOW_TOOL_NAMES, tinyWindowToolSurfaceEnabled } =
-  await import(pathToFileURL(path.join(root, 'dist/core/tools/tiny-window-tools.js')).href);
+const {
+  TINY_WINDOW_AUTO_CONTEXT_TOKENS,
+  TINY_WINDOW_TOOL_NAMES,
+  tinyWindowToolDescription,
+  tinyWindowToolSurfaceEnabled,
+} = await import(pathToFileURL(path.join(root, 'dist/core/tools/tiny-window-tools.js')).href);
 const { resolveModelOutputBudget } = await import(
   pathToFileURL(path.join(root, 'dist/core/loop/output-limit.js')).href
 );
@@ -164,6 +168,24 @@ assert.ok(
   `the terse profile must free real prompt budget, freed ${fullPrompt.length - compactPrompt.length}`
 );
 
+// ── Tool declarations: every name on the tiny surface has a terse description. ──
+let tinyDescriptionChars = 0;
+for (const name of TINY_WINDOW_TOOL_NAMES) {
+  const text = tinyWindowToolDescription(name, 'x'.repeat(900));
+  assert.notEqual(text, 'x'.repeat(900), `${name} must have a tiny-window description`);
+  assert.ok(text.length <= 130, `${name} description is ${text.length} chars, expected <= 130`);
+  tinyDescriptionChars += text.length;
+}
+assert.ok(
+  tinyDescriptionChars < 500,
+  `the whole tiny-surface prose must stay small, got ${tinyDescriptionChars} chars`
+);
+assert.equal(
+  tinyWindowToolDescription('create_subagent', 'full text'),
+  'full text',
+  'tools outside the tiny surface keep their own description'
+);
+
 // ── Tool results: a tiny window must not accept a result sized for a big one. ──
 const { tinyWindowToolResultTokens } = await import(
   pathToFileURL(path.join(root, 'dist/context/window-economics.js')).href
@@ -256,5 +278,6 @@ console.log(
     `sub-agent catalog freed ${fullPrompt.length - trimmedPrompt.length} prompt chars when the surface excludes it; ` +
     `4096 boot announces the reduced profile, 32k and forced-off boots do not; ` +
     `tool results capped to ${tinyWindowToolResultTokens(4096)} tokens at 4096, unchanged at 32k; ` +
-    `small-context guidance frees ${fullPrompt.length - compactPrompt.length} chars`
+    `small-context guidance frees ${fullPrompt.length - compactPrompt.length} chars, ` +
+    `tiny tool prose totals ${tinyDescriptionChars} chars for ${TINY_WINDOW_TOOL_NAMES.size} tools`
 );
