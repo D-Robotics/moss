@@ -2,7 +2,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 
-const MAX_CHECKPOINTS = 20;
+/**
+ * Claude Code keeps the 100 most recent checkpoints per session and stores them
+ * with the conversation, so `/rewind` still works after a resume. Moss matches
+ * the retention window and persists the metadata next to the backups; pruning
+ * a checkpoint also deletes its backup files, so the bound is real on disk.
+ */
+const MAX_CHECKPOINTS = 100;
+const META_FILE = 'checkpoints.json';
 
 interface FileBackup {
   backupName: string | null;
@@ -60,6 +67,62 @@ export class FileCheckpointStore {
 
   constructor(opts: { runtimeDir: string; sessionKey: string }) {
     this.dir = path.join(opts.runtimeDir, 'checkpoints', encodeURIComponent(opts.sessionKey));
+    this.load();
+  }
+
+  /** Persist the metadata: backups already live in `this.dir`; without this the
+   *  list disappeared on exit even though the files were still on disk. */
+  private load(): void {
+    try {
+      const raw = fs.readFileSync(path.join(this.dir, META_FILE), 'utf8');
+      const parsed = JSON.parse(raw) as { checkpoints?: Checkpoint[] };
+      if (!Array.isArray(parsed.checkpoints)) return;
+      this.checkpoints = parsed.checkpoints
+        .filter(
+          (cp): cp is Checkpoint =>
+            Boolean(cp) &&
+            typeof cp.seq === 'number' &&
+            typeof cp.label === 'string' &&
+            typeof cp.ts === 'number' &&
+            typeof cp.messageCount === 'number' &&
+            Boolean(cp.files) &&
+            typeof cp.files === 'object'
+        )
+        .slice(-MAX_CHECKPOINTS);
+      this.seq = this.checkpoints.reduce((max, cp) => Math.max(max, cp.seq), 0);
+    } catch {
+      // Missing or unreadable metadata means no rewind points, never a boot
+      // failure: the restore tool must stay conservative about what it claims.
+      this.checkpoints = [];
+      this.seq = 0;
+    }
+  }
+
+  private save(): void {
+    try {
+      fs.mkdirSync(this.dir, { recursive: true });
+      const tmp = path.join(this.dir, `${META_FILE}.tmp`);
+      fs.writeFileSync(tmp, JSON.stringify({ version: 1, checkpoints: this.checkpoints }));
+      fs.renameSync(tmp, path.join(this.dir, META_FILE));
+    } catch {
+      // Disk trouble must not break the tool path; rewind simply won't survive.
+    }
+  }
+
+  /** Delete backups that no retained checkpoint references. */
+  private pruneBackups(): void {
+    try {
+      const referenced = new Set<string>();
+      for (const cp of this.checkpoints) {
+        for (const backup of Object.values(cp.files)) {
+          if (backup.backupName) referenced.add(backup.backupName);
+        }
+      }
+      for (const name of fs.readdirSync(this.dir)) {
+        if (name === META_FILE || name === `${META_FILE}.tmp`) continue;
+        if (!referenced.has(name)) fs.rmSync(path.join(this.dir, name), { force: true });
+      }
+    } catch {}
   }
 
   open(label: string, messageCount = 0): void {
@@ -75,6 +138,8 @@ export class FileCheckpointStore {
     if (this.checkpoints.length > MAX_CHECKPOINTS) {
       this.checkpoints = this.checkpoints.slice(-MAX_CHECKPOINTS);
     }
+    this.pruneBackups();
+    this.save();
   }
 
   trackBeforeWrite(absPath: string): void {
@@ -90,12 +155,14 @@ export class FileCheckpointStore {
       }
       if (!exists) {
         cp.files[absPath] = { backupName: null, origHash: null };
+        this.save();
         return;
       }
       const backupName = `${crypto.createHash('sha256').update(absPath).digest('hex').slice(0, 16)}@${cp.seq}`;
       fs.copyFileSync(absPath, path.join(this.dir, backupName));
       cp.files[absPath] = { backupName, origHash: hashFile(absPath) };
     } catch {}
+    this.save();
   }
 
   noteAfterWrite(absPath: string): void {
@@ -110,6 +177,7 @@ export class FileCheckpointStore {
       entry.postMissing = false;
       entry.postHash = h;
     }
+    this.save();
   }
 
   hasCheckpoints(): boolean {
@@ -153,6 +221,8 @@ export class FileCheckpointStore {
       }
     }
     this.checkpoints = this.checkpoints.slice(0, idx);
+    this.pruneBackups();
+    this.save();
     return { found: true, restored, skipped, messageCount: cp.messageCount };
   }
 
