@@ -371,7 +371,7 @@ export class MossAgent {
    * count and the per-layer telemetry can distinguish "agent prompt" from
    * "host layers" without re-parsing the joined string.
    */
-  private buildBaseSystemPromptParts(): string[] {
+  private buildBaseSystemPromptParts(options?: { omitSubagentExperts?: boolean }): string[] {
     const parts: string[] = [];
 
     if (this.config.baseSystemPrompt) {
@@ -404,7 +404,11 @@ export class MossAgent {
           : buildAgentBehaviorPromptQuick()
       );
     }
-    const expertCatalog = buildSubagentExpertCatalog(this.expertRegistry.list());
+    // B67: the catalog tells the model to call `create_subagent` / `fan_out_subagents`.
+    // A run whose surface excludes those tools must not advertise them.
+    const expertCatalog = options?.omitSubagentExperts
+      ? undefined
+      : buildSubagentExpertCatalog(this.expertRegistry.list());
     if (expertCatalog) parts.push(expertCatalog);
     parts.push(TOOL_RESULT_HANDLING_SECTION);
     return parts;
@@ -414,8 +418,11 @@ export class MossAgent {
     platform?: string;
     extraContext?: string;
     omitExtraPromptLayers?: boolean;
+    omitSubagentExperts?: boolean;
   }): string {
-    const parts = this.buildBaseSystemPromptParts();
+    const parts = this.buildBaseSystemPromptParts(
+      options?.omitSubagentExperts === true ? { omitSubagentExperts: true } : undefined
+    );
 
     // Host layers: the declared table wins when a host provides one; the two
     // legacy arrays stay for SDK hosts that never adopted PromptLayersPort.
@@ -435,12 +442,15 @@ export class MossAgent {
   }
 
   /** Per-layer attribution for run_metrics (ids + short hashes). */
-  private buildSystemPromptMeta(stablePrompt: string): {
+  private buildSystemPromptMeta(
+    stablePrompt: string,
+    options?: { omitSubagentExperts?: boolean }
+  ): {
     hashShort: string;
     layerCount: number;
     layerHashes: Record<string, string>;
   } {
-    const base = this.buildBaseSystemPromptParts().filter(Boolean);
+    const base = this.buildBaseSystemPromptParts(options).filter(Boolean);
     const host = summarizePromptLayers(this.config.promptLayers);
     return {
       hashShort: hashSystemPromptForTelemetry(stablePrompt, []).combinedHashShort,
@@ -454,7 +464,11 @@ export class MossAgent {
    * suffix (environment, MCP/skills, context window). The model sees `full`.
    * Provider caches key off `stable`.
    */
-  composeSystemPrompt(options?: { platform?: string; omitExtraPromptLayers?: boolean }): {
+  composeSystemPrompt(options?: {
+    platform?: string;
+    omitExtraPromptLayers?: boolean;
+    omitSubagentExperts?: boolean;
+  }): {
     stable: string;
     dynamic: string;
     full: string;
@@ -462,6 +476,7 @@ export class MossAgent {
     const stable = this.buildSystemPrompt({
       ...(options?.platform ? { platform: options.platform } : {}),
       ...(options?.omitExtraPromptLayers ? { omitExtraPromptLayers: true } : {}),
+      ...(options?.omitSubagentExperts ? { omitSubagentExperts: true } : {}),
     });
     const dynamicLayers =
       this.config.promptLayers?.dynamic ?? this.config.dynamicPromptLayers ?? [];
@@ -1109,6 +1124,9 @@ ${result.stderr ?? ''}`.trim();
       }).initial;
     const maxOutputTokens = Math.max(1, Math.floor(seededOutputTokens));
     const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOutputTokens);
+    // B66/B67: a window too small for the standard surface also drops the
+    // sub-agent catalog, which advertises tools this run will not offer.
+    const tinyToolSurface = tinyWindowToolSurfaceEnabled({ effectiveContextTokens });
     const temperature = options?.temperature ?? this.config.temperature;
     const topP = options?.topP ?? this.config.topP;
     const runId = options?.runId ?? crypto.randomUUID();
@@ -1184,6 +1202,7 @@ ${result.stderr ?? ''}`.trim();
       const composed = this.composeSystemPrompt({
         ...(options?.platform ? { platform: options.platform } : {}),
         ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
+        ...(tinyToolSurface ? { omitSubagentExperts: true } : {}),
       });
       if (harnessAdapter) {
         composed.stable += `\n\n## Host-selected harness instructions\nThese instructions do not grant permissions or change tool access.\n${harnessAdapter.instructions}`;
@@ -1298,7 +1317,6 @@ ${result.stderr ?? ''}`.trim();
     });
     // B66: a window too small for the standard surface gets a core tool set, or
     // the very first request exceeds the provider context limit.
-    const tinyToolSurface = tinyWindowToolSurfaceEnabled({ effectiveContextTokens });
     const visibleForRun = (tool: Tool): boolean =>
       this.deferredTools.isOffered(tool.name) &&
       (!tinyToolSurface || toolAllowedOnTinyWindow(tool.name)) &&
@@ -1774,7 +1792,10 @@ ${result.stderr ?? ''}`.trim();
       systemPrompt,
       systemPromptParts,
       getSystemPrompt: () => composeRunPrompt().full,
-      systemPromptMeta: this.buildSystemPromptMeta(systemPrompt),
+      systemPromptMeta: this.buildSystemPromptMeta(
+        systemPrompt,
+        tinyToolSurface ? { omitSubagentExperts: true } : undefined
+      ),
       ...(promptCacheEnabled
         ? {
             getSystemPromptParts: () => {

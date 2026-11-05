@@ -96,7 +96,59 @@ assert.ok(
   `deterministic summary ${bounded.length} exceeds its window budget`
 );
 
+// ── Prompt-level: a run that will not offer sub-agent tools must not advertise
+// them. The run-level wiring (tiny window -> omitSubagentExperts) is proven by
+// the 4096-window end-to-end probe recorded in the backlog. ───────────────────
+const { MossAgent } = await import(
+  pathToFileURL(path.join(root, 'dist/core/agent/moss-agent.js')).href
+);
+const { InMemorySessionStore } = await import(
+  pathToFileURL(path.join(root, 'dist/core/session/session.js')).href
+);
+const promptAgent = new MossAgent({
+  llmProvider: {
+    id: 'scripted',
+    displayName: 'scripted (offline)',
+    capabilities: { streaming: true },
+    async complete() {
+      return { stopReason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+    },
+    async stream(_options, onEvent) {
+      onEvent({ type: 'message_start' });
+      onEvent({ type: 'message_delta', stopReason: 'end_turn' });
+      onEvent({ type: 'message_stop' });
+    },
+  },
+  sessionStore: new InMemorySessionStore(),
+  baseSystemPrompt: 'You are an offline probe agent.',
+  domainPrompt: false,
+  enableSteering: false,
+  enableFollowUpGuard: false,
+  contextTokens: 4096,
+});
+let fullPrompt;
+let trimmedPrompt;
+try {
+  fullPrompt = promptAgent.buildSystemPrompt({});
+  trimmedPrompt = promptAgent.buildSystemPrompt({ omitSubagentExperts: true });
+} finally {
+  await promptAgent.close();
+}
+assert.ok(
+  fullPrompt.includes('Available sub-agent experts'),
+  'the standard prompt keeps the catalog'
+);
+assert.ok(
+  !trimmedPrompt.includes('Available sub-agent experts'),
+  'a run without sub-agent tools must not advertise them'
+);
+assert.ok(
+  fullPrompt.length - trimmedPrompt.length > 400,
+  `dropping the catalog must free real prompt budget, freed ${fullPrompt.length - trimmedPrompt.length}`
+);
+
 console.log(
   `[tiny-window-surface] ok: 4096 window -> ${tinyBudget} prompt tokens / 682 output, ` +
-    `${declared.length} core tools (${declared.join(', ')}), summary bounded to 2456 chars`
+    `${declared.length} core tools (${declared.join(', ')}), summary bounded to 2456 chars; ` +
+    `sub-agent catalog freed ${fullPrompt.length - trimmedPrompt.length} prompt chars when the surface excludes it`
 );
