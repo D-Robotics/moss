@@ -675,7 +675,9 @@ export function TuiAppRoot({
   const fromQueueRef = useRef(false);
   const submitRef = useRef<(text: string) => Promise<void>>(async () => undefined);
   /** `/run` proposal waiting for Enter (accept) or `n` (contract verdict only). */
-  const pendingGoalRef = useRef<{ goal: string } | null>(null);
+  const pendingGoalRef = useRef<{ goal: string; maxRepairs?: number; maxTurns?: number } | null>(
+    null
+  );
   const customCommandLoad = useMemo(() => {
     const notices: string[] = [];
     const commands = loadCustomCommands(
@@ -2085,16 +2087,22 @@ export function TuiAppRoot({
         }
         if (plan.kind === 'propose') {
           printBlock('Goal', acceptanceProposalLines(plan.goal, plan.candidates, locale));
-          pendingGoalRef.current = { goal: plan.goal };
+          pendingGoalRef.current = {
+            goal: plan.goal,
+            ...(plan.maxRepairs !== undefined ? { maxRepairs: plan.maxRepairs } : {}),
+            ...(plan.maxTurns !== undefined ? { maxTurns: plan.maxTurns } : {}),
+          };
           setInput(plan.candidates[0] ?? '');
           return true;
         }
         if (plan.notice) printBlock('Goal', [plan.notice]);
-        const maxTurns = resolveLoopMaxIterations(process.env, true);
+        const envMaxTurns = resolveLoopMaxIterations(process.env, true);
+        const maxTurns = plan.maxTurns ?? (envMaxTurns > 0 ? envMaxTurns : undefined);
         await runTaskShellCommand(
           goalRunArgs(plan.goal, {
             ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
-            ...(maxTurns > 0 ? { maxTurns } : {}),
+            ...(maxTurns !== undefined ? { maxTurns } : {}),
+            ...(plan.maxRepairs !== undefined ? { maxRepairs: plan.maxRepairs } : {}),
           }),
           args ? `/run ${args}` : '/run'
         );
@@ -2188,14 +2196,21 @@ export function TuiAppRoot({
         setInput('');
         setHistoryCursor({ index: undefined, draft: '' });
         setStatusLine(undefined);
+        const pendingBudgets = {
+          ...(pending.maxRepairs !== undefined ? { maxRepairs: pending.maxRepairs } : {}),
+          ...(pending.maxTurns !== undefined ? { maxTurns: pending.maxTurns } : {}),
+        };
         if (/^n$/i.test(text)) {
           appendRow(store, 'summary', skippedAcceptanceNotice(cliLocale()));
           handle.notify();
-          await runTaskShellCommand(goalRunArgs(pending.goal), `/run ${pending.goal}`);
+          await runTaskShellCommand(
+            goalRunArgs(pending.goal, pendingBudgets),
+            `/run ${pending.goal}`
+          );
           return;
         }
         await runTaskShellCommand(
-          goalRunArgs(pending.goal, { acceptance: text }),
+          goalRunArgs(pending.goal, { acceptance: text, ...pendingBudgets }),
           `/run ${pending.goal}`
         );
         return;

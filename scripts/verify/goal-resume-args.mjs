@@ -192,4 +192,42 @@ assert.equal(resumeEchoLine('task_latest', { maxTurns: 2 }, true), '继续 task_
 ok('the REPL echoes the resolved task and the retry budget before it runs');
 
 await fs.rm(tmp, { recursive: true, force: true });
+// B146: `/run` flag parsing keeps quotes out of the acceptance command and
+// survives flags that come after `--accept`.
+{
+  const ws = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-parse-'));
+  try {
+    const both = planGoalInvocation('"create ok.txt" --accept "test -f ok.txt" --max-turns 2', ws);
+    assert.equal(both.kind, 'run');
+    assert.equal(both.goal, 'create ok.txt');
+    assert.equal(both.acceptance, 'test -f ok.txt');
+    assert.equal(both.maxTurns, 2);
+    ok('a quoted goal/acceptance unpacks and a later --max-turns survives');
+
+    const inline = planGoalInvocation('fix --accept="grep -q ok ok.txt" --max-repairs 1', ws);
+    assert.equal(inline.kind, 'run');
+    assert.equal(inline.acceptance, 'grep -q ok ok.txt');
+    assert.equal(inline.maxRepairs, 1);
+    ok('--accept=<quoted command> and --max-repairs parse in either order');
+
+    const legacy = planGoalInvocation('ship it --accept npm test', ws);
+    assert.equal(legacy.kind, 'run');
+    assert.equal(legacy.acceptance, 'npm test');
+    ok('unquoted multi-word --accept still consumes the rest of the line');
+
+    for (const bad of [
+      'goal --accept',
+      'goal --accept "unterminated',
+      'goal --nope 1',
+      'goal --accept "a" --accept "b"',
+      '--accept "only flags"',
+    ]) {
+      assert.equal(planGoalInvocation(bad, ws).kind, 'usage', bad);
+    }
+    ok('missing values, unknown flags, duplicate --accept and empty goals are usage errors');
+  } finally {
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+}
+
 console.log(`[goal-resume-args] ${checks}/${checks} checks passed`);

@@ -950,10 +950,12 @@ export async function runInteractive(
         continue;
       } else {
         if (plan.notice) process.stderr.write(`${plan.notice}\n`);
-        const maxTurns = resolveLoopMaxIterations(process.env, true);
+        const envMaxTurns = resolveLoopMaxIterations(process.env, true);
+        const maxTurns = plan.maxTurns ?? (envMaxTurns > 0 ? envMaxTurns : undefined);
         msg = `/task ${goalRunArgs(plan.goal, {
           ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
-          ...(maxTurns > 0 ? { maxTurns } : {}),
+          ...(maxTurns !== undefined ? { maxTurns } : {}),
+          ...(plan.maxRepairs !== undefined ? { maxRepairs: plan.maxRepairs } : {}),
         })}`;
       }
     }

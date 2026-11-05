@@ -84,34 +84,78 @@ export function proposeAcceptanceCommands(workspace: string): AcceptanceProposal
 export interface ParsedGoalCommand {
   goal: string;
   acceptance?: { command: string };
+  maxRepairs?: number;
+  maxTurns?: number;
 }
 
+/** `/run` flags after the goal; unknown flags are usage errors, not goal text. */
+const RUN_FLAG_NAMES: readonly string[] = ['--accept', '--max-repairs', '--max-turns'];
+
 /**
- * Parse a `/run <goal text> [--accept "<verification command>"]` line.
- * Returns null for a malformed line (empty goal, or --accept without a
- * command).
+ * Parse a `/run <goal text> [--accept "<cmd>"] [--max-turns N]` line.
+ *
+ * B146: the old version took everything after `--accept` as the command, so
+ * `/run "goal" --accept "test -f ok.txt" --max-turns 2` stored the literal
+ * `"test -f ok.txt" --max-turns 2`. `bash -c` then ran a quoted command word
+ * named `test -f ok.txt` and exited 127, which the task engine correctly
+ * reported as `acceptance_command_unavailable` — a broken oracle caused by
+ * quoting, not by the user's work. Tokens now go through the same quote-aware
+ * splitter as `/run resume`, so quotes are stripped and later flags survive.
  */
 export function parseGoalCommandLine(line: string): ParsedGoalCommand | null {
   const raw = line.trim();
   if (!raw) return null;
-  const idx = raw.search(/(^|\s)--accept(\s+|=|$)/);
-  if (idx === -1) return { goal: raw };
-  const goal = raw.slice(0, idx).trim();
-  if (!goal) return null;
-  let rest = raw
-    .slice(idx)
-    .replace(/^\s*--accept(\s+|=|$)/, '')
-    .trim();
-  if (!rest) return null;
-  if (
-    (rest.startsWith('"') && rest.endsWith('"')) ||
-    (rest.startsWith("'") && rest.endsWith("'"))
-  ) {
-    rest = rest.slice(1, -1);
+  const tokens = tokenizeResumeArgs(raw);
+  if (!tokens || tokens.length === 0) return null;
+  const goalTokens: string[] = [];
+  const parsed: ParsedGoalCommand = { goal: '' };
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i] ?? '';
+    const name = resumeFlagName(token);
+    if (!RUN_FLAG_NAMES.includes(name)) {
+      if (token.startsWith('-')) return null;
+      goalTokens.push(token);
+      continue;
+    }
+    const eq = token.indexOf('=');
+    const inline = token.startsWith('--') && eq > 0 ? token.slice(eq + 1) : undefined;
+    let value = inline;
+    if (name === '--accept') {
+      if (parsed.acceptance) return null;
+      const parts: string[] = [];
+      if (value !== undefined) parts.push(value);
+      else {
+        const next = tokens[++i];
+        if (next === undefined || RUN_FLAG_NAMES.includes(resumeFlagName(next))) return null;
+        parts.push(next);
+        // Backward compatibility: `--accept npm test` (unquoted) keeps consuming
+        // words until the next known flag.
+        while (i + 1 < tokens.length) {
+          const candidate = tokens[i + 1] ?? '';
+          if (RUN_FLAG_NAMES.includes(resumeFlagName(candidate))) break;
+          i += 1;
+          parts.push(candidate);
+        }
+      }
+      const command = parts.join(' ').trim();
+      if (!command) return null;
+      parsed.acceptance = { command };
+      continue;
+    }
+    if (value === undefined) value = tokens[++i];
+    const budget = parseResumeBudget(value);
+    if (budget === null) return null;
+    if (name === '--max-repairs') {
+      if (parsed.maxRepairs !== undefined) return null;
+      parsed.maxRepairs = budget;
+    } else {
+      if (parsed.maxTurns !== undefined) return null;
+      parsed.maxTurns = budget;
+    }
   }
-  rest = rest.trim();
-  if (!rest) return null;
-  return { goal, acceptance: { command: rest } };
+  if (goalTokens.length === 0) return null;
+  parsed.goal = goalTokens.join(' ');
+  return parsed;
 }
 
 export type GoalInvocation =
@@ -124,8 +168,21 @@ export type GoalInvocation =
       maxRepairs?: number;
       maxTurns?: number;
     }
-  | { kind: 'run'; goal: string; acceptance?: string; notice?: string }
-  | { kind: 'propose'; goal: string; candidates: string[] };
+  | {
+      kind: 'run';
+      goal: string;
+      acceptance?: string;
+      notice?: string;
+      maxRepairs?: number;
+      maxTurns?: number;
+    }
+  | {
+      kind: 'propose';
+      goal: string;
+      candidates: string[];
+      maxRepairs?: number;
+      maxTurns?: number;
+    };
 
 /** The parsed `/run resume` plan, before the task id is resolved. */
 export type GoalResumeInvocation = Extract<GoalInvocation, { kind: 'resume' }>;
@@ -254,13 +311,23 @@ export function planGoalInvocation(rest: string, workspace: string): GoalInvocat
   }
   const parsed = parseGoalCommandLine(token);
   if (!parsed) return { kind: 'usage' };
-  if (parsed.acceptance)
-    return { kind: 'run', goal: parsed.goal, acceptance: parsed.acceptance.command };
+  const budgets = {
+    ...(parsed.maxRepairs !== undefined ? { maxRepairs: parsed.maxRepairs } : {}),
+    ...(parsed.maxTurns !== undefined ? { maxTurns: parsed.maxTurns } : {}),
+  };
+  if (parsed.acceptance) {
+    return {
+      kind: 'run',
+      goal: parsed.goal,
+      acceptance: parsed.acceptance.command,
+      ...budgets,
+    };
+  }
   const proposal = proposeAcceptanceCommands(workspace);
   if (proposal.candidates.length === 0) {
-    return { kind: 'run', goal: parsed.goal, notice: proposal.emptyNotice };
+    return { kind: 'run', goal: parsed.goal, notice: proposal.emptyNotice, ...budgets };
   }
-  return { kind: 'propose', goal: parsed.goal, candidates: proposal.candidates };
+  return { kind: 'propose', goal: parsed.goal, candidates: proposal.candidates, ...budgets };
 }
 
 export const GOAL_USAGE =
@@ -386,10 +453,13 @@ export function goalResumeDispatchArgs(
 /** Arguments for `runTaskCommand` (`run <goal> [--accept "…"]`). */
 export function goalRunArgs(
   goal: string,
-  options: { acceptance?: string; maxTurns?: number } = {}
+  options: { acceptance?: string; maxTurns?: number; maxRepairs?: number } = {}
 ): string {
   const flags: string[] = [];
   if (options.acceptance) flags.push('--accept', quoteCommandArg(options.acceptance));
+  if (options.maxRepairs && options.maxRepairs > 0) {
+    flags.push('--max-repairs', String(options.maxRepairs));
+  }
   if (options.maxTurns && options.maxTurns > 0) {
     flags.push('--max-turns', String(options.maxTurns));
   }
