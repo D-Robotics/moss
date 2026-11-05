@@ -277,6 +277,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
         agent,
         workspace,
         sessionKey: (ctx.sessionKey as string | undefined) ?? `task-${Date.now().toString(36)}`,
+        outputJson: ctx.argv.includes('--json'),
         ...(typeof ctx.configDir === 'string' ? { configDir: ctx.configDir } : {}),
         ...(ctx.mcp ? { mcp: ctx.mcp as NonNullable<TaskCommandContext['mcp']> } : {}),
       });

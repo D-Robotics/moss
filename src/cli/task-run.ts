@@ -6,6 +6,7 @@
  *   moss task resume <task_id>
  *   moss task status [task_id]      (default: latest)
  *   moss task timeline [task_id]
+ *   moss task list [--limit N] [--json]   (goal-run rollup, newest first)
  *
  * Exit code 0 only when the task reached accepted (PASS).
  */
@@ -22,6 +23,9 @@ import {
   localizeTaskDetail,
 } from '../core/task/task-store.js';
 import { listEvidenceRecords } from '../core/task-runtime/artifacts.js';
+import { recordGoalRun, listGoalRuns } from '../core/task-runtime/goal-runs.js';
+import { formatGoalRunRows } from './task-list.js';
+import { errorMessage } from '../errors.js';
 import { listDeploymentRecords } from '../device/deployment.js';
 import { resolveDefaultDeviceTarget } from '../device/device-target.js';
 import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
@@ -42,6 +46,8 @@ export interface TaskCommandContext {
   /** Output sink; defaults to the process streams for headless CLI use. */
   onOutput?: (stream: 'stdout' | 'stderr', text: string) => void;
   signal?: AbortSignal;
+  /** Top-level `--json` (the CLI arg parser consumes it before the subcommand). */
+  outputJson?: boolean;
   /**
    * Connected MCP servers, when the host has any. Discovery selects tools from
    * `catalog()` per task and `reveal()`s exactly those, so a per-task MCP choice
@@ -88,6 +94,7 @@ export function interactiveTaskUsageLines(): readonly string[] {
     return [
       '用法：/task run <目标...> [--accept "<命令>"]',
       '/task status|timeline [标识]',
+      '/task list [--limit N] [--json]',
       '/task resume [标识]',
       '/task verify [标识]',
       '/task view [种类]',
@@ -96,6 +103,7 @@ export function interactiveTaskUsageLines(): readonly string[] {
   return [
     'usage: /task run <goal...> [--accept "<cmd>"]',
     '/task status|timeline [id]',
+    '/task list [--limit N] [--json]',
     '/task resume [id]',
     '/task verify [id]',
     '/task view [kind]',
@@ -114,6 +122,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       '      --device ID      契约指定的目标设备标识',
       '  resume <task_id>     恢复一个失败/中断/阻塞的任务',
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
+      '  list [--limit N]     目标运行汇总：时间/结果/任务/轮次/耗时/目标（默认最近 20 条）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
       '  view [种类]          只读工件：`tasks` | `history` | `evidence` | `deployments` | `failures`',
       '  verify [task_id]     用裁决器复验一次（不发起模型回合）',
@@ -142,6 +151,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     '      --device ID      target device id for the contract',
     '  resume <task_id>     resume a failed/abandoned/blocked task',
     '  status [task_id]     current phase, plan, failures, verdict (default: latest)',
+    '  list [--limit N]     goal-run rollup: time/outcome/task/turns/duration/goal (default 20)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
     '  view [kind]          read-only artifacts: tasks | history | evidence | deployments | failures',
     '  verify [task_id]     re-run the verdict once (no model turn)',
@@ -507,6 +517,54 @@ function tapUsage(ctx: TaskCommandContext): {
   };
 }
 
+/** `--limit N` (default 20) and `--json` for `moss task list`. */
+function listOptions(args: string[]): { limit: number; json: boolean } {
+  let limit = 20;
+  let json = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--json') json = true;
+    else if (arg === '--limit') {
+      const value = Number(args[++i]);
+      if (Number.isFinite(value) && value > 0) limit = Math.floor(value);
+    } else if (arg?.startsWith('--limit=')) {
+      const value = Number(arg.slice('--limit='.length));
+      if (Number.isFinite(value) && value > 0) limit = Math.floor(value);
+    }
+  }
+  return { limit, json };
+}
+
+/**
+ * Append the rollup row. A failed write warns once per run and never changes
+ * the task exit code — the run's own verdict already happened.
+ */
+async function recordRun(
+  ctx: TaskCommandContext,
+  result: Awaited<ReturnType<typeof runTask>>,
+  startedAt: number,
+  goal: string,
+  acceptanceCommand: string | undefined,
+  output: (stream: 'stdout' | 'stderr', text: string) => void
+): Promise<void> {
+  try {
+    await recordGoalRun(ctx.workspace, {
+      taskId: result.snapshot.taskId,
+      goal,
+      phase: result.snapshot.phase,
+      outcome: result.outcome,
+      attempts: result.snapshot.attempt,
+      repairs: result.snapshot.repairs.length,
+      turns: result.turns,
+      startedAt,
+      ...(acceptanceCommand ? { acceptanceCommand } : {}),
+      sessionKey: ctx.sessionKey,
+    });
+  } catch (err) {
+    output('stderr', `[task] could not record the goal run: ${errorMessage(err)}\n`);
+  }
+}
+
 export async function runTaskCommand(
   commandArgs: string[],
   ctx: TaskCommandContext
@@ -530,6 +588,7 @@ export async function runTaskCommand(
       return 2;
     }
     const usageTap = tapUsage(ctx);
+    const startedAt = Date.now();
     const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
       onEvent: usageTap.onAgentEvent,
       ...(ctx.signal ? { abortSignal: ctx.signal } : {}),
@@ -559,6 +618,7 @@ export async function runTaskCommand(
     output('stdout', summarizeTaskRun(result, locale) + '\n');
     const usageLine = usageTap.line();
     if (usageLine) output('stdout', `${usageLine}\n`);
+    await recordRun(ctx, result, startedAt, goal, flags.accept, output);
     return result.outcome === 'pass' ? 0 : 1;
   }
 
@@ -572,6 +632,7 @@ export async function runTaskCommand(
       return 2;
     }
     const usageTap = tapUsage(ctx);
+    const startedAt = Date.now();
     const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
       onEvent: usageTap.onAgentEvent,
       ...(ctx.signal ? { abortSignal: ctx.signal } : {}),
@@ -590,7 +651,22 @@ export async function runTaskCommand(
     output('stdout', summarizeTaskRun(result, locale) + '\n');
     const usageLine = usageTap.line();
     if (usageLine) output('stdout', `${usageLine}\n`);
+    await recordRun(ctx, result, startedAt, result.snapshot.goal, undefined, output);
     return result.outcome === 'pass' ? 0 : 1;
+  }
+
+  if (sub === 'list') {
+    const parsed = listOptions(commandArgs.slice(1));
+    const records = await listGoalRuns(ctx.workspace);
+    const newestFirst = [...records].sort((left, right) => right.endedAt - left.endedAt);
+    if (parsed.json || ctx.outputJson === true) {
+      output('stdout', `${JSON.stringify(newestFirst.slice(0, parsed.limit), null, 2)}\n`);
+      return 0;
+    }
+    for (const line of formatGoalRunRows(records, { zh, limit: parsed.limit })) {
+      output('stdout', `${line}\n`);
+    }
+    return 0;
   }
 
   if (sub === 'status') {

@@ -906,7 +906,7 @@ export async function runInteractive(
     if (msg === '/task' || msg.startsWith('/task ')) {
       const rest = msg.slice('/task'.length).trim();
       const sub = rest.split(/\s+/)[0];
-      if (!['run', 'resume', 'status', 'timeline', 'view', 'verify'].includes(sub ?? '')) {
+      if (!['run', 'resume', 'status', 'timeline', 'view', 'verify', 'list'].includes(sub ?? '')) {
         const { interactiveTaskUsageLines } = await import('./task-run.js');
         process.stderr.write(`${interactiveTaskUsageLines().join('\n')}\n`);
         rl.prompt();
