@@ -66,7 +66,13 @@ npm install -g @rdk-moss/agent@latest && moss setup
 
 Prerequisites, upgrade/uninstall, proxies, Windows and custom gateways: [Install & runtime](docs/install.md).
 
-**2. Pick a surface:**
+**2. First time in a project:**
+
+```bash
+moss init        # detect test/build/lint entry points, write a minimal AGENTS.md, print the next verified run
+```
+
+**3. Pick a surface:**
 
 | What you are doing                      | Use this                                       |
 | --------------------------------------- | ---------------------------------------------- |
@@ -76,7 +82,7 @@ Prerequisites, upgrade/uninstall, proxies, Windows and custom gateways: [Install
 | Hand it to a script / CI                | `moss -p "..."` · `moss run ... --json`        |
 | Repeat until an external command passes | `moss loop --until "npm test" "fix the tests"` |
 
-**3. Your first verified completion:**
+**4. Your first verified completion:**
 
 ```bash
 moss run "create hello.txt containing MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"

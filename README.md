@@ -67,7 +67,13 @@ npm install -g @rdk-moss/agent@latest && moss setup
 
 环境前提、升级/卸载、代理、Windows 与自定义网关见 [安装与运行环境](docs/install.md)。
 
-**2. 选一个交互面：**
+**2. 首次进项目：**
+
+```bash
+moss init        # 检测 test/build/lint 入口，写一份最小 AGENTS.md，并打印下一条验证式运行命令
+```
+
+**3. 选一个交互面：**
 
 | 你在做什么             | 用这个                                        |
 | ---------------------- | --------------------------------------------- |
@@ -77,7 +83,7 @@ npm install -g @rdk-moss/agent@latest && moss setup
 | 交给脚本 / CI          | `moss -p "..."` · `moss run ... --json`       |
 | 反复跑到外部命令通过   | `moss loop --until "npm test" "修到测试全绿"` |
 
-**3. 第一个"被验证的完成"：**
+**4. 第一个"被验证的完成"：**
 
 ```bash
 moss run "创建 hello.txt 内容为 MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"

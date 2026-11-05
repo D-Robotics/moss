@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### `moss init`: onboarding to the first verified result (B135)
+
+- Detects the entry points a project actually has (`package.json` scripts, `Makefile` test target,
+  `go.mod`, `pyproject.toml`/`requirements.txt`), reuses the `/goal` acceptance proposal so the
+  suggested check comes from real files, writes a minimal `AGENTS.md` (Commands / Verification /
+  Notes) only when the user has none, and prints the exact `moss run "<intent>" --accept "<cmd>"`
+  plus `moss capabilities` as next steps. `--dry-run` prints the file; no model configuration needed.
+- The missing-config guidance now mentions `moss init` right after `moss setup`, so first-run has a
+  concrete second step instead of a dead end.
+
+### `moss init`：onboarding 到第一个被验证的结果（B135）
+
+- 检测项目真实存在的入口（`package.json` scripts、`Makefile` test 目标、`go.mod`、
+  `pyproject.toml`/`requirements.txt`），复用 `/goal` 的验收命令提议（只从真实文件来），
+  在用户还没有 `AGENTS.md` 时写一份最小版本（Commands / Verification / Notes），并打印
+  `moss run "<意图>" --accept "<命令>"` 与 `moss capabilities` 两条下一步。`--dry-run` 只打印；
+  不需要模型配置。
+- 缺模型配置的引导在 `moss setup` 之后新增 `moss init` 一行，首次运行不再停在死路上。
+
 ### Headless `-p` runs join the unified ledger (B134)
 
 - A headless `moss -p "…"` run now records the same `.moss/runs/<runId>/run.json` row, using the
