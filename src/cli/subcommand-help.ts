@@ -393,6 +393,16 @@ export async function renderSubcommandHelp(
       const { renderReviewUsage } = await import('./review-commands.js');
       return renderReviewUsage(zh);
     }
+    case 'rules': {
+      const { renderRulesUsage } = await import('./rules-commands.js');
+      return renderRulesUsage(zh);
+    }
+    case 'remember': {
+      // The usage renderer is bilingual already (uiText); keep passing zh only
+      // when the module grows a parameter.
+      const { renderRememberUsage } = await import('./remember-command.js');
+      return renderRememberUsage();
+    }
     case 'loop': {
       const { renderLoopUsage } = await import('./loop-command.js');
       return renderLoopUsage(zh);

@@ -78,6 +78,16 @@ for (const [name, command] of Object.entries(COMMANDS)) {
   }
 }
 
+// `moss <cmd> --help` must print that command's usage, not fall back to the root
+// banner: rules/remember did exactly that until B54.
+const { renderSubcommandHelp } = await load('cli/subcommand-help.js');
+for (const name of Object.keys(COMMANDS)) {
+  const help = await renderSubcommandHelp(name, false);
+  if (typeof help !== 'string' || !help.trim()) {
+    failures.push(`moss ${name} --help has no subcommand usage (falls back to root help)`);
+  }
+}
+
 const aliases = [
   { typed: 'logout', command: 'auth', args: ['logout'] },
   { typed: 'login', command: 'setup', args: [] },
