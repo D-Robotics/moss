@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Product page and the `moss run` shortcut (B127, B128)
+
+- `README.md` / `README.en.md` are now product pages instead of install manuals: hero with a real
+  `moss run` transcript, one install command, "how done is defined", four surfaces, handfeel
+  (interrupt / resume / rewind / failure paths), comparison with the best products, safety summary,
+  known limits, and a docs map. Install, safety details and the command reference moved to
+  `docs/install.md`, `docs/safety.md` and `docs/cli-reference.md`; the two READMEs are 1:1 and a new
+  `readme-parity` gate fails when they drift (sections, links, advertised tool counts, internal ids).
+- `moss run "<intent>" [--accept "<cmd>"]` is the hero command: a shortcut for `moss task run` that
+  shares the same loop, cancellation bridge (Ctrl+C pauses, exit 130) and exit codes, so the product's
+  one-line promise and the long form can never drift.
+
+### 产品页与 `moss run` 快捷命令（B127、B128）
+
+- `README.md` / `README.en.md` 从安装手册改为产品页：首屏 real `moss run` 实录、一行安装、
+  "完成如何定义"、四种交互面、手感（中断/续跑/撤回/失败三条路）、与最佳产品对比、安全摘要、
+  已知边界与文档地图。安装、安全细节与命令参考移到 `docs/install.md`、`docs/safety.md`、
+  `docs/cli-reference.md`；中英保持 1:1，新增 `readme-parity` 门禁在节数/链接/宣称的工具数/
+  内部单号漂移时直接红。
+- `moss run "<意图>" [--accept "<命令>"]` 成为英雄命令：`moss task run` 的快捷方式，共享同一
+  状态机、Ctrl+C 暂停语义与退出码，产品的一行承诺与长命令不会漂移。
+
 ### Studio 0.30 compatibility snapshot
 
 - Commit `f64aa259cbbdc3548c8f6ebf3fa2c22ac10da2b3`, based on the Studio-pinned
