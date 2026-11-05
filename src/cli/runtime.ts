@@ -25,7 +25,10 @@ const STARTUP_CONTEXT_PROBE_TIMEOUT_MS = 1_500;
  */
 // Moss Agent CLI main — see --help for usage, config, and environment variables.
 
-import { ensureKeepAliveDispatcherInstalled } from '../provider/keep-alive-dispatcher.js';
+import {
+  ensureKeepAliveDispatcherInstalled,
+  hasProxyConfigured,
+} from '../provider/keep-alive-dispatcher.js';
 import { resolveHostShell } from '../utils/host-shell.js';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -205,10 +208,12 @@ import {
 
 export async function runCli(): Promise<void> {
   const startupTiming = createStartupTiming();
-  // O83: install the proxy-aware global dispatcher (HTTPS_PROXY/HTTP_PROXY/
-  // NO_PROXY) once, before ANY request — setup probe, model list, doctor,
-  // MCP over HTTP — not only when the agent loop starts. Idempotent.
-  await ensureKeepAliveDispatcherInstalled();
+  // O83: a configured proxy must be in place before ANY request — setup probe,
+  // model list, doctor, MCP over HTTP — not only when the agent loop starts.
+  // B18: without a proxy the install can wait for the first real request
+  // (`fetchWithConnectionContext` installs it there), which keeps undici's 110
+  // modules and its dispatcher setup off the path to the composer.
+  if (hasProxyConfigured()) await ensureKeepAliveDispatcherInstalled();
   startupTiming.mark('proxy');
   // REPL, one-shot, and the cancel line share the TUI dictionary. The full-screen
   // shell sets the same flag again from its own entry.

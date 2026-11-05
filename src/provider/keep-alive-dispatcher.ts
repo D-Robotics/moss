@@ -13,6 +13,17 @@ function hasProxyEnv(): boolean {
   );
 }
 
+/**
+ * Whether a proxy is configured for this process (upper- or lower-case env).
+ *
+ * The CLI installs the dispatcher eagerly only in this case: proxied traffic must
+ * never take the default path, while without a proxy the install can wait for the
+ * first real request and keep undici's 110 modules off the startup graph (B18).
+ */
+export function hasProxyConfigured(): boolean {
+  return hasProxyEnv();
+}
+
 function normalizeProxyUrl(url: string | undefined): string | undefined {
   if (!url) return undefined;
 
