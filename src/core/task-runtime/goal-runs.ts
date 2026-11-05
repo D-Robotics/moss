@@ -39,6 +39,8 @@ export interface GoalRunRecord {
   durationMs: number;
   /** The command that decided the verdict, when the caller supplied one. */
   acceptanceCommand?: string;
+  /** Why the task needs the user (only for `outcome: 'blocked'`). */
+  blockedReason?: string;
   /** Session that ran it, so a row can be traced back to its transcript. */
   sessionKey?: string;
 }
@@ -54,6 +56,7 @@ export interface GoalRunInput {
   startedAt: number;
   endedAt?: number;
   acceptanceCommand?: string;
+  blockedReason?: string;
   sessionKey?: string;
 }
 
@@ -85,6 +88,7 @@ export async function recordGoalRun(
     endedAt,
     durationMs: Math.max(0, endedAt - input.startedAt),
     ...(input.acceptanceCommand ? { acceptanceCommand: input.acceptanceCommand } : {}),
+    ...(input.blockedReason ? { blockedReason: input.blockedReason } : {}),
     ...(input.sessionKey ? { sessionKey: input.sessionKey } : {}),
   };
   const dir = path.join(workspaceDir, '.moss');

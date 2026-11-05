@@ -222,6 +222,22 @@ export const taskAcceptanceTool: Tool = {
       result.source,
       isCommittedTaskVerdict(result) ? undefined : ctx.abortSignal
     );
+    // A missing or timed-out acceptance command is a harness problem. Block the
+    // task and say so instead of letting the model spend repair turns on a
+    // command it cannot fix (the engine short-circuit only fires after the turn,
+    // so this tool call is where the loop actually stops).
+    if (result.blocked) {
+      await appendTaskEvent(ctx.workspaceDir, task.taskId, 'blocked_on_user', {
+        reason: result.blocked.detail.slice(0, 400),
+      });
+      return (
+        `Task acceptance (${task.taskId}): BLOCKED — ${result.blocked.kind}\n` +
+        `${result.detail}\n\n` +
+        'Stop here. The acceptance harness itself is unusable, so every repair and every retry ' +
+        'will produce the same verdict. Tell the user which command is missing or timed out and ' +
+        'what to install or fix; the task can be resumed after that.'
+      );
+    }
     // A command verdict has no task ID of its own. When the caller selected
     // the latest task implicitly, attach the identity from the actual verdict
     // before any untrusted command output so the loop can attribute it.

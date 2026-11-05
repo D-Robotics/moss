@@ -31,6 +31,12 @@ export interface TaskVerdict {
   source: VerdictSource;
   /** Human-readable verdict / failure evidence for the next agent turn. */
   detail: string;
+  /**
+   * The acceptance harness itself is unusable (command missing / timed out).
+   * Repair turns cannot fix that, so the engine blocks the task and asks the
+   * user instead of spending the repair budget on the same failure.
+   */
+  blocked?: { kind: 'acceptance_timeout' | 'acceptance_command_unavailable'; detail: string };
   /** Present when source is 'contract'. */
   verdict?: AcceptanceVerdict;
 }
@@ -85,13 +91,27 @@ function commandVerdictProvider(
       }
       signal?.throwIfAborted();
       if (workspaceDir) assertTaskAppendScopeOpen(workspaceDir, true);
+      const detail = result.passed
+        ? `acceptance command exited 0`
+        : `acceptance command failed (exit ${result.exitCode}${result.timedOut ? ', timed out' : ''})\n${result.tail}`;
+      const blocked =
+        result.failureKind === 'timeout'
+          ? {
+              kind: 'acceptance_timeout' as const,
+              detail: `acceptance command timed out — the harness cannot decide; fix the command or raise its budget, then resume\n${detail}`,
+            }
+          : result.failureKind === 'command_unavailable'
+            ? {
+                kind: 'acceptance_command_unavailable' as const,
+                detail: `acceptance command is unavailable (exit ${result.exitCode}) — nothing the agent writes can fix a missing command; install it or correct --accept, then resume\n${detail}`,
+              }
+            : undefined;
       return {
         taskId,
         passed: result.passed,
         source: 'command',
-        detail: result.passed
-          ? `acceptance command exited 0`
-          : `acceptance command failed (exit ${result.exitCode}${result.timedOut ? ', timed out' : ''})\n${result.tail}`,
+        detail,
+        ...(blocked ? { blocked } : {}),
       };
     },
   };

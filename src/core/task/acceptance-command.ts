@@ -13,6 +13,13 @@ export interface AcceptanceSpec {
   workspaceDir?: string;
 }
 
+/**
+ * Why a non-passing acceptance run failed. A wrong or missing command is an
+ * infrastructure problem the agent cannot repair — Cursor's hooks and Claude's
+ * hook exit codes make the same distinction, so it must not burn repair turns.
+ */
+export type AcceptanceFailureKind = 'exit_nonzero' | 'timeout' | 'command_unavailable';
+
 export interface AcceptanceResult {
   passed: boolean;
   exitCode: number;
@@ -20,9 +27,19 @@ export interface AcceptanceResult {
   tail: string;
   timedOut: boolean;
   endedAt: number;
+  /** Set only when `passed` is false. */
+  failureKind?: AcceptanceFailureKind;
 }
 
 export const DEFAULT_ACCEPTANCE_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * Shell convention: 126 = not executable, 127 = command not found. Both mean
+ * the command line is wrong, not that the work is wrong.
+ */
+function failureKindFor(exitCode: number): AcceptanceFailureKind {
+  return exitCode === 126 || exitCode === 127 ? 'command_unavailable' : 'exit_nonzero';
+}
 
 /**
  * Shell invocation for an acceptance command.
@@ -131,12 +148,14 @@ export async function runAcceptanceCommandInWorkspace(
       ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
     const combined = `${res.stdout}\n${res.stderr}`.trim();
+    const passed = res.exitCode === 0;
     return {
-      passed: res.exitCode === 0,
+      passed,
       exitCode: res.exitCode,
       tail: combined.slice(-2000),
       timedOut: false,
       endedAt,
+      ...(passed ? {} : { failureKind: failureKindFor(res.exitCode) }),
     };
   } catch (err) {
     const exitCode =
@@ -146,12 +165,19 @@ export async function runAcceptanceCommandInWorkspace(
     const combined = `${(err as { stdout?: string }).stdout ?? ''}\n${
       (err as { stderr?: string }).stderr ?? errorMessage(err)
     }`.trim();
+    const timedOut = (err as { timedOut?: boolean }).timedOut === true;
+    const code = (err as { code?: string }).code;
     return {
       passed: false,
       exitCode,
       tail: combined.slice(-2000),
-      timedOut: (err as { timedOut?: boolean }).timedOut === true,
+      timedOut,
       endedAt,
+      failureKind: timedOut
+        ? 'timeout'
+        : code === 'ENOENT'
+          ? 'command_unavailable'
+          : failureKindFor(exitCode),
     };
   }
 }

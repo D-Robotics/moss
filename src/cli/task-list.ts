@@ -75,6 +75,11 @@ export function formatGoalRunRows(
       clip(row.goal, GOAL_PREVIEW),
     ].join('  ');
     lines.push(`  ${line}`);
+    if (row.outcome === 'blocked' && row.blockedReason) {
+      lines.push(
+        `  ${' '.repeat(8 + outcomeWidth + 2 + idWidth + 2 + 22 + 2 + 7)}↳ ${clip(row.blockedReason, 96)}`
+      );
+    }
     if (row.acceptanceCommand && row.acceptanceCommand.trim() !== '') {
       lines.push(
         `  ${' '.repeat(8 + outcomeWidth + 2 + idWidth + 2 + 22 + 2 + 7)}↳ ${clip(row.acceptanceCommand, COMMAND_PREVIEW)}`

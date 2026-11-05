@@ -179,6 +179,9 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
   - 能力发现：`core/task/capability.ts` 按 goal 匹配 skills/内置工具/MCP，注入 planning 上下文。
 - Agent 不得以散文宣布任务成功；成功 = acceptance PASS + 背后 evidence。verify 子代理 scope 已带
   `record_evidence` / `task_acceptance`。
+- **验收命令不可用/超时不是失败**：退出码 126/127 或 spawn `ENOENT` 归为 `command_unavailable`，超时归为
+  `timeout`；引擎与 `task_acceptance` 工具都会直接写 `blocked_on_user{reason}` 并停止，不消耗修复预算。
+  普通非零退出仍是可修复的 FAIL。`moss task list` 的 blocked 行会带原因。
 - 完成门（acceptance completion gate）在 MossAgent 内置：本 run 定义过 task_define 而无验收裁决时，
   终稿会被拦截一次并注入修正（跑 task_acceptance / 修复 / 诚实报 FAIL），之后放行——不无限劫持。
   runtime 已裁决过（engine 或上一 run 落过 accepted）时直接放行。

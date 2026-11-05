@@ -330,6 +330,23 @@ async function verifyRepairLoop(
     // acceptance_fail; the loop top records aborted.
     if (deps.signal?.aborted) continue;
 
+    // A missing or timed-out acceptance command is a harness failure, not a
+    // failed repair: no agent turn can make a nonexistent tool exist. Block and
+    // ask the user instead of spending the repair budget on the same verdict
+    // (Claude's hook exit-code semantics, Cursor's hook timeouts).
+    if (verdict.blocked) {
+      await tryAppendTaskEvent(workspaceDir, state.taskId, 'blocked_on_user', {
+        reason: verdict.blocked.detail.slice(0, 400),
+      });
+      deps.onProgress?.({
+        taskId: state.taskId,
+        phase: 'blocked',
+        turn: state.turns,
+        detail: verdict.blocked.kind,
+      });
+      return 'blocked';
+    }
+
     await tryAppendTaskEvent(workspaceDir, state.taskId, 'acceptance_fail', {
       detail: verdict.detail.slice(0, 400),
     });

@@ -558,6 +558,7 @@ async function recordRun(
       turns: result.turns,
       startedAt,
       ...(acceptanceCommand ? { acceptanceCommand } : {}),
+      ...(result.snapshot.blockedReason ? { blockedReason: result.snapshot.blockedReason } : {}),
       sessionKey: ctx.sessionKey,
     });
   } catch (err) {
