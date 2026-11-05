@@ -352,6 +352,45 @@ export const COMMANDS: Record<string, CommandConfig> = {
     name: 'run',
     phase: CliPhase.AgentReady,
     handler: async (ctx) => {
+      const { classifyRunMode } = await import('./run-mode-args.js');
+      const mode = classifyRunMode(ctx.commandArgs);
+      if (mode.mode === 'error') {
+        const { ExitCode } = await import('./exit-codes.js');
+        console.error(`moss run: ${mode.message}`);
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      if (mode.mode === 'workflow') {
+        const { runWorkflowCommand } = await import('./workflow-command.js');
+        const workspace = ctx.workspace as string | undefined;
+        if (!workspace) {
+          console.error('[moss] run could not resolve the workspace.');
+          process.exitCode = 2;
+          return;
+        }
+        const code = await runWorkflowCommand(['run', mode.target, ...mode.rest], {
+          workspaceDir: workspace,
+          json: ctx.argv.includes('--json'),
+          mock: ctx.argv.includes('--mock'),
+        });
+        if (code !== 0) process.exitCode = code;
+        return;
+      }
+      if (mode.mode === 'until') {
+        const { runLoopCommand } = await import('./loop-command.js');
+        const workspace = ctx.workspace as string | undefined;
+        const agent = ctx.agent;
+        if (!workspace || !agent) {
+          console.error('[moss] run could not resolve the workspace/agent.');
+          process.exitCode = 2;
+          return;
+        }
+        process.exitCode = await runLoopCommand([...mode.rest, '--until', mode.until], {
+          agent: agent as MossAgent,
+          workspaceDir: workspace,
+        });
+        return;
+      }
       const { shapeRunResumeArgs, resumeTaskArgs } = await import('./run-resume-args.js');
       const shaped = shapeRunResumeArgs(ctx.commandArgs);
       if (!shaped.resume) {

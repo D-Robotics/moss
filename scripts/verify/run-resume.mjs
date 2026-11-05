@@ -117,7 +117,7 @@ ok('`--resume <id>` removes the id from passthrough flags');
     );
     assert.equal(help.status, 0, help.stderr);
     assert.match(help.stdout, /moss run --resume \[<task_id>\]/);
-    assert.match(help.stdout, /newest resumable task/);
+    assert.match(help.stdout, /newest resumable/);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
