@@ -93,6 +93,7 @@ import {
   createModelDefFromMossConfig,
 } from './moss-agent-loop-adapter.js';
 import { createStreamFunctionFromLlmProvider } from '../llm/llm-provider-stream-adapter.js';
+import { resetProviderImageRejection } from '../../provider/image-capability.js';
 import { runBestOfNFix, describeBestOfNOutcome } from '../loop/best-of-n-fix.js';
 import { runProcess } from '../../utils/run-process.js';
 import {
@@ -332,6 +333,9 @@ export class MossAgent {
       this.config.usingBundledDefault = next.usingBundledDefault;
     }
     this.gatewayReportedModel = undefined;
+    // The new endpoint may accept images even though the previous one rejected
+    // them (see provider/image-capability.ts) — never keep the old verdict.
+    resetProviderImageRejection();
     if (this.config.identityFactory) {
       this.config.baseSystemPrompt = this.config.identityFactory(model);
     }

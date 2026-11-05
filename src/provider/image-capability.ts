@@ -24,3 +24,13 @@ export function noteProviderRejectsImageInput(): void {
 export function providerRejectsImageInput(): boolean {
   return rejectedImages;
 }
+
+/**
+ * The rejection is a property of the endpoint, not of the process: `/model`
+ * can point the next turn at a vision model in the same process, and the stale
+ * flag would keep replacing images with placeholders. Model switches clear it
+ * so the new endpoint is probed by actually trying, exactly like a cold start.
+ */
+export function resetProviderImageRejection(): void {
+  rejectedImages = false;
+}
