@@ -541,18 +541,13 @@ export async function runInteractive(
     }
 
     if (msg === '/skills') {
-      const rows = options.skills ?? [];
-      if (rows.length === 0) {
-        console.error('no skills found — create one: moss skill create <name>');
-      } else {
-        console.error('Skills');
-        for (const s of rows)
-          console.error(
-            `  ${s.name.padEnd(18)} ${s.description.split('\n')[0] ?? ''}${
-              s.issues ? `  (${String(s.issues)} issue(s) — moss skill validate ${s.name})` : ''
-            }`
-          );
-        console.error(`  (${rows.length} skill(s) · load with the skill tool)`);
+      // D10 parity: `moss skill list` and `/skills` must report the same numbers
+      // (scope, real usage, per-entry catalog cost, eval presence). The shared
+      // renderer already existed; this surface used to print its own narrower row.
+      const { renderSkillsList } = await import('./skill-commands.js');
+      const configDir = runtime?.configDir ?? services.config.resolveConfigDir();
+      for (const line of (await renderSkillsList(workspace, configDir)).split('\n')) {
+        console.error(line);
       }
       rl.prompt();
       continue;

@@ -10,6 +10,9 @@
  * description or disappears first.
  */
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -138,5 +141,93 @@ assert.equal(
   'without usage the alphabetically first entry wins the budget'
 );
 ok('without usage the same budget upgrades the alphabetically first entry');
+
+// ── 5. In-session `/skills` reports the same table as `moss skill list` ────
+//
+// D10: the REPL and TUI used to print their own narrow row (name + first
+// description line). The shared renderer existed but only `moss skill list`
+// used it, so scope / real usage / catalog cost were invisible in-session.
+
+const listProbe = await import(pathToFileURL(path.join(root, 'dist/cli/skill-commands.js')).href);
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-skill-parity-'));
+const tmpWs = path.join(tmpRoot, 'ws');
+const tmpCfg = path.join(tmpRoot, 'config');
+fs.mkdirSync(path.join(tmpWs, '.moss', 'skills', 'parity-skill'), { recursive: true });
+fs.mkdirSync(tmpCfg, { recursive: true });
+fs.writeFileSync(
+  path.join(tmpWs, '.moss', 'skills', 'parity-skill', 'SKILL.md'),
+  '---\nname: parity-skill\ndescription: Parity probe skill\n---\n# Parity\nprobe body\n'
+);
+// Real usage: the session-row columns must come from the same file `skill list` reads.
+fs.writeFileSync(
+  path.join(tmpWs, '.moss', 'skills-usage.json'),
+  JSON.stringify({ 'parity-skill': { count: 3, lastUsedAt: '2026-11-05T00:00:00.000Z' } })
+);
+fs.writeFileSync(
+  path.join(tmpCfg, 'config.json'),
+  JSON.stringify({
+    provider: 'openai-compatible',
+    model: 'm',
+    baseUrl: 'http://127.0.0.1:9/v1',
+    apiKey: 'sk-test',
+    permissions: { defaultMode: 'full' },
+    agent: { contextTokens: 200_000 },
+  })
+);
+const expected = (await listProbe.renderSkillsList(tmpWs, tmpCfg, false)).split('\n');
+const replOut = await new Promise((resolve) => {
+  const child = spawn(process.execPath, [path.join(root, 'dist/cli.js')], {
+    cwd: path.join(fs.realpathSync(tmpWs)),
+    env: {
+      PATH: process.env.PATH,
+      HOME: tmpRoot,
+      MOSS_CONFIG_DIR: tmpCfg,
+      MOSS_NO_TUI: '1',
+      MOSS_NO_RDK_DOCS: '1',
+      MOSS_NO_COLOR: '1',
+      MOSS_LANG: 'en',
+      MOSS_TRUST_WORKSPACE: '1',
+      TERM: 'dumb',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let out = '';
+  child.stdout.on('data', (chunk) => {
+    out += String(chunk);
+  });
+  child.stderr.on('data', (chunk) => {
+    out += String(chunk);
+  });
+  const timer = setTimeout(() => child.kill('SIGKILL'), 60_000);
+  child.on('close', () => {
+    clearTimeout(timer);
+    resolve(out);
+  });
+  child.stdin.end('/skills\n/exit\n');
+});
+const printed = replOut
+  .split('\n')
+  .map((line) => line.replace(/\s+$/, ''))
+  .filter(
+    (line) => line.includes('parity-skill') || line.includes('name ') || line.includes('catalog')
+  )
+  .join('\n');
+// Compare only what both sides can see: the probe's HOME differs from this
+// process's, so user-scope skills from the real home must not enter the check.
+for (const line of expected.filter((row) => row.includes('parity-skill'))) {
+  assert.ok(
+    replOut.includes(line.trimEnd()),
+    `REPL /skills must print the shared row verbatim: missing ${JSON.stringify(line)} in ${JSON.stringify(printed)}`
+  );
+}
+const header = expected.find((row) => row.includes('catalog') && row.includes('scope'));
+assert.ok(header, 'the shared renderer must start with its column header');
+assert.ok(
+  replOut.includes(header.trimEnd()),
+  `REPL /skills must print the shared header: missing ${JSON.stringify(header)}`
+);
+assert.match(replOut, /workspace\s+3\s+\d+\s+-\s+Parity probe skill/u);
+ok('in-session /skills prints the `moss skill list` table (scope + usage + catalog cost)');
+fs.rmSync(tmpRoot, { recursive: true, force: true });
 
 console.log(`[skill-catalog-usage] PASS (${checks} checks)`);

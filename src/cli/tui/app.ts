@@ -2307,24 +2307,14 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/skills') {
-        const rows = options.skills ?? [];
-        printBlock(
-          tui('Skills'),
-          rows.length === 0
-            ? [tui('no skills found'), tui('create one: moss skill create <name>')]
-            : rows
-                .map(
-                  (s) =>
-                    `  ${s.name.padEnd(18)} ${s.description.split('\n')[0] ?? ''}${
-                      s.issues
-                        ? `  (${String(s.issues)} issue(s) — moss skill validate ${s.name})`
-                        : ''
-                    }`
-                )
-                .concat([
-                  tui('  ({count} skill(s) · load with the skill tool)', { count: rows.length }),
-                ])
+        // D10 parity: same renderer and same numbers as `moss skill list`.
+        const { renderSkillsList } = await import('../skill-commands.js');
+        const rows = await renderSkillsList(
+          options.workspaceDir,
+          options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
+          options.locale === 'zh'
         );
+        printBlock(tui('Skills'), rows.split('\n'));
         return;
       }
       if (text === '/rules' || text.startsWith('/rules ')) {
