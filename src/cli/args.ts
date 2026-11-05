@@ -251,12 +251,17 @@ const COMMAND_LIKE_REDIRECTS: Record<string, string> = {
   version: '--version',
 };
 
-/** Exact verbs people type instead of a subcommand. Not fuzzy-matched. */
-const BARE_ALIASES: Record<string, string> = {
-  upgrade: 'update',
-  install: 'setup',
-  login: 'auth',
-  logout: 'auth',
+/**
+ * Exact verbs people type instead of a subcommand. These resolve to the real
+ * command (with fixed leading args) instead of only suggesting it: `moss logout`
+ * used to answer "unknown command 'logout' — Did you mean 'auth'?" and exit 2,
+ * which reads like a bug to anyone who has used an install verb before.
+ */
+const COMMAND_ALIASES: Record<string, { command: CliCommand; args: readonly string[] }> = {
+  upgrade: { command: 'update', args: [] },
+  install: { command: 'setup', args: [] },
+  login: { command: 'setup', args: [] },
+  logout: { command: 'auth', args: ['logout'] },
 };
 
 /** `status` is not a subcommand; a typo of it still points at `doctor`. */
@@ -338,9 +343,8 @@ export function suggestBareCommand(token: string): string | null {
   if (!candidate || /\s/.test(token)) return null;
   if (!/^[a-z][a-z0-9_-]*$/i.test(candidate)) return null;
   if ((KNOWN_COMMANDS as readonly string[]).includes(candidate)) return null;
-  return (
-    COMMAND_LIKE_REDIRECTS[candidate] ?? BARE_ALIASES[candidate] ?? closestKnownCommand(candidate)
-  );
+  // Aliases execute (findCommand), so they never reach the did-you-mean path.
+  return COMMAND_LIKE_REDIRECTS[candidate] ?? closestKnownCommand(candidate);
 }
 
 /** `moss resume` with no id and no `--last` opens the in-TUI picker. */
@@ -390,6 +394,7 @@ function findCommand(argv: string[]): {
   index: number;
   helpWord?: number;
   unknownHelpTopic?: string;
+  aliasArgs?: readonly string[];
 } {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -406,6 +411,8 @@ function findCommand(argv: string[]): {
     }
     const command = asCommand(arg);
     if (command) return { command, index: i };
+    const alias = COMMAND_ALIASES[arg.toLowerCase()];
+    if (alias) return { command: alias.command, index: i, aliasArgs: alias.args };
     if (flagConsumesNext(arg)) i++;
   }
   return { command: 'chat', index: -1 };
@@ -749,6 +756,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       configOverrides.safetyMode = 'workspace-write';
     }
   }
+
+  if (foundCommand.aliasArgs !== undefined) commandArgs.unshift(...foundCommand.aliasArgs);
 
   return {
     command,

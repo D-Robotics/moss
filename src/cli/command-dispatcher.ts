@@ -452,6 +452,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
   setup: {
     name: 'setup',
     phase: CliPhase.None,
+    description: 'Interactive setup: provider, model, API key',
     handler: async () => {
       // Imported from cli/setup-wizard.js
       const { runSetupWizard } = await import('./setup-wizard.js');
@@ -482,6 +483,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
   auth: {
     name: 'auth',
     phase: CliPhase.ConfigOnly,
+    description: 'Authentication status or logout (bare `auth` prints status)',
     handler: async (ctx) => {
       const { runAuthLogout, renderAuthStatus } = await import('./setup-wizard.js');
       const subCmd = ctx.commandArgs[0];
@@ -496,6 +498,13 @@ export const COMMANDS: Record<string, CommandConfig> = {
         return;
       }
 
+      // A bare `moss auth` (or the `moss login` alias) reads as a status
+      // question; printing usage instead made the command look broken.
+      if (subCmd === undefined) {
+        console.log(renderAuthStatus(undefined, process.env, ctx.fallbackStartDir));
+        return;
+      }
+
       console.error('Usage: moss auth <status|logout>');
       const { ExitCode } = await import('./exit-codes.js');
       process.exitCode = ExitCode.USAGE;
@@ -505,6 +514,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
   config: {
     name: 'config',
     phase: CliPhase.ConfigOnly,
+    description: 'Consult or edit moss config keys (see `moss config --help`)',
     handler: async (ctx) => {
       const {
         runConfigShow,
@@ -599,6 +609,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
   sessions: {
     name: 'sessions',
     phase: CliPhase.WorkspaceReady,
+    description: 'Saved sessions: list/delete/search/export',
     handler: async (ctx) => {
       const { JsonlSessionStore } = await import('../core/index.js');
       const { ExitCode } = await import('./exit-codes.js');
