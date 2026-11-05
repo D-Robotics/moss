@@ -345,6 +345,26 @@ export const COMMANDS: Record<string, CommandConfig> = {
       'Closed loop: run the agent, check with your command, feed failures back (--until)',
   },
 
+  plugins: {
+    name: 'plugins',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runPluginsCommand } = await import('./plugin-commands.js');
+      const workspace = ctx.workspace;
+      if (!workspace) {
+        console.error('[moss] plugins could not resolve the workspace.');
+        process.exitCode = 2;
+        return;
+      }
+      const code = await runPluginsCommand(ctx.commandArgs, {
+        workspaceDir: workspace,
+        json: ctx.argv.includes('--json'),
+      });
+      if (code !== 0) process.exitCode = code;
+    },
+    description: 'Local capability packs: validate / install / list / remove',
+  },
+
   rules: {
     name: 'rules',
     phase: CliPhase.WorkspaceReady,
@@ -789,7 +809,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
  * implementation in this build — subsystems removed before v0.14. Dispatching
  * one must hard-fail instead of silently falling through to chat.
  */
-export const UNIMPLEMENTED_COMMANDS: readonly string[] = ['plugins', 'migrate', 'web', 'agent'];
+export const UNIMPLEMENTED_COMMANDS: readonly string[] = ['migrate', 'web', 'agent'];
 
 export function isUnimplementedCommand(commandName: string | undefined): boolean {
   return !!commandName && UNIMPLEMENTED_COMMANDS.includes(commandName);

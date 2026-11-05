@@ -54,6 +54,7 @@ import { stage as rememberStage } from './stages/remember.mjs';
 import { stage as startupTimingStage } from './stages/startup-timing.mjs';
 import { stage as skillForkStage } from './stages/skill-fork.mjs';
 import { stage as skillPolicyStage } from './stages/skill-policy.mjs';
+import { stage as pluginsStage } from './stages/plugins.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
 import { stage as replInterruptStage } from './stages/repl-interrupt.mjs';
 import { stage as helpSurfaceStage } from './stages/help-surface.mjs';
@@ -93,6 +94,7 @@ const STAGES = new Map(
     startupTimingStage,
     skillForkStage,
     skillPolicyStage,
+    pluginsStage,
     contextSurfaceStage,
     replInterruptStage,
     helpSurfaceStage,
@@ -133,6 +135,7 @@ const FAST_GATE = [
   'startup-timing',
   'skill-fork',
   'skill-policy',
+  'plugins',
   'context-surface',
   'repl-interrupt',
   'help-surface',

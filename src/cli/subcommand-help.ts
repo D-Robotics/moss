@@ -407,11 +407,10 @@ export async function renderSubcommandHelp(
       const { renderLoopUsage } = await import('./loop-command.js');
       return renderLoopUsage(zh);
     }
-    case 'plugins':
-      return removed('plugins', zh, {
-        en: 'The plugin subsystem is not implemented in this build.',
-        zh: '这个构建没有插件子系统。',
-      });
+    case 'plugins': {
+      const { renderPluginsUsage } = await import('./plugin-commands.js');
+      return renderPluginsUsage(zh);
+    }
     case 'migrate':
       return removed('migrate', zh, {
         en: 'The migrate subsystem is not implemented in this build.',
