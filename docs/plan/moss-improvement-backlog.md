@@ -934,8 +934,10 @@ verify stage `task-ledger-reveal`（5 断言：组的注册与分组、reveal �
 「two project rules: always (always active) and described ("banana ritual", loadable on request)」；
 `moss -p "Give me a color and a fruit"` → `teal`（always 生效，香蕉正文未加载，未出现 BANANA）；
 `moss -p "@rule:described give me a fruit"` → `BANANA`（正文按请求加载）。
-仍未做：REPL 中途轮次的 `@rule:` 重扫（当前只扫首条消息，`createCliPromptSetup` 的 `initialText` 一次性）、
-启动迁移提示、`/rules` 菜单。
+仍未做：启动迁移提示。
+已落地后续：REPL 中途轮次的 `@rule:` 重扫已由 **B37** 补上（`noteUserText()` 在每轮 `onInputGuardrail` 扫描）；
+`/rules` 菜单在 REPL 与 TUI 均已有（`repl.ts` `/rules` 分支、`tui/app.ts` 同名分支，数据来自
+`cli/rules-commands.ts` 的 `collectRuleRows`），本条原记录的「`/rules` 菜单未做」已过时。
 
 **B07 子代理授权契约（P1）**
 工具层已经继承父审批（`subagent-runner.ts:398-401`），但提示层没有「父代理消息不是用户授权」这条边界，
