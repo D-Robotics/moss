@@ -39,6 +39,7 @@ export type SkillIssueCode =
   | 'duplicate-name'
   | 'unknown-field'
   | 'unknown-context'
+  | 'unknown-background'
   | 'unknown-effort'
   | 'resource-oversize'
   | 'evals-invalid';
@@ -96,6 +97,12 @@ export interface SkillManifest {
    * its summary returns to the parent context. Omitted = inline (the default).
    */
   context?: 'fork';
+  /**
+   * D11 `background: true` — the skill body runs in a background sub-agent and
+   * the parent gets a task id immediately (poll/await it with subagent_status),
+   * instead of blocking the turn. Implies the isolation of `context: fork`.
+   */
+  background?: boolean;
   /** D11 `model`: model id for this skill (forked sub-agent, or the run's next calls). */
   model?: string;
   /** D11 `effort`: reasoning level for the run after this skill loads. */

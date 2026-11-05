@@ -257,6 +257,21 @@ export function readSkillManifest(
       message: `context "${rawContext}" is not supported (only "fork"); the skill runs inline`,
     });
   }
+  // D11: `background: true` starts the body as a background sub-agent task.
+  const rawBackground = asString(parsed.fields['background']);
+  const background =
+    rawBackground === undefined ? undefined : rawBackground.trim().toLowerCase() === 'true';
+  if (
+    rawBackground !== undefined &&
+    rawBackground.trim().toLowerCase() !== 'true' &&
+    rawBackground.trim().toLowerCase() !== 'false'
+  ) {
+    issues.push({
+      code: 'unknown-background',
+      file,
+      message: `background "${rawBackground}" is not true/false; the skill runs inline`,
+    });
+  }
   const model = asString(parsed.fields['model']);
   const rawEffort = asString(parsed.fields['effort']);
   const effort =
@@ -281,6 +296,7 @@ export function readSkillManifest(
       allowedTools,
       disallowedTools,
       ...(context ? { context } : {}),
+      ...(background === true ? { background: true } : {}),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       metadata,

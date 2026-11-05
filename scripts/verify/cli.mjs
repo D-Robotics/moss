@@ -58,6 +58,7 @@ import { stage as skillPolicyStage } from './stages/skill-policy.mjs';
 import { stage as pluginsStage } from './stages/plugins.mjs';
 import { stage as workflowStage } from './stages/workflow.mjs';
 import { stage as toolLeanStage } from './stages/tool-lean.mjs';
+import { stage as skillBackgroundStage } from './stages/skill-background.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
 import { stage as replInterruptStage } from './stages/repl-interrupt.mjs';
 import { stage as helpSurfaceStage } from './stages/help-surface.mjs';
@@ -102,6 +103,7 @@ const STAGES = new Map(
     pluginsStage,
     workflowStage,
     toolLeanStage,
+    skillBackgroundStage,
     contextSurfaceStage,
     replInterruptStage,
     helpSurfaceStage,
@@ -147,6 +149,7 @@ const FAST_GATE = [
   'plugins',
   'workflow',
   'tool-lean',
+  'skill-background',
   'context-surface',
   'repl-interrupt',
   'help-surface',

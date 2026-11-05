@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import { findSkill, parseSkillFile, type SkillManifest } from './skill-registry.js';
@@ -157,6 +158,66 @@ export function createSkillTool(
         return `Skill "${skill.name}" could not be read from ${skill.file}`;
       }
       if (body.includes('$ARGUMENTS')) body = body.replaceAll('$ARGUMENTS', args);
+      if (skill.background === true) {
+        // D11 `background: true`: the body starts as a background sub-agent and
+        // this turn returns at once with a task id. It implies fork isolation —
+        // the parent pays for the pointer, not the body — and the child's final
+        // summary resolves through subagent_status / subagent_resume.
+        const spawn = ctx.spawnSubagent;
+        const registry = ctx.asyncTaskRegistry;
+        if (!spawn || !registry) {
+          return `Skill "${skill.name}" declares \`background: true\`, but this host has no background sub-agent runner; run it in an interactive/full host, or remove that field to load it inline.`;
+        }
+        const taskId = `${ctx.runId ?? ctx.sessionKey}/skill-${randomUUID().slice(0, 8)}`;
+        registry.start(
+          {
+            taskId,
+            kind: 'subagent',
+            label: `skill-${skill.name}`,
+            ...(ctx.runId !== undefined ? { parentRunId: ctx.runId } : {}),
+            timeoutMs: 10 * 60_000,
+            payload: { skill: skill.name, args, ...(skill.model ? { model: skill.model } : {}) },
+          },
+          async (_request, signal) => {
+            const result = await spawn({
+              task: body,
+              label: `skill-${skill.name}`,
+              maxTurns: 20,
+              ...(skill.allowedTools.length > 0 ? { allowedTools: skill.allowedTools } : {}),
+              ...(skill.disallowedTools.length > 0 ? { deniedTools: skill.disallowedTools } : {}),
+              ...(skill.model ? { model: skill.model } : {}),
+              abortSignal: signal,
+            });
+            if (!result) {
+              return { success: false, summary: 'Sub-agent spawning is no longer available.' };
+            }
+            const summary = (result.summary ?? '').trim();
+            // Empty child output is a failure, same contract as create_subagent.
+            const ok = result.success && summary.length > 0;
+            return {
+              success: ok,
+              summary: ok
+                ? summary
+                : `${summary || 'Sub-agent failed.'}\n(empty output treated as failure — do not invent success)`,
+              data: {
+                runId: result.runId,
+                sessionKey: result.sessionKey,
+                ...(result.turns !== undefined ? { turns: result.turns } : {}),
+                ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
+              },
+            };
+          },
+          ctx.abortSignal ? { parentSignal: ctx.abortSignal } : undefined
+        );
+        loaded.set(skill.name, args);
+        recordSkillUse(ctx.workspaceDir, skill.name);
+        return [
+          `# Skill: ${skill.name} (background task ${taskId}) STARTED`,
+          '',
+          'The skill body is running in an isolated background sub-agent; this turn does not block on it.',
+          `Poll it with subagent_status (taskId="${taskId}", wait=true to block), read its final summary with subagent_resume, or stop it with subagent_stop.`,
+        ].join('\n');
+      }
       if (skill.context === 'fork') {
         // D11 `context: fork`: the body runs in an isolated sub-agent, so the
         // parent context pays for the summary instead of the whole skill. The

@@ -439,7 +439,14 @@ writePaths?, maxTurns?}]}`），不上 JS 沙箱、不能让计划调用模型 A
   内联 `model: definitely-not-a-model-xyz` 的技能加载后，下一次请求被网关拒绝（`does not exist`，
   exit 6，卡在 skill）；无该字段的对照 run 正常返回 `LOADED`（exit 0）。确定性探针 `skill-policy`
   （6 条：解析/非法 effort 警告/策略记录与提示/无策略不写/上限/空策略）。
-- ⬜ 仍缺：`background`、技能自带 hooks、`paths` 文件级自动激活之外的更深 scoping。
+- ✅ **`background: true`（2026-11-05，D11 第三片）**：声明的技能体不再占住父 turn——加载即向
+  async task registry 起一个**后台子代理任务**，立刻返回 `STARTED` 指针（taskId + 用 `subagent_status`
+  轮询/resume/stop 的说明），父上下文只为指针付费；`background` 隐含 `context: fork` 的隔离，
+  两个字段同时写时 background 优先（不重复 fork）。子代理能力缺失时返回可读错误而不是静默内联；
+  子代理空输出按现有契约记为 **failed**（不伪造成功）。真实运行：6 条确定性 probe 用生产
+  in-memory registry + 延迟 fake spawn，证明"工具调用先返回、任务后完成"、model/allowed-tools
+  转发、空输出失败、无 runner 报错、background 覆盖 fork、普通技能仍内联。
+- ⬜ 仍缺：技能自带 hooks（技能声明 pre/post 校验脚本并挂进 hook 管线）、`paths` 文件级自动激活之外的更深 scoping。
 
 - **问题**：Moss 加载技能只是把正文塞进工具结果；参考产品已经让技能**改变运行本身**：
   Claude 的 `context: fork`（技能作为隔离子代理跑）、`agent`/`background`、`allowed-tools`/
@@ -648,7 +655,7 @@ writePaths?, maxTurns?}]}`），不上 JS 沙箱、不能让计划调用模型 A
 | D8 代码智能（LSP / diagnostics）                    | 🟡                      | 聚合 `diagnostics` 工具已落地（tsc+eslint 归一化、9 条探针、真实全仓库运行 0 error）；缺：pytest 聚合、monorepo 扫描、LSP client 评估，以及验收要求的 bench A/B。                                                                                                                |
 | D9 规则 4 类 + 团队策略                             | 🟡                      | 四类激活齐全：always / globs / `activation: description`（确定性词面命中，未命中不注入）/ manual（`@rule` 注入）；只读 `MOSS_MANAGED_RULES` 组织级规则最高优先级、`rules list` 标 managed；`rules-activation` 16 条断言。缺：组织级 allowlist/deny 策略文件、交互式规则 picker。 |
 | D10 产品化小件                                      | ✅                      | `moss skill list` 显示 scope/used/catalog/evals；本地 usage 计数；`moss skill create` 脚手架。缺：`/skills` 在 REPL/TUI 的同等信息（两者仍只列名字与 issues）。                                                                                                                  |
-| D11 技能运行语义 v2                                 | 🟡                      | 已有 run 级工具收窄、`context: fork`（含 `model` 转发）、**内联 model/effort run 级覆盖**（真实 -p 对照 + `skill-policy` 6 条）、`$ARGUMENTS`、`when_to_use` 别名。缺：`background`、技能自带 hooks、更深 scoping。                                                              |
+| D11 技能运行语义 v2                                 | 🟡                      | 已有：`context: fork`（8 条 probe）、`model`/`effort` run 级覆盖（6 条 probe）、`allowed-tools`/`disallowed-tools` 真收窄、`background: true` 后台子代理任务（6 条 probe：非阻塞/完成/空输出失败/无 runner 报错/覆盖 fork/内联对照）。缺：技能自带 hooks、更深 scoping。         |
 | D12 Hooks 契约                                      | ✅                      | `updatedInput` 重过审批、deny>ask>allow、exit-code 矩阵、事件面、fail-closed；`docs/hooks.md` + `hooks-contract`（16 条）+ Stop 完成门 recipe（真实 exit 9/0）。                                                                                                                 |
 | D13 定时/循环任务                                   | ❌                      | 只有 `moss loop --until`（本地闭环，一次性），没有 cron / 定时调度。                                                                                                                                                                                                             |
 | D14 环境隔离（OS sandbox）                          | ❌                      | 只有设计文档 `docs/design/os-sandbox.md`，未实现。                                                                                                                                                                                                                               |
