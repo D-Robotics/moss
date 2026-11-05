@@ -416,6 +416,12 @@ writePaths?, maxTurns?}]}`），不上 JS 沙箱、不能让计划调用模型 A
 - **验收**：真实会话里 `/skills` 显示每个技能的字符/加载次数；创建→评估→安装一条龙。
 - **成本**：低；**优先级**：P1（配合 D2）。
 
+**进度（2026-11-05，跨会话收口）**：D10 的最后一个缺口（`/skills` 在 REPL/TUI 与 `moss skill list` 信息不对等）
+由同一工作区的 B 线会话以 `4f55db91`（B79）补齐：REPL 与 TUI 都改为调用同一个 `renderSkillsList`，
+输出 scope / used / catalog 成本 / evals 列；`skill-catalog-usage` 探针真实启动 REPL 并逐字断言行。
+本线核对：`src/cli/repl.ts:547` 与 `src/cli/tui/app.ts:2311` 都走该函数，`npm run verify` PASS（50.9s），
+因此 D10 记为 ✅（不再有需本线补的差距）。
+
 ### D11 技能运行语义 v2：从"读到一段正文"到"按技能改变运行"
 
 **进度（2026-11-04，D11 第一片）**
@@ -654,7 +660,7 @@ writePaths?, maxTurns?}]}`），不上 JS 沙箱、不能让计划调用模型 A
 | D7 多模态                                           | 🟡                      | `read_pdf` 已落地（Flate、`/ToUnicode`+`/ActualText`、页范围、19 条探针；真实 RDK PDF 对 `pdftotext` 97%/99% 覆盖）；缺：真实视觉模型看接线图、`@file` 附件、设备截图闭环、OCR。                                                                                                 |
 | D8 代码智能（LSP / diagnostics）                    | 🟡                      | 聚合 `diagnostics` 工具已落地（tsc+eslint 归一化、9 条探针、真实全仓库运行 0 error）；缺：pytest 聚合、monorepo 扫描、LSP client 评估，以及验收要求的 bench A/B。                                                                                                                |
 | D9 规则 4 类 + 团队策略                             | 🟡                      | 四类激活齐全：always / globs / `activation: description`（确定性词面命中，未命中不注入）/ manual（`@rule` 注入）；只读 `MOSS_MANAGED_RULES` 组织级规则最高优先级、`rules list` 标 managed；`rules-activation` 16 条断言。缺：组织级 allowlist/deny 策略文件、交互式规则 picker。 |
-| D10 产品化小件                                      | ✅                      | `moss skill list` 显示 scope/used/catalog/evals；本地 usage 计数；`moss skill create` 脚手架。缺：`/skills` 在 REPL/TUI 的同等信息（两者仍只列名字与 issues）。                                                                                                                  |
+| D10 产品化小件                                      | ✅                      | `moss skill list` 与 in-session `/skills` 现在是**同一张表**（scope/used/catalog 成本/evals；REPL piped 与 TUI PTY 都实测）；本地 usage 计数、`moss skill create` 脚手架。跨会话收口证据见 B79（`skill-catalog-usage` 7 条）。(D10 段)                                           |
 | D11 技能运行语义 v2                                 | 🟡                      | 已有：`context: fork`（8 条 probe）、`model`/`effort` run 级覆盖（6 条 probe）、`allowed-tools`/`disallowed-tools` 真收窄、`background: true` 后台子代理任务（6 条 probe：非阻塞/完成/空输出失败/无 runner 报错/覆盖 fork/内联对照）。缺：技能自带 hooks、更深 scoping。         |
 | D12 Hooks 契约                                      | ✅                      | `updatedInput` 重过审批、deny>ask>allow、exit-code 矩阵、事件面、fail-closed；`docs/hooks.md` + `hooks-contract`（16 条）+ Stop 完成门 recipe（真实 exit 9/0）。                                                                                                                 |
 | D13 定时/循环任务                                   | ❌                      | 只有 `moss loop --until`（本地闭环，一次性），没有 cron / 定时调度。                                                                                                                                                                                                             |
