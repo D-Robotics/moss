@@ -14,6 +14,22 @@ const cli = path.join(root, 'dist/cli.js');
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'startup-timing-ws-'));
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'startup-timing-home-'));
 fs.mkdirSync(path.join(home, '.config/moss'), { recursive: true });
+// A configured provider is the common case, and its startup context-window probe
+// used to force the undici dispatcher install (B18/B60).
+const configuredHome = fs.mkdtempSync(path.join(os.tmpdir(), 'startup-timing-configured-'));
+fs.mkdirSync(path.join(configuredHome, '.config/moss'), { recursive: true });
+fs.writeFileSync(
+  path.join(configuredHome, '.config/moss/config.json'),
+  JSON.stringify({
+    provider: 'openai-compatible',
+    model: 'm',
+    // Nothing listens here: the probe fails immediately instead of waiting on a
+    // real gateway, so the check stays offline and fast.
+    baseUrl: 'http://127.0.0.1:9/v1',
+    apiKey: 'sk-test',
+    permissions: { defaultMode: 'full' },
+  })
+);
 
 const run = (env) =>
   captureProcess(process.execPath, [cli, '-p', 'Reply with the single word ok.', '--mock'], {
@@ -52,9 +68,10 @@ fs.writeFileSync(
 );
 
 let moduleCountRun = 0;
+let lastBootStderr = '';
 const bootGraph = async (extraEnv) => {
   const out = path.join(workspace, `modcount-${(moduleCountRun += 1)}.json`);
-  await captureProcess(process.execPath, ['--import', preload, cli], {
+  const result = await captureProcess(process.execPath, ['--import', preload, cli], {
     // Interactive boot (REPL): stdin is empty, so the readline loop hits EOF and
     // exits — the graph loaded up to that point is the startup graph.
     cwd: workspace,
@@ -70,6 +87,7 @@ const bootGraph = async (extraEnv) => {
     },
     timeoutMs: 60_000,
   });
+  lastBootStderr = `${result.stderr ?? ''}`;
   if (!fs.existsSync(out)) throw new Error('module-count hook did not record the boot graph');
   return JSON.parse(fs.readFileSync(out, 'utf8'));
 };
@@ -130,6 +148,28 @@ await check(
     );
   }
 );
+
+await check('a configured provider does not load undici for the startup probe', async () => {
+  const files = await bootGraph({
+    HOME: configuredHome,
+    MOSS_CONFIG_DIR: path.join(configuredHome, '.config/moss'),
+    MOSS_STARTUP_TIMING: '1',
+  });
+  assert.ok(
+    files.some((file) => file.includes('/dist/cli/runtime.js')),
+    'the configured-provider boot must reach the real REPL boot path'
+  );
+  assert.ok(
+    lastBootStderr.includes('probe='),
+    `the startup context-window probe did not run:\n${lastBootStderr}`
+  );
+  const undici = files.filter((file) => file.includes('/node_modules/undici/'));
+  assert.equal(
+    undici.length,
+    0,
+    `the provider probe loaded undici without a proxy (${undici.length} modules): ${undici.slice(0, 3).join(', ')}`
+  );
+});
 
 await check('a configured proxy still installs the dispatcher during boot', async () => {
   const files = await bootGraph({

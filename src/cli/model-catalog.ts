@@ -1,5 +1,8 @@
 import fs from 'node:fs';
-import { ensureKeepAliveDispatcherInstalled } from '../provider/keep-alive-dispatcher.js';
+import {
+  ensureKeepAliveDispatcherInstalled,
+  hasProxyConfigured,
+} from '../provider/keep-alive-dispatcher.js';
 import { buildApiV1Url, isHttpUrl, stripEndpointSuffix } from '../provider/api-v1-url.js';
 import { closestModelName } from './first-run.js';
 import { isZhLocale } from './cli-locale.js';
@@ -538,7 +541,11 @@ export async function resolveModelContextWindowFromApi(params: {
   if (!baseUrl || !model) return undefined;
 
   const timeoutMs = params.timeoutMs ?? 3000;
-  if (!params.fetchImpl) await ensureKeepAliveDispatcherInstalled(); // O83
+  // O83: proxied traffic must not take the default dispatcher, so install
+  // eagerly only when a proxy exists. Without one, installing here would drag
+  // undici's 110 modules onto every startup that has a configured provider
+  // (B18/B60) for a single tiny GET that the default fetch path handles.
+  if (!params.fetchImpl && hasProxyConfigured()) await ensureKeepAliveDispatcherInstalled();
   const fetchImpl = params.fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
