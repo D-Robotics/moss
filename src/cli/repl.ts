@@ -16,6 +16,7 @@ import {
   formatNotGitRepository,
   runRegistryCommand,
   unknownSlashCommandLines,
+  type ChecklistItem,
 } from './commands/registry.js';
 import {
   isSlashCommandInput,
@@ -208,6 +209,25 @@ export async function runInteractive(
 ) {
   const services = options.services ?? new CliServices();
   const usage = createSessionUsageAccumulator();
+  /** Latest todo_write checklist, shown by `/todos` (live, not from the store). */
+  let liveTodos: ChecklistItem[] = [];
+  // The registry command asks the host for this instead of re-reading the
+  // session store, which lags the turn that is still running.
+  const trackTodos = (event: MossAgentEvent): void => {
+    if (event.type !== 'tool_start' || event.toolName !== 'todo_write') return;
+    const raw = event.input.todos;
+    if (!Array.isArray(raw)) return;
+    liveTodos = raw.flatMap((item) => {
+      if (typeof item !== 'object' || item === null) return [];
+      const record = item as Record<string, unknown>;
+      if (typeof record.content !== 'string' || typeof record.status !== 'string') return [];
+      return [{ content: record.content, status: record.status }];
+    });
+  };
+  const recordAgentEvent = (event: MossAgentEvent): void => {
+    usage.record(event);
+    trackTodos(event);
+  };
   currentModel = agent.config.model || currentModel;
   const workspace = runtime?.workspace || process.cwd();
   let sessionKey = options.sessionKey || createCliSessionKey();
@@ -350,6 +370,7 @@ export async function runInteractive(
             pendingPrefill = text;
           },
           getSessionUsage: () => usage.summary(),
+          getTodos: () => liveTodos,
           getContextUsage: () => usage.latestContextUsage(),
           getCompactionHistory: () => usage.compactionHistory(),
           submitPrompt: (text) => {
@@ -364,7 +385,7 @@ export async function runInteractive(
           checkpointStore.open(`custom: ${String(submitText).slice(0, 60)}`);
           const stop = await runReplTurn(agent, String(submitText), {
             sessionKey,
-            onAgentEvent: (event) => usage.record(event),
+            onAgentEvent: (event) => recordAgentEvent(event),
             taskFlow: messageRequestsTaskContract(String(submitText)),
             readline: rl,
           });
@@ -373,7 +394,7 @@ export async function runInteractive(
             const feedback = `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`;
             await runOneShot(agent, feedback, {
               sessionKey,
-              onAgentEvent: (event) => usage.record(event),
+              onAgentEvent: (event) => recordAgentEvent(event),
               taskFlow: messageRequestsTaskContract(feedback),
             });
           }
@@ -683,6 +704,7 @@ export async function runInteractive(
     }
 
     if (msg === '/clear') {
+      liveTodos = [];
       sessionKey = createCliSessionKey();
       checkpointStore = new FileCheckpointStore({ runtimeDir, sessionKey });
       console.error(
@@ -858,7 +880,10 @@ export async function runInteractive(
           agent,
           workspace,
           sessionKey: taskSessionKey,
-          onAgentEvent: (event) => renderer.handle(event as MossAgentEvent),
+          onAgentEvent: (event) => {
+            trackTodos(event as MossAgentEvent);
+            renderer.handle(event as MossAgentEvent);
+          },
           onOutput: (stream, text) => {
             const usage = stream === 'stdout' ? parseLlmUsageStdout(text) : null;
             if (usage) {
@@ -895,7 +920,7 @@ export async function runInteractive(
         checkpointStore.open(`${resolved.kind}: ${resolved.prompt.slice(0, 60)}`);
         const stop = await runReplTurn(agent, resolved.prompt, {
           sessionKey,
-          onAgentEvent: (event) => usage.record(event),
+          onAgentEvent: (event) => recordAgentEvent(event),
           taskFlow: messageRequestsTaskContract(resolved.prompt),
           readline: rl,
         });
@@ -904,7 +929,7 @@ export async function runInteractive(
           const feedback = `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`;
           await runOneShot(agent, feedback, {
             sessionKey,
-            onAgentEvent: (event) => usage.record(event),
+            onAgentEvent: (event) => recordAgentEvent(event),
             taskFlow: messageRequestsTaskContract(feedback),
           });
         }
@@ -943,7 +968,7 @@ export async function runInteractive(
     checkpointStore.open(msg.slice(0, 60));
     const stop = await runReplTurn(agent, msg, {
       sessionKey,
-      onAgentEvent: (event) => usage.record(event),
+      onAgentEvent: (event) => recordAgentEvent(event),
       taskFlow: messageRequestsTaskContract(msg),
       readline: rl,
     });
@@ -955,7 +980,7 @@ export async function runInteractive(
       const feedback = `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`;
       await runOneShot(agent, feedback, {
         sessionKey,
-        onAgentEvent: (event) => usage.record(event),
+        onAgentEvent: (event) => recordAgentEvent(event),
         taskFlow: messageRequestsTaskContract(feedback),
       });
     }

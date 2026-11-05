@@ -1993,6 +1993,7 @@ export function TuiAppRoot({
           void dispatchRun(value);
         },
         getContextUsage: () => shellContextUsage(store.usage),
+        getTodos: () => store.todos,
         setInteractionMode: (mode: CliInteractionMode) => {
           // The policy layer already switched the mode; surface it so the change
           // is visible instead of silent.

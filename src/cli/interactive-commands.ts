@@ -187,6 +187,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         hidden: true,
         availableDuringRun: 'immediate',
       },
+      {
+        command: '/todos',
+        description: 'list the checklist the model is tracking (todo_write progress)',
+        availableDuringRun: 'immediate',
+      },
     ],
   },
   {

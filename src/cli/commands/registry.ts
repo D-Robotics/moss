@@ -108,6 +108,13 @@ export interface CommandContext {
 
   submitPrompt?(text: string): void;
   getContextUsage?(): ContextUsageSnapshot | undefined;
+
+  /**
+   * The todo_write checklist the host is currently showing (TUI panel, REPL
+   * tracker). `/todos` needs the live list: reading it back from the session
+   * store would miss the turn that is still running.
+   */
+  getTodos?(): readonly ChecklistItem[] | undefined;
   getSessionUsage?(): SessionUsageSummary | undefined;
   getCompactionHistory?(): readonly CompactionRecord[] | undefined;
   /** Optional: keep host interactionMode state in sync with setCliInteractionMode. */
@@ -127,6 +134,48 @@ export interface CommandSpec {
   body?: string;
   run(ctx: CommandContext, args: string): Promise<void> | void;
 }
+
+/** One row of the model's todo_write checklist (status stays a plain string: the
+ * tool owns the vocabulary, hosts only display it). */
+export interface ChecklistItem {
+  content: string;
+  status: string;
+}
+
+const CHECKLIST_GLYPH: Record<string, string> = {
+  pending: '○',
+  in_progress: '◐',
+  completed: '✓',
+};
+
+const todosCommand: CommandSpec = {
+  name: '/todos',
+  summary: 'list the checklist the model is tracking (todo_write)',
+  run(ctx) {
+    const zh = isZh(ctx.locale);
+    const todos = ctx.getTodos?.() ?? [];
+    if (todos.length === 0) {
+      ctx.say(
+        'system',
+        zh
+          ? '还没有清单——模型调用 todo_write 后会显示在这里。'
+          : 'No checklist yet — one appears here after the model calls todo_write.'
+      );
+      return;
+    }
+    const done = todos.filter((todo) => todo.status === 'completed').length;
+    const lines = [
+      zh ? `清单 ${done}/${todos.length} 已完成` : `Checklist ${done}/${todos.length} done`,
+      ...todos.map(
+        (todo, index) =>
+          `  ${index + 1}. ${CHECKLIST_GLYPH[todo.status] ?? '○'} ${todo.content}${
+            todo.status === 'in_progress' ? (zh ? '（进行中）' : ' (in progress)') : ''
+          }`
+      ),
+    ];
+    ctx.say('system', lines.join('\n'));
+  },
+};
 
 const statusCommand: CommandSpec = {
   name: '/status',
@@ -912,6 +961,7 @@ const skillsCommand: CommandSpec = {
 };
 
 const COMMANDS: readonly CommandSpec[] = [
+  todosCommand,
   statusCommand,
   doctorCommand,
   languageCommand,
