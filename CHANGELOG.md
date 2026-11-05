@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### `moss run --resume [<id>]` (B139)
+
+- The hero command now has a resume form: `moss run --resume` continues the newest resumable task in
+  the workspace, `moss run --resume <task_id>` continues that one, and `--accept` / `--max-repairs` /
+  `--max-turns` pass through exactly like `moss task resume`. An empty workspace exits 2 with a
+  start-a-run hint instead of a stack trace.
+- Completed run records no longer carry the snapshot's historical failure reason: a PASS row says
+  nothing about an old failure.
+
+### `moss run --resume [<id>]`（B139）
+
+- 英雄命令有了续跑形式：`moss run --resume` 续跑本工作区最新可恢复任务，`moss run --resume <task_id>`
+  续跑指定任务，`--accept` / `--max-repairs` / `--max-turns` 与 `moss task resume` 完全一致；
+  没有可恢复任务时 exit 2 并提示先启动一次运行。
+- 完成的运行记录不再携带快照里的历史失败原因：PASS 行不再显示旧的 failure。
+
 ### Workflow runs join the unified ledger (B138)
 
 - `moss workflow run` now writes the same `.moss/runs/<runId>/run.json` row: all steps passed ->

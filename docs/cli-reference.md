@@ -9,7 +9,7 @@
 | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `moss`（或 `moss "prompt"`）                                                                               | 交互界面 / 一次性模式                                                                                                     |
 | `moss init [--dry-run] [--json]`                                                                           | 首次上手：检测 test/build/lint 入口与验收命令，写最小 AGENTS.md（不覆盖已有），打印下一条验证式运行（只读、无需模型配置） |
-| `moss run "<intent>" [--accept "<cmd>"]`                                                                   | `moss task run` 的快捷方式：意图进，验收过的结果出                                                                        |
+| `moss run "<intent>" [--accept "<cmd>"]`                                                                   | `moss task run` 的快捷方式：意图进，验收过的结果出；`moss run --resume [<id>]` 续跑最新/指定可恢复任务                    |
 | `moss runs [list\|show\|prune] [--json]`                                                                   | 统一运行账本（`.moss/runs/<run_id>/run.json`，task / loop / -p / workflow 每次运行一条）：状态 / 原因 / 下一步 / 工件     |
 | `moss setup` · `moss auth status\|logout`                                                                  | 配置向导 · 查看登录态 / 删除已存 key                                                                                      |
 | `moss doctor`（别名 `moss status`）                                                                        | 体检配置 / 凭证 / 工作区 / 运行时                                                                                         |

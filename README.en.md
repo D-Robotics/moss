@@ -100,7 +100,7 @@ stopped; the state lives on disk and `resume` continues from the breakpoint inst
 | ---------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | Change permission mode (TUI) | `Shift+Tab` (status bar shows `manual / acceptEdits / plan / full`) | From ask-everything to ask-less, back to strict at any time                      |
 | Stop the current action      | `Esc`                                                               | Completed work is kept; `Ctrl+C` in a task run **pauses, never discards**        |
-| Resume a paused task         | `/goal resume` / `moss task resume <id>`                            | Continues from disk state, no re-run of finished turns; budget optional          |
+| Resume a paused task         | `/goal resume` · `moss run --resume` · `moss task resume <id>`      | Continues from disk state, no re-run of finished turns; budget optional          |
 | Undo this turn               | `/rewind`                                                           | Files return to the checkpoint and this turn leaves the context too              |
 | See/review changes           | `/diff` · `/review`                                                 | Working-tree diff · independent review with critical/important/suggestion        |
 | Manage context               | `/compact` · `/todos` · `/context`                                  | Compress history, watch the plan, inspect the window                             |
