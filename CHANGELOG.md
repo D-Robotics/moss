@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### `moss runs list --kind` narrows the ledger by engine (B147)
+
+- The unified ledger has five kinds (`task`, `loop`, `workflow`, `chat`, `superagent`) but only
+  `--status` filtered it. `moss runs list --kind <engine>` now narrows the same way: the header
+  keeps the whole-ledger counts and appends `— kind <engine> (N)`, `--json` carries the `kind`
+  field, `--status` and `--kind` combine, and an unknown kind is exit 2 with the valid list.
+
+### `moss runs list --kind` 按引擎过滤（B147）
+
+- 统一账本有五种 kind（`task`、`loop`、`workflow`、`chat`、`superagent`），但此前只有 `--status`
+  能过滤。`moss runs list --kind <引擎>` 现按同样方式收窄：表头保留全账本计数并追加
+  `— kind <引擎> (N)`，`--json` 带 `kind` 字段，`--status` 与 `--kind` 可组合，未知 kind 是
+  exit 2 并列出合法值。
+
 ### `/run --accept` keeps quotes out of the command and survives later flags (B146)
 
 - A real interactive run surfaced a broken oracle: `/run "create ok.txt" --accept "test -f
