@@ -71,6 +71,10 @@ export interface TaskRunResult {
   /** User-facing word for how the run ended. `aborted` is Esc — resumable, not a crash. */
   outcome: 'pass' | 'fail' | 'blocked' | 'aborted';
   verdictDetail?: string;
+  /** Latest applied `task_failed` detail (never `aborted`) — the engine's why. */
+  failureDetail?: string;
+  /** Latest `blocked_on_user` reason — what the harness could not do. */
+  blockedReason?: string;
   timeline: string;
   turns: number;
 }
@@ -502,13 +506,30 @@ async function buildRunResult(
   if (!snapshot) throw new Error(`task ${taskId} disappeared from the store`);
   const events = await listTaskEvents(workspaceDir, taskId);
   const outcome = outcomeFromSnapshot(snapshot, events);
+  const failureDetail = latestTaskFailureDetail(events);
+  const blockedReason = latestBlockedReason(events);
   return {
     snapshot,
     outcome,
     ...(state.lastVerdict ? { verdictDetail: state.lastVerdict.detail } : {}),
+    ...(failureDetail && failureDetail !== 'aborted' ? { failureDetail } : {}),
+    ...(blockedReason ? { blockedReason } : {}),
     timeline: formatTaskTimeline(buildTaskTimeline(events)),
     turns: state.turns,
   };
+}
+
+/** Latest `blocked_on_user` reason. Blocks are terminal-ish: the harness, not the agent, must change. */
+function latestBlockedReason(
+  events: readonly { type: string; data?: Record<string, unknown> }[]
+): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event?.type !== 'blocked_on_user') continue;
+    const reason = event.data?.reason;
+    return typeof reason === 'string' && reason.trim() ? reason : undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -753,6 +774,50 @@ export async function resumeTask(
  * detail translation. Core cannot read the CLI locale (layering), so the
  * caller passes it in — undefined keeps the English default for SDK callers.
  */
+/**
+ * The lines after the phase line: what failed / what blocked it, and the command
+ * that continues this task. Empty for a pass — a green run needs no advice.
+ */
+function runNextStepLines(result: TaskRunResult, zh: boolean): string[] {
+  const { snapshot, outcome, failureDetail, blockedReason } = result;
+  const id = snapshot.taskId;
+  const firstLine = (text: string, max = 200): string => {
+    const line = text.split('\n').find((candidate) => candidate.trim()) ?? '';
+    return line.trim().slice(0, max);
+  };
+  if (outcome === 'blocked') {
+    const reason = blockedReason ? firstLine(blockedReason) : '';
+    return [
+      ...(reason ? [zh ? `阻塞：${reason}` : `blocked: ${reason}`] : []),
+      zh
+        ? `下一步：moss task resume ${id} --accept "<修正后的验收命令>"`
+        : `next: moss task resume ${id} --accept "<corrected command>"`,
+    ];
+  }
+  if (outcome === 'aborted') {
+    // Esc is resumable, not a failure: the interactive hint is `/goal resume`,
+    // headless callers need the CLI twin.
+    return [zh ? `下一步：moss task resume ${id}` : `next: moss task resume ${id}`];
+  }
+  if (outcome === 'fail') {
+    const detail = failureDetail ? firstLine(failureDetail) : '';
+    const turnBudget = /turn budget exhausted \((\d+) turns\)/.exec(detail);
+    const repairBudget = /repair budget exhausted/.test(detail);
+    const resume = turnBudget
+      ? `moss task resume ${id} --max-turns ${String(Number(turnBudget[1]) * 2)}`
+      : repairBudget
+        ? `moss task resume ${id} --max-repairs ${String(Math.max(snapshot.attempt, 1))}`
+        : `moss task resume ${id}`;
+    // The engine writes canonical English details; the reader may be Chinese.
+    const display = zh && detail ? localizeTaskDetail(detail, true) : detail;
+    return [
+      ...(display ? [zh ? `失败：${display}` : `failed: ${display}`] : []),
+      zh ? `下一步：${resume}` : `next: ${resume}`,
+    ];
+  }
+  return [];
+}
+
 export function summarizeTaskRun(result: TaskRunResult, locale?: string): string {
   const zh = typeof locale === 'string' && /^zh/i.test(locale);
   const { snapshot, outcome, verdictDetail, timeline, turns } = result;
@@ -799,7 +864,13 @@ export function summarizeTaskRun(result: TaskRunResult, locale?: string): string
         `goal: ${snapshot.goal}`,
         `phase: ${phaseLabel} · attempts: ${snapshot.attempt} · repairs: ${snapshot.repairs.length} · failures: ${snapshot.failures.length} · turns: ${turns}`,
       ];
-  if (outcome === 'aborted') lines.push('/goal resume');
+  // A non-pass summary is the only thing a non-interactive caller sees: name the
+  // reason the engine recorded and the exact command that continues this task
+  // (Cursor/Claude print a next step, not just a status word). The aborted line
+  // stays for the interactive hint; the resume command serves headless callers.
+  const nextStep = runNextStepLines(result, zh);
+  if (outcome === 'aborted') lines.push('/goal resume', ...nextStep);
+  else lines.push(...nextStep);
   if (verdictDetail) {
     lines.push(
       '',
