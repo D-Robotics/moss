@@ -53,6 +53,8 @@ export interface RunRecord {
     loopLedger?: string;
     /** Headless chat runs: the session transcript. */
     session?: string;
+    /** Workflow runs: the step state file. */
+    workflowState?: string;
   };
 }
 

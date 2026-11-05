@@ -893,7 +893,13 @@ export async function runOneShot(
   // B129 follow-up: headless `moss -p` runs join the unified ledger. Interactive
   // host turns do not: a conversation is not an auditable run. A goal-verify
   // continuation re-enters this function, so only the outermost run records.
-  if (options.headless === true && !options.goalVerifyDepth) {
+  // MOSS_NO_RUN_LEDGER is internal: workflow steps are recorded by the workflow
+  // row itself, so a per-step chat row would duplicate the same run.
+  if (
+    options.headless === true &&
+    !options.goalVerifyDepth &&
+    process.env.MOSS_NO_RUN_LEDGER !== '1'
+  ) {
     try {
       const [{ writeRunRecord }, { buildChatRunRecord }] = await Promise.all([
         import('../core/run-ledger.js'),

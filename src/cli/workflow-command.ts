@@ -175,7 +175,8 @@ export function createChildSessionRunner(options: {
       const result = await runProcess(process.execPath, {
         args,
         cwd: options.workspaceDir,
-        env: { ...process.env, MOSS_NO_TUI: '1' },
+        // The workflow row covers its steps; a per-step chat row would duplicate it.
+        env: { ...process.env, MOSS_NO_TUI: '1', MOSS_NO_RUN_LEDGER: '1' },
         timeout: options.timeoutMs ?? WORKFLOW_STEP_TIMEOUT_MS,
       });
       return {
@@ -272,6 +273,7 @@ async function runPlan(
     ...(context.stepTimeoutMs !== undefined ? { timeoutMs: context.stepTimeoutMs } : {}),
     ...(context.mock ? { extraArgs: ['--mock'] } : {}),
   });
+  const runStartedAt = Date.now();
   const finished = await runWorkflow({
     plan,
     state,
@@ -280,6 +282,21 @@ async function runPlan(
     onProgress: (line) => console.log(line),
   });
   printState(finished, context.json ?? false);
+  // B129 follow-up: the workflow is an autonomous run; one unified ledger row.
+  try {
+    const [{ writeRunRecord }, { buildWorkflowRunRecord }] = await Promise.all([
+      import('../core/run-ledger.js'),
+      import('./workflow-run-record.js'),
+    ]);
+    await writeRunRecord(
+      context.workspaceDir,
+      buildWorkflowRunRecord({ state: finished, startedAt: runStartedAt, endedAt: Date.now() })
+    );
+  } catch (err) {
+    console.error(
+      `[moss] could not write the run ledger: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
   return workflowExitCode(finished);
 }
 
