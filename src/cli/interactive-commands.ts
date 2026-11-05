@@ -123,6 +123,12 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     title: 'Inspect',
     rows: [
       {
+        command: '/runs',
+        args: '[list|show|export|prune] [--json]',
+        description: 'unified run ledger: what ran, how it ended, what is next',
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/doctor',
         description: 'health-check model, egress, and config in this session',
         availableDuringRun: 'immediate',

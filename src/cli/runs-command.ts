@@ -33,7 +33,6 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '  moss runs [list] [--limit N] [--status <状态>] [--kind <引擎>] [--json]',
       '  moss runs show [<run_id>|latest] [--json]',
       '  moss runs export [<run_id>|latest] [--format md|json] [--out <文件>]',
-      '  moss runs export [<run_id>|latest] [--format md|json] [--out <file>]',
       '  moss runs prune [--keep N] [--dry-run] [--json]',
       '',
       '统一运行账本（.moss/runs/<run_id>/run.json）：每次 task / loop 等自动运行一条。',
@@ -43,11 +42,8 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '示例：',
       '  moss runs',
       '  moss runs show latest',
-      '  moss runs export latest > run.md',
-      '  moss runs export latest > run.md',
-      '  moss runs list --status verify_failed --json',
       '  moss runs list --kind loop --limit 5',
-      '  moss runs list --kind loop --limit 5',
+      '  moss runs export latest > run.md',
       '  moss runs prune --keep 20 --dry-run',
     ].join('\n');
   }
@@ -55,6 +51,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
     'Usage:',
     '  moss runs [list] [--limit N] [--status <status>] [--kind <engine>] [--json]',
     '  moss runs show [<run_id>|latest] [--json]',
+    '  moss runs export [<run_id>|latest] [--format md|json] [--out <file>]',
     '  moss runs prune [--keep N] [--dry-run] [--json]',
     '',
     'Unified run ledger (.moss/runs/<run_id>/run.json): one row per autonomous run.',
@@ -64,7 +61,8 @@ export function renderRunsUsage(zh = isZhLocale()): string {
     'Examples:',
     '  moss runs',
     '  moss runs show latest',
-    '  moss runs list --status verify_failed --json',
+    '  moss runs list --kind loop --limit 5',
+    '  moss runs export latest > run.md',
     '  moss runs prune --keep 20 --dry-run',
   ].join('\n');
 }
@@ -171,10 +169,11 @@ function parseListFlags(
 function renderList(
   records: readonly RunRecord[],
   all: readonly RunRecord[],
-  filterLabel = ''
+  filterLabel = '',
+  matched = records.length
 ): string {
   const counts = countsOf(all);
-  const filterSuffix = filterLabel ? ` — ${filterLabel} (${records.length})` : '';
+  const filterSuffix = filterLabel ? ` — ${filterLabel} (${matched})` : '';
   const header =
     uiText(
       `run ledger · ${all.length} total · ${counts.completed ?? 0} pass · ${counts.verify_failed ?? 0} fail · ${counts.blocked ?? 0} blocked · ${counts.interrupted ?? 0} paused · ${counts.incomplete ?? 0} incomplete · ${counts.unverified ?? 0} unverified`,
@@ -314,7 +313,7 @@ export async function runRunsCommand(
         `${JSON.stringify({ version: 1, total: filtered.length, runs: page, counts: countsOf(all), ...(parsed.status ? { status: parsed.status } : {}), ...(parsed.kind ? { kind: parsed.kind } : {}) }, null, 2)}\n`
       );
     } else {
-      output('stdout', `${renderList(page, all, filterLabel)}\n`);
+      output('stdout', `${renderList(page, all, filterLabel, filtered.length)}\n`);
     }
     return 0;
   }

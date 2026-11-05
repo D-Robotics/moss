@@ -195,6 +195,30 @@ const statusCommand: CommandSpec = {
   },
 };
 
+const runsCommand: CommandSpec = {
+  name: '/runs',
+  summary:
+    'unified run ledger: list | show | export | prune (what ran, how it ended, what is next)',
+  async run(ctx, args) {
+    const { runRunsCommand } = await import('../runs-command.js');
+    const tokens = args.trim() ? args.trim().split(/\s+/) : [];
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await runRunsCommand(tokens, {
+      workspace: ctx.workspace,
+      ...(tokens.includes('--json') ? { outputJson: true } : {}),
+      output: (stream, text) => {
+        (stream === 'stderr' ? err : out).push(text.trimEnd());
+      },
+    });
+    const stdout = out.join('\n').trim();
+    const stderr = err.join('\n').trim();
+    if (stdout) ctx.say('system', stdout);
+    if (stderr) ctx.say('error', stderr);
+    if (code !== 0 && !stderr) ctx.say('error', `moss runs exited ${code}`);
+  },
+};
+
 const doctorCommand: CommandSpec = {
   name: '/doctor',
   summary: 'health-check model, egress, and config in this session',
@@ -1108,6 +1132,7 @@ const mcpCommand: CommandSpec = {
 const COMMANDS: readonly CommandSpec[] = [
   todosCommand,
   statusCommand,
+  runsCommand,
   doctorCommand,
   languageCommand,
   trustCommand,
