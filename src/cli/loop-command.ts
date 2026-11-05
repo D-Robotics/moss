@@ -28,6 +28,10 @@ export interface LoopOptions {
   everyMs: number;
   /** Whole-loop wall clock cap; 0 means unlimited. Checked between attempts. */
   maxDurationMs: number;
+  /** External signal: wait for this path to change before the next attempt. */
+  watch?: string;
+  /** How long `--watch` waits for a change before ending the loop (0 = default 10m). */
+  watchTimeoutMs: number;
 }
 
 /** One line per attempt, so an overnight loop can be audited afterwards. */
@@ -41,6 +45,8 @@ interface LoopAttemptRecord {
   agentError?: string;
   check: { exitCode: number; durationMs: number; stdout: string; stderr: string };
   passed: boolean;
+  /** Wall-clock spent waiting for `--watch` before this attempt. */
+  waitedMs?: number;
 }
 
 interface LoopSummaryRecord {
@@ -52,11 +58,15 @@ interface LoopSummaryRecord {
   maxAttempts: number;
   maxDurationMs: number;
   totalDurationMs: number;
-  reason: 'passed' | 'attempts_exhausted' | 'budget_exhausted';
+  reason: 'passed' | 'attempts_exhausted' | 'budget_exhausted' | 'watch_timeout';
   until: string;
+  /** The external signal path, when `--watch` was used. */
+  watch?: string;
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3;
+const DEFAULT_WATCH_TIMEOUT_MS = 10 * 60_000;
+const WATCH_POLL_MS = 500;
 const MAX_ATTEMPTS_CAP = 20;
 const CHECK_TIMEOUT_MS = 10 * 60_000;
 
@@ -71,6 +81,8 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
       '  --until 不能省略：循环的成败只由你的命令判定，不由模型自述判定。',
       '  --every 5m：两次尝试之间固定等待（支持 ms/s/m/h，默认 0 = 立即重试）。',
       '  --max-duration 30m：整轮墙钟上限，只在两次尝试之间检查（进行中的一轮不会被切断）。',
+      '  --watch <路径>：失败后等这个文件/目录变化再跑下一轮（外部信号唤醒，如 CI 产物落地）。',
+      '  --watch-timeout 10m：等不到变化就收工（summary reason=watch_timeout，不烧剩余轮次）。',
       '  每轮的退出码/耗时/检查输出尾部/改动会写进 .moss/loops/<runId>.jsonl（启动时打印路径）。',
       '  moss loop list [--limit N] [--json]：历史运行（最新在前，离线读账本）。',
       '  moss loop show [<run_id>|latest] [--json]：某次运行的每轮明细与检查输出。',
@@ -91,6 +103,10 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
     '  --every 5m waits a fixed delay between failed attempts (ms/s/m/h; default 0 = retry now).',
     '  --max-duration 30m caps the whole loop in wall-clock terms; checked between attempts',
     '  (an attempt already running is not cut off).',
+    '  --watch <path> waits for that file/directory to change before the next attempt',
+    '  (an external signal such as a CI artifact); --watch-timeout 10m gives up and ends the',
+    '  loop with summary reason watch_timeout instead of burning the remaining attempts.',
+    '  --every and --watch can be combined: the fixed delay runs, then the watch wait.',
     '  The ledger for every attempt (exit code, duration, check output tails) is',
     '  written to .moss/loops/<runId>.jsonl and the path is printed at startup.',
     '  moss loop list [--limit N] [--json] reads the run history (offline, newest first).',
@@ -136,6 +152,8 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
   let maxAttempts = DEFAULT_MAX_ATTEMPTS;
   let everyMs = 0;
   let maxDurationMs = 0;
+  let watch: string | undefined;
+  let watchTimeoutMs = 0;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? '';
     if (arg === '--') {
@@ -168,12 +186,101 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
       maxDurationMs = parseLoopDuration(raw, '--max-duration');
       continue;
     }
+    if (arg === '--watch' || arg.startsWith('--watch=')) {
+      const raw = readValue(argv, i, '--watch');
+      if (!arg.includes('=')) i += 1;
+      watch = raw.trim();
+      if (watch === '') throw new Error('--watch needs a file or directory path');
+      continue;
+    }
+    if (arg === '--watch-timeout' || arg.startsWith('--watch-timeout=')) {
+      const raw = readValue(argv, i, '--watch-timeout');
+      if (!arg.includes('=')) i += 1;
+      watchTimeoutMs = parseLoopDuration(raw, '--watch-timeout');
+      if (watchTimeoutMs === 0) {
+        throw new Error('--watch-timeout must be greater than 0');
+      }
+      continue;
+    }
     rest.push(arg);
   }
   const prompt = rest.join(' ').trim();
   if (!until) throw new Error('--until is required: the loop must end on a command, not on prose');
   if (!prompt) throw new Error('the prompt is required');
-  return { prompt, until, maxAttempts, everyMs, maxDurationMs };
+  return {
+    prompt,
+    until,
+    maxAttempts,
+    everyMs,
+    maxDurationMs,
+    ...(watch !== undefined ? { watch } : {}),
+    watchTimeoutMs: watchTimeoutMs > 0 ? watchTimeoutMs : DEFAULT_WATCH_TIMEOUT_MS,
+  };
+}
+
+export interface WatchState {
+  /** Stable textual signature; `missing:` when the path does not exist. */
+  signature: string;
+  exists: boolean;
+}
+
+/**
+ * Cheap signature of a file or a directory tree (name + size + mtime, bounded).
+ * The loop only needs "did anything change", not a full content diff.
+ */
+export async function watchSignature(target: string): Promise<WatchState> {
+  try {
+    const stat = await fs.promises.stat(target);
+    if (!stat.isDirectory())
+      return { signature: `file:${String(stat.size)}:${String(stat.mtimeMs)}`, exists: true };
+    const entries = (await fs.promises.readdir(target)).sort().slice(0, 200);
+    const parts: string[] = [];
+    for (const name of entries) {
+      try {
+        const child = await fs.promises.stat(path.join(target, name));
+        parts.push(`${name}:${String(child.size)}:${String(child.mtimeMs)}`);
+      } catch {
+        parts.push(`${name}:missing`);
+      }
+    }
+    return { signature: `dir:${parts.join(',')}`, exists: true };
+  } catch {
+    return { signature: 'missing:', exists: false };
+  }
+}
+
+export interface WatchWaitResult {
+  changed: boolean;
+  waitedMs: number;
+  before: WatchState;
+  after: WatchState;
+}
+
+/**
+ * Block until `target` changes, or the timeout elapses. Polling (not fs.watch)
+ * because the signal may be a directory tree and a missed event would strand
+ * the loop; a 500ms poll is cheap for an unattended run.
+ */
+export async function waitForWatchChange(
+  target: string,
+  options: { timeoutMs: number; pollMs?: number }
+): Promise<WatchWaitResult> {
+  const pollMs = Math.max(20, options.pollMs ?? WATCH_POLL_MS);
+  const startedAt = Date.now();
+  const before = await watchSignature(target);
+  for (;;) {
+    const elapsed = Date.now() - startedAt;
+    if (elapsed >= options.timeoutMs) {
+      return { changed: false, waitedMs: elapsed, before, after: await watchSignature(target) };
+    }
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, Math.min(pollMs, options.timeoutMs - elapsed))
+    );
+    const after = await watchSignature(target);
+    if (after.signature !== before.signature) {
+      return { changed: true, waitedMs: Date.now() - startedAt, before, after };
+    }
+  }
 }
 
 export interface CheckResult {
@@ -298,6 +405,7 @@ export async function runLoopCommand(
   };
   const loopStartedAt = Date.now();
   let attempts = 0;
+  let pendingWaitMs = 0;
   let lastCheck: CheckResult = { exitCode: 1, stdout: '', stderr: '' };
   let reason: LoopSummaryRecord['reason'] = 'attempts_exhausted';
   say(`[loop] ledger: ${ledgerLabel}`);
@@ -314,6 +422,7 @@ export async function runLoopCommand(
       totalDurationMs: Date.now() - loopStartedAt,
       reason,
       until: options.until,
+      ...(options.watch ? { watch: options.watch } : {}),
     };
     appendLedger(summary);
     if (passed) {
@@ -332,9 +441,13 @@ export async function runLoopCommand(
         ? zh
           ? `墙钟预算 ${options.maxDurationMs}ms 用尽（${attempts} 轮后）`
           : `wall-clock budget ${options.maxDurationMs}ms exhausted after ${attempts} attempt(s)`
-        : zh
-          ? `${attempts} 轮后 \`${options.until}\` 仍未通过`
-          : `${attempts} attempt(s) and \`${options.until}\` still exited ${lastCheck.exitCode}`;
+        : reason === 'watch_timeout'
+          ? zh
+            ? `等 \`${options.watch ?? ''}\` 变化超时（${options.watchTimeoutMs}ms），已停止而不是烧掉剩余轮次`
+            : `no change on \`${options.watch ?? ''}\` within ${options.watchTimeoutMs}ms (--watch-timeout); stopped instead of burning the remaining attempts`
+          : zh
+            ? `${attempts} 轮后 \`${options.until}\` 仍未通过`
+            : `${attempts} attempt(s) and \`${options.until}\` still exited ${lastCheck.exitCode}`;
     const changedLine =
       files && files.length > 0
         ? zh
@@ -398,7 +511,9 @@ export async function runLoopCommand(
         stderr: tailForLedger(lastCheck.stderr),
       },
       passed,
+      ...(pendingWaitMs > 0 ? { waitedMs: pendingWaitMs } : {}),
     };
+    pendingWaitMs = 0;
     appendLedger(record);
     say(`[loop] attempt ${attempt}/${options.maxAttempts}: check exit ${lastCheck.exitCode}`);
     if (passed) {
@@ -412,6 +527,24 @@ export async function runLoopCommand(
       if (options.everyMs > 0) {
         say(`[loop] waiting ${String(options.everyMs)}ms before attempt ${attempt + 1} (--every)`);
         await new Promise<void>((resolve) => setTimeout(resolve, options.everyMs));
+        pendingWaitMs += options.everyMs;
+      }
+      if (options.watch) {
+        say(
+          `[loop] waiting for ${options.watch} to change before attempt ${attempt + 1} (--watch, timeout ${String(options.watchTimeoutMs)}ms)`
+        );
+        const wait = await waitForWatchChange(options.watch, {
+          timeoutMs: options.watchTimeoutMs,
+        });
+        pendingWaitMs += wait.waitedMs;
+        if (!wait.changed) {
+          reason = 'watch_timeout';
+          return await finish(false);
+        }
+        say(`[loop] external signal changed after ${String(wait.waitedMs)}ms: ${options.watch}`);
+        say(
+          `[loop] ${wait.before.signature === 'missing:' ? 'path appeared' : 'signature changed'}`
+        );
       }
     }
   }
@@ -440,6 +573,8 @@ export interface LoopRunSummary {
   maxAttempts?: number;
   totalDurationMs?: number;
   until?: string;
+  /** External signal path when the run used `--watch`. */
+  watch?: string;
   /** No summary record: the process died, was killed, or is still running. */
   interrupted: boolean;
 }
@@ -510,6 +645,7 @@ export function listLoopRuns(workspaceDir: string): LoopRunSummary[] {
         ? { totalDurationMs: summary.totalDurationMs }
         : {}),
       ...(summary?.until ? { until: summary.until } : {}),
+      ...(summary?.watch ? { watch: summary.watch } : {}),
       interrupted: summary === undefined,
       sortAt,
     });
@@ -582,9 +718,13 @@ export function renderLoopRunRows(
           ? zh
             ? '墙钟预算用尽'
             : 'wall-clock budget exhausted'
-          : zh
-            ? '轮次用尽'
-            : 'attempts exhausted';
+          : run.reason === 'watch_timeout'
+            ? zh
+              ? '外部信号等待超时'
+              : 'watch timed out'
+            : zh
+              ? '轮次用尽'
+              : 'attempts exhausted';
     const count = `${String(run.attempts)}/${String(run.maxAttempts ?? run.attempts)}`;
     lines.push(
       `  ${clockOf(run.startedAt)}  ${outcome.padEnd(11)}  ${run.runId.slice(-14).padEnd(14)}  att:${count.padEnd(5)} ${formatLoopDuration(run.totalDurationMs).padStart(7)}  ${clipLine(run.until ?? '', 56)}`
@@ -612,6 +752,7 @@ export function formatLoopRunDetail(
     `${label('RUN', '运行')}${run.runId}`,
     `${label('LEDGER', '账本')}${run.ledger}`,
     `${label('UNTIL', '验收')}${run.until ?? '—'}`,
+    ...(run.watch ? [`${label('WATCH', '外部信号')}${run.watch}`] : []),
     `${label('RESULT', '结果')}${
       run.passed
         ? 'passed'
@@ -639,7 +780,11 @@ export function formatLoopRunDetail(
   for (const attempt of read.attempts) {
     const check = attempt.check;
     lines.push(
-      `  ${clockOf(attempt.at)}  #${String(attempt.attempt)}  agent ${formatLoopDuration(attempt.durationMs)}  check exit ${String(check.exitCode)} (${formatLoopDuration(check.durationMs)})  ${attempt.passed ? 'PASS' : 'fail'}`
+      `  ${clockOf(attempt.at)}  #${String(attempt.attempt)}${
+        attempt.waitedMs && attempt.waitedMs > 0
+          ? `  wait ${formatLoopDuration(attempt.waitedMs)}`
+          : ''
+      }  agent ${formatLoopDuration(attempt.durationMs)}  check exit ${String(check.exitCode)} (${formatLoopDuration(check.durationMs)})  ${attempt.passed ? 'PASS' : 'fail'}`
     );
     if (attempt.agentError) {
       lines.push(`      ${zh ? '模型错误' : 'agent error'}: ${clipLine(attempt.agentError, 160)}`);
