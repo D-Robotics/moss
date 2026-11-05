@@ -115,7 +115,10 @@ assert.equal(runs.find((run) => run.runId === 'loop-pass')?.attempts, 2);
 ok('listLoopRuns is newest-first, marks interrupted runs, tolerates a torn line');
 
 const rows = renderLoopRunRows(runs, { limit: 10 });
-assert.match(rows[0], /loop runs \(4, newest first\)/);
+assert.match(
+  rows[0],
+  /loop runs \(4 total · passed \d+ · failed \d+ · running \d+ · interrupted \d+, newest first\)/
+);
 assert.match(rows.join('\n'), /interrupted/);
 assert.match(rows.join('\n'), /test -f done\.txt/);
 const limited = renderLoopRunRows(runs, { limit: 2 });

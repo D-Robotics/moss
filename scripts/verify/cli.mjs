@@ -85,6 +85,7 @@ import { stage as reviewVerdictStage } from './stages/review-verdict.mjs';
 import { stage as loopStatusStage } from './stages/loop-status.mjs';
 import { stage as loopFollowStage } from './stages/loop-follow.mjs';
 import { stage as loopCheckTimeoutStage } from './stages/loop-check-timeout.mjs';
+import { stage as loopHealthStage } from './stages/loop-health.mjs';
 import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
 import { stage as mcpPromptSlashStage } from './stages/mcp-prompt-slash.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
@@ -158,6 +159,7 @@ const STAGES = new Map(
     loopStatusStage,
     loopFollowStage,
     loopCheckTimeoutStage,
+    loopHealthStage,
     runTestsVerdictStage,
     mcpPromptSlashStage,
     contextSurfaceStage,
@@ -209,6 +211,7 @@ const FAST_GATE = [
   'loop-status',
   'loop-follow',
   'loop-check-timeout',
+  'loop-health',
   'skill-catalog-usage',
   'tool-output-spill',
   'loop-command',

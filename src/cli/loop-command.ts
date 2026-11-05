@@ -109,7 +109,7 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
       '  --watch-timeout 10m：等不到变化就收工（summary reason=watch_timeout，不烧剩余轮次）。',
       '  --until-timeout 10m：单次检查命令的墙钟上限；挂起（例如等 stdin）就停止并记 reason=check_timeout，不当作判定失败、不烧剩余轮次。',
       '  每轮的退出码/耗时/检查输出尾部/改动会写进 .moss/loops/<runId>.jsonl（启动时打印路径）。',
-      '  moss loop list [--limit N] [--json]：历史运行（最新在前，离线读账本）。',
+      '  moss loop list [--limit N] [--status passed|failed|running|interrupted] [--json]：历史运行（最新在前，离线读账本）；表头给出总数与各状态计数。',
       '  moss loop show [<run_id>|latest] [--json]：某次运行的每轮明细与检查输出。',
       '  moss loop follow [<run_id>|latest] [--interval 1s]：实时跟随一次运行，新 attempt/summary 出现就打印（Ctrl+C 退出）。',
       '',
@@ -137,7 +137,8 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
     '  --every and --watch can be combined: the fixed delay runs, then the watch wait.',
     '  The ledger for every attempt (exit code, duration, check output tails) is',
     '  written to .moss/loops/<runId>.jsonl and the path is printed at startup.',
-    '  moss loop list [--limit N] [--json] reads the run history (offline, newest first).',
+    '  moss loop list [--limit N] [--status passed|failed|running|interrupted] [--json]',
+    '  reads the run history (offline, newest first); the header counts every status.',
     "  moss loop show [<run_id>|latest] [--json] prints one run's attempts and check tails.",
     '',
     'Examples:',
@@ -792,14 +793,43 @@ function clockOf(iso: string | undefined): string {
       });
 }
 
+export type LoopRunStatus = LoopRunSummary['status'];
+
+export interface LoopRunCounts {
+  total: number;
+  passed: number;
+  failed: number;
+  running: number;
+  interrupted: number;
+}
+
+/** Health of the whole ledger, not just the page shown (long runs accumulate). */
+export function summarizeLoopRuns(runs: readonly LoopRunSummary[]): LoopRunCounts {
+  const counts: LoopRunCounts = {
+    total: runs.length,
+    passed: 0,
+    failed: 0,
+    running: 0,
+    interrupted: 0,
+  };
+  for (const run of runs) {
+    if (run.status === 'passed') counts.passed += 1;
+    else if (run.status === 'running') counts.running += 1;
+    else if (run.status === 'interrupted') counts.interrupted += 1;
+    else counts.failed += 1;
+  }
+  return counts;
+}
+
 export function renderLoopRunRows(
   runs: readonly LoopRunSummary[],
-  options: { zh?: boolean; limit?: number } = {}
+  options: { zh?: boolean; limit?: number; status?: LoopRunStatus } = {}
 ): string[] {
   const zh = options.zh === true;
   const limit = options.limit ?? 20;
-  const shown = runs.slice(0, limit);
-  if (shown.length === 0) {
+  const counts = summarizeLoopRuns(runs);
+  const scoped = options.status ? runs.filter((run) => run.status === options.status) : runs;
+  if (runs.length === 0) {
     return zh
       ? [
           '还没有 loop 运行记录。跑一个：`moss loop --until "<命令>" "<prompt>"`',
@@ -810,11 +840,24 @@ export function renderLoopRunRows(
           '  each attempt lands in `.moss/loops/<runId>.jsonl`',
         ];
   }
-  const lines: string[] = [
-    zh
-      ? `loop 运行记录（${String(runs.length)} 条，最新在前）`
-      : `loop runs (${String(runs.length)}, newest first)`,
-  ];
+  const header = zh
+    ? `loop 运行记录（共 ${String(counts.total)} 次 · 通过 ${String(counts.passed)} · 失败 ${String(counts.failed)} · 进行中 ${String(counts.running)} · 中断 ${String(counts.interrupted)}，最新在前）`
+    : `loop runs (${String(counts.total)} total · passed ${String(counts.passed)} · failed ${String(counts.failed)} · running ${String(counts.running)} · interrupted ${String(counts.interrupted)}, newest first)`;
+  const statusLabel = options.status
+    ? zh
+      ? `（仅 ${String(scoped.length)} 条 status=${options.status}）`
+      : ` — status ${options.status} (${String(scoped.length)})`
+    : '';
+  const lines: string[] = [`${header}${statusLabel}`];
+  const shown = scoped.slice(0, limit);
+  if (shown.length === 0) {
+    lines.push(
+      zh
+        ? `  没有 status=${String(options.status)} 的运行`
+        : `  no runs with status ${String(options.status)}`
+    );
+    return lines;
+  }
   for (const run of shown) {
     const outcome =
       run.status === 'passed'
@@ -858,11 +901,11 @@ export function renderLoopRunRows(
     );
     lines.push(`  ${' '.repeat(10)}  ↳ ${reason}${zh ? '' : ` · ${run.ledger}`}`);
   }
-  if (runs.length > shown.length) {
+  if (scoped.length > shown.length) {
     lines.push(
       zh
-        ? `  …还有 ${String(runs.length - shown.length)} 条（--limit 调整）`
-        : `  …${String(runs.length - shown.length)} more (raise --limit)`
+        ? `  …还有 ${String(scoped.length - shown.length)} 条（--limit 调整）`
+        : `  …${String(scoped.length - shown.length)} more (raise --limit)`
     );
   }
   return lines;
@@ -1044,9 +1087,23 @@ export async function readLoopHistoryCommand(
   const wantJson = ctx.json === true || argv.includes('--json');
   if (sub === 'list') {
     let limit = 20;
+    let status: LoopRunStatus | undefined;
     for (let i = 1; i < argv.length; i += 1) {
       const arg = argv[i] ?? '';
       if (arg === '--json') continue;
+      if (arg === '--status' || arg.startsWith('--status=')) {
+        const raw = readValue(argv, i, '--status');
+        if (!arg.includes('=')) i += 1;
+        const normalized = raw === 'fail' ? 'failed' : raw;
+        if (!['passed', 'failed', 'running', 'interrupted'].includes(normalized)) {
+          console.error(
+            'moss loop list: --status must be one of passed|failed|running|interrupted'
+          );
+          return 2;
+        }
+        status = normalized as LoopRunStatus;
+        continue;
+      }
       if (arg === '--limit' || arg.startsWith('--limit=')) {
         const raw = readValue(argv, i, '--limit');
         if (!arg.includes('=')) i += 1;
@@ -1062,11 +1119,14 @@ export async function readLoopHistoryCommand(
       return 2;
     }
     const runs = listLoopRuns(ctx.workspaceDir);
+    const scoped = status ? runs.filter((run) => run.status === status) : runs;
     if (wantJson) {
-      console.log(JSON.stringify(runs.slice(0, limit), null, 2));
+      console.log(JSON.stringify(scoped.slice(0, limit), null, 2));
       return 0;
     }
-    for (const line of renderLoopRunRows(runs, { zh, limit })) console.log(line);
+    for (const line of renderLoopRunRows(runs, { zh, limit, ...(status ? { status } : {}) })) {
+      console.log(line);
+    }
     return 0;
   }
   if (sub === 'follow') {
