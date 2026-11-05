@@ -273,14 +273,22 @@ export const COMMANDS: Record<string, CommandConfig> = {
         process.exitCode = ExitCode.USAGE;
         return;
       }
-      const code = await runTaskCommand(ctx.commandArgs, {
-        agent,
-        workspace,
-        sessionKey: (ctx.sessionKey as string | undefined) ?? `task-${Date.now().toString(36)}`,
-        outputJson: ctx.argv.includes('--json'),
-        ...(typeof ctx.configDir === 'string' ? { configDir: ctx.configDir } : {}),
-        ...(ctx.mcp ? { mcp: ctx.mcp as NonNullable<TaskCommandContext['mcp']> } : {}),
-      });
+      // Headless `task run/resume` is a long turn loop: Ctrl+C must pause the
+      // task (write `task_failed{detail:"aborted"}`, print the resume hint) and
+      // exit 130, not kill the process and leave an in-flight task behind. The
+      // second Ctrl+C is the escape hatch for an uncooperative provider.
+      const { withCliRunCancellation } = await import('./run-cancellation.js');
+      const code = await withCliRunCancellation((signal) =>
+        runTaskCommand(ctx.commandArgs, {
+          agent,
+          workspace,
+          sessionKey: (ctx.sessionKey as string | undefined) ?? `task-${Date.now().toString(36)}`,
+          outputJson: ctx.argv.includes('--json'),
+          signal,
+          ...(typeof ctx.configDir === 'string' ? { configDir: ctx.configDir } : {}),
+          ...(ctx.mcp ? { mcp: ctx.mcp as NonNullable<TaskCommandContext['mcp']> } : {}),
+        })
+      );
       if (code !== 0) process.exitCode = code;
     },
     description:

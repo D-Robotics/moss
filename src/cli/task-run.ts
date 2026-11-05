@@ -684,6 +684,17 @@ async function recordRun(
   }
 }
 
+/**
+ * Exit codes for a headless task run. 130 is the conventional "interrupted"
+ * code, so a script can tell Ctrl+C (`aborted`, resumable) from a real failure
+ * (1); a pass is still 0.
+ */
+export function taskOutcomeExitCode(outcome: 'pass' | 'fail' | 'blocked' | 'aborted'): number {
+  if (outcome === 'pass') return 0;
+  if (outcome === 'aborted') return 130;
+  return 1;
+}
+
 export async function runTaskCommand(
   commandArgs: string[],
   ctx: TaskCommandContext
@@ -738,7 +749,7 @@ export async function runTaskCommand(
     const usageLine = usageTap.line();
     if (usageLine) output('stdout', `${usageLine}\n`);
     await recordRun(ctx, result, startedAt, goal, flags.accept, output);
-    return result.outcome === 'pass' ? 0 : 1;
+    return taskOutcomeExitCode(result.outcome);
   }
 
   if (sub === 'resume') {
@@ -783,7 +794,7 @@ export async function runTaskCommand(
     const usageLine = usageTap.line();
     if (usageLine) output('stdout', `${usageLine}\n`);
     await recordRun(ctx, result, startedAt, result.snapshot.goal, resumeFlags.accept, output);
-    return result.outcome === 'pass' ? 0 : 1;
+    return taskOutcomeExitCode(result.outcome);
   }
 
   if (sub === 'list') {
