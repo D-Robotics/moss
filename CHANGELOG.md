@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Workflow runs join the unified ledger (B138)
+
+- `moss workflow run` now writes the same `.moss/runs/<runId>/run.json` row: all steps passed ->
+  `completed`, any step failed -> `verify_failed` with per-status counts, blocked steps -> `blocked`,
+  and leftover pending/running -> `incomplete`; the step state file is the artifact and a failed
+  workflow points at `moss workflow resume <runId>`.
+- Workflow child `-p` steps no longer add their own chat rows (internal `MOSS_NO_RUN_LEDGER`), so one
+  workflow appears as one ledger row instead of one row per step.
+
+### workflow 运行进入统一账本（B138）
+
+- `moss workflow run` 现在写同一条 `.moss/runs/<runId>/run.json`：全部步骤通过 → `completed`，
+  任一步失败 → `verify_failed`（reason 带各状态计数），有 blocked → `blocked`，仍有 pending/running
+  → `incomplete`；步骤状态文件作为工件，失败工作流给出 `moss workflow resume <runId>`。
+- workflow 的子 `-p` 步骤不再各写一条 chat 记录（内部 `MOSS_NO_RUN_LEDGER`），一次 workflow
+  只出现一行账本，而不是每步一行。
+
 ### TUI first screen matches the REPL (B137)
 
 - The TUI banner now carries the same context as the REPL welcome: a `last run: <status> · <age> ·

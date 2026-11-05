@@ -87,7 +87,7 @@ moss init        # 检测 test/build/lint 入口，写一份最小 AGENTS.md，�
 
 ```bash
 moss run "创建 hello.txt 内容为 MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"
-moss runs                              # 所有自主运行（task / loop / -p）共用一本账：状态 / 原因 / 下一步
+moss runs                              # 所有自主运行（task / loop / -p / workflow）共用一本账：状态 / 原因 / 下一步
 moss task status --json                # 同一份事实，给脚本/CI 用
 ```
 
