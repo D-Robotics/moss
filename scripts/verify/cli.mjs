@@ -68,6 +68,7 @@ import { stage as skillBackgroundStage } from './stages/skill-background.mjs';
 import { stage as skillHooksStage } from './stages/skill-hooks.mjs';
 import { stage as skillModelInvocationStage } from './stages/skill-model-invocation.mjs';
 import { stage as skillCatalogBudgetStage } from './stages/skill-catalog-budget.mjs';
+import { stage as mcpResourceMentionsStage } from './stages/mcp-resource-mentions.mjs';
 import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
 import { stage as mcpPromptSlashStage } from './stages/mcp-prompt-slash.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
@@ -124,6 +125,7 @@ const STAGES = new Map(
     skillHooksStage,
     skillModelInvocationStage,
     skillCatalogBudgetStage,
+    mcpResourceMentionsStage,
     runTestsVerdictStage,
     mcpPromptSlashStage,
     contextSurfaceStage,

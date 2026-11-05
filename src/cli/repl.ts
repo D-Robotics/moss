@@ -45,6 +45,7 @@ import {
   slashAliasHelpLines,
 } from './interactive-commands.js';
 import { isResumableTaskPhase } from '../contracts/task-runtime.js';
+import { expandMcpResourceMentions, type McpResourceReader } from './mcp-resource-mentions.js';
 import { cliLocale } from './cli-locale.js';
 import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
 import { CliServices } from './cli-services.js';
@@ -90,6 +91,8 @@ async function runReplTurn(
       on(event: 'SIGINT', listener: () => void): unknown;
       off(event: 'SIGINT', listener: () => void): unknown;
     };
+    /** D4: readers for `@server:uri` resource mentions (undefined = no MCP). */
+    readMcpResource?: McpResourceReader['read'];
   }
 ): Promise<Awaited<ReturnType<typeof runOneShot>>> {
   const controller = new AbortController();
@@ -106,7 +109,15 @@ async function runReplTurn(
   options.readline?.on('SIGINT', onSigInt);
   process.stdin.on('data', onStdinData);
   try {
-    return await runOneShot(agent, message, { ...options, abortSignal: controller.signal });
+    // D4: `@server:uri` mentions attach MCP resources before the turn starts.
+    const { readMcpResource, ...runOptions } = options;
+    const mention = await expandMcpResourceMentions(message, { read: readMcpResource });
+    for (const line of mention.notes) console.error(line);
+    return await runOneShot(agent, message, {
+      ...runOptions,
+      ...(mention.extraContext ? { extraContext: mention.extraContext } : {}),
+      abortSignal: controller.signal,
+    });
   } finally {
     process.off('SIGINT', onSigInt);
     options.readline?.off('SIGINT', onSigInt);
@@ -388,6 +399,7 @@ export async function runInteractive(
             onAgentEvent: (event) => recordAgentEvent(event),
             taskFlow: messageRequestsTaskContract(String(submitText)),
             readline: rl,
+            ...(runtime?.mcpResources ? { readMcpResource: runtime.mcpResources.read } : {}),
           });
           // O165: a fatal (throwing) Stop hook is terminal — no continuation.
           if (stop?.blocked && !stop.fatal) {
@@ -920,6 +932,7 @@ export async function runInteractive(
           onAgentEvent: (event) => recordAgentEvent(event),
           taskFlow: messageRequestsTaskContract(resolved.prompt),
           readline: rl,
+          ...(runtime?.mcpResources ? { readMcpResource: runtime.mcpResources.read } : {}),
         });
         // O165: a fatal (throwing) Stop hook is terminal — no continuation.
         if (stop?.blocked && !stop.fatal) {
@@ -968,6 +981,7 @@ export async function runInteractive(
       onAgentEvent: (event) => recordAgentEvent(event),
       taskFlow: messageRequestsTaskContract(msg),
       readline: rl,
+      ...(runtime?.mcpResources ? { readMcpResource: runtime.mcpResources.read } : {}),
     });
     // O165: a fatal (throwing) Stop hook is terminal — no continuation turn;
     // the run already ended Incomplete with a visible notice.

@@ -102,6 +102,7 @@ import {
   resolveUserCommand,
   skillSlashToken,
 } from '../commands/custom-commands.js';
+import { expandMcpResourceMentions } from '../mcp-resource-mentions.js';
 import { closestSlashCommands } from '../command-completion.js';
 import { isCatalogSkipNotice } from '../catalog-skip-notice.js';
 import { formatBackgroundJobLines } from '../commands/background-jobs.js';
@@ -1184,14 +1185,19 @@ export function TuiAppRoot({
    * mock agents only implement `streamChat` and fall back cleanly.
    */
   const streamTurn = useCallback(
-    (message: string, abortSignal: AbortSignal) => {
+    (message: string, abortSignal: AbortSignal, extraContext?: string) => {
       const agent = options.agent as MossAgent & {
         streamChatRecorded?: typeof options.agent.streamChat;
       };
       const taskFlow = messageRequestsTaskContract(message);
+      const runOptions = {
+        abortSignal,
+        taskFlow,
+        ...(extraContext ? { extraContext } : {}),
+      };
       return typeof agent.streamChatRecorded === 'function'
-        ? agent.streamChatRecorded(sessionKey, message, { abortSignal, taskFlow })
-        : options.agent.streamChat(sessionKey, message, { abortSignal, taskFlow });
+        ? agent.streamChatRecorded(sessionKey, message, runOptions)
+        : options.agent.streamChat(sessionKey, message, runOptions);
     },
     [options.agent, sessionKey]
   );
@@ -1267,9 +1273,15 @@ export function TuiAppRoot({
       handle.notify();
       const controller = new AbortController();
       abortRef.current = controller;
+      // D4: `@server:uri` attaches MCP resources before the first turn.
+      const mcpMention = await expandMcpResourceMentions(message, {
+        read: options.cliRuntime?.mcpResources?.read,
+      });
+      for (const line of mcpMention.notes) appendRow(store, 'system', line);
+      if (mcpMention.notes.length > 0) handle.notify();
       const completionTracker = createRunCompletionTracker();
       try {
-        for await (const event of streamTurn(message, controller.signal)) {
+        for await (const event of streamTurn(message, controller.signal, mcpMention.extraContext)) {
           noteRunCompletionEvent(completionTracker, event);
           if (event.type === 'error' && isInterruptEvent(controller, event.error)) {
             // D-9: the loop reports the user's own abort as an `error` event

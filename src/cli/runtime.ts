@@ -100,6 +100,7 @@ import {
 } from './model-catalog.js';
 import { createModelInfoTool } from './model-info-tool.js';
 import { runOneShotWithCliCancellation } from './run-cancellation.js';
+import { expandMcpResourceMentions } from './mcp-resource-mentions.js';
 import { armExitGuard } from './exit-guard.js';
 import {
   stopAllBackgroundProcesses,
@@ -1677,12 +1678,19 @@ export async function runCli(): Promise<void> {
           mossLine('[moss] sending "{text}" to the model...', { text: oneShotMessage })
         );
       }
+      // D4 parity: `@server:uri` attaches an MCP resource before the first
+      // turn, so the model gets the text instead of spending a tool call.
+      const mcpMention = await expandMcpResourceMentions(oneShotMessage, {
+        read: mcpRegistry ? (server, uri) => mcpRegistry.readResourceText(server, uri) : undefined,
+      });
+      for (const line of mcpMention.notes) console.error(line);
       await runOneShotWithCliCancellation(agent, oneShotMessage, {
         sessionKey: session.sessionKey,
         ...(process.env.MOSS_RUN_ID ? { runId: process.env.MOSS_RUN_ID } : {}),
         outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
         headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
         cwd: workspace,
+        ...(mcpMention.extraContext ? { extraContext: mcpMention.extraContext } : {}),
       });
       return;
     }
@@ -1830,6 +1838,10 @@ export async function runCli(): Promise<void> {
               catalog: () => mcpRegistry.promptCatalog(),
               expand: (server: string, name: string, args: Record<string, string>) =>
                 mcpRegistry.expandPrompt(server, name, args),
+            },
+            // D4: `@server:uri` prompt mentions read resources before the turn.
+            mcpResources: {
+              read: (server: string, uri: string) => mcpRegistry.readResourceText(server, uri),
             },
           }
         : {}),

@@ -81,6 +81,15 @@ export interface CliRuntimeStatus {
         ) => Promise<{ text: string; messages: number }>;
       }
     | undefined;
+  /**
+   * D4 parity: read one MCP resource for a user `@server:uri` mention. Same
+   * lifecycle rules as prompts (deferred starts, dropped reconnects once).
+   */
+  mcpResources?:
+    | {
+        read: (server: string, uri: string) => Promise<{ text: string; mimeType?: string }>;
+      }
+    | undefined;
 }
 
 interface ToolGroupSummary {
@@ -99,8 +108,9 @@ function loadDefaultRuntimeConfig(): ResolvedCliConfig {
 }
 
 /** Everything the welcome screen reads has a default; MCP prompts stay optional. */
-type DefaultRuntimeStatus = Required<Omit<CliRuntimeStatus, 'mcpPrompts'>> & {
+type DefaultRuntimeStatus = Required<Omit<CliRuntimeStatus, 'mcpPrompts' | 'mcpResources'>> & {
   mcpPrompts: CliRuntimeStatus['mcpPrompts'];
+  mcpResources: CliRuntimeStatus['mcpResources'];
 };
 
 function createDefaultRuntime(): DefaultRuntimeStatus {
@@ -116,6 +126,7 @@ function createDefaultRuntime(): DefaultRuntimeStatus {
     hooksConfig: {},
     listMcpServers: () => [],
     mcpPrompts: undefined,
+    mcpResources: undefined,
     permissionRuleRegistry: new PermissionRuleRegistry(),
     config: loadDefaultRuntimeConfig(),
   };

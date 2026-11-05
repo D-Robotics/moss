@@ -86,6 +86,11 @@ export interface RunOneShotOptions {
    * be able to call task_define / record_evidence.
    */
   taskFlow?: boolean;
+  /**
+   * Host-gathered context for this turn (e.g. an `@server:uri` MCP resource
+   * mention expanded before the run). Prepended to the run's extra context.
+   */
+  extraContext?: string;
 }
 
 const BRIEF_ONE_SHOT_MAX_TURNS = 6;
@@ -523,6 +528,7 @@ export async function runOneShot(
       imageMentions.attachments.length > 0 ? { attachments: imageMentions.attachments } : {};
     const mergedExtraContext =
       [
+        ...(options.extraContext ? [options.extraContext] : []),
         ...(brief ? [BRIEF_ONE_SHOT_CONTEXT] : []),
         ...(imageMentionContext ? [imageMentionContext] : []),
         ...(focusedInspection ? [focusedInspection.extraContext] : []),

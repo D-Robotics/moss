@@ -348,7 +348,11 @@ export class McpToolRegistry {
    * rules: a deferred server starts now, a connecting one is awaited, and a
    * dropped one gets the single reconnect attempt. Throws MossError otherwise.
    */
-  private async promptClient(entry: ServerEntry, signal?: AbortSignal): Promise<McpClient> {
+  private async promptClient(
+    entry: ServerEntry,
+    signal?: AbortSignal,
+    surface: 'prompts' | 'resources' = 'prompts'
+  ): Promise<McpClient> {
     if (entry.status.state === 'deferred') {
       this.ensureStarted(entry);
       await entry.ready;
@@ -360,8 +364,8 @@ export class McpToolRegistry {
       throw new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
         message: uiText(
-          `mcp prompts on "${entry.status.name}" are not callable: server state is "${entry.status.state}".`,
-          `「${entry.status.name}」的提示词不可调用：服务器状态为「${entry.status.state}」。`
+          `mcp ${surface} on "${entry.status.name}" are not readable: server state is "${entry.status.state}".`,
+          `「${entry.status.name}」的 MCP ${surface === 'prompts' ? '提示词' : '资源'}不可读：服务器状态为「${entry.status.state}」。`
         ),
         hint: uiText(
           `Run "moss mcp test ${entry.status.name}" to see the connection error, then retry.`,
@@ -441,6 +445,68 @@ export class McpToolRegistry {
       });
     }
     return { text: formatPromptMessages(result.messages), messages: result.messages.length };
+  }
+
+  /**
+   * Read one resource for a user mention (`@server:uri`) or a host attachment.
+   * Same lifecycle rules as prompts: deferred starts now, connecting awaits,
+   * dropped gets one reconnect; the text is what a turn would receive.
+   */
+  async readResourceText(
+    server: string,
+    uri: string,
+    signal?: AbortSignal
+  ): Promise<{ text: string; uri: string; mimeType?: string }> {
+    const entry = this.entryFor(server);
+    if (!entry) {
+      throw new MossError({
+        code: ErrorCode.USER_INPUT_INVALID,
+        message: uiText(`Unknown MCP server "${server}".`, `未知的 MCP 服务器「${server}」。`),
+        hint: uiText(
+          'List configured servers with "moss mcp list".',
+          '用 "moss mcp list" 查看已配置的服务器。'
+        ),
+      });
+    }
+    const wanted = uri.trim();
+    if (!wanted) {
+      throw new MossError({
+        code: ErrorCode.USER_INPUT_INVALID,
+        message: uiText('An MCP resource URI is required.', '需要 MCP 资源 URI。'),
+        hint: uiText(
+          `Call the server's resource tool with no uri to list what "${server}" exposes.`,
+          `不带 uri 调用该服务器的资源工具，可列出「${server}」暴露的资源。`
+        ),
+      });
+    }
+    const client = await this.promptClient(entry, signal, 'resources');
+    const result = await client.readResource(wanted, { signal });
+    if (result.contents.length === 0) {
+      throw new MossError({
+        code: ErrorCode.TOOL_EXECUTION_FAILED,
+        message: uiText(
+          `MCP resource "${wanted}" on "${server}" returned no content.`,
+          `「${server}」上的 MCP 资源「${wanted}」没有返回内容。`
+        ),
+        recoverable: true,
+      });
+    }
+    let mimeType: string | undefined;
+    const parts: string[] = [];
+    for (const content of result.contents) {
+      if (mimeType === undefined && content.mimeType) mimeType = content.mimeType;
+      if ('text' in content) parts.push(content.text);
+      else {
+        parts.push(
+          `[binary resource ${content.uri}${content.mimeType ? ` (${content.mimeType})` : ''}, base64 ${String(content.blob.length)} chars]`
+        );
+      }
+    }
+    return {
+      text: parts.join('\n\n'),
+      uri: wanted,
+      ...(mimeType ? { mimeType } : {}),
+    };
   }
 
   /**
