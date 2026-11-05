@@ -571,6 +571,13 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       continue;
     }
     if (arg === '--max-turns' || arg.startsWith('--max-turns=')) {
+      // `moss task run|resume` owns --max-turns for its own loop budget; eating
+      // it here (B118) silently dropped the flag before task-run.ts could see
+      // it, so `task resume --max-turns 1` could never bound the retry.
+      if (command === 'task') {
+        commandArgs.push(arg);
+        continue;
+      }
       const parsed = readValue(argv, i, arg);
       const n = Number(parsed.value.trim());
       if (!Number.isInteger(n) || n <= 0) {

@@ -159,7 +159,19 @@ ok('a failed task starts from one recorded verification');
   ok(`resume without flags keeps the default budget (${String(DEFAULT_MAX_REPAIR_ATTEMPTS)})`);
 }
 
-// 6. The CLI advertises the resume budget flags.
+// 6. The top-level CLI hands --max-turns to `moss task` instead of eating it as
+//    the global agent budget (B118: it used to be dropped before task-run.ts).
+{
+  const { parseCliArgs } = await load('dist/cli/args.js');
+  const task = parseCliArgs(['task', 'resume', 'task_x', '--max-turns', '3']);
+  assert.deepEqual(task.commandArgs, ['resume', 'task_x', '--max-turns', '3']);
+  assert.equal(task.maxTurns, undefined, 'task owns --max-turns, not the chat budget');
+  const chat = parseCliArgs(['--max-turns', '3', 'hi']);
+  assert.equal(chat.maxTurns, 3, 'the global flag still applies outside task');
+  ok('the CLI forwards --max-turns to `moss task` instead of consuming it');
+}
+
+// 7. The CLI advertises the resume budget flags.
 {
   const { renderTaskCliUsage } = await load('dist/cli/task-run.js');
   for (const usage of [renderTaskCliUsage(false), renderTaskCliUsage(true)]) {
