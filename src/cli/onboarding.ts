@@ -12,6 +12,7 @@ import {
   type ResolvedCliConfig,
 } from './config.js';
 import { formatInteractiveCommandSections } from './interactive-commands.js';
+import { hookEntryWarnings } from './hooks-view.js';
 import { resolveCliDetailMode, type CliDetailMode } from './output.js';
 import { getPackageVersion } from './package-info.js';
 import { compactPath, label, ui } from './ui.js';
@@ -408,6 +409,51 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
     lines.push(doctorOk(zh ? '配置' : 'config', zh ? '没有警告' : 'no warnings'));
   } else {
     for (const w of warnings) lines.push(doctorWarn(w.code, w.message));
+  }
+
+  // MCP and hooks are config surfaces with their own failure modes; /doctor is
+  // where a user looks when "something is off", so report live status here
+  // instead of making them type /mcp and /hooks one at a time.
+  const mcpServers = rt.listMcpServers?.() ?? [];
+  if (mcpServers.length > 0) {
+    const failed = mcpServers.filter((server) => server.state === 'failed');
+    const connected = mcpServers.filter((server) => server.state === 'connected');
+    const count = zh
+      ? `${connected.length}/${mcpServers.length} 已连接`
+      : `${connected.length}/${mcpServers.length} connected`;
+    if (failed.length === 0) {
+      lines.push(doctorOk(zh ? 'MCP' : 'MCP', count));
+    } else {
+      lines.push(
+        doctorWarn(
+          'MCP',
+          zh
+            ? `${count}；失败：${failed.map((server) => server.name).join(', ')} — 用 /mcp 重试，检查 mcp.json 里的命令`
+            : `${count}; failed: ${failed.map((server) => server.name).join(', ')} — see /mcp to retry, check the command in mcp.json`
+        )
+      );
+    }
+  }
+  const hooksConfig = rt.hooksConfig;
+  const hookEntries = Object.entries(hooksConfig ?? {});
+  if (hookEntries.length > 0) {
+    const total = hookEntries.reduce((sum, [, entries]) => sum + (entries?.length ?? 0), 0);
+    const knownToolNames = agent.tools.getAll().map((tool) => tool.name);
+    lines.push(
+      doctorOk(
+        zh ? 'hooks' : 'hooks',
+        zh
+          ? `${total} 条，${hookEntries.length} 个事件`
+          : `${total} hook${total === 1 ? '' : 's'} on ${hookEntries.length} event${hookEntries.length === 1 ? '' : 's'}`
+      )
+    );
+    for (const [event, entries] of hookEntries) {
+      for (const hook of entries ?? []) {
+        for (const warning of hookEntryWarnings(event, hook, { zh, knownToolNames })) {
+          lines.push(doctorWarn(zh ? 'hooks' : 'hooks', warning));
+        }
+      }
+    }
   }
 
   if ((auth.ignoredModelEnvVars ?? []).length > 0) {

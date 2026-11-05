@@ -46,6 +46,36 @@ function conditionToolName(condition: string | undefined): string | undefined {
   return head || undefined;
 }
 
+/**
+ * Hooks that can never fire. Exported on its own so `/doctor` reports the same
+ * problems as `/hooks` (one message source, no second wording to drift): a
+ * literal matcher naming an unregistered tool, or an `if:` condition naming one.
+ */
+export function hookEntryWarnings(
+  event: string,
+  hook: HookViewEntry,
+  options: Pick<HooksViewOptions, 'zh' | 'knownToolNames'>
+): string[] {
+  const { zh } = options;
+  const warnings: string[] = [];
+  if (warnsAboutTool(hook.matcher, options.knownToolNames)) {
+    warnings.push(
+      zh
+        ? `⚠ 事件 ${event} 的 matcher "${hook.matcher}" 没有匹配的已注册工具——这个 hook 永远不会触发`
+        : `⚠ matcher "${hook.matcher}" on ${event} matches no registered tool — this hook never fires`
+    );
+  }
+  const conditionTool = conditionToolName(hook.if);
+  if (warnsAboutTool(conditionTool, options.knownToolNames)) {
+    warnings.push(
+      zh
+        ? `⚠ 事件 ${event} 的 if 条件引用了未知工具 "${conditionTool}"——条件永远为假`
+        : `⚠ if condition on ${event} names unknown tool "${conditionTool}" — it never matches`
+    );
+  }
+  return warnings;
+}
+
 export function formatHookViewLines(
   hooks: Record<string, readonly HookViewEntry[]> | undefined,
   options: HooksViewOptions
@@ -62,21 +92,7 @@ export function formatHookViewLines(
           `${hook.blocking ? ' · blocking' : ''}` +
           `${hook.timeoutMs !== undefined ? ` · ${hook.timeoutMs}ms` : ''}`
       );
-      if (warnsAboutTool(hook.matcher, options.knownToolNames)) {
-        lines.push(
-          zh
-            ? `  ⚠ 事件 ${event} 的 matcher "${hook.matcher}" 没有匹配的已注册工具——这个 hook 永远不会触发`
-            : `  ⚠ matcher "${hook.matcher}" on ${event} matches no registered tool — this hook never fires`
-        );
-      }
-      const conditionTool = conditionToolName(hook.if);
-      if (warnsAboutTool(conditionTool, options.knownToolNames)) {
-        lines.push(
-          zh
-            ? `  ⚠ 事件 ${event} 的 if 条件引用了未知工具 "${conditionTool}"——条件永远为假`
-            : `  ⚠ if condition on ${event} names unknown tool "${conditionTool}" — it never matches`
-        );
-      }
+      lines.push(...hookEntryWarnings(event, hook, options));
     }
   }
   if (lines.length === 0) {
