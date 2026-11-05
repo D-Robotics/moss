@@ -6,10 +6,9 @@
  * The TypeScript incremental state lives in `node_modules/.cache/` so it never
  * rides along with the published package.
  */
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { formatDuration } from '../lib/proc.mjs';
+import { formatDuration, runProcess } from '../lib/proc.mjs';
 
 const SRC_EXTENSIONS = ['.ts', '.tsx'];
 
@@ -66,7 +65,7 @@ export const stage = {
 
     const startedAt = Date.now();
     const compile = () =>
-      spawnSync(
+      runProcess(
         process.execPath,
         [
           tsc,
@@ -80,7 +79,7 @@ export const stage = {
         ],
         { cwd: root, stdio: 'inherit' }
       );
-    let compiled = compile();
+    let compiled = await compile();
     if (compiled.error) {
       return { ok: false, detail: `tsc failed to start: ${compiled.error.message}` };
     }
@@ -94,7 +93,7 @@ export const stage = {
       console.warn('[build] dist/cli.js missing after incremental build; rebuilding clean');
       fs.rmSync(distDir, { recursive: true, force: true });
       fs.rmSync(buildInfo, { force: true });
-      compiled = compile();
+      compiled = await compile();
       if (compiled.error) {
         return { ok: false, detail: `clean rebuild failed to start: ${compiled.error.message}` };
       }
@@ -108,7 +107,7 @@ export const stage = {
 
     sweepStaleOutputs(distDir, srcDir);
 
-    const stamp = spawnSync(
+    const stamp = await runProcess(
       process.execPath,
       [path.join(root, 'scripts', 'write-build-stamp.mjs')],
       {

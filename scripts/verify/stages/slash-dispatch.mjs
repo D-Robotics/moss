@@ -8,12 +8,11 @@
  * The probe types each catalog command into one real PTY REPL (python3/pty, the
  * same dependency `smoke` uses) and fails when any of them is not understood.
  */
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { formatDuration } from '../lib/proc.mjs';
+import { captureProcess, formatDuration } from '../lib/proc.mjs';
 
 /** Commands that end the session or open a picker cannot be typed blind. */
 const NOT_SCRIPTABLE = new Set(['/quit', '/exit', '/model', '/resume']);
@@ -65,17 +64,18 @@ async function replCommands(root) {
   return { catalog, commands };
 }
 
+async function pythonWithPty() {
+  if (process.platform === 'win32') return null;
+  const probe = await captureProcess('python3', ['--version'], {});
+  return probe.status === 0 ? 'python3' : null;
+}
+
 export const stage = {
   name: 'slash-dispatch',
   requires: ['build'],
   description: 'every REPL-catalogued slash command is understood by the REPL',
   async run(context) {
-    const python =
-      process.platform === 'win32'
-        ? null
-        : spawnSync('python3', ['--version'], { encoding: 'utf8' }).status === 0
-          ? 'python3'
-          : null;
+    const python = await pythonWithPty();
     if (!python) {
       console.log('[slash-dispatch] skipping: python3/pty unavailable');
       return { ok: true };
@@ -88,7 +88,7 @@ export const stage = {
     fs.writeFileSync(commandsFile, JSON.stringify(commands));
     const started = Date.now();
     try {
-      const result = spawnSync(
+      const result = await captureProcess(
         python,
         [
           path.join(context.root, 'scripts/verify/slash-dispatch.py'),
@@ -97,10 +97,11 @@ export const stage = {
           tempRoot,
           commandsFile,
         ],
-        { cwd: context.root, encoding: 'utf8', timeout: 120_000 }
+        { cwd: context.root, timeoutMs: 120_000 }
       );
       const duration = formatDuration(Date.now() - started);
       if (result.error) return { ok: false, detail: `${result.error.message}` };
+      if (result.timedOut) return { ok: false, detail: 'the slash-dispatch probe timed out' };
       const payload = (() => {
         try {
           return JSON.parse((result.stdout ?? '').trim().split('\n').pop() ?? '{}');

@@ -11,20 +11,22 @@
  * Set `MOSS_VERIFY_CLI_ENTRY` to run the assertions against another build (used
  * to prove the probe fails on the previous revision).
  */
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { captureProcess } from '../lib/proc.mjs';
 
 const TOOL_LINE = /tools\s+~([\d,]+) tokens \((\d+) declared, (lean|full) descriptions\)/;
 
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+async function run(command, args, options = {}) {
+  const result = await captureProcess(command, args, {
     cwd: options.cwd ?? process.cwd(),
     env: options.env ?? process.env,
-    encoding: 'utf8',
-    timeout: options.timeoutMs ?? 120_000,
+    timeoutMs: options.timeoutMs ?? 120_000,
   });
+  if (result.timedOut) {
+    throw new Error(`$ ${command} ${args.join(' ')} timed out`);
+  }
   if (result.status !== 0) {
     throw new Error(
       [
@@ -52,7 +54,7 @@ function configFor(contextTokens) {
   return config;
 }
 
-function driveRepl(nodeBin, cliEntry, tempRoot, configDir, workspace) {
+async function driveRepl(nodeBin, cliEntry, tempRoot, configDir, workspace) {
   const code = String.raw`
 import fcntl, os, pty, select, struct, subprocess, sys, tempfile, termios, time
 
@@ -109,9 +111,14 @@ proc.wait(timeout=3)
 os.close(master)
 print(data.decode('utf-8', 'replace'))
 `;
-  return run('python3', ['-c', code, nodeBin, cliEntry, tempRoot, configDir, workspace], {
-    timeoutMs: 180_000,
-  }).stdout;
+  const result = await run(
+    'python3',
+    ['-c', code, nodeBin, cliEntry, tempRoot, configDir, workspace],
+    {
+      timeoutMs: 180_000,
+    }
+  );
+  return result.stdout;
 }
 
 function parseToolLine(output) {
@@ -124,6 +131,12 @@ function parseToolLine(output) {
   return { tokens: Number(match[1].replace(/,/g, '')), declared: Number(match[2]), tier: match[3] };
 }
 
+async function pythonWithPty() {
+  if (process.platform === 'win32') return null;
+  const probe = await captureProcess('python3', ['--version'], {});
+  return probe.status === 0 ? 'python3' : null;
+}
+
 export const stage = {
   name: 'context-surface',
   requires: ['build'],
@@ -133,16 +146,14 @@ export const stage = {
     if (!fs.existsSync(cliEntry)) {
       return { ok: false, detail: `${cliEntry} is missing; run the build stage first` };
     }
-    const hasPython =
-      process.platform !== 'win32' &&
-      spawnSync('python3', ['--version'], { encoding: 'utf8' }).status === 0;
+    const hasPython = (await pythonWithPty()) !== null;
     if (!hasPython) {
       console.log('[context-surface] skipping: python3/pty is unavailable');
       return { ok: true };
     }
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-context-surface-'));
     try {
-      const runOnce = (contextTokens) => {
+      const runOnce = async (contextTokens) => {
         const configDir = path.join(tempRoot, `config-${contextTokens ?? 'default'}`);
         const workspace = path.join(tempRoot, `workspace-${contextTokens ?? 'default'}`);
         fs.mkdirSync(configDir, { recursive: true });
@@ -151,12 +162,12 @@ export const stage = {
           path.join(configDir, 'config.json'),
           JSON.stringify(configFor(contextTokens))
         );
-        const output = driveRepl(process.execPath, cliEntry, tempRoot, configDir, workspace);
+        const output = await driveRepl(process.execPath, cliEntry, tempRoot, configDir, workspace);
         return { output, parsed: parseToolLine(output) };
       };
 
       console.log('[context-surface] checking a large window reports the full tier');
-      const full = runOnce(undefined);
+      const full = await runOnce(undefined);
       if (full.parsed.tier !== 'full') {
         throw new Error(
           `a large context window reported the ${full.parsed.tier} tier, expected full`
@@ -164,7 +175,7 @@ export const stage = {
       }
 
       console.log('[context-surface] checking a 32k window reports the lean tier');
-      const lean = runOnce(32_000);
+      const lean = await runOnce(32_000);
       if (lean.parsed.tier !== 'lean') {
         throw new Error(
           `a 32k context window reported the ${lean.parsed.tier} tier, expected lean`

@@ -48,6 +48,19 @@ on the same machine/worktree, three runs each: serial **42.0s** (41.9/42.0/42.6)
 vs default concurrency **24.6s** (24.3/24.6/25.0) — a stage added to the gate now
 costs overlap, not a full 60s-budget share.
 
+**Stages must not block the event loop.** The scheduler is asynchronous, so a
+stage that calls `spawnSync` freezes every other in-flight stage: their child
+`close` callbacks cannot run, and their reported durations (plus the 60s budget
+and the "longest stage" reading) turn into the length of whoever blocks. On
+2026-11-05 the `run-tests-verdict` probe (0.7s standalone) was reported as 17.7s
+inside the gate purely because `repl-interrupt` ran a `spawnSync` PTY driver at
+the same time; pairing only those two reproduced a 10s gap. `build`, `smoke`,
+`context-surface`, `repl-interrupt`, `slash-dispatch` and `todos-view` now use
+`runProcess` / `captureProcess` from `scripts/verify/lib/proc.mjs` instead.
+After the change the same gate reports the probe at 0.7s and `npm run verify`
+dropped from 46.3s to 36.9s (one machine, warm cache) because stages stop
+serializing behind each other. Use the async helpers for any new stage.
+
 Measured total on 2026-11-04 (8-core Apple laptop, warm node_modules):
 **30.9s** for `npm run verify` (static + build + smoke + examples). The CI job
 enforces `VERIFY_BUDGET_SECONDS=60` on the gate itself; exceeding it fails the

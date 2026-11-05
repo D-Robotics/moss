@@ -4,23 +4,23 @@
  * PTY when python3/pty is available. The build is a separate stage; this one
  * only checks the artifact.
  */
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { captureProcess } from '../lib/proc.mjs';
 
 function log(step) {
   console.log(`[smoke:moss-cli] ${step}`);
 }
 
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+async function run(command, args, options = {}) {
+  const result = await captureProcess(command, args, {
     cwd: options.cwd ?? process.cwd(),
     env: options.env ?? process.env,
-    encoding: 'utf8',
-    stdio: options.stdio ?? 'pipe',
-    shell: options.shell ?? (process.platform === 'win32' && /\.cmd$/i.test(command)),
   });
+  if (result.timedOut) {
+    throw new Error(`$ ${command} ${args.join(' ')} timed out`);
+  }
   if (result.status !== 0) {
     const rendered = [
       `$ ${command} ${args.join(' ')}`,
@@ -72,13 +72,14 @@ function cleanMossEnv(tempRoot) {
   return env;
 }
 
-function runPtyStartup(tempRoot, cliEntry) {
-  const python =
-    process.platform === 'win32'
-      ? null
-      : spawnSync('python3', ['--version'], { encoding: 'utf8' }).status === 0
-        ? 'python3'
-        : null;
+async function pythonWithPty() {
+  if (process.platform === 'win32') return null;
+  const probe = await captureProcess('python3', ['--version'], {});
+  return probe.status === 0 ? 'python3' : null;
+}
+
+async function runPtyStartup(tempRoot, cliEntry) {
+  const python = await pythonWithPty();
   if (!python) {
     log('skipping PTY startup check because python3/pty is unavailable');
     return;
@@ -135,7 +136,7 @@ print(text[:2000])
 if 'Moss' not in text or not ('/help' in text or 'Ask Moss' in text or 'setup' in text.lower()):
   raise SystemExit('Moss TUI startup text was not detected')
 `;
-  const result = run(python, ['-c', code, process.execPath, cliEntry, tempRoot]);
+  const result = await run(python, ['-c', code, process.execPath, cliEntry, tempRoot]);
   assertMatch(result.stdout, /Moss/, 'PTY startup');
 }
 
@@ -151,20 +152,22 @@ export const stage = {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-cli-smoke-'));
     try {
       log('checking moss --version / --help');
-      const version = run(process.execPath, [cliEntry, '--version']).stdout;
+      const version = (await run(process.execPath, [cliEntry, '--version'])).stdout;
       assertMatch(version, /moss v\d+\.\d+\.\d+/, 'moss --version');
 
-      const help = run(process.execPath, [cliEntry, '--help']).stdout;
+      const help = (await run(process.execPath, [cliEntry, '--help'])).stdout;
       assertMatch(help, /Moss/, 'moss --help');
 
       log('checking config help with a clean environment');
-      const configHelp = run(process.execPath, [cliEntry, 'config', '--help'], {
-        env: cleanMossEnv(tempRoot),
-      }).stdout;
+      const configHelp = (
+        await run(process.execPath, [cliEntry, 'config', '--help'], {
+          env: cleanMossEnv(tempRoot),
+        })
+      ).stdout;
       assertMatch(configHelp, /moss config init/, 'moss config --help');
 
       log('checking interactive REPL startup through a PTY');
-      runPtyStartup(tempRoot, cliEntry);
+      await runPtyStartup(tempRoot, cliEntry);
 
       log('PASS');
       return { ok: true };

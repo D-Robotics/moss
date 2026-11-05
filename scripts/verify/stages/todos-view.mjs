@@ -6,23 +6,23 @@
  * The probe drives a PTY REPL against a stub that answers with a todo_write tool
  * call, then types `/todos` and asserts the rendered rows.
  */
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { formatDuration } from '../lib/proc.mjs';
+import { captureProcess, formatDuration } from '../lib/proc.mjs';
+
+async function pythonWithPty() {
+  if (process.platform === 'win32') return null;
+  const probe = await captureProcess('python3', ['--version'], {});
+  return probe.status === 0 ? 'python3' : null;
+}
 
 export const stage = {
   name: 'todos-view',
   requires: ['build'],
   description: 'REPL /todos renders the live todo_write checklist',
   async run(context) {
-    const python =
-      process.platform === 'win32'
-        ? null
-        : spawnSync('python3', ['--version'], { encoding: 'utf8' }).status === 0
-          ? 'python3'
-          : null;
+    const python = await pythonWithPty();
     if (!python) {
       console.log('[todos-view] skipping: python3/pty unavailable');
       return { ok: true };
@@ -30,7 +30,7 @@ export const stage = {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-todos-'));
     const started = Date.now();
     try {
-      const result = spawnSync(
+      const result = await captureProcess(
         python,
         [
           path.join(context.root, 'scripts/verify/todos-view.py'),
@@ -38,10 +38,11 @@ export const stage = {
           path.join(context.root, 'dist', 'cli.js'),
           tempRoot,
         ],
-        { cwd: context.root, encoding: 'utf8', timeout: 120_000 }
+        { cwd: context.root, timeoutMs: 120_000 }
       );
       const duration = formatDuration(Date.now() - started);
       if (result.error) return { ok: false, detail: result.error.message };
+      if (result.timedOut) return { ok: false, detail: 'the /todos probe timed out' };
       const payload = (() => {
         try {
           return JSON.parse((result.stdout ?? '').trim().split('\n').pop() ?? '{}');

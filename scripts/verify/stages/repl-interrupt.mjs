@@ -14,18 +14,20 @@
  * Set `MOSS_VERIFY_CLI_ENTRY` to run the assertions against another build (used
  * to prove the probe fails on the previous revision).
  */
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { captureProcess } from '../lib/proc.mjs';
 
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+async function run(command, args, options = {}) {
+  const result = await captureProcess(command, args, {
     cwd: options.cwd ?? process.cwd(),
     env: options.env ?? process.env,
-    encoding: 'utf8',
-    timeout: options.timeoutMs ?? 120_000,
+    timeoutMs: options.timeoutMs ?? 120_000,
   });
+  if (result.timedOut) {
+    throw new Error(`$ ${command} ${args.join(' ')} timed out`);
+  }
   if (result.status !== 0) {
     // The driver carries a long inline program, so echo only its tails.
     throw new Error(
@@ -39,7 +41,7 @@ function run(command, args, options = {}) {
   return result;
 }
 
-function drive(nodeBin, cliEntry, tempRoot, configDir, workspace, key) {
+async function drive(nodeBin, cliEntry, tempRoot, configDir, workspace, key) {
   const code = String.raw`
 import json, os, pty, re, select, struct, subprocess, sys, tempfile, termios, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -180,7 +182,7 @@ try:
 except Exception as error:  # keep the failure readable for the stage
   print(json.dumps({'key': key, 'error': '%s: %s' % (type(error).__name__, error)}))
 `;
-  const result = run(
+  const result = await run(
     'python3',
     ['-c', code, nodeBin, cliEntry, tempRoot, configDir, workspace, key],
     {
@@ -201,6 +203,12 @@ except Exception as error:  # keep the failure readable for the stage
   return parsed;
 }
 
+async function pythonWithPty() {
+  if (process.platform === 'win32') return null;
+  const probe = await captureProcess('python3', ['--version'], {});
+  return probe.status === 0 ? 'python3' : null;
+}
+
 export const stage = {
   name: 'repl-interrupt',
   requires: ['build'],
@@ -210,16 +218,14 @@ export const stage = {
     if (!fs.existsSync(cliEntry)) {
       return { ok: false, detail: `${cliEntry} is missing; run the build stage first` };
     }
-    const hasPython =
-      process.platform !== 'win32' &&
-      spawnSync('python3', ['--version'], { encoding: 'utf8' }).status === 0;
+    const hasPython = (await pythonWithPty()) !== null;
     if (!hasPython) {
       console.log('[repl-interrupt] skipping: python3/pty is unavailable');
       return { ok: true };
     }
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-repl-interrupt-'));
     try {
-      const runKey = (key) => {
+      const runKey = async (key) => {
         const configDir = path.join(tempRoot, `config-${key}`);
         const workspace = path.join(tempRoot, `workspace-${key}`);
         fs.mkdirSync(configDir, { recursive: true });
@@ -229,7 +235,7 @@ export const stage = {
 
       for (const key of ['esc', 'ctrlc']) {
         console.log(`[repl-interrupt] checking ${key} stops the stream`);
-        const result = runKey(key);
+        const result = await runKey(key);
         if (!(result.tokensBefore > 3)) {
           throw new Error(`the stub sent only ${result.tokensBefore} tokens before ${key}`);
         }
@@ -249,7 +255,7 @@ export const stage = {
       }
 
       console.log('[repl-interrupt] checking an arrow key does not interrupt');
-      const arrow = runKey('arrow');
+      const arrow = await runKey('arrow');
       if (arrow.tokensAfterKey < 20) {
         throw new Error(
           `an arrow key interrupted the run (only ${arrow.tokensAfterKey} more tokens); only a lone ESC may abort`
