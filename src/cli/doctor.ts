@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isRgAvailable } from '../tools/search-tools.js';
 import {
   auditResolvedCliConfig,
+  resolveConfigDir,
   envBeforeDotenv,
   hasTrustedToolWildcard,
   CONSERVATIVE_DEFAULT_UNPROBED,
@@ -27,6 +28,8 @@ import { rdkDocsPinNote } from './rdk-docs-pin-check.js';
 import type { RdkDocsPinNote } from './rdk-docs-pin-check.js';
 import { renderBoardProxyDoctor } from './doctor-board-proxy.js';
 import { renderRdkDepsDoctor } from './doctor-rdk-deps.js';
+import { loadMcpConfigs } from './mcp-config.js';
+import { isFolderTrusted } from './folder-trust-store.js';
 
 function doctorL(en: string, vars?: Record<string, string | number>): string {
   return setupCopy(undefined, en, vars);
@@ -553,6 +556,67 @@ export function renderAuthDoctorLine(
   );
 }
 
+/**
+ * Static MCP config audit. `moss doctor` cannot connect (that is the runtime's
+ * job and `/doctor` reports live states), but a typo in mcp.json — a stdio
+ * server without `command`, an entry that is not an object — is invisible until
+ * the first model turn needs that server. The project file is only read when the
+ * folder is trusted, because an untrusted folder's mcp.json is ignored at
+ * runtime too; saying so is more useful than silently listing its servers.
+ */
+function renderMcpConfigDoctor(config: ResolvedCliConfig): string[] {
+  const configDir = resolveConfigDir();
+  const projectFile = path.join(config.workspace, '.moss', 'mcp.json');
+  const projectExists = fs.existsSync(projectFile);
+  const trusted = isFolderTrusted(configDir, config.workspace);
+  const warnings: string[] = [];
+  const servers = loadMcpConfigs(
+    config.workspace,
+    configDir,
+    process.env,
+    (message) => warnings.push(message),
+    { projectServers: projectExists && trusted }
+  );
+  if (!projectExists && servers.length === 0 && warnings.length === 0) return [];
+  const lines: string[] = [];
+  const label = uiText('MCP config', 'MCP 配置');
+  if (servers.length === 0) {
+    lines.push(
+      ok(
+        label,
+        warnings.length > 0
+          ? uiText('no valid servers (see below)', '没有可用的服务器（见下方）')
+          : uiText('no servers configured', '未配置服务器')
+      )
+    );
+  } else {
+    lines.push(
+      ok(
+        label,
+        uiText(
+          `${servers.length} server${servers.length === 1 ? '' : 's'}: ${servers
+            .map((server) => server.name)
+            .join(', ')}`,
+          `${servers.length} 个服务器：${servers.map((server) => server.name).join('、')}`
+        )
+      )
+    );
+  }
+  for (const warning of warnings) lines.push(warn(label, warning));
+  if (projectExists && !trusted) {
+    lines.push(
+      warn(
+        label,
+        uiText(
+          'project .moss/mcp.json is ignored until this folder is trusted — run /trust (or the folder-trust prompt) to enable it',
+          '项目 .moss/mcp.json 在信任该文件夹前会被忽略——运行 /trust（或接受文件夹信任提示）后才会生效'
+        )
+      )
+    );
+  }
+  return lines;
+}
+
 export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   const lines = [uiText('[doctor] Moss', '[诊断] Moss')];
   lines.push(renderNodeDoctorLine());
@@ -734,6 +798,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(...(await renderRdkDepsDoctor()));
 
   lines.push(...renderApprovalDoctor(options.config));
+  lines.push(...renderMcpConfigDoctor(options.config));
   lines.push(ok(uiText('detail', '详细程度'), detailModeLabel(options.detailMode)));
 
   const sessionsDir = path.join(options.runtimeDir, 'sessions');
