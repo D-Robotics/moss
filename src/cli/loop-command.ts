@@ -93,6 +93,8 @@ const DEFAULT_WATCH_TIMEOUT_MS = 10 * 60_000;
 const WATCH_POLL_MS = 500;
 const MAX_ATTEMPTS_CAP = 20;
 const DEFAULT_UNTIL_TIMEOUT_MS = 10 * 60_000;
+/** `moss loop prune` keeps the newest 50 finished runs unless `--keep` says otherwise. */
+const DEFAULT_LOOP_KEEP = 50;
 
 export function renderLoopUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
@@ -112,6 +114,7 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
       '  moss loop list [--limit N] [--status passed|failed|running|interrupted] [--json]：历史运行（最新在前，离线读账本）；表头给出总数与各状态计数。',
       '  moss loop show [<run_id>|latest] [--json]：某次运行的每轮明细与检查输出。',
       '  moss loop follow [<run_id>|latest] [--interval 1s]：实时跟随一次运行，新 attempt/summary 出现就打印（Ctrl+C 退出）。',
+      '  moss loop prune [--keep N] [--dry-run] [--json]：清理旧账本，默认保留最新 50 个已结束运行；进行中的运行永不删除（离线）。',
       '',
       '示例：',
       '  moss loop --until "npm run verify" "修复 verify 的失败项，最小改动"',
@@ -140,6 +143,9 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
     '  moss loop list [--limit N] [--status passed|failed|running|interrupted] [--json]',
     '  reads the run history (offline, newest first); the header counts every status.',
     "  moss loop show [<run_id>|latest] [--json] prints one run's attempts and check tails.",
+    '  moss loop prune [--keep N] [--dry-run] [--json] deletes old ledgers, keeping the newest N',
+    '  finished runs (default 50); a run still in progress is never deleted. `--dry-run` only',
+    '  reports what it would remove.',
     '',
     'Examples:',
     '  moss loop --until "npm run verify" "fix the verify failures with minimal changes"',
@@ -767,6 +773,131 @@ export function listLoopRuns(workspaceDir: string): LoopRunSummary[] {
     .map(({ sortAt: _drop, ...rest }) => rest);
 }
 
+/** One ledger removed by `moss loop prune` (or that `--dry-run` would remove). */
+export interface LoopPruneEntry {
+  runId: string;
+  ledger: string;
+  bytes: number;
+  status: LoopRunSummary['status'];
+  /** ISO start time; falls back to the summary time for attempt-less ledgers. */
+  startedAt?: string;
+}
+
+export interface LoopPruneResult {
+  /** Ledgers deleted (or that `--dry-run` would delete), newest first. */
+  removed: LoopPruneEntry[];
+  /** Finished runs inside the `--keep` window (passed/failed/interrupted). */
+  keptFinished: number;
+  /** Live runs, which are never pruned regardless of `--keep`. */
+  keptRunning: number;
+  /** Every ledger seen before pruning. */
+  total: number;
+  freedBytes: number;
+  dryRun: boolean;
+  /** Ledgers that could not be deleted; non-empty means the command exits 1. */
+  failures: { ledger: string; error: string }[];
+}
+
+/**
+ * Delete all but the newest `keep` finished ledgers.
+ *
+ * A run without a summary whose pid is still alive is `running` and is never
+ * deleted: pruning a live loop would truncate the record a user is following.
+ * Interrupted ledgers (dead pid, or attempts-only ledgers from before start
+ * records) count as finished, so killed runs cannot accumulate forever either.
+ * `--dry-run` reports the same selection without touching the filesystem.
+ */
+export function pruneLoopRuns(
+  workspaceDir: string,
+  options: { keep: number; dryRun?: boolean }
+): LoopPruneResult {
+  const dryRun = options.dryRun === true;
+  const runs = listLoopRuns(workspaceDir);
+  const finished = runs.filter((run) => run.status !== 'running');
+  const running = runs.length - finished.length;
+  const keep = Math.max(0, options.keep);
+  const doomed = finished.slice(keep);
+  const result: LoopPruneResult = {
+    removed: [],
+    keptFinished: Math.min(finished.length, keep),
+    keptRunning: running,
+    total: runs.length,
+    freedBytes: 0,
+    dryRun,
+    failures: [],
+  };
+  for (const run of doomed) {
+    const filePath = path.join(workspaceDir, run.ledger);
+    let bytes = 0;
+    try {
+      bytes = fs.statSync(filePath).size;
+    } catch {
+      bytes = 0;
+    }
+    try {
+      if (!dryRun) fs.unlinkSync(filePath);
+    } catch (error: unknown) {
+      result.failures.push({
+        ledger: run.ledger,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+    const startedAt = run.startedAt ?? run.endedAt;
+    result.removed.push({
+      runId: run.runId,
+      ledger: run.ledger,
+      bytes,
+      status: run.status,
+      ...(startedAt ? { startedAt } : {}),
+    });
+    result.freedBytes += bytes;
+  }
+  return result;
+}
+
+function formatLoopBytes(bytes: number): string {
+  if (bytes < 1024) return `${String(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** `moss loop prune` output: one summary line, then a line per removed ledger. */
+export function renderLoopPruneLines(
+  result: LoopPruneResult,
+  options: { zh?: boolean } = {}
+): string[] {
+  const zh = options.zh === true;
+  const kept = result.keptFinished + result.keptRunning;
+  const lines = result.dryRun
+    ? [
+        zh
+          ? `将清理 ${String(result.removed.length)}/${String(result.total)} 个 loop 运行（保留 ${String(kept)} 个）· 可释放 ${formatLoopBytes(result.freedBytes)}（--dry-run，未删除）`
+          : `would prune ${String(result.removed.length)} of ${String(result.total)} run(s) (kept ${String(kept)}) · ${formatLoopBytes(result.freedBytes)} reclaimable (--dry-run, nothing deleted)`,
+      ]
+    : [
+        zh
+          ? `已清理 ${String(result.removed.length)}/${String(result.total)} 个 loop 运行（保留 ${String(kept)} 个）· 释放 ${formatLoopBytes(result.freedBytes)}`
+          : `pruned ${String(result.removed.length)} of ${String(result.total)} run(s) (kept ${String(kept)}) · freed ${formatLoopBytes(result.freedBytes)}`,
+      ];
+  if (result.removed.length === 0 && result.failures.length === 0) {
+    lines[0] = zh
+      ? `没有需要清理的 loop 运行（共 ${String(result.total)} 个：已结束 ${String(result.keptFinished)} 个保留，进行中 ${String(result.keptRunning)} 个不动）`
+      : `nothing to prune (${String(result.total)} run(s): ${String(result.keptFinished)} finished kept, ${String(result.keptRunning)} running untouched)`;
+  }
+  for (const entry of result.removed) {
+    lines.push(
+      `  ${entry.ledger}  ${formatLoopBytes(entry.bytes)}  ${entry.status}${
+        entry.startedAt ? `  ${entry.startedAt}` : ''
+      }`
+    );
+  }
+  for (const failure of result.failures) {
+    lines.push(`  ! ${failure.ledger}: ${failure.error}`);
+  }
+  return lines;
+}
+
 function formatLoopDuration(ms: number | undefined): string {
   if (ms === undefined || !Number.isFinite(ms)) return '—';
   if (ms < 1_000) return `${String(Math.round(ms))}ms`;
@@ -1085,6 +1216,50 @@ export async function readLoopHistoryCommand(
   const zh = isZhLocale();
   const sub = argv[0];
   const wantJson = ctx.json === true || argv.includes('--json');
+  if (sub === 'prune') {
+    let keep = DEFAULT_LOOP_KEEP;
+    let dryRun = false;
+    for (let i = 1; i < argv.length; i += 1) {
+      const arg = argv[i] ?? '';
+      if (arg === '--json') continue;
+      if (arg === '--dry-run') {
+        dryRun = true;
+        continue;
+      }
+      if (arg === '--keep' || arg.startsWith('--keep=')) {
+        let raw: string;
+        try {
+          raw = readValue(argv, i, '--keep');
+        } catch {
+          console.error('moss loop prune: --keep needs a value (e.g. --keep 20)');
+          return 2;
+        }
+        if (!arg.includes('=')) i += 1;
+        const parsed = Number(raw);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+          console.error('moss loop prune: --keep must be a positive integer');
+          return 2;
+        }
+        keep = parsed;
+        continue;
+      }
+      console.error(`moss loop prune: unknown argument ${arg}`);
+      return 2;
+    }
+    const result = pruneLoopRuns(ctx.workspaceDir, { keep, dryRun });
+    if (wantJson) {
+      console.log(JSON.stringify(result.removed, null, 2));
+    } else {
+      for (const line of renderLoopPruneLines(result, { zh })) console.log(line);
+    }
+    if (result.failures.length > 0) {
+      for (const failure of result.failures) {
+        console.error(`moss loop prune: ${failure.ledger}: ${failure.error}`);
+      }
+      return 1;
+    }
+    return 0;
+  }
   if (sub === 'list') {
     let limit = 20;
     let status: LoopRunStatus | undefined;

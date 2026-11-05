@@ -339,10 +339,10 @@ export const COMMANDS: Record<string, CommandConfig> = {
         process.exitCode = ExitCode.USAGE;
         return;
       }
-      // History is a pure read of `.moss/loops/`: do not build a provider or an
-      // agent just to print it (and it works with no API key configured).
+      // History and pruning are a pure read/delete of `.moss/loops/`: do not
+      // build a provider or an agent for them (and they work with no API key).
       const sub = ctx.commandArgs[0];
-      if (sub === 'list' || sub === 'show' || sub === 'follow') {
+      if (sub === 'list' || sub === 'show' || sub === 'follow' || sub === 'prune') {
         process.exitCode = await readLoopHistoryCommand(ctx.commandArgs, {
           workspaceDir: workspace,
           json: ctx.argv.includes('--json'),
@@ -358,7 +358,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
       process.exitCode = await runLoopCommand(ctx.commandArgs, { agent, workspaceDir: workspace });
     },
     description:
-      'Closed loop: run the agent, check with your command, feed failures back (--until); `list|show` reads the ledger',
+      'Closed loop: run the agent, check with your command, feed failures back (--until); `list|show|follow|prune` manage the ledger',
   },
 
   plugins: {

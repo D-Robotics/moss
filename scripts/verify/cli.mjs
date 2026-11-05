@@ -83,6 +83,7 @@ import { stage as loopHistoryStage } from './stages/loop-history.mjs';
 import { stage as loopWatchStage } from './stages/loop-watch.mjs';
 import { stage as reviewVerdictStage } from './stages/review-verdict.mjs';
 import { stage as loopStatusStage } from './stages/loop-status.mjs';
+import { stage as loopPruneStage } from './stages/loop-prune.mjs';
 import { stage as loopFollowStage } from './stages/loop-follow.mjs';
 import { stage as loopCheckTimeoutStage } from './stages/loop-check-timeout.mjs';
 import { stage as loopHealthStage } from './stages/loop-health.mjs';
@@ -157,6 +158,7 @@ const STAGES = new Map(
     loopWatchStage,
     reviewVerdictStage,
     loopStatusStage,
+    loopPruneStage,
     loopFollowStage,
     loopCheckTimeoutStage,
     loopHealthStage,
@@ -209,6 +211,7 @@ const FAST_GATE = [
   'loop-watch',
   'review-verdict',
   'loop-status',
+  'loop-prune',
   'loop-follow',
   'loop-check-timeout',
   'loop-health',
