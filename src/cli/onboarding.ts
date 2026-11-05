@@ -250,6 +250,95 @@ function groupTools(tools: Tool[]): ToolGroupSummary[] {
   return groups;
 }
 
+/** Human "12m ago" for a ledger row; the welcome line must not print raw ms. */
+export function formatAgo(timestamp: number, now = Date.now()): string {
+  const ms = Math.max(0, now - timestamp);
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function truncateOneLine(text: string, limit: number): string {
+  const one = String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return one.length <= limit ? one : `${one.slice(0, limit - 1)}…`;
+}
+
+/**
+ * B136: the first screen should answer "what happened last, what do I do now".
+ * Reads the unified run ledger (`.moss/runs/<id>/run.json`) and AGENTS.md, so a
+ * failed run surfaces its own resume command instead of a generic greeting.
+ * Sync on purpose: it runs once at REPL startup over a few small files.
+ */
+export function renderWelcomeContextLines(
+  workspace: string,
+  zh = isZhLocale()
+): { lines: string[]; next: string } {
+  const t = (en: string, cn: string): string => (zh ? cn : en);
+  const runsDir = path.join(workspace, '.moss', 'runs');
+  let latest: {
+    runId: string;
+    kind: string;
+    status: string;
+    goal: string;
+    endedAt: number;
+    next?: string;
+    taskId?: string;
+  } | null = null;
+  try {
+    const entries = fs.readdirSync(runsDir, { withFileTypes: true });
+    for (const entry of entries.slice(0, 200)) {
+      if (!entry.isDirectory()) continue;
+      try {
+        const raw = JSON.parse(
+          fs.readFileSync(path.join(runsDir, entry.name, 'run.json'), 'utf8')
+        ) as Record<string, unknown>;
+        if (typeof raw.status !== 'string' || typeof raw.endedAt !== 'number') continue;
+        if (!latest || raw.endedAt > latest.endedAt) {
+          latest = {
+            runId: typeof raw.runId === 'string' ? raw.runId : entry.name,
+            kind: typeof raw.kind === 'string' ? raw.kind : 'run',
+            status: raw.status,
+            goal: typeof raw.goal === 'string' ? raw.goal : '',
+            endedAt: raw.endedAt,
+            ...(typeof raw.next === 'string' ? { next: raw.next } : {}),
+            ...(typeof raw.taskId === 'string' ? { taskId: raw.taskId } : {}),
+          };
+        }
+      } catch {
+        /* a partial record must not break the welcome screen */
+      }
+    }
+  } catch {
+    latest = null;
+  }
+
+  const hasAgents = fs.existsSync(path.join(workspace, 'AGENTS.md'));
+  const lines: string[] = [];
+  if (latest) {
+    lines.push(
+      `${label(t('last run', '上次运行'))} ${latest.status} · ${formatAgo(latest.endedAt)} · ${latest.kind} ${latest.runId} — ${truncateOneLine(latest.goal, 60)}`
+    );
+  }
+  // The welcome line already prefixes `Next:`, so this is the command only.
+  let next: string;
+  if (latest && latest.status !== 'completed' && latest.next) {
+    next = latest.next;
+  } else if (latest) {
+    next = `moss runs    ${t('(all recent runs)', '（最近所有运行）')}`;
+  } else if (!hasAgents) {
+    next = `moss init    ${t('(detect this project, write AGENTS.md)', '（检测项目、写 AGENTS.md）')}`;
+  } else {
+    next = 'moss run "<intent>" --accept "<cmd>"';
+  }
+  return { lines, next };
+}
+
 export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {}): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
@@ -271,14 +360,17 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
         ? '缺少模型 key'
         : 'model key missing';
 
+  const workspace = rt.workspace || process.cwd();
+  const welcomeContext = renderWelcomeContextLines(workspace, zh);
+  const contextLines = welcomeContext.lines;
+  const nextLine = welcomeContext.next;
   return [
     `${ui.bold('Moss Agent')} ${ui.dim(`v${getPackageVersion()}`)}`,
     `${label(zh ? '模型' : 'model')} ${agent.config.model} (${providerState})`,
     `${label(zh ? '工作区' : 'workspace')} ${compactPath(rt.workspace)}`,
     `${label(zh ? '模型密钥' : 'model key')} ${authState}`,
-    zh
-      ? `${ui.dim('下一步')} 让我看看这个目录里有什么。`
-      : `${ui.dim('Next')} ask me to look around this folder.`,
+    ...contextLines,
+    `${ui.dim(zh ? '下一步' : 'Next')} ${nextLine}`,
     ui.dim(workspaceWriteLimit(zh, rt.config.permissions?.osSandbox === true)),
   ].join('\n');
 }
