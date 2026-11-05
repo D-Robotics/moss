@@ -875,7 +875,7 @@ export function summarizeTaskRun(result: TaskRunResult, locale?: string): string
   // (Cursor/Claude print a next step, not just a status word). The aborted line
   // stays for the interactive hint; the resume command serves headless callers.
   const nextStep = runNextStepLines(result, zh);
-  if (outcome === 'aborted') lines.push('/goal resume', ...nextStep);
+  if (outcome === 'aborted') lines.push('/run resume', ...nextStep);
   else lines.push(...nextStep);
   if (verdictDetail) {
     lines.push(

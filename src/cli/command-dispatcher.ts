@@ -400,7 +400,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
       const workspace = ctx.workspace as string | undefined;
       let target = shaped.id;
       if (!target && workspace) {
-        // No id: the newest resumable task, same rule `/goal resume` uses.
+        // No id: the newest resumable task, same rule `/run resume` uses.
         const { listTaskStateSnapshots } = await import('../core/index.js');
         const { isResumableTaskPhase } = await import('../contracts/task-runtime.js');
         const latest = (await listTaskStateSnapshots(workspace))

@@ -3,7 +3,7 @@
  *
  * Best products reduce first-run friction to "detect the project, write the
  * conventions file, show the next command". Moss already proposes acceptance
- * commands from real workspace files (`/goal` without `--accept`), so `init`
+ * commands from real workspace files (`/run` without `--accept`), so `init`
  * reuses that: it detects test/build/lint entry points, writes a minimal
  * `AGENTS.md` (only when absent — never overwrite instructions the user owns),
  * and prints the exact `moss run … --accept …` to try next. Read-only mode

@@ -714,7 +714,7 @@ export async function runOneShot(
   }
 
   // Headless goal-verify loop (MOSS_GOAL_VERIFY_LOOP=1): the headless
-  // counterpart of `/goal --accept`. After every run (including the one
+  // counterpart of `/run --accept`. After every run (including the one
   // continuation turn), execute MOSS_GOAL_VERIFY_CMD and record the result on
   // the tracker. A non-zero exit on the first pass triggers ONE continuation;
   // the continuation always re-verifies. Spawn/timeout failures are

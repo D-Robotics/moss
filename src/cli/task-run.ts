@@ -176,7 +176,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     '      --device ID      target device id for the contract',
     '  resume <task_id> [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  resume a failed/abandoned/blocked task with an optional oracle fix and its own budget',
     '  status [task_id]     current phase, plan, failures, verdict (default: latest; --json prints one object for automation)',
-    '  list [--limit N] [--status pass|fail|blocked|aborted]  goal-run rollup: time/outcome/task/turns/duration/goal; fail/blocked rows also show the recorded failure reason and review verdict (default 20; the header counts the whole ledger and --status narrows table and JSON)',
+    '  list [--limit N] [--status pass|fail|blocked|aborted]  goal-run rollup: time/outcome/task/turns/duration/run; fail/blocked rows also show the recorded failure reason and review verdict (default 20; the header counts the whole ledger and --status narrows table and JSON)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
     '  artifacts [kind]     read-only artifacts: contracts | tasks | history | evidence | deployments | acceptance | device | failures',
     '  verify [task_id]     re-run the verdict once (no model turn)',

@@ -1,7 +1,7 @@
 /**
- * Ctrl+C during a `/goal`/`/task` run pauses the task instead of failing it.
+ * Ctrl+C during a `/run`/`/task` run pauses the task instead of failing it.
  *
- * Cursor's `/goal` pauses on Ctrl+C and can be continued; Claude resumes a
+ * Cursor's `/run` pauses on Ctrl+C and can be continued; Claude resumes a
  * session whose turn was interrupted. Moss already persists the task state, so
  * the missing piece was telling the user what happened and how to continue —
  * the run used to end with a bare "interrupted" line and no task id.
@@ -26,7 +26,7 @@ export function renderPausedGoalLines(
       zh
         ? '[goal] 本次运行被中断；没有找到可恢复的任务状态（可能还没建立任务）。'
         : '[goal] the run was interrupted; no resumable task state was found (none may exist yet).',
-      zh ? '[goal] 重新开始：/goal <条件>。' : '[goal] start again with /goal <condition>.',
+      zh ? '[goal] 重新开始：/run <条件>。' : '[goal] start again with /run <condition>.',
     ];
   }
   const goal =
@@ -41,7 +41,7 @@ export function renderPausedGoalLines(
       ? `[goal] 任务 ${candidate.taskId}（${candidate.phase}）：${goal}`
       : `[goal] task ${candidate.taskId} (${candidate.phase}): ${goal}`,
     zh
-      ? `[goal] 继续：/goal resume（或 /task resume ${candidate.taskId}）；放弃：/goal clear。`
-      : `[goal] continue with /goal resume (or /task resume ${candidate.taskId}); abandon with /goal clear.`,
+      ? `[goal] 继续：/run resume（或 /task resume ${candidate.taskId}）；放弃：/run clear。`
+      : `[goal] continue with /run resume (or /task resume ${candidate.taskId}); abandon with /run clear.`,
   ];
 }

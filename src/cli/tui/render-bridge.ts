@@ -109,7 +109,7 @@ export interface TuiRunState {
   flushed?: string[];
   /** In-flight device_* tool-call ids. The live region says "waiting for device", not "gateway". */
   deviceCallIds?: Set<string>;
-  /** This run is /goal or moss task, so Esc may mention `/goal resume`. */
+  /** This run is /run or moss task, so Esc may mention `/run resume`. */
   resumeHint?: boolean;
   /**
    * Index of the first transcript row that belongs to this run. Final-answer

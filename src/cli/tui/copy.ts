@@ -38,8 +38,8 @@ export function isTuiZh(): boolean {
   return zhActive;
 }
 
-/** Esc during /goal or `moss task`. English is the dictionary key; zh is just 已中断. */
-export const INTERRUPT_NOTICE = 'Interrupted — /goal resume to continue';
+/** Esc during /run or `moss task`. English is the dictionary key; zh is just 已中断. */
+export const INTERRUPT_NOTICE = 'Interrupted — /run resume to continue';
 
 /** Esc in ordinary chat. Must not tell the user to resume a goal. */
 export const CHAT_INTERRUPT_NOTICE = 'Interrupted';
@@ -331,11 +331,11 @@ export const ZH: Readonly<Record<string, string>> = {
   'list background shell and sub-agent jobs': '列出后台终端与子代理任务',
   'inspect or control the input queue': '查看或控制输入队列',
   'inject a constraint into the live run': '向当前运行注入一条约束',
-  'work until a condition is met; /goal clear cancels': '持续工作直到条件满足；`/goal clear` 取消',
+  'work until a condition is met; /run clear cancels': '持续工作直到条件满足；`/run clear` 取消',
   'enter plan mode; with a description, start planning immediately':
     '进入计划模式；带描述则立即开始规划',
-  'Task OS entry (hidden): status, timeline, resume, view, and verify — everyday work is /goal':
-    'Task OS 入口（隐藏）：`status`、`timeline`、`resume`、`view`、`verify` — 日常用 /goal',
+  'Task OS entry (hidden): status, timeline, resume, view, and verify — everyday work is /run':
+    'Task OS 入口（隐藏）：`status`、`timeline`、`resume`、`view`、`verify` — 日常用 /run',
   'resume a saved conversation': '恢复已保存的会话',
   'stop background processes; Esc interrupts the current run': '停止后台进程；Esc 中断当前运行',
   'create or update an AGENTS.md project memory file': '创建或更新 AGENTS.md 项目记忆文件',
@@ -373,7 +373,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'approval: {label}': '审批：{label}',
   'question needs your answer': '有提问等待你的回答',
   'approval needed': '需要审批',
-  'Interrupted — /goal resume to continue': '已中断',
+  'Interrupted — /run resume to continue': '已中断',
   Interrupted: '已中断',
   'no saved sessions': '没有已保存的会话',
   'no MCP servers configured (.moss/mcp.json)': '未配置 MCP 服务（.moss/mcp.json）',

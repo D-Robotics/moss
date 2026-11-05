@@ -1,5 +1,5 @@
 /**
- * Ordinary chat does not open a task contract. Only the `/goal` and `/task`
+ * Ordinary chat does not open a task contract. Only the `/run` and `/task`
  * entry points do. The task engine sets `taskFlow` itself.
  */
 export function messageRequestsTaskContract(message: string): boolean {

@@ -360,7 +360,7 @@ export function commandBlockTitle(head: string): string {
 const COMMON_HELP_COMMANDS = [
   '/model',
   '/compact',
-  '/goal',
+  '/run',
   '/plan',
   '/review',
   '/doctor',
@@ -374,7 +374,7 @@ const COMMON_HELP_COMMANDS = [
 const HELP_USAGE_ZH: Record<string, string> = {
   '/model [name|number]': '/model [名称|序号]',
   '/compact [instructions]': '/compact [说明]',
-  '/goal <condition> | clear': '/goal <条件> | clear',
+  '/run <condition> | clear': '/run <条件> | clear',
   '/plan [description]': '/plan [描述]',
   '/review [PR#]': '/review [拉取请求号]',
 };
@@ -581,7 +581,7 @@ export function resolveShellCliConfig(): ResolvedCliConfig | undefined {
  *
  * One catalog (`interactive-commands.ts`) feeds both surfaces; `SHELL_COMMAND_ROWS`
  * is its `tui` projection — the same table `/help` prints — run through the
- * shared ranker. The `allowed` filter keeps REPL-only commands (/loop /goal
+ * shared ranker. The `allowed` filter keeps REPL-only commands (/loop /run
  * /init) out of the shell menu, so the menu can neither hide an advertised
  * command nor offer an unadvertised one.
  */
@@ -601,7 +601,7 @@ export function shellPaletteRows(
   // Skills ride the SAME ranker as first-class commands (outside the static
   // table, so `/help` honesty is untouched); a static command always wins a
   // name collision. Only rows that CAME from `extra` may enter — the ranker
-  // also folds the REPL table, whose /loop /goal /task /init are not this
+  // also folds the REPL table, whose /loop /run /task /init are not this
   // shell's commands.
   const extraNames = new Set(extra.map((row) => row[0]));
   for (const row of slashPaletteRows(input, extra)) {

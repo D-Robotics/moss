@@ -671,7 +671,7 @@ export function TuiAppRoot({
   /** The line being executed came from the queue, so the composer stays put. */
   const fromQueueRef = useRef(false);
   const submitRef = useRef<(text: string) => Promise<void>>(async () => undefined);
-  /** `/goal` proposal waiting for Enter (accept) or `n` (contract verdict only). */
+  /** `/run` proposal waiting for Enter (accept) or `n` (contract verdict only). */
   const pendingGoalRef = useRef<{ goal: string } | null>(null);
   const customCommandLoad = useMemo(() => {
     const notices: string[] = [];
@@ -1299,7 +1299,7 @@ export function TuiAppRoot({
             // ("This operation was aborted"), which used to land in the
             // transcript as a red bold failure. An interrupt is an outcome the
             // user asked for: record it quietly and keep the partial output.
-            // Ordinary chat must not suggest /goal resume.
+            // Ordinary chat must not suggest /run resume.
             runtime.applyEvent(event);
             const line = resumeHint ? interruptNoticeLine() : chatInterruptNoticeLine();
             if (!store.rows.some((row) => row.kind === 'summary' && row.text === line)) {
@@ -2046,7 +2046,7 @@ export function TuiAppRoot({
         },
       };
 
-      if (head === '/goal') {
+      if (head === '/run') {
         const plan = planGoalInvocation(args, options.workspaceDir);
         if (plan.kind === 'usage') {
           printBlock('Goal', [GOAL_USAGE]);
@@ -2059,7 +2059,7 @@ export function TuiAppRoot({
         if (plan.kind === 'resume') {
           await runTaskShellCommand(
             goalResumeDispatchArgs(plan),
-            args ? `/goal ${args}` : '/goal resume'
+            args ? `/run ${args}` : '/run resume'
           );
           return true;
         }
@@ -2076,7 +2076,7 @@ export function TuiAppRoot({
             ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
             ...(maxTurns > 0 ? { maxTurns } : {}),
           }),
-          args ? `/goal ${args}` : '/goal'
+          args ? `/run ${args}` : '/run'
         );
         return true;
       }
@@ -2171,12 +2171,12 @@ export function TuiAppRoot({
         if (/^n$/i.test(text)) {
           appendRow(store, 'summary', skippedAcceptanceNotice(cliLocale()));
           handle.notify();
-          await runTaskShellCommand(goalRunArgs(pending.goal), `/goal ${pending.goal}`);
+          await runTaskShellCommand(goalRunArgs(pending.goal), `/run ${pending.goal}`);
           return;
         }
         await runTaskShellCommand(
           goalRunArgs(pending.goal, { acceptance: text }),
-          `/goal ${pending.goal}`
+          `/run ${pending.goal}`
         );
         return;
       }

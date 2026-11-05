@@ -909,11 +909,11 @@ export async function runInteractive(
       continue;
     }
 
-    // `/goal` is the everyday "work until" entry. `/loop` only prints a
+    // `/run` is the everyday "work until" entry. `/loop` only prints a
     // suggestion and does not reach this branch. Clear-words abandon the
     // live task; a missing `--accept` proposes a command from the workspace.
-    if (msg === '/goal' || msg.startsWith('/goal ')) {
-      const plan = planGoalInvocation(msg.slice('/goal'.length).trim(), workspace);
+    if (msg === '/run' || msg.startsWith('/run ')) {
+      const plan = planGoalInvocation(msg.slice('/run'.length).trim(), workspace);
       if (plan.kind === 'usage') {
         process.stderr.write(`${GOAL_USAGE}\n`);
         rl.prompt();
@@ -932,7 +932,7 @@ export async function runInteractive(
             .filter((s) => isResumableTaskPhase(s.phase))
             .sort((a, b) => b.updatedAt - a.updatedAt)[0];
           if (!resumable) {
-            process.stderr.write('No resumable task found. Start one with /goal <condition>.\n');
+            process.stderr.write('No resumable task found. Start one with /run <condition>.\n');
             rl.prompt();
             continue;
           }
@@ -960,7 +960,7 @@ export async function runInteractive(
 
     // Task OS M5: unified task runtime entry — one goal in, one verified
     // result out (plan → execute → verify → repair → accept). PASS can only
-    // come from the verdict provider, never from the agent's prose. /goal
+    // come from the verdict provider, never from the agent's prose. /run
     // translates into this branch above, so every autonomous run streams
     // live through the same renderer too.
     if (msg === '/task' || msg.startsWith('/task ')) {
