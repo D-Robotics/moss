@@ -192,6 +192,22 @@ export function clipboardPathFromText(text: string): string | null {
   return null;
 }
 
+/**
+ * Linux has no built-in clipboard: images and text both go through `wl-paste`
+ * (Wayland) or `xclip` (X11). When neither binary exists, "clipboard has no
+ * image, file or text" is the wrong diagnosis — installing a clipboard tool is
+ * the fix, so name it instead of leaving the user to guess.
+ */
+async function missingLinuxClipboardTool(): Promise<boolean> {
+  const has = async (tool: string): Promise<boolean> => {
+    const result = await run('sh', ['-c', `command -v ${tool} >/dev/null 2>&1`]);
+    return result.ok;
+  };
+  if (await has('wl-paste')) return false;
+  if (await has('xclip')) return false;
+  return true;
+}
+
 /** Stage an existing image file (Finder copy / dragged path) under the same
  *  content-addressed budget as a clipboard screenshot. */
 export async function stageClipboardFile(options: {
@@ -330,6 +346,13 @@ export async function captureClipboardAttachment(options: {
       }
     }
     return { kind: 'text', text };
+  }
+  if (platform === 'linux' && (await missingLinuxClipboardTool())) {
+    return {
+      kind: 'empty',
+      reason:
+        'no clipboard tool found — install wl-clipboard (wl-paste) or xclip to paste on Linux',
+    };
   }
   return { kind: 'empty', reason: 'clipboard has no image, file or text' };
 }
