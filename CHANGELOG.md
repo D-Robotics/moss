@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Loop runs join the unified ledger (B132)
+
+- `moss loop` now writes the same `.moss/runs/<runId>/run.json` record as the task engine:
+  `passed` -> `completed`, exhausted attempts / wall-clock budget -> `verify_failed` with the check's
+  exit code, and a hung check (`--until-timeout`) or silent `--watch` (`--watch-timeout`) ->
+  `incomplete` with an explanatory reason instead of looking like a failed repair. `moss runs` shows
+  task and loop runs in one newest-first list, with the loop ledger path as an artifact.
+
+### loop 运行进入统一账本（B132）
+
+- `moss loop` 现在写与任务引擎相同的 `.moss/runs/<runId>/run.json`：`passed` → `completed`；
+  轮次用尽 / 墙钟预算用尽 → `verify_failed` 并带检查命令退出码；检查命令挂起（`--until-timeout`）
+  或 `--watch` 无变化（`--watch-timeout`）→ `incomplete` 并给出原因，不再看起来像修复失败。
+  `moss runs` 把 task 与 loop 运行放在同一个最新在前的列表里，loop 账本路径作为工件记录。
+
 ### `moss artifacts`: one read-only inspection verb (B131)
 
 - `moss tasks <kind>` was a top-level command one letter away from `moss task`, with its own help and

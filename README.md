@@ -81,7 +81,7 @@ npm install -g @rdk-moss/agent@latest && moss setup
 
 ```bash
 moss run "创建 hello.txt 内容为 MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"
-moss runs                              # 所有自主运行共用一本账：状态 / 原因 / 下一步
+moss runs                              # 所有自主运行（task / loop）共用一本账：状态 / 原因 / 下一步
 moss task status --json                # 同一份事实，给脚本/CI 用
 ```
 
