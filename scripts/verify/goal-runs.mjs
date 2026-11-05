@@ -85,7 +85,10 @@ assert.equal(afterTorn.length, 2, 'a torn line never hides the records before it
 ok('a torn write does not hide earlier rows');
 
 const lines = formatGoalRunRows(rows, { limit: 20 });
-assert.equal(lines[0], 'goal runs (2, newest first)');
+assert.equal(
+  lines[0],
+  'task runs (2 total · pass 1 · fail 1 · blocked 0 · aborted 0, newest first)'
+);
 assert.ok(lines.some((line) => line.includes('task_beta') && line.includes('fail')));
 assert.ok(lines.some((line) => line.includes('↳ grep -q alpha alpha.txt')));
 const sorted = lines.findIndex((line) => line.includes('task_beta'));
@@ -98,8 +101,9 @@ assert.ok(
 ok('the table is newest first, clips long goals and shows the deciding command');
 
 const limited = formatGoalRunRows(rows, { limit: 1 });
-assert.equal(limited.length, 2, 'header + one row');
+assert.equal(limited.length, 3, 'header + one row + overflow line');
 assert.ok(limited[1].includes('task_beta'));
+assert.ok(limited[2].includes('1 more (raise --limit)'));
 const zh = formatGoalRunRows(rows, { zh: true, limit: 1 });
 assert.ok(zh[0].includes('目标运行记录'));
 assert.ok(zh.some((line) => line.includes('失败')));

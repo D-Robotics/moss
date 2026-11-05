@@ -97,6 +97,7 @@ import { stage as todosViewStage } from './stages/todos-view.mjs';
 import { stage as doctorBehaviorStage } from './stages/doctor-behavior.mjs';
 import { stage as diagnosticsStage } from './stages/diagnostics.mjs';
 import { stage as taskReviewStage } from './stages/task-review.mjs';
+import { stage as taskStatusStage } from './stages/task-status.mjs';
 
 const STAGES = new Map(
   [
@@ -173,6 +174,7 @@ const STAGES = new Map(
     doctorBehaviorStage,
     diagnosticsStage,
     taskReviewStage,
+    taskStatusStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -242,6 +244,7 @@ const FAST_GATE = [
   'doctor-behavior',
   'diagnostics',
   'task-review',
+  'task-status',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 

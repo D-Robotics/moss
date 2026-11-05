@@ -6,7 +6,7 @@
  *   moss task resume <task_id> [--accept "<cmd>"]
  *   moss task status [task_id]      (default: latest)
  *   moss task timeline [task_id]
- *   moss task list [--limit N] [--json]   (goal-run rollup, newest first)
+ *   moss task list [--limit N] [--status pass|fail|blocked|aborted] [--json]   (goal-run rollup, newest first)
  *
  * Exit code 0 only when the task reached accepted (PASS).
  */
@@ -28,6 +28,7 @@ import {
   listGoalRuns,
   projectGoalRunReviews,
 } from '../core/task-runtime/goal-runs.js';
+import type { GoalRunOutcome } from '../core/task-runtime/goal-runs.js';
 import { readReviewSummaries } from '../core/loop/review-ledger.js';
 import { formatGoalRunRows } from './task-list.js';
 import { errorMessage } from '../errors.js';
@@ -99,7 +100,7 @@ export function interactiveTaskUsageLines(): readonly string[] {
     return [
       '用法：/task run <目标...> [--accept "<命令>"]',
       '/task status|timeline [标识]',
-      '/task list [--limit N] [--json]',
+      '/task list [--limit N] [--status pass|fail|blocked|aborted] [--json]',
       '/task resume [标识]',
       '/task verify [标识]',
       '/task view [种类]',
@@ -108,7 +109,7 @@ export function interactiveTaskUsageLines(): readonly string[] {
   return [
     'usage: /task run <goal...> [--accept "<cmd>"]',
     '/task status|timeline [id]',
-    '/task list [--limit N] [--json]',
+    '/task list [--limit N] [--status pass|fail|blocked|aborted] [--json]',
     '/task resume [id]',
     '/task verify [id]',
     '/task view [kind]',
@@ -127,7 +128,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       '      --device ID      契约指定的目标设备标识',
       '  resume <task_id> [--accept "<cmd>"]  恢复一个失败/中断/阻塞的任务（可改正验收命令）',
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
-      '  list [--limit N]     目标运行汇总：时间/结果/任务/轮次/耗时/目标（默认最近 20 条）',
+      '  list [--limit N] [--status pass|fail|blocked|aborted]  目标运行汇总：时间/结果/任务/轮次/耗时/目标（默认最近 20 条；表头给出全账本计数，--status 只筛表格与 JSON）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
       '  view [种类]          只读工件：`tasks` | `history` | `evidence` | `deployments` | `failures`',
       '  verify [task_id]     用裁决器复验一次（不发起模型回合）',
@@ -156,7 +157,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     '      --device ID      target device id for the contract',
     '  resume <task_id> [--accept "<cmd>"]  resume a failed/abandoned/blocked task, optionally correcting the oracle',
     '  status [task_id]     current phase, plan, failures, verdict (default: latest)',
-    '  list [--limit N]     goal-run rollup: time/outcome/task/turns/duration/goal (default 20)',
+    '  list [--limit N] [--status pass|fail|blocked|aborted]  goal-run rollup: time/outcome/task/turns/duration/goal (default 20; the header counts the whole ledger and --status narrows table and JSON)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
     '  view [kind]          read-only artifacts: tasks | history | evidence | deployments | failures',
     '  verify [task_id]     re-run the verdict once (no model turn)',
@@ -522,22 +523,47 @@ function tapUsage(ctx: TaskCommandContext): {
   };
 }
 
-/** `--limit N` (default 20) and `--json` for `moss task list`. */
-function listOptions(args: string[]): { limit: number; json: boolean } {
+/**
+ * `--limit N` (default 20), `--status <outcome>` and `--json` for
+ * `moss task list`. `passed`/`failed` are aliases like `moss loop list`.
+ */
+const GOAL_RUN_STATUSES = ['pass', 'fail', 'blocked', 'aborted'] as const;
+
+type ListOptions = { limit: number; json: boolean; status?: GoalRunOutcome } | { error: string };
+
+function listOptions(args: string[]): ListOptions {
   let limit = 20;
   let json = false;
+  let status: GoalRunOutcome | undefined;
   for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    if (arg === '--json') json = true;
-    else if (arg === '--limit') {
-      const value = Number(args[++i]);
-      if (Number.isFinite(value) && value > 0) limit = Math.floor(value);
-    } else if (arg?.startsWith('--limit=')) {
-      const value = Number(arg.slice('--limit='.length));
-      if (Number.isFinite(value) && value > 0) limit = Math.floor(value);
+    const arg = args[i] ?? '';
+    if (arg === '--json') {
+      json = true;
+      continue;
     }
+    if (arg === '--status' || arg.startsWith('--status=')) {
+      const raw = arg.includes('=') ? arg.slice('--status='.length) : (args[++i] ?? '');
+      const normalized = raw === 'passed' ? 'pass' : raw === 'failed' ? 'fail' : raw;
+      if (!(GOAL_RUN_STATUSES as readonly string[]).includes(normalized)) {
+        return {
+          error: `--status must be one of ${GOAL_RUN_STATUSES.join('|')} (aliases: passed, failed)`,
+        };
+      }
+      status = normalized as GoalRunOutcome;
+      continue;
+    }
+    if (arg === '--limit' || arg.startsWith('--limit=')) {
+      const raw = arg.includes('=') ? arg.slice('--limit='.length) : (args[++i] ?? '');
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < 1) {
+        return { error: '--limit must be a positive integer' };
+      }
+      limit = value;
+      continue;
+    }
+    return { error: `unknown argument ${arg}` };
   }
-  return { limit, json };
+  return { limit, json, ...(status ? { status } : {}) };
 }
 
 /**
@@ -665,16 +691,25 @@ export async function runTaskCommand(
 
   if (sub === 'list') {
     const parsed = listOptions(commandArgs.slice(1));
+    if ('error' in parsed) {
+      output('stderr', `moss task list: ${parsed.error}\n`);
+      return 2;
+    }
     const records = await listGoalRuns(ctx.workspace);
     // The review verdict is only recorded in `.moss/review.jsonl`; project the
     // record that fell inside each run's window so a row says *why* it failed.
     const rows = projectGoalRunReviews(records, readReviewSummaries(ctx.workspace));
-    const newestFirst = [...rows].sort((left, right) => right.endedAt - left.endedAt);
+    const scoped = parsed.status ? rows.filter((row) => row.outcome === parsed.status) : rows;
+    const newestFirst = [...scoped].sort((left, right) => right.endedAt - left.endedAt);
     if (parsed.json || ctx.outputJson === true) {
       output('stdout', `${JSON.stringify(newestFirst.slice(0, parsed.limit), null, 2)}\n`);
       return 0;
     }
-    for (const line of formatGoalRunRows(rows, { zh, limit: parsed.limit })) {
+    for (const line of formatGoalRunRows(rows, {
+      zh,
+      limit: parsed.limit,
+      ...(parsed.status ? { status: parsed.status } : {}),
+    })) {
       output('stdout', `${line}\n`);
     }
     return 0;
