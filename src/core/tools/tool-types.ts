@@ -46,6 +46,12 @@ export interface ToolContext {
   /** Host-resolved configuration files to compare after shell execution. */
   protectedConfigPaths?: readonly string[];
   /**
+   * D14: local `exec`/background exec run inside an OS sandbox (macOS
+   * seatbelt, Linux bubblewrap) because the user opted in. A missing backend
+   * refuses the command instead of running it unsandboxed.
+   */
+  osSandbox?: boolean;
+  /**
    * O96: lets a string-returning tool mark its result as an error structurally
    * (e.g. exec timeout / signal kill) instead of relying on output text.
    */

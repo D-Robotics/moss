@@ -905,6 +905,10 @@ export async function runCli(): Promise<void> {
     // boundary the file tools enforce); full-access leaves the shell
     // unconstrained by explicit host choice.
     ...(safetyMode === 'full-access' ? {} : { execWriteRoots: [workspace] }),
+    // D14: opt-in OS sandbox; full-access bypasses it by design.
+    ...(resolvedConfig.permissions.osSandbox && safetyMode !== 'full-access'
+      ? { osSandbox: true }
+      : {}),
     ...(hasRunBudget ? { budget: runBudget } : {}),
     ...(bestOfN ? { bestOfN } : {}),
     ...(resolvedConfig.reviewMode ? { reviewMode: resolvedConfig.reviewMode } : {}),
@@ -988,6 +992,25 @@ export async function runCli(): Promise<void> {
             : `[moss] MOSS_HIDE_TOOLS names are not registered tools and were ignored: ${unknown.join(', ')}`
         );
       }
+    }
+  }
+  // D14: say once that the opt-in boundary is active; silence here would make
+  // a sandboxed command look like an unexplained permission error. full-access
+  // is a documented no-op, so the notice says that instead of implying safety.
+  if (resolvedConfig.permissions.osSandbox) {
+    const zh = isZhLocale();
+    if (safetyMode === 'full-access') {
+      console.error(
+        zh
+          ? '[moss] OS sandbox 已开启（permissions.osSandbox / MOSS_OS_SANDBOX），但 full-access 模式按设计不进入沙箱；换到 workspace-write/read-only 才生效。'
+          : '[moss] OS sandbox is on (permissions.osSandbox / MOSS_OS_SANDBOX), but full-access mode bypasses it by design; it applies in workspace-write/read-only.'
+      );
+    } else {
+      console.error(
+        zh
+          ? '[moss] OS sandbox 已开启：exec/后台 exec 在 seatbelt/bubblewrap 内运行（仅工作区可写、无网络）；缺少后端会拒绝执行而不是退回普通 shell。'
+          : '[moss] OS sandbox is on: exec/background exec run inside seatbelt/bubblewrap (workspace writes only, no network); a missing backend refuses the command instead of falling back to a normal shell.'
+      );
     }
   }
   // Device targets resolve host > env > .moss/devices.json (registered via

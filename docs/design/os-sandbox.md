@@ -1,7 +1,13 @@
 # Opt-in OS sandbox for `exec`
 
-Status: design only. Default stays **off**. This document does not change
-`exec`, file tools, or device SSH.
+Status: **implemented as an opt-in slice (2026-11-05)**. Default stays **off**.
+`src/safety/os-sandbox.ts` + the two exec call sites, config
+`permissions.osSandbox`, env `MOSS_OS_SANDBOX=1`; verify stage `os-sandbox`
+(11 checks). macOS seatbelt is exercised for real on this host (outside-write
+blocked, workspace write allowed, `.git/hooks` denied); Linux bwrap argv and
+the missing-binary refusal are tested, but a positive bwrap run was not possible
+on macOS. Landlock fallback is not implemented: a missing bwrap refuses. This
+document's out-of-scope list is unchanged.
 
 workspace-write confines Moss's own file tools. Shell commands run normally without an OS sandbox.
 Users who know Codex (Landlock / bubblewrap) or Claude

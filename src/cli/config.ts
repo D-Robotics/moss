@@ -242,6 +242,11 @@ export interface PermissionsConfig {
    * A project file cannot add an id the user did not already list.
    */
   trustedDevices?: string[];
+  /**
+   * D14 opt-in OS sandbox for local `exec`: macOS seatbelt / Linux bwrap.
+   * Default false. Ignored in full-access mode (design: docs/design/os-sandbox.md).
+   */
+  osSandbox?: boolean;
 }
 
 export interface LoadedCliConfigFile {
@@ -1242,6 +1247,7 @@ function mergePermissionsConfig(
     deny: unionOptionalStringList(user?.deny, project?.deny),
     deviceTrust: mergePermissionDeviceTrust(user?.deviceTrust, project?.deviceTrust),
     trustedDevices: mergePermissionTrustedDevices(user?.trustedDevices, project?.trustedDevices),
+    osSandbox: user?.osSandbox ?? project?.osSandbox,
   } satisfies Record<keyof PermissionsConfig, unknown>;
   const merged: PermissionsConfig = {};
   if (fields.defaultMode !== undefined) merged.defaultMode = fields.defaultMode;
@@ -1250,6 +1256,7 @@ function mergePermissionsConfig(
   if (fields.deny !== undefined) merged.deny = fields.deny;
   if (fields.deviceTrust !== undefined) merged.deviceTrust = fields.deviceTrust;
   if (fields.trustedDevices !== undefined) merged.trustedDevices = fields.trustedDevices;
+  if (fields.osSandbox !== undefined) merged.osSandbox = fields.osSandbox;
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
@@ -1624,6 +1631,9 @@ export interface ResolvedPermissionsView {
   /** Legacy keys that fed the read-side migration (profile/safetyMode/
    * approvalPolicy/trustedTools/deniedTools) — empty for pure new-key users. */
   legacyKeysUsed: string[];
+  /** D14: local exec runs inside an OS sandbox (seatbelt/bwrap). */
+  osSandbox: boolean;
+  osSandboxSource: string;
   source: string;
 }
 
@@ -2417,6 +2427,13 @@ export function resolveCliConfig(
     permissionsBlock?.deviceTrust === 'full'
       ? 'full'
       : 'gated';
+  const osSandboxEnv = parseConfigBoolean(env.MOSS_OS_SANDBOX) === true;
+  const osSandbox = osSandboxEnv || permissionsBlock?.osSandbox === true;
+  const osSandboxSource = osSandboxEnv
+    ? 'MOSS_OS_SANDBOX'
+    : permissionsBlock?.osSandbox === true
+      ? fileLayer('permissions.osSandbox')
+      : 'default';
   const permissionsView: ResolvedPermissionsView = {
     defaultMode,
     readOnlyCeiling,
@@ -2426,6 +2443,8 @@ export function resolveCliConfig(
     deviceTrust,
     trustedDevices,
     legacyKeysUsed: [...legacyMigration.legacyKeysUsed],
+    osSandbox,
+    osSandboxSource,
     source: permissionsSource,
   };
 

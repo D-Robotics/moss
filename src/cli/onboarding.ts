@@ -246,7 +246,7 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
     zh
       ? `${ui.dim('下一步')} 让我看看这个目录里有什么。`
       : `${ui.dim('Next')} ask me to look around this folder.`,
-    ui.dim(workspaceWriteLimit(zh)),
+    ui.dim(workspaceWriteLimit(zh, rt.config.permissions?.osSandbox === true)),
   ].join('\n');
 }
 
@@ -659,7 +659,7 @@ export function renderCliPermissions(
       `  ${label(zh ? '工作区' : 'workspace')} ${auth.workspace} (${auth.workspaceSource})`,
       ...(currentModeLine ? [currentModeLine] : []),
       `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? (zh ? ' + 只读上限' : ' + read-only ceiling') : ''} (${permissions?.source ?? 'default'})`,
-      `  ${workspaceWriteLimit(zh)}`,
+      `  ${workspaceWriteLimit(zh, permissions?.osSandbox === true)}`,
       `  ${label(zh ? '规则' : 'rules')} allow ${allowCount} · ask ${askCount} · deny ${denyCount}`,
       ...(liveRules.length > 0
         ? [zh ? '  规则表：' : '  Rule table:']
@@ -702,7 +702,7 @@ export function renderCliPermissions(
     ui.bold(ui.black(zh ? '权限' : 'Permissions')),
     ...(currentModeLine ? [currentModeLine] : []),
     `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? ' (read-only ceiling)' : ''}`,
-    `  ${workspaceWriteLimit(zh)}`,
+    `  ${workspaceWriteLimit(zh, permissions?.osSandbox === true)}`,
     `  ${label(zh ? '工作区' : 'workspace')} ${auth.workspace}`,
     `  ${label(zh ? '规则' : 'rules')} ${
       allowCount + askCount + denyCount === 0

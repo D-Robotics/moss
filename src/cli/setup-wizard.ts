@@ -318,6 +318,7 @@ export function renderAuthStatus(
         'model',
         'baseUrl',
         'apiKey',
+        'permissions',
         'safetyMode',
         'approvalPolicy',
         'trustedTools',

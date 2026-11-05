@@ -135,6 +135,9 @@ try {
     meta: { task: 'newest stored task', scope: 'plan', maxTurns: 7 },
     messages: [{ role: 'user', content: 'newest task', timestamp: 5 }],
   });
+  // Give the following resume a strictly newer savedAt than `newest-1`: both
+  // writes can land in the same millisecond, and the store orders by savedAt.
+  await new Promise((resolve) => setTimeout(resolve, 2));
   const latestCtx = (capture) => ({
     workspaceDir: dir,
     runId: 'parent-run',

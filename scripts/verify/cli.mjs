@@ -43,6 +43,7 @@ import { stage as tinyWindowDiagnosticsStage } from './stages/tiny-window-diagno
 import { stage as tinyWindowTuiNoticeStage } from './stages/tiny-window-tui-notice.mjs';
 import { stage as readImageStage } from './stages/read-image.mjs';
 import { stage as readPdfStage } from './stages/read-pdf.mjs';
+import { stage as osSandboxStage } from './stages/os-sandbox.mjs';
 import { stage as planEndStage } from './stages/plan-end.mjs';
 import { stage as rulesActivationStage } from './stages/rules-activation.mjs';
 import { stage as subagentResumeStage } from './stages/subagent-resume.mjs';
@@ -91,6 +92,7 @@ const STAGES = new Map(
     tinyWindowTuiNoticeStage,
     readImageStage,
     readPdfStage,
+    osSandboxStage,
     planEndStage,
     rulesActivationStage,
     subagentPromptStage,
@@ -140,6 +142,7 @@ const FAST_GATE = [
   'tiny-window-tui-notice',
   'read-image',
   'read-pdf',
+  'os-sandbox',
   'plan-end',
   'rules-activation',
   'subagent-prompt-contract',

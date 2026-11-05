@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { captureProcess } from './lib/proc.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
@@ -85,6 +86,34 @@ ok('moss loop --help renders usage');
 const survivor = await run(['loop', '--mock', '--max', '1', '--until', 'exit 0', 'anything']);
 assert.equal(survivor.status, 0);
 ok('the check command, not the agent prose, decides the exit code');
+
+// 6. D13: --every parses durations and paces failed attempts.
+const loopModule = await import(pathToFileURL(path.join(root, 'dist/cli/loop-command.js')).href);
+assert.equal(loopModule.parseLoopDuration('250ms'), 250);
+assert.equal(loopModule.parseLoopDuration('30s'), 30_000);
+assert.equal(loopModule.parseLoopDuration('5m'), 300_000);
+assert.equal(loopModule.parseLoopDuration('1h'), 3_600_000);
+assert.equal(loopModule.parseLoopArgs(['--until', 'true', '--every', '2s', 'hello']).everyMs, 2000);
+for (const bad of ['0.5x', 'x', '25h', '-1s']) {
+  assert.throws(() => loopModule.parseLoopDuration(bad), /--every/);
+}
+ok('--every accepts ms/s/m/h and rejects malformed durations');
+
+const paced = await run([
+  'loop',
+  '--mock',
+  '--every',
+  '150ms',
+  '--max',
+  '2',
+  '--until',
+  'exit 1',
+  'just say hello',
+]);
+assert.equal(paced.status, 1);
+assert.match(paced.stderr, /waiting 150ms before attempt 2/);
+assert.ok(paced.durationMs >= 150, `expected the loop to wait, ran ${paced.durationMs}ms`);
+ok('--every really waits between failed attempts');
 
 await fs.rm(workspace, { recursive: true, force: true });
 await fs.rm(home, { recursive: true, force: true });

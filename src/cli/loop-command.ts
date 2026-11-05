@@ -21,6 +21,8 @@ export interface LoopOptions {
   prompt: string;
   until: string;
   maxAttempts: number;
+  /** D13: fixed delay between failed attempts, so OS cron/`--every` can pace a loop. */
+  everyMs: number;
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -31,11 +33,12 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
     return [
       '用法：',
-      '  moss loop --until "<命令>" [--max N] "<prompt>"',
+      '  moss loop --until "<命令>" [--max N] [--every <时长>] "<prompt>"',
       '',
       '  每轮：用 prompt 跑一次全新的 headless 会话 → 执行 --until 命令。',
       '  命令退出 0 即成功（exit 0）；失败会把输出尾部喂回下一轮（最多 N 次，默认 3）。',
       '  --until 不能省略：循环的成败只由你的命令判定，不由模型自述判定。',
+      '  --every 5m：两次尝试之间固定等待（支持 ms/s/m/h，默认 0 = 立即重试）。',
       '',
       '示例：',
       '  moss loop --until "npm run verify" "修复 verify 的失败项，最小改动"',
@@ -44,12 +47,13 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
   }
   return [
     'Usage:',
-    '  moss loop --until "<command>" [--max N] "<prompt>"',
+    '  moss loop --until "<command>" [--max N] [--every <duration>] "<prompt>"',
     '',
     '  Each attempt runs one fresh headless session with the prompt, then runs the',
     '  --until command. Exit 0 of that command means success (loop exits 0); on',
     '  failure the output tail is fed into the next attempt (default 3 attempts).',
     '  --until is required: only your command decides, never the model prose.',
+    '  --every 5m waits a fixed delay between failed attempts (ms/s/m/h; default 0 = retry now).',
     '',
     'Examples:',
     '  moss loop --until "npm run verify" "fix the verify failures with minimal changes"',
@@ -68,10 +72,28 @@ function readValue(argv: readonly string[], index: number, flag: string): string
   return next;
 }
 
+const MAX_EVERY_MS = 24 * 60 * 60 * 1000;
+
+/** `250ms` / `30s` / `5m` / `1h` / bare seconds; 0 disables the delay. */
+export function parseLoopDuration(raw: string): number {
+  const text = raw.trim().toLowerCase();
+  const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)?$/.exec(text);
+  if (!match) throw new Error(`--every needs a duration like 30s, 5m, 1h (got "${raw}")`);
+  const value = Number(match[1]);
+  const unit = match[2] ?? 's';
+  const multiplier = unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : 3_600_000;
+  const ms = Math.round(value * multiplier);
+  if (!Number.isFinite(ms) || ms < 0 || ms > MAX_EVERY_MS) {
+    throw new Error(`--every must be between 0 and 24h (got "${raw}")`);
+  }
+  return ms;
+}
+
 export function parseLoopArgs(argv: readonly string[]): LoopOptions {
   const rest: string[] = [];
   let until: string | undefined;
   let maxAttempts = DEFAULT_MAX_ATTEMPTS;
+  let everyMs = 0;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? '';
     if (arg === '--') {
@@ -92,12 +114,18 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
       maxAttempts = Math.min(MAX_ATTEMPTS_CAP, parsed);
       continue;
     }
+    if (arg === '--every' || arg.startsWith('--every=')) {
+      const raw = readValue(argv, i, '--every');
+      if (!arg.includes('=')) i += 1;
+      everyMs = parseLoopDuration(raw);
+      continue;
+    }
     rest.push(arg);
   }
   const prompt = rest.join(' ').trim();
   if (!until) throw new Error('--until is required: the loop must end on a command, not on prose');
   if (!prompt) throw new Error('the prompt is required');
-  return { prompt, until, maxAttempts };
+  return { prompt, until, maxAttempts, everyMs };
 }
 
 export interface CheckResult {
@@ -214,6 +242,10 @@ export async function runLoopCommand(
     }
     if (attempt < options.maxAttempts) {
       say(`[loop] next attempt will receive the check output (exit ${lastCheck.exitCode})`);
+      if (options.everyMs > 0) {
+        say(`[loop] waiting ${String(options.everyMs)}ms before attempt ${attempt + 1} (--every)`);
+        await new Promise<void>((resolve) => setTimeout(resolve, options.everyMs));
+      }
     }
   }
   const observed = tail([lastCheck.stdout, lastCheck.stderr].filter(Boolean).join('\n'));

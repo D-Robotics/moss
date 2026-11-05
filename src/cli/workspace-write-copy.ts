@@ -23,6 +23,15 @@ export const WORKSPACE_WRITE_SHELL_ZH = '终端命令照常运行，没有操作
 /** One sentence pair: the same two facts, in one string. */
 export const WORKSPACE_WRITE_LIMIT_ZH = `${WORKSPACE_WRITE_FILE_TOOLS_ZH}${WORKSPACE_WRITE_SHELL_ZH}`;
 
-export function workspaceWriteLimit(zh: boolean): string {
-  return zh ? WORKSPACE_WRITE_LIMIT_ZH : WORKSPACE_WRITE_LIMIT_EN;
+/**
+ * D14: when the opt-in OS sandbox is on, the static sentence "no OS sandbox"
+ * would be false. Keep the default copy, and add the opt-in fact only when the
+ * resolved config says it is active (full-access remains a documented no-op).
+ */
+export function workspaceWriteLimit(zh: boolean, osSandbox = false): string {
+  const base = zh ? WORKSPACE_WRITE_LIMIT_ZH : WORKSPACE_WRITE_LIMIT_EN;
+  if (!osSandbox) return base;
+  return zh
+    ? `${WORKSPACE_WRITE_FILE_TOOLS_ZH}exec/后台 exec 走 opt-in 操作系统沙箱（seatbelt/bwrap；full-access 不进入）。`
+    : `${WORKSPACE_WRITE_FILE_TOOLS_EN} exec/background exec run inside the opt-in OS sandbox (seatbelt/bwrap; full-access bypasses it).`;
 }

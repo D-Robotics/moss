@@ -5,6 +5,7 @@ import { backgroundShellInvocation } from './windows-background-job.js';
 import { withWindowsSystemRoot } from '../utils/system-root.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
+import { buildOsSandboxPlan, type SandboxPlan } from '../safety/os-sandbox.js';
 import { errorMessage } from '../errors.js';
 import { deviceEnvFootnote } from '../utils/safe-child-env.js';
 import { commandMentionsMossCredential } from '../safety/read-scope.js';
@@ -242,18 +243,33 @@ export const execBackgroundTool: Tool = {
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
     const hooksNotice = (output = ''): string =>
       takeShellNotices(ctx.sessionKey, opened, command, output);
+    // D14: same opt-in boundary as foreground exec; a missing backend refuses.
+    let sandbox: SandboxPlan | undefined;
+    if (ctx.osSandbox) {
+      const resolution = buildOsSandboxPlan({
+        command: invocation.executable,
+        args: invocation.args,
+        workspaceRoot: ctx.workspaceDir,
+      });
+      if ('refusal' in resolution) return `Command blocked: ${resolution.refusal}`;
+      if ('plan' in resolution) sandbox = resolution.plan;
+    }
     let child: ChildProcess;
     try {
-      child = spawnProcess(invocation.executable, invocation.args, {
-        // stdin is piped so exec_input can drive REPLs and prompts on a
-        // tracked child (Qoder BashInput / Cursor write_shell_stdin).
-        stdio: ['pipe', 'pipe', 'pipe'],
-        cwd: ctx.workspaceDir,
-        env: withWindowsSystemRoot(hostShellChildEnv(opened.env, shell)),
-        detached: process.platform !== 'win32',
-        windowsHide: true,
-        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-      });
+      child = spawnProcess(
+        sandbox?.command ?? invocation.executable,
+        sandbox?.args ?? invocation.args,
+        {
+          // stdin is piped so exec_input can drive REPLs and prompts on a
+          // tracked child (Qoder BashInput / Cursor write_shell_stdin).
+          stdio: ['pipe', 'pipe', 'pipe'],
+          cwd: ctx.workspaceDir,
+          env: withWindowsSystemRoot(hostShellChildEnv(opened.env, shell)),
+          detached: process.platform !== 'win32',
+          windowsHide: true,
+          windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+        }
+      );
     } catch (err) {
       let hint = '';
       const code = errnoCode(err);
@@ -288,6 +304,7 @@ export const execBackgroundTool: Tool = {
     backgroundProcesses.set(id, proc);
     notifyLifecycle(proc);
 
+    const sandboxNote = sandbox ? `\n[os-sandbox] ${sandbox.label}` : '';
     const hideCredential = commandMentionsMossCredential(command);
     let withheldCredential = false;
     const onStream = (stream: 'stdout' | 'stderr', chunk: Buffer) => {
@@ -423,19 +440,19 @@ export const execBackgroundTool: Tool = {
         return (
           `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms — backgrounded at the wait timeout. ` +
           `Wait with exec_wait({"ids":["${id}"]}) before treating the goal as finished; ` +
-          `use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}${hooksNotice(proc.buffer)}`
+          `use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}${sandboxNote}${hooksNotice(proc.buffer)}`
         );
       }
-      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
+      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}${sandboxNote}${hooksNotice(proc.buffer)}`;
     }
     // Terminal during settle — already fully reported in this tool result; suppress
     // a later system-reminder duplicate (lifecycle already enqueued the snapshot).
     markBackgroundIdReported(id);
     if (proc.status === 'error') {
-      return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
+      return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}${footnote}${sandboxNote}${hooksNotice(proc.buffer)}`;
     }
     const how = proc.signal ? `killed by ${proc.signal}` : `exit ${proc.exitCode ?? '?'}`;
-    return `Background command ${id} exited immediately (${how}).${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
+    return `Background command ${id} exited immediately (${how}).${outputSection}${footnote}${sandboxNote}${hooksNotice(proc.buffer)}`;
   },
 };
 

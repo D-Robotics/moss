@@ -165,6 +165,8 @@ export interface MossAgentConfig
 
   /** Shell-write confinement roots for exec tools (v0.9 W1). Undefined = unconstrained. */
   execWriteRoots?: string[];
+  /** D14: pass the opt-in OS sandbox flag to exec tools (see docs/design/os-sandbox.md). */
+  osSandbox?: boolean;
 
   /** Unattended-run guardrails (v0.9 W3): token/tool-call/turn/wall-ms ceilings. */
   budget?: { maxTokens?: number; maxToolCalls?: number; maxTurns?: number; maxWallMs?: number };

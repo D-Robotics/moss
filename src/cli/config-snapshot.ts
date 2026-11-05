@@ -199,7 +199,7 @@ const FIELDS = {
       const base = `${showTyped(c.safetyMode)} ${sourceNote(c.safetyModeSource, c.safetyModeSource === 'derived:mode' ? ', from permissions.defaultMode' : '')}`;
       // The mode name is not an OS sandbox. Say so next to the value.
       return c.safetyMode === 'workspace-write'
-        ? `${base}. ${workspaceWriteLimit(isZhLocale())}`
+        ? `${base}. ${workspaceWriteLimit(isZhLocale(), c.permissions?.osSandbox === true)}`
         : base;
     },
   ],
@@ -222,6 +222,8 @@ const FIELDS = {
         deviceTrust: 'gated',
         trustedDevices: [],
         legacyKeysUsed: [],
+        osSandbox: false,
+        osSandboxSource: 'default',
         source: 'default',
       };
       const counts = `allow ${view.allow.length} · ask ${view.ask.length} · deny ${view.deny.length}`;
@@ -246,9 +248,17 @@ const FIELDS = {
             ? `；已迁移旧键：${view.legacyKeysUsed.join(', ')}`
             : `; legacy keys migrated: ${view.legacyKeysUsed.join(', ')}`
           : '';
+      // D14: the opt-in is a separate boundary from "workspace-write" — name it
+      // here, including the documented full-access no-op, so `moss config show`
+      // cannot be read as "the shell is sandboxed" by default.
+      const osSandbox = view.osSandbox
+        ? isZhLocale()
+          ? '；OS sandbox 已开启（exec/后台 exec 走 seatbelt/bwrap；full-access 按设计不进入）'
+          : '; OS sandbox on (exec/background exec use seatbelt/bwrap; full-access bypasses it by design)'
+        : '';
       return isZhLocale()
-        ? `模式 ${showTyped(view.defaultMode)}${ceiling} ${sourceNote(view.source)}，${counts}${deviceTrust}${legacy}`
-        : `mode ${showTyped(view.defaultMode)}${ceiling} ${sourceNote(view.source)}, ${counts}${deviceTrust}${legacy}`;
+        ? `模式 ${showTyped(view.defaultMode)}${ceiling} ${sourceNote(view.source)}，${counts}${deviceTrust}${legacy}${osSandbox}`
+        : `mode ${showTyped(view.defaultMode)}${ceiling} ${sourceNote(view.source)}, ${counts}${deviceTrust}${legacy}${osSandbox}`;
     },
   ],
   trustedTools: [

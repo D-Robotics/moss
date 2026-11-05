@@ -10,6 +10,7 @@ import { windowsMissingCommand } from '../utils/windows-missing-command.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
+import { buildOsSandboxPlan, type SandboxPlan } from '../safety/os-sandbox.js';
 import {
   createSubagentTool,
   fanOutSubagentsTool,
@@ -369,9 +370,26 @@ export const execTool: Tool = {
     // O153: the cmd.exe fallback is never silent to the model.
     const cmdNote = takeCmdFallbackToolNote(commandText, shell);
     const shellNote = cmdNote ? `\n\n${cmdNote}` : '';
+    // D14: opt-in OS sandbox. A missing backend is a refusal, never a silent
+    // unsandboxed retry. Full-access never reaches here with the flag set
+    // (runtime does not pass osSandbox in that mode).
+    let sandbox: SandboxPlan | undefined;
+    if (ctx.osSandbox) {
+      const resolution = buildOsSandboxPlan({
+        command: shell.executable,
+        args: shell.argsFor(commandText),
+        workspaceRoot: ctx.workspaceDir,
+      });
+      if ('refusal' in resolution) {
+        streamer?.flush();
+        return `Command blocked: ${resolution.refusal}`;
+      }
+      if ('plan' in resolution) sandbox = resolution.plan;
+    }
+    const sandboxNote = sandbox ? `\n\n[os-sandbox] ${sandbox.label}` : '';
     try {
-      const result = await runProcess(shell.executable, {
-        args: shell.argsFor(String(input.command ?? '')),
+      const result = await runProcess(sandbox?.command ?? shell.executable, {
+        args: sandbox?.args ?? shell.argsFor(String(input.command ?? '')),
         windowsVerbatimArguments: shell.kind === 'cmd',
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
@@ -473,6 +491,7 @@ export const execTool: Tool = {
         l3Notice +
         writebackWarning +
         footnote +
+        sandboxNote +
         hooksNotice(`${result.stdout}\n${result.stderr}`)
       );
     } catch (err) {

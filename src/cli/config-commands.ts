@@ -55,6 +55,9 @@ function serializeResolvedConfig(
     safetyModeSource: resolved.safetyModeSource,
     approvalPolicy: resolved.approvalPolicy,
     approvalPolicySource: resolved.approvalPolicySource,
+    // D14: additive field; older consumers ignore it. `config show --json`
+    // must not hide an opt-in that changes where shell commands can write.
+    permissions: { ...resolved.permissions },
     trustedTools: [...resolved.trustedTools],
     trustedToolsSource: resolved.trustedToolsSource,
     deniedTools: [...resolved.deniedTools],
@@ -223,7 +226,8 @@ function setPermissionsKey(config: ConfigFile, key: string, value: string): bool
     key !== 'permissions.ask' &&
     key !== 'permissions.deny' &&
     key !== 'permissions.deviceTrust' &&
-    key !== 'permissions.trustedDevices'
+    key !== 'permissions.trustedDevices' &&
+    key !== 'permissions.osSandbox'
   ) {
     return false;
   }
@@ -233,10 +237,18 @@ function setPermissionsKey(config: ConfigFile, key: string, value: string): bool
     | 'ask'
     | 'deny'
     | 'deviceTrust'
-    | 'trustedDevices';
+    | 'trustedDevices'
+    | 'osSandbox';
   const permissions = { ...(config.permissions ?? {}) };
   if (subKey === 'defaultMode') {
     permissions.defaultMode = value;
+  } else if (subKey === 'osSandbox') {
+    const raw = value.trim().toLowerCase();
+    if (raw !== 'true' && raw !== 'false') {
+      config.permissions = { ...(config.permissions ?? {}) };
+      throw new Error('permissions.osSandbox accepts true or false');
+    }
+    permissions.osSandbox = raw === 'true';
   } else if (subKey === 'deviceTrust') {
     permissions.deviceTrust = value;
   } else if (subKey === 'trustedDevices') {
@@ -965,7 +977,7 @@ function buildProjectConfigTemplate(): ConfigFile {
 
 function supportedConfigKeys(): string {
   return uiText(
-    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.supportsImages, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
+    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, permissions.osSandbox, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.supportsImages, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
     '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.supportsImages、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
   );
 }
@@ -1159,6 +1171,10 @@ function applyConfigSetPair(
       };
     }
     next.permissions = { ...next.permissions, defaultMode: mode };
+  } else if (key === 'permissions.osSandbox') {
+    if (!setPermissionsKey(next, key, value)) {
+      return { ok: false, messages: [supportedConfigKeys()] };
+    }
   } else if (key === 'permissions.deviceTrust') {
     const trust = value.trim().toLowerCase();
     if (trust !== 'full' && trust !== 'gated') {
@@ -1561,6 +1577,9 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   } else if (key === 'permissions.trustedDevices') {
     next.permissions = { ...current.permissions };
     delete next.permissions.trustedDevices;
+  } else if (key === 'permissions.osSandbox') {
+    next.permissions = { ...current.permissions };
+    delete next.permissions.osSandbox;
   } else if (key === 'promptCache') {
     if (typeof current.promptCache === 'object' && current.promptCache !== null) {
       next.promptCache = { ...current.promptCache };
