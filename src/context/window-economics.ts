@@ -44,6 +44,15 @@ export const TINY_TOOL_RESULT_WINDOW_TOKENS = 6_000;
 const TINY_TOOL_RESULT_RATIO = 0.1;
 const TINY_TOOL_RESULT_FLOOR = 192;
 
+/** B71: windows this small cannot absorb a growing tool-call chain. */
+export function isSmallContextWindow(contextWindowTokens: number): boolean {
+  return (
+    Number.isFinite(contextWindowTokens) &&
+    contextWindowTokens > 0 &&
+    contextWindowTokens <= TINY_TOOL_RESULT_WINDOW_TOKENS
+  );
+}
+
 /** Per-result token ceiling for the given window; undefined = use the tool's own budget. */
 export function tinyWindowToolResultTokens(contextWindowTokens: number): number | undefined {
   if (!Number.isFinite(contextWindowTokens) || contextWindowTokens <= 0) return undefined;

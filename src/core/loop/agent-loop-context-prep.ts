@@ -17,7 +17,10 @@ import {
 import { pruneContextMessages } from '../../context/pruning.js';
 import { getRootLogger } from '../../logger.js';
 import { runPerTurnContextManagement } from './per-turn-context-management.js';
-import { shouldProactiveCompactByWindowEconomics } from '../../context/window-economics.js';
+import {
+  isSmallContextWindow,
+  shouldProactiveCompactByWindowEconomics,
+} from '../../context/window-economics.js';
 import { repairMissingToolResults } from '../tools/tool-result-roundtrip-guard.js';
 import { runProactiveWindowCompaction, runPromptPruneCompaction } from './agent-loop-compaction.js';
 import { shouldSuppressReasoningForToolFollowUpRound } from './follow-up-guard.js';
@@ -403,16 +406,23 @@ export async function prepareTurnContext(
     });
   }
 
-  let pruneResult: Pick<PruneResult, 'messages' | 'droppedMessages'> = pendingToolResultFollowUp
-    ? { messages: currentMessages, droppedMessages: [] }
-    : pruneContextMessages({
-        messages: currentMessages,
-        contextWindowTokens: effectiveContextTokens,
-        systemPromptTokens: systemPromptUnitsForPrune,
-        charsPerTokenUnit: pruneCharsPerUnit,
-        includeThinking: includeThinkingInBudget,
-        settings: pruningSettings,
-      });
+  // B71: on a small window a tool-call chain grows the prompt every turn, and a
+  // tool-result follow-up used to skip pruning entirely -- the 5th tool call was
+  // then rejected by the provider. Pruning is a local sliding window, so it can
+  // run during a follow-up; adding a summary there would cost more than it saves.
+  const pruneDuringFollowUp =
+    pendingToolResultFollowUp && isSmallContextWindow(effectiveContextTokens);
+  let pruneResult: Pick<PruneResult, 'messages' | 'droppedMessages'> =
+    pendingToolResultFollowUp && !pruneDuringFollowUp
+      ? { messages: currentMessages, droppedMessages: [] }
+      : pruneContextMessages({
+          messages: currentMessages,
+          contextWindowTokens: effectiveContextTokens,
+          systemPromptTokens: systemPromptUnitsForPrune,
+          charsPerTokenUnit: pruneCharsPerUnit,
+          includeThinking: includeThinkingInBudget,
+          settings: pruningSettings,
+        });
   if (
     !pendingToolResultFollowUp &&
     pruneResult.droppedMessages.length > 0 &&
@@ -447,7 +457,7 @@ export async function prepareTurnContext(
   if (pruneResult.droppedMessages.length > 0) notifyReadContextDropped(null);
 
   let messagesForModel = selectMessagesForModel({
-    pendingToolResultFollowUp,
+    pendingToolResultFollowUp: pendingToolResultFollowUp && !pruneDuringFollowUp,
     currentMessages,
     prunedMessages: pruneResult.messages,
     droppedMessages: pruneResult.droppedMessages,

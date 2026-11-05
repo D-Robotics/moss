@@ -128,9 +128,14 @@ const promptAgent = new MossAgent({
 });
 let fullPrompt;
 let trimmedPrompt;
+let compactPrompt;
 try {
   fullPrompt = promptAgent.buildSystemPrompt({});
   trimmedPrompt = promptAgent.buildSystemPrompt({ omitSubagentExperts: true });
+  compactPrompt = promptAgent.buildSystemPrompt({
+    omitSubagentExperts: true,
+    compactGuidance: true,
+  });
 } finally {
   await promptAgent.close();
 }
@@ -145,6 +150,18 @@ assert.ok(
 assert.ok(
   fullPrompt.length - trimmedPrompt.length > 400,
   `dropping the catalog must free real prompt budget, freed ${fullPrompt.length - trimmedPrompt.length}`
+);
+assert.ok(
+  compactPrompt.includes('## Small-context mode'),
+  'a small-context run gets the terse guidance section'
+);
+assert.ok(
+  !compactPrompt.includes('## Tool Result Handling'),
+  'the small-context prompt folds the tool-result section into the terse guidance'
+);
+assert.ok(
+  fullPrompt.length - compactPrompt.length > 2_000,
+  `the terse profile must free real prompt budget, freed ${fullPrompt.length - compactPrompt.length}`
 );
 
 // ── Tool results: a tiny window must not accept a result sized for a big one. ──
@@ -238,5 +255,6 @@ console.log(
     `${declared.length} core tools (${declared.join(', ')}), summary bounded to 2456 chars; ` +
     `sub-agent catalog freed ${fullPrompt.length - trimmedPrompt.length} prompt chars when the surface excludes it; ` +
     `4096 boot announces the reduced profile, 32k and forced-off boots do not; ` +
-    `tool results capped to ${tinyWindowToolResultTokens(4096)} tokens at 4096, unchanged at 32k`
+    `tool results capped to ${tinyWindowToolResultTokens(4096)} tokens at 4096, unchanged at 32k; ` +
+    `small-context guidance frees ${fullPrompt.length - compactPrompt.length} chars`
 );
