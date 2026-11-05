@@ -32,6 +32,9 @@ import { renderBoardProxyDoctor } from './doctor-board-proxy.js';
 import { renderRdkDepsDoctor } from './doctor-rdk-deps.js';
 import { loadMcpConfigs } from './mcp-config.js';
 import { isMossHookEventId } from './hook-event-names.js';
+import { hookEntryWarnings } from './hooks-view.js';
+import { builtinTools } from '../tools/builtin.js';
+import { loadFileBasedTools } from '../tools/file-based-tools.js';
 import { isFolderTrusted } from './folder-trust-store.js';
 
 function doctorL(en: string, vars?: Record<string, string | number>): string {
@@ -635,6 +638,14 @@ function renderHookConfigDoctor(config: ResolvedCliConfig): string[] {
     files.push({ path: projectPath, scope: uiText('project', '项目') });
   }
   const lines: string[] = [];
+  const zh = isZhLocale();
+  // Registered tool names the matcher/if checks compare against: builtins plus
+  // this workspace's file-based custom tools. MCP tools cannot be known here
+  // (they register after the handshake) and hookEntryWarnings skips `mcp__…`.
+  const knownToolNames = [
+    ...builtinTools.map((tool) => tool.name),
+    ...loadFileBasedTools(config.workspace).map((tool) => tool.name),
+  ];
   let total = 0;
   let eventCount = 0;
   for (const file of files) {
@@ -663,6 +674,12 @@ function renderHookConfigDoctor(config: ResolvedCliConfig): string[] {
       if (list.length === 0) continue;
       total += list.length;
       eventCount += 1;
+      for (const entry of list) {
+        const hook = entry as Parameters<typeof hookEntryWarnings>[1];
+        for (const message of hookEntryWarnings(event, hook, { zh, knownToolNames })) {
+          lines.push(warn(label, `${file.scope}: ${message}`));
+        }
+      }
     }
   }
   if (total > 0) {

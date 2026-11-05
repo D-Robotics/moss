@@ -34,6 +34,9 @@ function warnsAboutTool(
 ): boolean {
   if (!value || !knownToolNames || knownToolNames.length === 0) return false;
   if (GLOB_CHARS.test(value)) return false;
+  // MCP tools register after the server handshake, so a hook that targets one is
+  // legitimate even though no such tool exists at startup (/hooks, doctor).
+  if (value.trim().toLowerCase().startsWith('mcp__')) return false;
   const wanted = value.trim().toLowerCase();
   if (!wanted) return false;
   return !knownToolNames.some((name) => name.toLowerCase() === wanted);
