@@ -11,6 +11,7 @@ import {
   readRunRecord,
   type RunRecord,
   type RunRecordStatus,
+  type RunKind,
 } from '../core/run-ledger.js';
 import { isZhLocale, uiText } from './cli-locale.js';
 
@@ -29,7 +30,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
   if (zh) {
     return [
       '用法：',
-      '  moss runs [list] [--limit N] [--status <状态>] [--json]',
+      '  moss runs [list] [--limit N] [--status <状态>] [--kind <引擎>] [--json]',
       '  moss runs show [<run_id>|latest] [--json]',
       '  moss runs export [<run_id>|latest] [--format md|json] [--out <文件>]',
       '  moss runs export [<run_id>|latest] [--format md|json] [--out <file>]',
@@ -45,12 +46,14 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '  moss runs export latest > run.md',
       '  moss runs export latest > run.md',
       '  moss runs list --status verify_failed --json',
+      '  moss runs list --kind loop --limit 5',
+      '  moss runs list --kind loop --limit 5',
       '  moss runs prune --keep 20 --dry-run',
     ].join('\n');
   }
   return [
     'Usage:',
-    '  moss runs [list] [--limit N] [--status <status>] [--json]',
+    '  moss runs [list] [--limit N] [--status <status>] [--kind <engine>] [--json]',
     '  moss runs show [<run_id>|latest] [--json]',
     '  moss runs prune [--keep N] [--dry-run] [--json]',
     '',
@@ -106,9 +109,12 @@ export interface RunsCommandContext {
   output?: (stream: 'stdout' | 'stderr', text: string) => void;
 }
 
+const RUN_KINDS: readonly RunKind[] = ['task', 'loop', 'workflow', 'superagent', 'chat'];
+
 interface ListFlags {
   limit: number;
   status?: RunRecordStatus;
+  kind?: RunKind;
   json: boolean;
 }
 
@@ -118,6 +124,7 @@ function parseListFlags(
 ): ListFlags | { error: string } {
   let limit = DEFAULT_LIMIT;
   let status: RunRecordStatus | undefined;
+  let kind: RunKind | undefined;
   let json = jsonDefault;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i] as string;
@@ -146,19 +153,33 @@ function parseListFlags(
         return { error: `unknown --status ${raw}; use ${RUN_STATUSES.join(', ')}` };
       }
       status = resolved;
+    } else if (arg === '--kind' || arg.startsWith('--kind=')) {
+      const raw = (
+        arg.includes('=') ? arg.slice('--kind='.length) : (args[++i] ?? '')
+      ).toLowerCase();
+      if (!RUN_KINDS.includes(raw as RunKind)) {
+        return { error: `unknown --kind ${raw}; use ${RUN_KINDS.join(', ')}` };
+      }
+      kind = raw as RunKind;
     } else {
       return { error: `unknown argument ${arg}` };
     }
   }
-  return { limit, json, ...(status ? { status } : {}) };
+  return { limit, json, ...(status ? { status } : {}), ...(kind ? { kind } : {}) };
 }
 
-function renderList(records: readonly RunRecord[], all: readonly RunRecord[]): string {
+function renderList(
+  records: readonly RunRecord[],
+  all: readonly RunRecord[],
+  filterLabel = ''
+): string {
   const counts = countsOf(all);
-  const header = uiText(
-    `run ledger · ${all.length} total · ${counts.completed ?? 0} pass · ${counts.verify_failed ?? 0} fail · ${counts.blocked ?? 0} blocked · ${counts.interrupted ?? 0} paused · ${counts.incomplete ?? 0} incomplete · ${counts.unverified ?? 0} unverified`,
-    `运行账本 · 共 ${all.length} · 通过 ${counts.completed ?? 0} · 失败 ${counts.verify_failed ?? 0} · 阻塞 ${counts.blocked ?? 0} · 暂停 ${counts.interrupted ?? 0} · 未完成 ${counts.incomplete ?? 0} · 未验证 ${counts.unverified ?? 0}`
-  );
+  const filterSuffix = filterLabel ? ` — ${filterLabel} (${records.length})` : '';
+  const header =
+    uiText(
+      `run ledger · ${all.length} total · ${counts.completed ?? 0} pass · ${counts.verify_failed ?? 0} fail · ${counts.blocked ?? 0} blocked · ${counts.interrupted ?? 0} paused · ${counts.incomplete ?? 0} incomplete · ${counts.unverified ?? 0} unverified`,
+      `运行账本 · 共 ${all.length} · 通过 ${counts.completed ?? 0} · 失败 ${counts.verify_failed ?? 0} · 阻塞 ${counts.blocked ?? 0} · 暂停 ${counts.interrupted ?? 0} · 未完成 ${counts.incomplete ?? 0} · 未验证 ${counts.unverified ?? 0}`
+    ) + filterSuffix;
   if (records.length === 0) {
     return `${header}\n${uiText('no runs recorded yet — start one with `moss run "<intent>" --accept "<cmd>"`', '还没有运行记录——用 `moss run "<意图>" --accept "<命令>"` 开始一次')}`;
   }
@@ -277,15 +298,23 @@ export async function runRunsCommand(
       return 2;
     }
     const all = await listRunRecords(ctx.workspace);
-    const filtered = parsed.status ? all.filter((record) => record.status === parsed.status) : all;
+    const filtered = all.filter(
+      (record) =>
+        (!parsed.status || record.status === parsed.status) &&
+        (!parsed.kind || record.kind === parsed.kind)
+    );
+    const filterLabel = [
+      ...(parsed.status ? [`status ${parsed.status}`] : []),
+      ...(parsed.kind ? [`kind ${parsed.kind}`] : []),
+    ].join(', ');
     const page = filtered.slice(0, parsed.limit);
     if (parsed.json) {
       output(
         'stdout',
-        `${JSON.stringify({ version: 1, total: filtered.length, runs: page, counts: countsOf(all) }, null, 2)}\n`
+        `${JSON.stringify({ version: 1, total: filtered.length, runs: page, counts: countsOf(all), ...(parsed.status ? { status: parsed.status } : {}), ...(parsed.kind ? { kind: parsed.kind } : {}) }, null, 2)}\n`
       );
     } else {
-      output('stdout', `${renderList(page, all)}\n`);
+      output('stdout', `${renderList(page, all, filterLabel)}\n`);
     }
     return 0;
   }

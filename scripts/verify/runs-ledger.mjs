@@ -200,6 +200,45 @@ try {
   assert.equal(dryResult.dryRun, true);
   assert.equal((await listRunRecords(ws)).length, 2);
   ok('moss runs prune --dry-run reports and deletes nothing');
+
+  // 8. --kind narrows the ledger to one engine (B147).
+  await fs.mkdir(path.join(ws, '.moss', 'runs', 'loop_demo'), { recursive: true });
+  await writeRunRecord(ws, {
+    version: 1,
+    runId: 'loop_demo',
+    kind: 'loop',
+    status: 'completed',
+    exitCode: 0,
+    startedAt: 7_000,
+    endedAt: 8_000,
+    durationMs: 1_000,
+    goal: 'loop until the check passes',
+    next: 'moss runs show latest',
+    attempts: 1,
+    assertions: 1,
+  });
+  const kindLoop = await cli(['runs', 'list', '--kind', 'loop', '--json']);
+  assert.equal(kindLoop.status, 0, kindLoop.stderr);
+  const kindLoopJson = JSON.parse(kindLoop.stdout);
+  assert.equal(kindLoopJson.total, 1);
+  assert.equal(kindLoopJson.kind, 'loop');
+  assert.deepEqual(
+    kindLoopJson.runs.map((item) => item.runId),
+    ['loop_demo']
+  );
+  const kindTask = JSON.parse((await cli(['runs', 'list', '--kind=task', '--json'])).stdout);
+  assert.equal(kindTask.total, 2);
+  const combined = JSON.parse(
+    (await cli(['runs', 'list', '--status', 'fail', '--kind', 'task', '--json'])).stdout
+  );
+  assert.equal(combined.total, 1);
+  assert.equal(combined.runs[0].runId, 'task_fail');
+  const kindTable = await cli(['runs', 'list', '--kind', 'loop']);
+  assert.match(kindTable.stdout, /— kind loop \(1\)/);
+  const badKind = await cli(['runs', 'list', '--kind', 'nope']);
+  assert.equal(badKind.status, 2);
+  assert.match(badKind.stderr, /unknown --kind nope/);
+  ok('moss runs list --kind narrows by engine and rejects unknown kinds with 2');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }
