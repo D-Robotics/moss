@@ -105,7 +105,7 @@ assert.deepEqual(plan('resume task_abc'), { kind: 'resume', taskId: 'task_abc' }
 ok('malformed flags/values/repeats are a usage error, not a silent run');
 
 assert.equal(plan('fix the flaky test --accept "npm test"').kind, 'run');
-assert.match(GOAL_USAGE, /\/goal resume \[task_id\]/);
+assert.match(GOAL_USAGE, /\/run resume \[task_id\]/);
 assert.match(GOAL_USAGE, /--max-repairs N/);
 assert.match(GOAL_USAGE, /--max-turns N/);
 ok('the original `/goal <condition> --accept` path is intact and usage names both flags');

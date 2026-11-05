@@ -29,9 +29,9 @@ assert.ok(en[0].includes('paused by user'), 'says paused, not failed');
 assert.ok(!/failed by user/i.test(en[0]));
 assert.ok(en[1].includes('task-abc123') && en[1].includes('paused'));
 assert.ok(en[1].includes('make the tests pass'));
-assert.ok(en[2].includes('/goal resume'));
+assert.ok(en[2].includes('/run resume'));
 assert.ok(en[2].includes('/task resume task-abc123'));
-assert.ok(en[2].includes('/goal clear'));
+assert.ok(en[2].includes('/run clear'));
 ok('en notice names the pause, the task and both resume paths');
 
 const longGoal = `${'x'.repeat(120)}tail`;
@@ -43,12 +43,12 @@ ok('long goals are truncated without losing the task identity');
 const zh = renderPausedGoalLines(candidate, 'zh');
 assert.ok(zh[0].includes('已暂停'));
 assert.ok(zh[1].includes('task-abc123'));
-assert.ok(zh[2].includes('/goal resume'));
+assert.ok(zh[2].includes('/run resume'));
 ok('zh notice is localized');
 
 const empty = renderPausedGoalLines(null, 'en');
 assert.ok(empty[0].includes('no resumable task state'));
-assert.ok(empty[1].includes('/goal <condition>'));
+assert.ok(empty[1].includes('/run <condition>'));
 ok('no-candidate branch says there is nothing to resume');
 
 console.log(`[goal-pause] ${checks}/4 checks passed`);
