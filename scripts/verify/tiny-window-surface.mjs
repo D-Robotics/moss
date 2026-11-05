@@ -147,8 +147,75 @@ assert.ok(
   `dropping the catalog must free real prompt budget, freed ${fullPrompt.length - trimmedPrompt.length}`
 );
 
+// ── Startup notice: the user must be told the reduced profile is active. ─────
+const { spawn } = await import('node:child_process');
+const fs = await import('node:fs');
+const os = await import('node:os');
+
+async function bootStderr(contextTokens, extraEnv = {}) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tiny-notice-'));
+  const configDir = path.join(home, 'config');
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(configDir, 'config.json'),
+    JSON.stringify({
+      provider: 'openai-compatible',
+      model: 'm',
+      baseUrl: 'http://127.0.0.1:9/v1',
+      apiKey: 'sk-test',
+      permissions: { defaultMode: 'full' },
+      agent: { contextTokens },
+    })
+  );
+  const env = {
+    PATH: process.env.PATH,
+    HOME: home,
+    MOSS_CONFIG_DIR: configDir,
+    MOSS_NO_TUI: '1',
+    MOSS_NO_RDK_DOCS: '1',
+    MOSS_LANG: 'en',
+    MOSS_TRUST_WORKSPACE: '1',
+    ...extraEnv,
+  };
+  return await new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(root, 'dist/cli.js'), '-p', 'hi'], {
+      cwd: home,
+      env,
+    });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+    child.stdout.on('data', () => {});
+    const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+    child.on('close', () => {
+      clearTimeout(timer);
+      fs.rmSync(home, { recursive: true, force: true });
+      resolve(stderr);
+    });
+  });
+}
+
+const tinyStderr = await bootStderr(4096);
+assert.ok(
+  tinyStderr.includes('context window is small (4k tokens)'),
+  `a 4096 window must announce the reduced profile, stderr was: ${tinyStderr.slice(0, 400)}`
+);
+assert.ok(tinyStderr.includes('5 core tools'), 'the notice must say the tool surface is reduced');
+const wideStderr = await bootStderr(32_000);
+assert.ok(
+  !wideStderr.includes('context window is small'),
+  'a 32k window must not print the tiny-window notice'
+);
+const forcedOffStderr = await bootStderr(4096, { MOSS_TINY_WINDOW_TOOLS: '0' });
+assert.ok(
+  !forcedOffStderr.includes('context window is small'),
+  'MOSS_TINY_WINDOW_TOOLS=0 must not announce a profile it disabled'
+);
+
 console.log(
   `[tiny-window-surface] ok: 4096 window -> ${tinyBudget} prompt tokens / 682 output, ` +
     `${declared.length} core tools (${declared.join(', ')}), summary bounded to 2456 chars; ` +
-    `sub-agent catalog freed ${fullPrompt.length - trimmedPrompt.length} prompt chars when the surface excludes it`
+    `sub-agent catalog freed ${fullPrompt.length - trimmedPrompt.length} prompt chars when the surface excludes it; ` +
+    `4096 boot announces the reduced profile, 32k and forced-off boots do not`
 );

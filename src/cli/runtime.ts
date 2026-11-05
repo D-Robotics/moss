@@ -183,6 +183,9 @@ import {
   resolveDefaultDeviceTarget,
 } from '../device/device-target.js';
 import { buildRuntimeCapabilitiesPrompt } from '../context/runtime-capabilities.js';
+import { getEffectiveContextWindowTokens } from '../context/window-economics.js';
+import { resolveModelOutputBudget } from '../core/loop/output-limit.js';
+import { tinyWindowToolSurfaceEnabled } from '../core/tools/tiny-window-tools.js';
 import { buildSoftwareEngineeringPromptQuick } from '../contracts/prompts/software-engineering-prompt.js';
 import type { CliRuntimeStatus } from './onboarding.js';
 import { resolveCliDetailMode } from './output.js';
@@ -1392,6 +1395,34 @@ export async function runCli(): Promise<void> {
         origin: 'environment',
         text: `## Context Window\nYour context window is ${ctxK}k tokens. State this number accurately when the user asks about context size — do not guess from training knowledge.`,
       });
+
+      // B66/B70: a window this small silently loses the standard tool set and the
+      // model-written summary. Say so once, with the knob that changes it: the
+      // reduced surface is otherwise invisible until a tool the model wanted is
+      // missing from the request.
+      const outputBudget =
+        resolvedConfig.maxOutputTokens ??
+        resolveModelOutputBudget({
+          modelId: resolvedConfig.model,
+          contextTokens: resolvedConfig.contextTokens,
+          pinned: false,
+          overrides: agent.config.modelMaxOutputTokens,
+        }).initial;
+      if (
+        tinyWindowToolSurfaceEnabled({
+          effectiveContextTokens: getEffectiveContextWindowTokens(
+            resolvedConfig.contextTokens,
+            outputBudget
+          ),
+        })
+      ) {
+        const line = uiText(
+          `[moss] This model's context window is small (${ctxK}k tokens): only the 5 core tools are offered, compaction uses a local summary, and each reply is capped at ${outputBudget} tokens. Configure a bigger window with agent.contextTokens (or use a model with one) for the full tool set.`,
+          `[moss] 这个模型的上下文窗口较小（${ctxK}k tokens）：只提供 5 个核心工具，压缩使用本地摘要，单次回复上限 ${outputBudget} tokens。需要完整工具面请用 agent.contextTokens 配置更大的窗口（或换更大窗口的模型）。`
+        );
+        if (useTui) emitTuiNotice(line);
+        else console.error(line);
+      }
     }
 
     // AgentReady table commands (moss task …) dispatch with the fully
