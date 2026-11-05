@@ -30,6 +30,7 @@ export type CliCommand =
   | 'sessions'
   | 'tasks'
   | 'task'
+  | 'run'
   | 'review'
   | 'loop'
   | 'remember'
@@ -244,6 +245,7 @@ export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'migrate',
   'tasks',
   'task',
+  'run',
   'review',
   'loop',
   'remember',

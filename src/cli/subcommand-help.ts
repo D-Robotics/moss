@@ -350,6 +350,48 @@ async function updateHelp(zh: boolean): Promise<string> {
  * them; `-p` runs pay none of that now, and `moss <cmd> --help` still pays one
  * module.
  */
+function runHelp(zh: boolean): string {
+  if (zh) {
+    return [
+      '用法：',
+      '  moss run "<意图>" [--accept "<验收命令>"] [--max-repairs N] [--max-turns N]',
+      '',
+      '验证式运行——`moss task run` 的快捷方式：同一个任务状态机、同样的 Ctrl+C 暂停语义、',
+      '同样的退出码（0 通过 / 1 失败或阻塞 / 130 中断可续跑）。',
+      'PASS 只由验收命令决定，模型的自述不算数。',
+      '',
+      '选项：',
+      '  --accept "<命令>"  可机检的验收命令（oracle）',
+      '  --max-repairs N    本次运行的修复预算',
+      '  --max-turns N      agent 回合预算（含计划回合）',
+      '',
+      '示例：',
+      '  moss run "创建 hello.txt 内容为 MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"',
+      '  moss run "修复失败的测试" --accept "npm test"',
+      '  moss task status --json      # 运行后看同一份事实',
+    ].join('\n');
+  }
+  return [
+    'Usage:',
+    '  moss run "<intent>" [--accept "<command>"] [--max-repairs N] [--max-turns N]',
+    '',
+    'Verified run — a shortcut for `moss task run`: same task state machine, same',
+    'Ctrl+C pause semantics and the same exit codes (0 pass, 1 fail/blocked, 130',
+    'interrupted and resumable). The acceptance command decides PASS; model prose',
+    'never does.',
+    '',
+    'Options:',
+    '  --accept "<cmd>"   machine-checkable acceptance command (oracle)',
+    '  --max-repairs N    repair budget for this run',
+    '  --max-turns N      agent turn budget (planning turn included)',
+    '',
+    'Examples:',
+    '  moss run "create hello.txt containing MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"',
+    '  moss run "fix the failing tests" --accept "npm test"',
+    '  moss task status --json      # the same facts after the run',
+  ].join('\n');
+}
+
 export async function renderSubcommandHelp(
   command: string,
   zh: boolean = isZhLocale()
@@ -430,6 +472,8 @@ export async function renderSubcommandHelp(
       const { renderTaskCliUsage } = await import('./task-run.js');
       return renderTaskCliUsage(zh);
     }
+    case 'run':
+      return runHelp(zh);
     case 'sessions':
       return sessionsHelp(zh);
     case 'web':

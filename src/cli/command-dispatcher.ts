@@ -222,6 +222,36 @@ export interface CommandContext {
 }
 
 /**
+ * Shared `moss task …` / `moss run …` execution: Ctrl+C must pause the verified
+ * run (write `task_failed{detail:"aborted"}`, print the resume hint) and exit
+ * 130 instead of killing the process with an in-flight task behind it.
+ */
+async function dispatchVerifiedRun(ctx: CommandContext, args: string[]): Promise<void> {
+  const { runTaskCommand } = await import('./task-run.js');
+  const { ExitCode } = await import('./exit-codes.js');
+  const workspace = ctx.workspace as string | undefined;
+  const agent = ctx.agent;
+  if (!workspace || !agent) {
+    console.error('[moss] task could not resolve the workspace/agent.');
+    process.exitCode = ExitCode.USAGE;
+    return;
+  }
+  const { withCliRunCancellation } = await import('./run-cancellation.js');
+  const code = await withCliRunCancellation((signal) =>
+    runTaskCommand(args, {
+      agent,
+      workspace,
+      sessionKey: (ctx.sessionKey as string | undefined) ?? `task-${Date.now().toString(36)}`,
+      outputJson: ctx.argv.includes('--json'),
+      signal,
+      ...(typeof ctx.configDir === 'string' ? { configDir: ctx.configDir } : {}),
+      ...(ctx.mcp ? { mcp: ctx.mcp as NonNullable<TaskCommandContext['mcp']> } : {}),
+    })
+  );
+  if (code !== 0) process.exitCode = code;
+}
+
+/**
  * Command routing table.
  * Maps command name to CommandConfig.
  * Replaces the big if-else tree in main().
@@ -264,35 +294,23 @@ export const COMMANDS: Record<string, CommandConfig> = {
     name: 'task',
     phase: CliPhase.AgentReady,
     handler: async (ctx) => {
-      const { runTaskCommand } = await import('./task-run.js');
-      const { ExitCode } = await import('./exit-codes.js');
-      const workspace = ctx.workspace as string | undefined;
-      const agent = ctx.agent;
-      if (!workspace || !agent) {
-        console.error('[moss] task could not resolve the workspace/agent.');
-        process.exitCode = ExitCode.USAGE;
-        return;
-      }
-      // Headless `task run/resume` is a long turn loop: Ctrl+C must pause the
-      // task (write `task_failed{detail:"aborted"}`, print the resume hint) and
-      // exit 130, not kill the process and leave an in-flight task behind. The
-      // second Ctrl+C is the escape hatch for an uncooperative provider.
-      const { withCliRunCancellation } = await import('./run-cancellation.js');
-      const code = await withCliRunCancellation((signal) =>
-        runTaskCommand(ctx.commandArgs, {
-          agent,
-          workspace,
-          sessionKey: (ctx.sessionKey as string | undefined) ?? `task-${Date.now().toString(36)}`,
-          outputJson: ctx.argv.includes('--json'),
-          signal,
-          ...(typeof ctx.configDir === 'string' ? { configDir: ctx.configDir } : {}),
-          ...(ctx.mcp ? { mcp: ctx.mcp as NonNullable<TaskCommandContext['mcp']> } : {}),
-        })
-      );
-      if (code !== 0) process.exitCode = code;
+      await dispatchVerifiedRun(ctx, ctx.commandArgs);
     },
     description:
       'Unified task runtime: run/resume/status/timeline — one goal in, one verified result out',
+  },
+
+  // Hero shortcut: `moss run "<intent>" --accept "<cmd>"` is the product's
+  // one-line promise (one intent in, one verified result out). It is exactly
+  // `moss task run`, so the two can never drift; the long form stays documented
+  // for discoverability and for the other task subcommands.
+  run: {
+    name: 'run',
+    phase: CliPhase.AgentReady,
+    handler: async (ctx) => {
+      await dispatchVerifiedRun(ctx, ['run', ...ctx.commandArgs]);
+    },
+    description: 'Verified run: intent in, acceptance-checked result out (moss task run shortcut)',
   },
 
   skill: {
