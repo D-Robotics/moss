@@ -16,7 +16,12 @@
  * - a missing/torn `.moss/task-failures.jsonl` is tolerated;
  * - `--json` fail/blocked rows gain `{stage, symptom, resolved}`, pass rows do
  *   not, and it composes with `--status` and the B108 `review` object;
- * - the zh table labels the line `↳ 原因：…`.
+ * - the zh table labels the line `↳ 原因：…`;
+ * - B115: the projection is scoped to the row's own run window. A resumed task
+ *   reuses its `taskId` for a new row, so run B's record must not explain run
+ *   A's row (and vice versa), while a row with no in-window record stays clean;
+ * - a legacy record without a timestamp still answers for the task (documented
+ *   fallback), and records from before/after every window are never rendered.
  *
  * It does not start an agent: real failure runs are proven separately.
  */
@@ -87,6 +92,30 @@ function continuationLines(table, taskId) {
   assert.notEqual(index, -1, `table has no row for ${taskId}`);
   const out = [];
   for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+    const line = lines[cursor].trim();
+    if (!line.startsWith('↳')) break;
+    out.push(line);
+  }
+  return out;
+}
+
+/**
+ * Continuation lines of the `occurrence`-th row (0 = newest) for a taskId.
+ * A resumed task repeats its taskId on several rows, so the plain helper above
+ * is ambiguous there.
+ */
+function continuationLinesAt(table, taskId, occurrence) {
+  const lines = table.split('\n');
+  const indexes = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index].includes(taskId)) indexes.push(index);
+  }
+  assert.ok(
+    indexes.length > occurrence,
+    `table has no row #${String(occurrence)} for ${taskId} (${String(indexes.length)} rows)`
+  );
+  const out = [];
+  for (let cursor = indexes[occurrence] + 1; cursor < lines.length; cursor += 1) {
     const line = lines[cursor].trim();
     if (!line.startsWith('↳')) break;
     out.push(line);
@@ -371,5 +400,154 @@ assert.ok(
   `zh task_fail lines: ${JSON.stringify(continuationLines(zhTable, 'task_fail'))}`
 );
 ok('the failure reason line is localized in zh as ↳ 原因：…');
+
+// --- B115: the reason belongs to a run window, not to the taskId -------------
+const wStart = now - 1_800_000;
+const windowWorkspace = path.join(tmp, 'window-workspace');
+await fs.mkdir(path.join(windowWorkspace, '.moss'), { recursive: true });
+const runA = { startedAt: wStart, endedAt: wStart + 60_000 };
+const runB = { startedAt: wStart + 120_000, endedAt: wStart + 180_000 };
+const runC = { startedAt: wStart + 240_000, endedAt: wStart + 300_000 };
+await writeJsonl(path.join(windowWorkspace, '.moss', 'goals.jsonl'), [
+  // Same taskId, three runs: A recorded a failure, B recorded none, C recorded
+  // its own (updated twice under one failureId).
+  goalRun({
+    taskId: 'task_w',
+    goal: 'same task, first attempt',
+    outcome: 'fail',
+    startedAt: runA.startedAt,
+    endedAt: runA.endedAt,
+    acceptanceCommand: 'false',
+  }),
+  goalRun({
+    taskId: 'task_w',
+    goal: 'same task, resumed once',
+    outcome: 'fail',
+    startedAt: runB.startedAt,
+    endedAt: runB.endedAt,
+    acceptanceCommand: 'false',
+  }),
+  goalRun({
+    taskId: 'task_w',
+    goal: 'same task, resumed twice',
+    outcome: 'fail',
+    startedAt: runC.startedAt,
+    endedAt: runC.endedAt,
+    acceptanceCommand: 'false',
+  }),
+  goalRun({
+    taskId: 'task_legacy',
+    goal: 'fail row from a ledger without record timestamps',
+    outcome: 'fail',
+    startedAt: runA.startedAt + 480_000,
+    endedAt: runA.endedAt + 540_000,
+    acceptanceCommand: 'false',
+  }),
+]);
+await writeJsonl(path.join(windowWorkspace, '.moss', 'task-failures.jsonl'), [
+  failure({
+    failureId: 'f_w_a',
+    taskId: 'task_w',
+    symptom: 'symptom from run A',
+    resolved: false,
+    timestamp: runA.startedAt + 20_000,
+  }),
+  // Two versions of run C's failure: the newest version must win inside C.
+  failure({
+    failureId: 'f_w_c',
+    taskId: 'task_w',
+    symptom: 'symptom from run C (v1)',
+    resolved: false,
+    timestamp: runC.startedAt + 40_000,
+  }),
+  failure({
+    failureId: 'f_w_c',
+    taskId: 'task_w',
+    symptom: 'symptom from run C (v2)',
+    resolved: false,
+    timestamp: runC.startedAt + 50_000,
+  }),
+  // Outside every window: before run A and after run C.
+  failure({
+    failureId: 'f_w_before',
+    taskId: 'task_w',
+    symptom: 'before every window',
+    resolved: false,
+    timestamp: runA.startedAt - 60_000,
+  }),
+  failure({
+    failureId: 'f_w_after',
+    taskId: 'task_w',
+    symptom: 'after run C',
+    resolved: false,
+    timestamp: runC.endedAt + 300_000,
+  }),
+  {
+    // Legacy shape: no timestamp at all, so it cannot be placed in a window.
+    failureId: 'f_legacy',
+    taskId: 'task_legacy',
+    stage: 'verifying',
+    symptom: 'legacy symptom without a timestamp',
+    attempt: 1,
+    resolved: false,
+  },
+]);
+
+const windowTable = await runList(windowWorkspace, [], { MOSS_LANG: 'en', LC_ALL: 'C' });
+const cLines = continuationLinesAt(windowTable, 'task_w', 0);
+const bLines = continuationLinesAt(windowTable, 'task_w', 1);
+const aLines = continuationLinesAt(windowTable, 'task_w', 2);
+assert.ok(
+  aLines.includes('↳ symptom from run A'),
+  `run A continuation lines: ${JSON.stringify(aLines)}`
+);
+assert.ok(
+  aLines.every((line) => !line.includes('symptom from run C') && !line.includes('every window')),
+  'run A must not inherit a later or out-of-window record'
+);
+assert.ok(
+  aLines.every((line) => !line.includes('after run C')),
+  'a record after every window is never rendered'
+);
+assert.deepEqual(bLines, ['↳ false'], 'a run with no in-window record shows no reason line');
+assert.ok(
+  cLines.includes('↳ symptom from run C (v2)'),
+  `run C continuation lines: ${JSON.stringify(cLines)}`
+);
+assert.ok(
+  cLines.every((line) => !line.includes('symptom from run C (v1)')),
+  'inside the window the newest version of a failureId still wins'
+);
+ok('a recorded failure appears only on its own run window; a later/earlier run stays clean');
+
+assert.ok(
+  continuationLinesAt(windowTable, 'task_legacy', 0).includes(
+    '↳ legacy symptom without a timestamp'
+  ),
+  'a timestamp-less record still answers for the task (documented fallback)'
+);
+ok('legacy records without a timestamp keep the per-taskId fallback');
+
+const windowJson = JSON.parse(
+  await runList(windowWorkspace, ['--json'], { MOSS_LANG: 'en', LC_ALL: 'C' })
+);
+const byStart = new Map(windowJson.map((row) => [row.startedAt, row]));
+assert.deepEqual(byStart.get(runA.startedAt)?.failure, {
+  stage: 'verifying',
+  symptom: 'symptom from run A',
+  resolved: false,
+});
+assert.ok(
+  !('failure' in byStart.get(runB.startedAt)),
+  'the run without an in-window record gains no failure key'
+);
+assert.equal(byStart.get(runC.startedAt)?.failure?.symptom, 'symptom from run C (v2)');
+assert.equal(byStart.get(runA.startedAt)?.taskId, 'task_w');
+assert.equal(
+  windowJson.filter((row) => row.taskId === 'task_legacy' && row.failure).length,
+  1,
+  'exactly one legacy row carries the fallback reason'
+);
+ok('--json scopes {stage, symptom, resolved} to the same run window');
 
 console.log(`[task-fail-reasons] ${String(checks)} checks passed`);

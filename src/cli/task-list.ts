@@ -9,14 +9,17 @@
  * (projected from `.moss/review.jsonl`), so "failed on the acceptance command"
  * and "the reviewer found 2 critical issues" are no longer the same `fail`.
  *
- * Fail and blocked rows also explain themselves: the latest failure the agent
- * recorded in `.moss/task-failures.jsonl` (its symptom) is projected as a third
- * `↳` line, so the table answers "why" without `task status <id>` or reading
- * `.moss/task-failures.jsonl` by hand.
+ * Fail and blocked rows also explain themselves: the failure the agent recorded
+ * in `.moss/task-failures.jsonl` (its symptom) is projected as a third `↳` line,
+ * so the table answers "why" without `task status <id>` or reading
+ * `.moss/task-failures.jsonl` by hand. Like the review verdict, the failure is
+ * scoped to the row's own run window — a resumed task keeps its `taskId`, and
+ * run B's symptom must never explain run A's row.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import type { FailureRecord } from '../contracts/task-runtime.js';
+import { REVIEW_WINDOW_SLACK_MS } from '../core/task-runtime/goal-runs.js';
 import type {
   GoalRunOutcome,
   GoalRunRecord,
@@ -93,8 +96,13 @@ function projectFailureRecord(raw: unknown): FailureRecord | undefined {
   };
 }
 
-/** Parseable failure records from the tail, append order; torn lines are skipped. */
-function readFailureRecords(workspaceDir: string): FailureRecord[] {
+/**
+ * Parseable failure records from the tail, append order; torn lines are skipped.
+ *
+ * The per-row window selection happens in `projectGoalRunFailures`, so the whole
+ * bounded tail is read once and shared by every row of the table.
+ */
+export function readFailureRecords(workspaceDir: string): FailureRecord[] {
   const file = path.join(workspaceDir, '.moss', FAILURES_FILE);
   let handle: number;
   try {
@@ -170,19 +178,55 @@ export function projectFailureReasons(
   return reasons;
 }
 
-/** Failure reasons for a whole workspace, ready to attach to the listed rows. */
-export function readFailureReasons(workspaceDir: string): Map<string, GoalRunFailure> {
-  return projectFailureReasons(readFailureRecords(workspaceDir));
+/**
+ * The failure that explains one run, or `undefined` when its window holds none.
+ *
+ * A record belongs to a run when its `timestamp` is inside
+ * `[startedAt, endedAt + REVIEW_WINDOW_SLACK_MS]` — the same window B108 uses for
+ * reviews, because the agent records the failure that ended a run immediately
+ * before the goal row is written. A resumed task shares the `taskId` but not the
+ * window, so run B's record can no longer answer for run A.
+ *
+ * Records without a usable timestamp cannot be placed in any window at all
+ * (hand-edited ledgers, pre-timestamp schemas). They are not silently dropped:
+ * when a row has **no** in-window record they answer for the task instead, which
+ * is the pre-B115 per-taskId behavior. A row that does have in-window records
+ * ignores them, so the fallback can never shadow a record that provably belongs
+ * to this run. Bounded: the caller already capped the tail read.
+ */
+function selectRunFailure(
+  records: readonly FailureRecord[],
+  row: Pick<GoalRunRecord, 'taskId' | 'startedAt' | 'endedAt'>
+): GoalRunFailure | undefined {
+  if (records.length === 0) return undefined;
+  const windowEnd = row.endedAt + REVIEW_WINDOW_SLACK_MS;
+  const inWindow: FailureRecord[] = [];
+  const timeless: FailureRecord[] = [];
+  for (const record of records) {
+    if (record.taskId !== row.taskId) continue;
+    if (!Number.isFinite(record.timestamp) || record.timestamp <= 0) {
+      timeless.push(record);
+      continue;
+    }
+    if (record.timestamp < row.startedAt) continue;
+    if (record.timestamp > windowEnd) continue;
+    inWindow.push(record);
+  }
+  const pool = inWindow.length > 0 ? inWindow : timeless;
+  if (pool.length === 0) return undefined;
+  // All survivors share the row's taskId, so the B113 rules (newest version of
+  // a failureId, then latest unresolved, then latest overall) pick inside it.
+  return projectFailureReasons(pool).get(row.taskId);
 }
 
-/** Attach a failure reason to fail/blocked rows; pass/aborted rows stay untouched. */
+/** Attach each run's own failure reason to its fail/blocked row. */
 export function projectGoalRunFailures(
   rows: readonly GoalRunRow[],
-  reasons: ReadonlyMap<string, GoalRunFailure>
+  records: readonly FailureRecord[]
 ): GoalRunListRow[] {
   return rows.map((row) => {
     if (row.outcome !== 'fail' && row.outcome !== 'blocked') return { ...row };
-    const failure = reasons.get(row.taskId);
+    const failure = selectRunFailure(records, row);
     return failure ? { ...row, failure } : { ...row };
   });
 }

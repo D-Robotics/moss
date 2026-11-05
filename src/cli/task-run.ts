@@ -36,7 +36,7 @@ import {
 } from '../core/task-runtime/goal-runs.js';
 import type { GoalRunOutcome } from '../core/task-runtime/goal-runs.js';
 import { readReviewSummaries } from '../core/loop/review-ledger.js';
-import { formatGoalRunRows, projectGoalRunFailures, readFailureReasons } from './task-list.js';
+import { formatGoalRunRows, projectGoalRunFailures, readFailureRecords } from './task-list.js';
 import { errorMessage } from '../errors.js';
 import { listDeploymentRecords } from '../device/deployment.js';
 import { resolveDefaultDeviceTarget } from '../device/device-target.js';
@@ -715,10 +715,11 @@ export async function runTaskCommand(
     // The review verdict is only recorded in `.moss/review.jsonl`; project the
     // record that fell inside each run's window so a row says *why* it failed.
     // Failures recorded by the agent (`.moss/task-failures.jsonl`) explain a
-    // fail/blocked row the acceptance command alone cannot.
+    // fail/blocked row the acceptance command alone cannot; like the review
+    // verdict they are scoped to that row's own run window.
     const rows = projectGoalRunFailures(
       projectGoalRunReviews(records, readReviewSummaries(ctx.workspace)),
-      readFailureReasons(ctx.workspace)
+      readFailureRecords(ctx.workspace)
     );
     const scoped = parsed.status ? rows.filter((row) => row.outcome === parsed.status) : rows;
     const newestFirst = [...scoped].sort((left, right) => right.endedAt - left.endedAt);
