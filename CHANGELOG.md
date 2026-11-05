@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### `/run --accept` keeps quotes out of the command and survives later flags (B146)
+
+- A real interactive run surfaced a broken oracle: `/run "create ok.txt" --accept "test -f
+ok.txt"` stored the literal `"test -f ok.txt"` (quotes included). `bash -c` then looked for a
+  command named `test -f ok.txt`, exited 127, and the task was judged
+  `blocked/acceptance_command_unavailable` even though the file was written and verified.
+  The same line with a flag after `--accept` also swallowed the flag into the command
+  (`"test -f ok.txt" --max-turns 2` → 127); `--max-turns` never applied.
+- `parseGoalCommandLine` now shares the quote-aware tokenizer used by `/run resume`: goals and
+  acceptance commands are unquoted, flags may appear in any order (`--max-turns` / `--max-repairs`
+  after `--accept` included), `--accept=<quoted cmd>` works, unquoted multi-word `--accept` keeps
+  its backward-compatible meaning, and unknown flags, duplicate `--accept`, missing values or an
+  empty goal are explicit usage errors instead of silently becoming part of the command.
+- Real REPL regression with deepseek-flash: `/run "create ok.txt containing ok" --accept
+"test -f ok.txt"` → `Task … PASS`, `phase: accepted`, timeline `Acceptance passed —
+acceptance command exited 0` (previously the same run was blocked at exit 127).
+
+### `/run --accept` 不再把引号当命令、也不再吞掉后面的 flag（B146）
+
+- 真实交互运行发现验收命令被破坏：`/run "create ok.txt" --accept "test -f ok.txt"` 把带引号的
+  `"test -f ok.txt"` 原样存下，`bash -c` 去找一个名为 `test -f ok.txt` 的命令，退出 127，任务被判
+  `blocked/acceptance_command_unavailable`——尽管文件已写入且证据 PASS。`--accept` 后面再跟 flag 时
+  也会被吞进命令（`"test -f ok.txt" --max-turns 2` → 127），`--max-turns` 从未生效。
+- `parseGoalCommandLine` 改为复用 `/run resume` 的引号感知分词：目标与验收命令都去掉引号；flag 顺序
+  自由（`--accept` 之后的 `--max-turns` / `--max-repairs` 也生效）；支持 `--accept=<带引号命令>`；
+  不带引号的多词 `--accept` 保持向后兼容；未知 flag、重复 `--accept`、缺值或空目标都是明确的用法错误，
+  而不是被悄悄并进命令。
+- 真实 REPL 回归（deepseek-flash）：`/run "create ok.txt containing ok" --accept "test -f ok.txt"`
+  → `Task … PASS`、`phase: accepted`、timeline `Acceptance passed — acceptance command exited 0`
+  （修复前同一条运行在 exit 127 处 blocked）。
+
 ### The composer hint refreshes after every run (B145)
 
 - B144 computed the empty-composer hint only at boot, so a finished run left a stale
