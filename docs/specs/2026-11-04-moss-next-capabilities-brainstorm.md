@@ -511,13 +511,22 @@ pytest 以 `-q --tb=line --no-header -p no:cacheprovider` 运行，失败行归�
   与 Claude 的差异：Claude 写在 frontmatter 内联 YAML，Moss 用命名文件——SKILL.md frontmatter 是刻意
   的浅 YAML 子集。验收：`skill-hooks` 探针 6/6（真 hook 进程阻塞/放行、真 PostToolUse 落标记、
   坏文件拒绝加载、越界路径报 issue），`npm run verify` PASS 42.8s。
+- ✅ **`disable-model-invocation`（2026-11-05，D11 第五片）**：SKILL.md frontmatter 声明
+  `disable-model-invocation: true` 后，技能变成"仅用户可触发"——L1 catalog 里**完全不出现**（不占目录字符），
+  `skill` 工具调用被显式拒绝（带"请让用户运行 /名称"的下一步，绝不返回正文），
+  而用户敲 `/名称` 时由 CLI 直接内联正文（与 Claude Code 的 `/name` 语义一致；模型侧工具被拒后
+  不能靠这条路绕过）。`/skills` 与 `moss skill list` 把该技能标成 `user-only` 且成本不计入目录预算；
+  非法值（如 `maybe`）fail-open 保持可调用并报 issue。验收：新探针 7/7（解析/布尔拼写/坏值、
+  catalog 过滤、工具拒绝且不泄正文、普通技能不受影响、slash 令牌保留、`/skills` 预算口径、slash 内联正文），
+  verify stage `skill-model-invocation` 0.2s；真实 deepseek-flash 双跑：headless 让模型加载 → 拒绝且不写文件，
+  REPL 用户敲 `/release-deploy` → 内联正文并按技能创建 `release-notes.md`。
 - ⬜ 仍缺：`paths` 文件级自动激活之外的更深 scoping。
 
 - **问题**：Moss 加载技能只是把正文塞进工具结果；参考产品已经让技能**改变运行本身**：
   Claude 的 `context: fork`（技能作为隔离子代理跑）、`agent`/`background`、`allowed-tools`/
   `disallowed-tools`（仅本次调用预批准/移除工具）、`model`/`effort` 覆盖、技能自身 `hooks`、
-  `paths`（文件级自动激活）、`when_to_use`/`arguments`；Cursor 有 `paths`、`disable-model-invocation`、
-  skill 与 mode 的二象性。
+  `paths`（文件级自动激活）、`when_to_use`/`arguments`；Cursor 的 `disable-model-invocation` 已按第五片补齐，
+  skill 与 mode 的二象性仍在观察。
 - **落点**：`src/contracts/skill.ts` 增加可选字段；`skill` 工具执行时把"本次调用的策略"交给
   agent loop（turn-scoped tool allow/deny、model/effort override、可选 fork 到 subagent）；
   与 SK6 的"声明不自动批准"边界一致：`allowed-tools` 只预批准**本次调用**，不改变全局审批。

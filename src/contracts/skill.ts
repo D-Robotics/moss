@@ -43,7 +43,8 @@ export type SkillIssueCode =
   | 'unknown-effort'
   | 'resource-oversize'
   | 'unsafe-hooks-path'
-  | 'evals-invalid';
+  | 'evals-invalid'
+  | 'unknown-disable-model-invocation';
 
 export interface SkillIssue {
   code: SkillIssueCode;
@@ -96,6 +97,12 @@ export interface SkillManifest {
   allowedTools: string[];
   /** Spec `disallowed-tools`: tools hidden for the rest of the run. */
   disallowedTools: string[];
+  /**
+   * Spec `disable-model-invocation: true`. Model-invocable by default; when
+   * false the skill never appears in the model's L1 catalog and the `skill`
+   * tool refuses to load it — only the user can invoke it (its slash command).
+   */
+  modelInvocable: boolean;
   /**
    * D11 skill-declared hooks: a JSON file (relative to the skill dir) using the
    * same hook-entry schema as `.moss/config.json`. Loaded when the skill is

@@ -12,6 +12,7 @@ const skill = {
   when: 'the user asks whether a deploy is ready',
   allowedTools: [],
   disallowedTools: [],
+  modelInvocable: true,
   metadata: {},
   globs: [],
   scope: 'workspace',

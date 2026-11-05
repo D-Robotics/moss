@@ -202,6 +202,12 @@ export function createSkillTool(
             .join(', ') || '(none)';
         return `Unknown skill "${input.name}". Available skills: ${available}`;
       }
+      if (!skill.modelInvocable) {
+        // Spec `disable-model-invocation: true`: the model never sees this skill
+        // in the catalog; loading it would bypass the user's intent to run a
+        // release/deploy procedure only by hand.
+        return `Skill "${skill.name}" is user-invocable only (\`disable-model-invocation: true\`): it is not in the model catalog, and only the user can run it from its slash command. Ask the user to run it instead of loading it yourself.`;
+      }
       const args = typeof input.args === 'string' ? input.args : '';
       // D11 skill-declared hooks: activate before any branch so inline, fork and
       // background loads all leave the session under the skill's guard.

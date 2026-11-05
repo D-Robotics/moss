@@ -39,6 +39,7 @@ export function bundledRdkDocsSkill(): SkillManifest {
     when: 'an RDK board fact is needed',
     allowedTools: [],
     disallowedTools: [],
+    modelInvocable: true,
     metadata: {},
     globs: [],
     scope: 'bundled',

@@ -82,6 +82,10 @@ export interface TuiContextInfo {
 export interface TuiSkillCommand {
   name: string;
   description: string;
+  /** SKILL.md path; a `manual` skill inlines this body on `/name`. */
+  file?: string;
+  /** `disable-model-invocation: true`: the model cannot load it, so `/name` inlines. */
+  manual?: boolean;
   /** Non-fatal frontmatter/resource problems reported by the skill loader. */
   issues?: number;
 }

@@ -246,6 +246,23 @@ export function readSkillManifest(
   const compatibility = asString(parsed.fields.compatibility);
   const allowedTools = asStringList(parsed.fields['allowed-tools']);
   const disallowedTools = asStringList(parsed.fields['disallowed-tools']);
+  // Spec `disable-model-invocation: true` (any case, YAML 1.1 booleans): the
+  // skill stays user-invocable through its slash command but leaves the model's
+  // catalog, so a deploy/release procedure cannot be auto-selected.
+  const rawDisable = asString(parsed.fields['disable-model-invocation']);
+  let modelInvocable = true;
+  if (rawDisable !== undefined) {
+    const normalized = rawDisable.trim().toLowerCase();
+    if (['true', 'yes', 'on', '1'].includes(normalized)) modelInvocable = false;
+    else if (['false', 'no', 'off', '0'].includes(normalized)) modelInvocable = true;
+    else {
+      issues.push({
+        code: 'unknown-disable-model-invocation',
+        file,
+        message: `disable-model-invocation "${rawDisable}" is not a boolean; the skill stays model-invocable`,
+      });
+    }
+  }
   // D11: `context: fork` runs the body in an isolated sub-agent; anything else
   // is a configuration issue instead of silently running inline.
   const rawContext = asString(parsed.fields['context']);
@@ -314,6 +331,7 @@ export function readSkillManifest(
       ...(compatibility ? { compatibility } : {}),
       allowedTools,
       disallowedTools,
+      modelInvocable,
       ...(context ? { context } : {}),
       ...(background === true ? { background: true } : {}),
       ...(model ? { model } : {}),

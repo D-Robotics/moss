@@ -66,6 +66,7 @@ import { stage as workflowStage } from './stages/workflow.mjs';
 import { stage as toolLeanStage } from './stages/tool-lean.mjs';
 import { stage as skillBackgroundStage } from './stages/skill-background.mjs';
 import { stage as skillHooksStage } from './stages/skill-hooks.mjs';
+import { stage as skillModelInvocationStage } from './stages/skill-model-invocation.mjs';
 import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
 import { stage as mcpPromptSlashStage } from './stages/mcp-prompt-slash.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
@@ -120,6 +121,7 @@ const STAGES = new Map(
     toolLeanStage,
     skillBackgroundStage,
     skillHooksStage,
+    skillModelInvocationStage,
     runTestsVerdictStage,
     mcpPromptSlashStage,
     contextSurfaceStage,

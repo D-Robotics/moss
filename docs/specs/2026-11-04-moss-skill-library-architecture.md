@@ -151,6 +151,12 @@ L1 的渲染必须返回可观测值：`skillsCatalogChars`、`skillsCatalogUnca
   - `/skills --verbose` 与 skill L2 包裹里显示 "declared tools: …"；
   - 若技能声明的工具超出当前 scope/可用工具，加载时告警（"技能声明的 X 在当前会话不可用"）；
   - **不**据此自动放行审批（否则第三方技能可以自我提权）。
+- `disable-model-invocation: true`（Claude / Cursor 同名字段，2026-11-05 落地）：技能只允许用户通过
+  `/名称` 触发。模型侧 L1 catalog 不渲染它、`skill` 工具拒绝加载（返回下一步而不是正文）；
+  CLI 在 slash 解析时直接内联正文作为这一轮的用户输入，因此"用户能跑"和"模型不能自己跑"同时成立。
+  `moss skill list` / `/skills` 把这类技能标成 `user-only`，其字符不计入目录预算。
+  布尔拼写接受 `true/yes/on/1` 与 `false/no/off/0`；无法解析时 fail-open 保持可调用并报
+  `unknown-disable-model-invocation`。
 - 来源与版本：`metadata.version`（或 frontmatter `version` 兼容读取）、`license`、来源路径/安装源进
   registry 描述符与 L2 包裹（`source: workspace|shared|user|bundled|installed(<origin>@<rev>)`）。
 - 安装（SK6）：`moss skill install <dir|git-url|npm-pkg>` 把目录**复制**进 `~/.moss/skills/<name>/` 或

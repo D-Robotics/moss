@@ -8,6 +8,7 @@ import { announceCatalogSkip } from '../catalog-skip-notice.js';
 import {
   CATALOG_NAME_RE,
   containsTemplatePlaceholder,
+  parseSkillFile,
   skillSkipReason,
   skillSlashName,
   type SkillSkipReason,
@@ -132,6 +133,14 @@ export interface SkillCommandRef {
   scope?: 'workspace' | 'user';
   /** Alias name without the leading slash, when the skill name is not slash-safe. */
   slashAlias?: string;
+  /** SKILL.md path; needed to inline the body of a `manual` skill. */
+  file?: string;
+  /**
+   * `disable-model-invocation: true`. The model cannot load the body, so this
+   * slash command must inline it instead of telling the model to use the skill
+   * tool (which would be refused).
+   */
+  manual?: boolean;
 }
 
 export type ResolvedUserCommand =
@@ -176,6 +185,25 @@ export function resolveUserCommand(
       );
     });
   if (skill) {
+    if (skill.manual && skill.file) {
+      // The body is only reachable through this slash command, so the user's
+      // invocation must carry it: same effect as Claude Code's `/name` running
+      // the skill, and the model never needs the (refused) skill tool.
+      let body = '';
+      try {
+        body = parseSkillFile(fs.readFileSync(skill.file, 'utf8')).body;
+      } catch {
+        body = '';
+      }
+      if (body.trim()) {
+        return {
+          kind: 'skill',
+          name: head,
+          args,
+          prompt: expandCommandBody(body, args).trim(),
+        };
+      }
+    }
     const base = `Use the "${skill.name}" skill${skill.description ? ` (${skill.description})` : ''} for this task. Read the skill body with the skill tool first, then follow it.`;
     return {
       kind: 'skill',

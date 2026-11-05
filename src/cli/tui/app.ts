@@ -2527,6 +2527,8 @@ export function TuiAppRoot({
           skills: (options.skills ?? []).map((skill) => ({
             name: skill.name,
             description: skill.description,
+            ...(skill.file ? { file: skill.file } : {}),
+            ...(skill.manual ? { manual: skill.manual } : {}),
           })),
         });
         if (resolved.kind === 'custom' || resolved.kind === 'skill') {

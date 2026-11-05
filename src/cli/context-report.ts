@@ -162,9 +162,10 @@ export async function buildFreshSessionContextReport(
   const skills = rdkDocsConnected
     ? includeBundledRdkDocsSkill([], true)
     : includeBundledRdkDocsSkill([], false);
+  const modelSkills = skills.filter((skill) => skill.modelInvocable !== false);
   const skillsLayer =
-    skills.length > 0
-      ? (renderSkillCatalog(skills).text ?? '')
+    modelSkills.length > 0
+      ? (renderSkillCatalog(modelSkills).text ?? '')
       : buildEmptySkillsHintLayer(skillDirs);
   const mcpLayer = rdkDocsConnected ? connectedRdkDocsMcpLayer() : '';
   const rdkLayer = rdkDocsConnected

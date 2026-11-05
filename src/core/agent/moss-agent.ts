@@ -560,7 +560,9 @@ export class MossAgent {
   private renderSkillCatalogLayer(): string | undefined {
     const catalog = this.config.skills;
     if (!catalog) return undefined;
-    const manifestList = catalog.manifests();
+    // `disable-model-invocation` skills stay user-invocable but out of the
+    // model catalog, so their entry costs the model nothing.
+    const manifestList = catalog.manifests().filter((skill) => skill.modelInvocable !== false);
     if (manifestList.length === 0) {
       this.lastSkillCatalogStats = undefined;
       return undefined;

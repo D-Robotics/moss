@@ -1247,6 +1247,8 @@ export async function runCli(): Promise<void> {
     scope: 'workspace' | 'user';
     issues: number;
     slashAlias?: string;
+    file: string;
+    manual: boolean;
   }> = [];
   const sessionContextInfo: { skills?: number; soul?: string; branch?: string } = {};
   {
@@ -1296,9 +1298,13 @@ export async function runCli(): Promise<void> {
         });
         if (sessionSkills.length === 0) return;
         const active = selectActiveSkills(sessionSkills, touchedPaths());
+        // `disable-model-invocation` skills stay resolvable by the `skill` tool
+        // (so a wrong model call gets an explicit refusal) but never enter the
+        // catalog the model reads.
+        const catalogSkills = active.filter((skill) => skill.modelInvocable !== false);
         // B10: entries this workspace actually loaded rank first, so a budget
         // cut drops the least-recently-used skill, not the alphabetically first.
-        const catalog = renderSkillCatalog(active, {
+        const catalog = renderSkillCatalog(catalogSkills, {
           ...skillCatalogBudget(),
           usage: loadSkillUsage(workspace),
         });
@@ -1339,6 +1345,8 @@ export async function runCli(): Promise<void> {
             description: skill.description,
             scope,
             issues: skill.issues.length,
+            file: skill.file,
+            manual: !skill.modelInvocable,
             ...(alias.toLowerCase() !== skill.name.toLowerCase() ? { slashAlias: alias } : {}),
           };
         })
