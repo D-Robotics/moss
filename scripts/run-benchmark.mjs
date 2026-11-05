@@ -469,7 +469,18 @@ async function main() {
                   MOSS_BENCH_CANARY_DIR: canaryDir,
                 }
               : {}),
-            ...task.env,
+            // Per-task env may point at repo tooling without hard-coding the
+            // checkout path: `{{REPO_ROOT}}` expands per run (e.g. MOSS_TSC_PATH).
+            ...(task.env
+              ? Object.fromEntries(
+                  Object.entries(task.env).map(([key, value]) => [
+                    key,
+                    typeof value === 'string'
+                      ? value.replaceAll('{{REPO_ROOT}}', repoRoot)
+                      : String(value),
+                  ])
+                )
+              : {}),
           };
           for (const key of ['MOSS_DISABLE_NUDGES', ...task.passEnv]) {
             if (process.env[key] !== undefined) mossEnv[key] = process.env[key];

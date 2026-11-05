@@ -1,0 +1,11 @@
+{
+  "id": "diagnostics-type-error",
+  "tags": ["tool:diagnostics", "loop:error-recovery"],
+  "maxTurns": 6,
+  "timeoutMs": 180000,
+  "passEnv": ["MOSS_HIDE_TOOLS"],
+  "prompt": "This TypeScript project does not type-check. Fix the type errors in src/math.ts with the smallest change so that `tsc --noEmit` passes, and do not edit tsconfig.json. When done, report the exact command you used to verify.",
+  "env": {
+    "MOSS_TSC_PATH": "{{REPO_ROOT}}/node_modules/typescript/bin/tsc"
+  }
+}
