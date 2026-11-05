@@ -26,3 +26,4 @@ export {
 export { createRsiTaskEvaluator } from './task-evaluator.js';
 export type { RsiTaskRunner, RsiTaskRunResult, RsiTaskInput } from './task-evaluator.js';
 export type * from './types.js';
+export { rsiTaskScopeDigest } from './external-training.js';

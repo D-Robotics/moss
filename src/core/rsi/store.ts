@@ -14,6 +14,9 @@ import type {
   RsiRun,
   RsiScope,
   RsiProtocol,
+  RsiTrainingSession,
+  RsiTrainingConfirmation,
+  RsiTrainingReservation,
 } from './types.js';
 
 export const RSI_RETENTION = { days: 35, maxRuns: 200, maxEventsPerRun: 120 };
@@ -98,6 +101,9 @@ export interface RsiState {
   protocols?: RsiProtocol[];
   /** Claim before the provider call; failure cannot reopen the same preregistered proposal. */
   protocolProposals?: string[];
+  trainingSessions?: RsiTrainingSession[];
+  trainingConfirmations?: RsiTrainingConfirmation[];
+  trainingReservations?: RsiTrainingReservation[];
   /** Never cleared by case/evaluation deletion or evidence retention. Contains hashes only. */
   holdoutConsumptions: Array<{ digest: string; at: number }>;
   /** Original evidence split survives deletion and retention. Hashes reveal no annotation. */
@@ -143,6 +149,9 @@ export class RsiStore {
         evaluations: [],
         protocols: [],
         protocolProposals: [],
+        trainingSessions: [],
+        trainingConfirmations: [],
+        trainingReservations: [],
         holdoutConsumptions: [],
         caseExposures: [],
         policy: {
@@ -157,6 +166,9 @@ export class RsiStore {
     // Schema-2 documents from before protocol support remain valid legacy evidence.
     if (state.protocols === undefined) state.protocols = [];
     if (state.protocolProposals === undefined) state.protocolProposals = [];
+    if (state.trainingSessions === undefined) state.trainingSessions = [];
+    if (state.trainingConfirmations === undefined) state.trainingConfirmations = [];
+    if (state.trainingReservations === undefined) state.trainingReservations = [];
     if (
       state.schemaVersion !== 2 ||
       state.scope?.ownerKey !== scope.ownerKey ||
@@ -167,6 +179,9 @@ export class RsiStore {
       !Array.isArray(state.evaluations) ||
       !Array.isArray(state.protocols) ||
       !Array.isArray(state.protocolProposals) ||
+      !Array.isArray(state.trainingSessions) ||
+      !Array.isArray(state.trainingConfirmations) ||
+      !Array.isArray(state.trainingReservations) ||
       !Array.isArray(state.caseExposures) ||
       !Array.isArray(state.holdoutConsumptions) ||
       !Array.isArray(state.transitions) ||
@@ -239,6 +254,12 @@ export class RsiStore {
       if (state.candidates.length > 100) throw new RsiError('candidate_retention_limit', 409);
       if (state.cases.length > 100) throw new RsiError('case_retention_limit', 409);
       if ((state.protocols?.length ?? 0) > 100) throw new RsiError('protocol_retention_limit', 409);
+      if ((state.trainingSessions?.length ?? 0) > 100)
+        throw new RsiError('training_session_retention_limit', 409);
+      if ((state.trainingConfirmations?.length ?? 0) > 100)
+        throw new RsiError('training_confirmation_retention_limit', 409);
+      if ((state.trainingReservations?.length ?? 0) > 10000)
+        throw new RsiError('training_reservation_retention_limit', 409);
       fs.writeFileSync(temporary, `${JSON.stringify(state)}\n`, { mode: 0o600 });
       fs.renameSync(temporary, file);
       return structuredClone(result);
