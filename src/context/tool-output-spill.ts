@@ -89,6 +89,8 @@ export interface RecoveryPathOptions {
   /** Full result as the tool returned it (before context truncation). */
   text: string;
   workspaceDir: string | undefined;
+  /** B70: windows too small for the standard per-result budget scale it down. */
+  contextWindowTokens?: number;
 }
 
 /**
@@ -102,8 +104,12 @@ export interface RecoveryPathOptions {
  * the spill goes through the same egress filter as the visible result.
  */
 export function truncateWithRecoveryPath(options: RecoveryPathOptions): string {
-  const { toolName, input, text, workspaceDir } = options;
-  const truncated = truncateToolOutput(toolName, text);
+  const { toolName, input, text, workspaceDir, contextWindowTokens } = options;
+  const truncated = truncateToolOutput(
+    toolName,
+    text,
+    contextWindowTokens === undefined ? {} : { contextWindowTokens }
+  );
   if (truncated === text || !workspaceDir || text.includes(SPILL_MARKER)) return truncated;
   const spilled = spillToolOutput({
     workspaceDir,

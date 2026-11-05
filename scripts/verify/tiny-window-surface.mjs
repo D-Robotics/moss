@@ -147,6 +147,26 @@ assert.ok(
   `dropping the catalog must free real prompt budget, freed ${fullPrompt.length - trimmedPrompt.length}`
 );
 
+// ── Tool results: a tiny window must not accept a result sized for a big one. ──
+const { tinyWindowToolResultTokens } = await import(
+  pathToFileURL(path.join(root, 'dist/context/window-economics.js')).href
+);
+const { truncateToolOutput } = await import(
+  pathToFileURL(path.join(root, 'dist/context/tool-output-truncate.js')).href
+);
+assert.equal(tinyWindowToolResultTokens(4096), 409);
+assert.equal(tinyWindowToolResultTokens(8000), undefined);
+assert.equal(tinyWindowToolResultTokens(32000), undefined);
+const bigOutput = 'x'.repeat(6000);
+const tinyCapped = truncateToolOutput('exec', bigOutput, { contextWindowTokens: 4096 });
+const wideKept = truncateToolOutput('exec', bigOutput, { contextWindowTokens: 32000 });
+assert.ok(
+  tinyCapped.length < 2200,
+  `a 4096 window must cap a 6000-char result, got ${tinyCapped.length} chars`
+);
+assert.ok(tinyCapped.includes('tokens truncated'), 'the capped result must say what was dropped');
+assert.equal(wideKept, bigOutput, 'a 32k window keeps the tool budget it had before');
+
 // ── Startup notice: the user must be told the reduced profile is active. ─────
 const { spawn } = await import('node:child_process');
 const fs = await import('node:fs');
@@ -217,5 +237,6 @@ console.log(
   `[tiny-window-surface] ok: 4096 window -> ${tinyBudget} prompt tokens / 682 output, ` +
     `${declared.length} core tools (${declared.join(', ')}), summary bounded to 2456 chars; ` +
     `sub-agent catalog freed ${fullPrompt.length - trimmedPrompt.length} prompt chars when the surface excludes it; ` +
-    `4096 boot announces the reduced profile, 32k and forced-off boots do not`
+    `4096 boot announces the reduced profile, 32k and forced-off boots do not; ` +
+    `tool results capped to ${tinyWindowToolResultTokens(4096)} tokens at 4096, unchanged at 32k`
 );

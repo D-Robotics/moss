@@ -109,6 +109,8 @@ interface OutcomeRecordingContext {
   assistantContent: ContentBlock[];
   /** When set, a truncated result gets a spilled copy so its middle stays readable. */
   workspaceDir?: string;
+  /** B70: effective prompt budget, so tiny windows cap the result size. */
+  contextWindowTokens?: number;
   push: (event: MiniAgentEvent) => void;
   toolLoopGuard: ToolLoopGuardState;
   metrics: AgentLoopToolExecutionMetrics;
@@ -317,6 +319,9 @@ function recordToolOutcome(
     input: call.input,
     text: result,
     workspaceDir: ctx.workspaceDir,
+    ...(ctx.contextWindowTokens === undefined
+      ? {}
+      : { contextWindowTokens: ctx.contextWindowTokens }),
   });
   const originalInput = ctx.originalInputs.get(call);
   if (
@@ -447,6 +452,9 @@ export async function executeAgentLoopToolCalls(
   const recordCtx: OutcomeRecordingContext = {
     assistantContent,
     workspaceDir: toolCtx.workspaceDir,
+    ...(toolCtx.contextWindowTokens === undefined
+      ? {}
+      : { contextWindowTokens: toolCtx.contextWindowTokens }),
     push,
     toolLoopGuard,
     metrics,

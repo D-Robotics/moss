@@ -10,6 +10,8 @@
  * B8). Hosts that build their own tools keep the public
  * `registerToolOutputLimits` escape hatch.
  */
+import { tinyWindowToolResultTokens } from './window-economics.js';
+
 type ToolOutputDeclaration = { maxTokens: number; hint?: string };
 
 const _declarations = new Map<string, ToolOutputDeclaration>();
@@ -53,8 +55,17 @@ export function wouldTruncateToolOutput(toolName: string, output: string): boole
   return estimateTokens(output) > getToolOutputLimitTokens(toolName);
 }
 
-export function truncateToolOutput(toolName: string, output: string): string {
-  const limitTokens = getToolOutputLimitTokens(toolName);
+export function truncateToolOutput(
+  toolName: string,
+  output: string,
+  options: { contextWindowTokens?: number } = {}
+): string {
+  const declared = getToolOutputLimitTokens(toolName);
+  const windowCap =
+    options.contextWindowTokens === undefined
+      ? undefined
+      : tinyWindowToolResultTokens(options.contextWindowTokens);
+  const limitTokens = windowCap === undefined ? declared : Math.min(declared, windowCap);
   const outputTokens = estimateTokens(output);
 
   if (outputTokens <= limitTokens) return output;

@@ -1357,6 +1357,7 @@ ${result.stderr ?? ''}`.trim();
 
     const toolCtx: ToolContext = {
       ...enrichedRun,
+      contextWindowTokens: effectiveContextTokens,
       supportsImages: this.config.supportsImages !== false,
       resolveMissingTool: resolveMissingToolForRun,
       revealDeferredTools: (group) => this.deferredTools.reveal(group),

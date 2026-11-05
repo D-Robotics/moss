@@ -33,6 +33,24 @@ function resolveDynamicBuffer(effectiveContextWindowTokens: number): number {
   );
 }
 
+/**
+ * B70: windows small enough that the standard tool-result budgets no longer fit.
+ * A 4096-token window with the tiny tool surface has ~300 tokens of headroom
+ * after the prompt, so a 4k-token exec/read result is rejected by the provider on
+ * the very next turn. Cap tool results to a share of the window instead.
+ */
+export const TINY_TOOL_RESULT_WINDOW_TOKENS = 6_000;
+
+const TINY_TOOL_RESULT_RATIO = 0.1;
+const TINY_TOOL_RESULT_FLOOR = 192;
+
+/** Per-result token ceiling for the given window; undefined = use the tool's own budget. */
+export function tinyWindowToolResultTokens(contextWindowTokens: number): number | undefined {
+  if (!Number.isFinite(contextWindowTokens) || contextWindowTokens <= 0) return undefined;
+  if (contextWindowTokens > TINY_TOOL_RESULT_WINDOW_TOKENS) return undefined;
+  return Math.max(TINY_TOOL_RESULT_FLOOR, Math.floor(contextWindowTokens * TINY_TOOL_RESULT_RATIO));
+}
+
 export function getEffectiveContextWindowTokens(
   contextWindowTokens: number,
   maxOutputTokens: number

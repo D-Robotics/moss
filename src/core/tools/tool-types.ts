@@ -33,6 +33,12 @@ export interface ProtectedPathChangeReport {
 export interface ToolContext {
   workspaceDir: string;
   /**
+   * B70: the run's effective prompt budget. Tool results are capped to a share
+   * of it on very small windows, where the standard per-tool budget cannot fit
+   * alongside the prompt and would be rejected by the provider.
+   */
+  contextWindowTokens?: number;
+  /**
    * Whether the run's model accepts image input (default true). Tools that
    * attach image blocks (`read_image`) explain the limitation when false.
    */
