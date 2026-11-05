@@ -342,7 +342,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
       // History is a pure read of `.moss/loops/`: do not build a provider or an
       // agent just to print it (and it works with no API key configured).
       const sub = ctx.commandArgs[0];
-      if (sub === 'list' || sub === 'show') {
+      if (sub === 'list' || sub === 'show' || sub === 'follow') {
         process.exitCode = await readLoopHistoryCommand(ctx.commandArgs, {
           workspaceDir: workspace,
           json: ctx.argv.includes('--json'),

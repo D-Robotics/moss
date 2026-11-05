@@ -98,6 +98,7 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
       '  每轮的退出码/耗时/检查输出尾部/改动会写进 .moss/loops/<runId>.jsonl（启动时打印路径）。',
       '  moss loop list [--limit N] [--json]：历史运行（最新在前，离线读账本）。',
       '  moss loop show [<run_id>|latest] [--json]：某次运行的每轮明细与检查输出。',
+      '  moss loop follow [<run_id>|latest] [--interval 1s]：实时跟随一次运行，新 attempt/summary 出现就打印（Ctrl+C 退出）。',
       '',
       '示例：',
       '  moss loop --until "npm run verify" "修复 verify 的失败项，最小改动"',
@@ -814,6 +815,14 @@ export function renderLoopRunRows(
   return lines;
 }
 
+/** One attempt line, shared by `loop show` and `loop follow`. */
+export function formatLoopAttemptLine(attempt: LoopAttemptRecord): string {
+  const check = attempt.check;
+  return `  ${clockOf(attempt.at)}  #${String(attempt.attempt)}${
+    attempt.waitedMs && attempt.waitedMs > 0 ? `  wait ${formatLoopDuration(attempt.waitedMs)}` : ''
+  }  agent ${formatLoopDuration(attempt.durationMs)}  check exit ${String(check.exitCode)} (${formatLoopDuration(check.durationMs)})  ${attempt.passed ? 'PASS' : 'fail'}`;
+}
+
 export function formatLoopRunDetail(
   run: LoopRunSummary,
   read: LoopLedgerRead,
@@ -857,13 +866,7 @@ export function formatLoopRunDetail(
   lines.push(zh ? '每轮：' : 'attempts:');
   for (const attempt of read.attempts) {
     const check = attempt.check;
-    lines.push(
-      `  ${clockOf(attempt.at)}  #${String(attempt.attempt)}${
-        attempt.waitedMs && attempt.waitedMs > 0
-          ? `  wait ${formatLoopDuration(attempt.waitedMs)}`
-          : ''
-      }  agent ${formatLoopDuration(attempt.durationMs)}  check exit ${String(check.exitCode)} (${formatLoopDuration(check.durationMs)})  ${attempt.passed ? 'PASS' : 'fail'}`
-    );
+    lines.push(formatLoopAttemptLine(attempt));
     if (attempt.agentError) {
       lines.push(`      ${zh ? '模型错误' : 'agent error'}: ${clipLine(attempt.agentError, 160)}`);
     }
@@ -886,6 +889,95 @@ export interface LoopHistoryContext {
 }
 
 /** `moss loop list|show` — read the ledger without constructing an agent. */
+export interface LoopFollowEvent {
+  kind: 'attempt' | 'summary';
+  attempt?: LoopAttemptRecord;
+  summary?: LoopSummaryRecord;
+}
+
+export interface LoopFollowResult {
+  runId: string;
+  status: LoopRunSummary['status'];
+  attempts: LoopAttemptRecord[];
+  summary?: LoopSummaryRecord;
+  pid?: number;
+  totalDurationMs?: number;
+}
+
+/**
+ * Stream a run's progress by polling its ledger. Deliberately reads the files
+ * the loop already writes (no IPC): a follower in another process, or after a
+ * restart, sees exactly the audit trail. Emits only events appended after the
+ * call starts; already-known attempts are the caller's header material.
+ */
+export async function followLoopRun(
+  workspaceDir: string,
+  options: {
+    runId?: string;
+    pollMs?: number;
+    /** Called once with the already-recorded state, before following. */
+    onStart?: (run: LoopRunSummary, attempts: readonly LoopAttemptRecord[]) => void;
+    onEvent?: (event: LoopFollowEvent) => void;
+  } = {}
+): Promise<LoopFollowResult | undefined> {
+  const pollMs = Math.max(100, options.pollMs ?? 1_000);
+  const pick = (): LoopRunSummary | undefined => {
+    const runs = listLoopRuns(workspaceDir);
+    if (runs.length === 0) return undefined;
+    if (options.runId === undefined || options.runId === 'latest') return runs[0];
+    return (
+      runs.find((run) => run.runId === options.runId) ??
+      runs.find((run) => run.runId.startsWith(options.runId!))
+    );
+  };
+  const initial = pick();
+  if (!initial) return undefined;
+  const runId = initial.runId;
+  const ledgerFile = path.join(workspaceDir, initial.ledger);
+  const initialRead = readLoopLedger(ledgerFile);
+  options.onStart?.(initial, initialRead.attempts);
+  let emittedAttempts = initialRead.attempts.length;
+  let emittedSummary = initialRead.summary !== undefined;
+  if (initialRead.summary) {
+    return {
+      runId,
+      status: initial.status,
+      attempts: initialRead.attempts,
+      summary: initialRead.summary,
+      ...(initial.pid !== undefined ? { pid: initial.pid } : {}),
+      ...(initial.totalDurationMs !== undefined
+        ? { totalDurationMs: initial.totalDurationMs }
+        : {}),
+    };
+  }
+  for (;;) {
+    const runs = listLoopRuns(workspaceDir);
+    const run = runs.find((candidate) => candidate.runId === runId);
+    if (!run) return undefined;
+    const read = readLoopLedger(ledgerFile);
+    for (const attempt of read.attempts.slice(emittedAttempts)) {
+      options.onEvent?.({ kind: 'attempt', attempt });
+    }
+    emittedAttempts = Math.max(emittedAttempts, read.attempts.length);
+    if (read.summary && !emittedSummary) {
+      emittedSummary = true;
+      options.onEvent?.({ kind: 'summary', summary: read.summary });
+    }
+    const done = read.summary !== undefined || run.status === 'interrupted';
+    if (done) {
+      return {
+        runId,
+        status: run.status,
+        attempts: read.attempts,
+        ...(read.summary ? { summary: read.summary } : {}),
+        ...(run.pid !== undefined ? { pid: run.pid } : {}),
+        ...(run.totalDurationMs !== undefined ? { totalDurationMs: run.totalDurationMs } : {}),
+      };
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
 export async function readLoopHistoryCommand(
   argv: readonly string[],
   ctx: LoopHistoryContext
@@ -919,6 +1011,78 @@ export async function readLoopHistoryCommand(
     }
     for (const line of renderLoopRunRows(runs, { zh, limit })) console.log(line);
     return 0;
+  }
+  if (sub === 'follow') {
+    let intervalMs = 1_000;
+    let target = 'latest';
+    for (let i = 1; i < argv.length; i += 1) {
+      const arg = argv[i] ?? '';
+      if (arg === '--json') {
+        console.error('moss loop follow: --json is not supported (it streams lines)');
+        return 2;
+      }
+      if (arg === '--interval' || arg.startsWith('--interval=')) {
+        const raw = readValue(argv, i, '--interval');
+        if (!arg.includes('=')) i += 1;
+        intervalMs = parseLoopDuration(raw, '--interval');
+        if (intervalMs < 100) {
+          console.error('moss loop follow: --interval must be at least 100ms');
+          return 2;
+        }
+        continue;
+      }
+      if (arg.startsWith('-')) {
+        console.error(`moss loop follow: unknown argument ${arg}`);
+        return 2;
+      }
+      target = arg;
+    }
+    const started = await followLoopRun(ctx.workspaceDir, {
+      runId: target,
+      pollMs: intervalMs,
+      onStart: (run, attempts) => {
+        console.log(
+          zh
+            ? `[loop] 跟随 ${run.runId}${run.pid !== undefined ? `（pid ${String(run.pid)}）` : ''}，已有 ${String(attempts.length)} 轮；Ctrl+C 停止跟随（不会停掉 loop）`
+            : `[loop] following ${run.runId}${run.pid !== undefined ? ` (pid ${String(run.pid)})` : ''} — ${String(attempts.length)} attempt(s) so far; Ctrl+C stops following (not the loop)`
+        );
+        for (const attempt of attempts) console.log(formatLoopAttemptLine(attempt));
+      },
+      onEvent: (event) => {
+        if (event.kind === 'attempt' && event.attempt) {
+          console.log(formatLoopAttemptLine(event.attempt));
+        } else if (event.kind === 'summary' && event.summary) {
+          console.log(
+            zh
+              ? `[loop] 结束：${event.summary.passed ? 'passed' : 'failed'} · ${String(event.summary.attempts)} 轮 · ${formatLoopDuration(event.summary.totalDurationMs)} · reason=${event.summary.reason}`
+              : `[loop] finished: ${event.summary.passed ? 'passed' : 'failed'} · ${String(event.summary.attempts)} attempt(s) · ${formatLoopDuration(event.summary.totalDurationMs)} · reason=${event.summary.reason}`
+          );
+        }
+      },
+    });
+    if (!started) {
+      console.error(
+        zh
+          ? `没有可跟随的 loop 运行（${target}）。用 \`moss loop list\` 看 id`
+          : `nothing to follow (${target}); see \`moss loop list\` for ids`
+      );
+      return 1;
+    }
+    if (started.status === 'interrupted') {
+      console.error(
+        zh
+          ? `[loop] ${started.runId} 已中断：进程不在且没有 summary（被杀/崩溃）`
+          : `[loop] ${started.runId} was interrupted: the process is gone and no summary exists (killed or crashed)`
+      );
+      return 1;
+    }
+    const passed = started.summary?.passed === true;
+    console.log(
+      zh
+        ? `[loop] ${started.runId} ${passed ? '通过' : '未通过'}：${String(started.attempts.length)} 轮 · ${formatLoopDuration(started.totalDurationMs)}`
+        : `[loop] ${started.runId} ${passed ? 'passed' : 'did not pass'}: ${String(started.attempts.length)} attempt(s) · ${formatLoopDuration(started.totalDurationMs)}`
+    );
+    return passed ? 0 : 1;
   }
   if (sub !== 'show') return 2;
   const requested = argv.slice(1).find((arg) => !arg.startsWith('--')) ?? 'latest';
