@@ -8,6 +8,7 @@
  * declares success on its own — exit 0 comes only from the check command.
  */
 import fs from 'node:fs';
+import type { Dirent } from 'node:fs';
 import path from 'node:path';
 
 import { runOneShotWithCliCancellation } from './run-cancellation.js';
@@ -28,8 +29,10 @@ export interface LoopOptions {
   everyMs: number;
   /** Whole-loop wall clock cap; 0 means unlimited. Checked between attempts. */
   maxDurationMs: number;
-  /** External signal: wait for this path to change before the next attempt. */
+  /** External signal: wait for this path (or glob) to change before the next attempt. */
   watch?: string;
+  /** Treat a literal directory as `<dir>/**`, so nested artifacts can wake the loop. */
+  watchRecursive?: boolean;
   /** How long `--watch` waits for a change before ending the loop (0 = default 10m). */
   watchTimeoutMs: number;
   /** Cap on a single `--until` run; a hang stops the loop instead of eating attempts. */
@@ -84,13 +87,28 @@ interface LoopSummaryRecord {
   reason: 'passed' | 'attempts_exhausted' | 'budget_exhausted' | 'watch_timeout' | 'check_timeout';
   until: string;
   untilTimeoutMs?: number;
-  /** The external signal path, when `--watch` was used. */
+  /** The external signal (path / glob / `<dir>/**`), when `--watch` was used. */
   watch?: string;
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_WATCH_TIMEOUT_MS = 10 * 60_000;
 const WATCH_POLL_MS = 500;
+/**
+ * `*`, `?` or `[` switches `--watch` from a literal path to a glob pattern.
+ * A filename may legitimately contain them, but the shell-like interpretation
+ * is what users type these characters for; the usage text states the rule so
+ * the choice is never a surprise (quote nothing, or pass the literal path).
+ */
+const GLOB_META_RE = /[*?[]/;
+const GLOB_MAX_PATTERN_CHARS = 512;
+/**
+ * A `**` watch can walk an entire workspace. These caps keep one poll bounded
+ * and surface the truncation in the signature instead of silently shrinking it.
+ */
+const GLOB_MAX_VISITED = 20_000;
+const GLOB_MAX_MATCHES = 2_000;
+const GLOB_MAX_DEPTH = 32;
 const MAX_ATTEMPTS_CAP = 20;
 const DEFAULT_UNTIL_TIMEOUT_MS = 10 * 60_000;
 /** `moss loop prune` keeps the newest 50 finished runs unless `--keep` says otherwise. */
@@ -107,7 +125,9 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
       '  --until 不能省略：循环的成败只由你的命令判定，不由模型自述判定。',
       '  --every 5m：两次尝试之间固定等待（支持 ms/s/m/h，默认 0 = 立即重试）。',
       '  --max-duration 30m：整轮墙钟上限，只在两次尝试之间检查（进行中的一轮不会被切断）。',
-      '  --watch <路径>：失败后等这个文件/目录变化再跑下一轮（外部信号唤醒，如 CI 产物落地）。',
+      '  --watch <路径|模式>：失败后等它变化再跑下一轮（外部信号唤醒，如 CI 产物落地）。',
+      '    含 * ? [ 时按 glob 解释：支持 * ? [abc] 与 **（任意层，**/ 可以是零层），例如 build/**/*.txt。',
+      '  --watch-recursive：配合 --watch 把字面目录当 <目录>/** 监视（任意深度的子文件）。',
       '  --watch-timeout 10m：等不到变化就收工（summary reason=watch_timeout，不烧剩余轮次）。',
       '  --until-timeout 10m：单次检查命令的墙钟上限；挂起（例如等 stdin）就停止并记 reason=check_timeout，不当作判定失败、不烧剩余轮次。',
       '  每轮的退出码/耗时/检查输出尾部/改动会写进 .moss/loops/<runId>.jsonl（启动时打印路径）。',
@@ -132,9 +152,12 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
     '  --every 5m waits a fixed delay between failed attempts (ms/s/m/h; default 0 = retry now).',
     '  --max-duration 30m caps the whole loop in wall-clock terms; checked between attempts',
     '  (an attempt already running is not cut off).',
-    '  --watch <path> waits for that file/directory to change before the next attempt',
-    '  (an external signal such as a CI artifact); --watch-timeout 10m gives up and ends the',
-    '  loop with summary reason watch_timeout instead of burning the remaining attempts.',
+    '  --watch <path|pattern> waits for it to change before the next attempt',
+    '  (an external signal such as a CI artifact). A value containing * ? or [ is a',
+    '  glob — * ? [abc] and ** (any depth; **/ matches zero or more dirs), e.g.',
+    '  build/**/*.txt — and the wait line prints the matched file count. --watch-recursive',
+    '  treats a literal directory as <dir>/** (children at any depth). --watch-timeout 10m',
+    '  gives up and ends the loop with summary reason watch_timeout instead of burning attempts.',
     '  --until-timeout 10m caps one run of the check command; a hang (e.g. waiting on stdin)',
     '  stops the loop with summary reason check_timeout rather than being treated as a verdict.',
     '  --every and --watch can be combined: the fixed delay runs, then the watch wait.',
@@ -188,6 +211,7 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
   let everyMs = 0;
   let maxDurationMs = 0;
   let watch: string | undefined;
+  let watchRecursive = false;
   let watchTimeoutMs = 0;
   let untilTimeoutMs = 0;
   for (let i = 0; i < argv.length; i += 1) {
@@ -222,11 +246,20 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
       maxDurationMs = parseLoopDuration(raw, '--max-duration');
       continue;
     }
+    if (arg === '--watch-recursive') {
+      watchRecursive = true;
+      continue;
+    }
     if (arg === '--watch' || arg.startsWith('--watch=')) {
       const raw = readValue(argv, i, '--watch');
       if (!arg.includes('=')) i += 1;
       watch = raw.trim();
-      if (watch === '') throw new Error('--watch needs a file or directory path');
+      if (watch === '') throw new Error('--watch needs a file, directory, or glob pattern');
+      if (hasGlobMeta(watch) && watch.length > GLOB_MAX_PATTERN_CHARS) {
+        throw new Error(
+          `--watch pattern is too long (${String(watch.length)} > ${String(GLOB_MAX_PATTERN_CHARS)} chars)`
+        );
+      }
       continue;
     }
     if (arg === '--until-timeout' || arg.startsWith('--until-timeout=')) {
@@ -252,6 +285,14 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
   const prompt = rest.join(' ').trim();
   if (!until) throw new Error('--until is required: the loop must end on a command, not on prose');
   if (!prompt) throw new Error('the prompt is required');
+  if (watchRecursive && watch === undefined) {
+    throw new Error('--watch-recursive needs --watch <directory>');
+  }
+  if (watchRecursive && watch !== undefined && hasGlobMeta(watch)) {
+    // A pattern already reaches any depth; silently accepting both would leave
+    // the user without a way to tell which one decided the signature.
+    throw new Error('--watch-recursive cannot be combined with a glob pattern');
+  }
   return {
     prompt,
     until,
@@ -259,6 +300,7 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
     everyMs,
     maxDurationMs,
     ...(watch !== undefined ? { watch } : {}),
+    ...(watchRecursive ? { watchRecursive: true } : {}),
     watchTimeoutMs: watchTimeoutMs > 0 ? watchTimeoutMs : DEFAULT_WATCH_TIMEOUT_MS,
     untilTimeoutMs: untilTimeoutMs > 0 ? untilTimeoutMs : DEFAULT_UNTIL_TIMEOUT_MS,
   };
@@ -268,17 +310,204 @@ export interface WatchState {
   /** Stable textual signature; `missing:` when the path does not exist. */
   signature: string;
   exists: boolean;
+  /** Files the pattern matched (glob / recursive watches only). */
+  matches?: number;
+  /** The normalized pattern, so logs can name what is actually watched. */
+  pattern?: string;
+}
+
+export interface WatchOptions {
+  /** Treat a literal directory as `<dir>/**` (children at any depth). */
+  recursive?: boolean;
+}
+
+/** `*`, `?` or `[` means the argument is a pattern, not a literal path. */
+export function hasGlobMeta(target: string): boolean {
+  return GLOB_META_RE.test(target);
+}
+
+function escapeRegExpChar(ch: string): string {
+  return /[\\^$.*+?()[\]{}|/]/.test(ch) ? `\\${ch}` : ch;
 }
 
 /**
- * Cheap signature of a file or a directory tree (name + size + mtime, bounded).
- * The loop only needs "did anything change", not a full content diff.
+ * One path segment → regex source. `*` and `?` never cross `/`, character
+ * classes are passed through (escaped), everything else is a literal. A `[`
+ * without a closing `]` is a literal bracket, like in a POSIX shell.
  */
-export async function watchSignature(target: string): Promise<WatchState> {
+function segmentToRegExpSource(segment: string): string {
+  let source = '';
+  for (let i = 0; i < segment.length; i += 1) {
+    const ch = segment[i] ?? '';
+    if (ch === '*') {
+      source += '[^/]*';
+      continue;
+    }
+    if (ch === '?') {
+      source += '[^/]';
+      continue;
+    }
+    if (ch === '[') {
+      const close = segment.indexOf(']', i + 1);
+      if (close > i + 1) {
+        const body = segment.slice(i + 1, close);
+        const negated = body.startsWith('!');
+        const inner = (negated ? body.slice(1) : body).replace(/[\\\]]/g, (m) => `\\${m}`);
+        source += `[${negated ? '^' : ''}${inner}]`;
+        i = close;
+        continue;
+      }
+    }
+    source += escapeRegExpChar(ch);
+  }
+  return source;
+}
+
+/**
+ * Compile a glob to an anchored regexp. Literals are escaped, so a pattern can
+ * never inject regex syntax; the only unbounded quantifiers are `[^/]*` (inside
+ * a segment) and `(?:[^/]+/)*` (a `**` directory run), both linear per segment.
+ */
+export function globToRegExp(pattern: string): RegExp {
+  const segments = pattern.split('/').filter((segment, index, all) => {
+    // Keep leading '' for an absolute pattern; drop empty trailing/duplicate ones.
+    if (segment !== '') return true;
+    return index === 0 && all.length > 1;
+  });
+  let source = '^';
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i] ?? '';
+    const last = i === segments.length - 1;
+    if (segment === '**') {
+      // A trailing `**` matches everything below; otherwise zero or more dirs.
+      source += last ? '.*' : '(?:[^/]+/)*';
+      continue;
+    }
+    source += segmentToRegExpSource(segment);
+    if (!last) source += '/';
+  }
+  return new RegExp(`${source}$`);
+}
+
+interface GlobBase {
+  baseDir: string;
+  segments: string[];
+}
+
+/** Split a pattern into the literal base directory and the pattern below it. */
+function splitGlobPattern(rawPattern: string): GlobBase {
+  const pattern = rawPattern.replace(/\\/g, '/');
+  const parts = pattern.split('/');
+  const firstMeta = parts.findIndex((part) => hasGlobMeta(part));
+  const literalParts = firstMeta === -1 ? parts : parts.slice(0, firstMeta);
+  const segments = (firstMeta === -1 ? [] : parts.slice(firstMeta)).filter(
+    (segment) => segment !== ''
+  );
+  const baseDir = path.resolve(literalParts.join('/') || '.');
+  const normalizedSegments = segments.length === 0 ? ['*'] : segments;
+  return { baseDir, segments: normalizedSegments };
+}
+
+interface GlobMatch {
+  relativePath: string;
+  size: number;
+  mtimeMs: number;
+}
+
+interface GlobScan {
+  matches: GlobMatch[];
+  truncated: boolean;
+}
+
+/**
+ * Walk `baseDir` and collect the files matching the compiled pattern.
+ *
+ * Bounded on purpose: `**` on a real workspace can reach `node_modules`, so the
+ * scan stops at GLOB_MAX_VISITED entries / GLOB_MAX_MATCHES files and reports
+ * the truncation in the signature. Symlinks are not followed (a cycle would
+ * hang the poll, and the poll must stay a cheap no-op).
+ */
+async function scanGlob(baseDir: string, segments: readonly string[]): Promise<GlobScan> {
+  const matcher = globToRegExp(segments.join('/'));
+  const matches: GlobMatch[] = [];
+  let visited = 0;
+  let truncated = false;
+  const walk = async (dir: string, prefix: string, depth: number): Promise<void> => {
+    if (truncated) return;
+    if (depth > GLOB_MAX_DEPTH) {
+      truncated = true;
+      return;
+    }
+    let entries: Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return; // Unreadable or vanished: nothing below it this poll.
+    }
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const entry of entries) {
+      visited += 1;
+      if (visited > GLOB_MAX_VISITED || matches.length >= GLOB_MAX_MATCHES) {
+        truncated = true;
+        return;
+      }
+      const relativePath = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+      const absolutePath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolutePath, relativePath, depth + 1);
+        continue;
+      }
+      if (!entry.isFile() || !matcher.test(relativePath)) continue;
+      try {
+        const child = await fs.promises.stat(absolutePath);
+        matches.push({ relativePath, size: child.size, mtimeMs: child.mtimeMs });
+      } catch {
+        // Deleted between readdir and stat: it simply is not a match now.
+      }
+    }
+  };
+  await walk(baseDir, '', 0);
+  matches.sort((a, b) =>
+    a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0
+  );
+  return { matches, truncated };
+}
+
+async function globSignature(rawPattern: string): Promise<WatchState> {
+  const display = rawPattern.replace(/\\/g, '/').replace(/\/+$/, '');
+  const { baseDir, segments } = splitGlobPattern(rawPattern);
+  const { matches, truncated } = await scanGlob(baseDir, segments);
+  const body = matches
+    .map((match) => `${match.relativePath}:${String(match.size)}:${String(match.mtimeMs)}`)
+    .join(',');
+  return {
+    signature: `glob:${display}:${truncated ? 'truncated:' : ''}${String(matches.length)}:${body}`,
+    // `exists` keeps the literal meaning ("is there anything to watch yet"), so
+    // a first match after `missing:` reads as an appearance.
+    exists: matches.length > 0,
+    matches: matches.length,
+    pattern: display,
+  };
+}
+
+/**
+ * Cheap signature of a file, a directory's direct children, or a glob match set
+ * (name + size + mtime, bounded). The loop only needs "did anything change",
+ * not a full content diff. Literal paths keep their exact pre-glob signature.
+ */
+export async function watchSignature(
+  target: string,
+  options: WatchOptions = {}
+): Promise<WatchState> {
+  if (hasGlobMeta(target)) return await globSignature(target);
   try {
     const stat = await fs.promises.stat(target);
     if (!stat.isDirectory())
       return { signature: `file:${String(stat.size)}:${String(stat.mtimeMs)}`, exists: true };
+    if (options.recursive === true) {
+      const trimmed = target.replace(/[\\/]+$/, '');
+      return await globSignature(`${trimmed}/**`);
+    }
     const entries = (await fs.promises.readdir(target)).sort().slice(0, 200);
     const parts: string[] = [];
     for (const name of entries) {
@@ -303,26 +532,61 @@ export interface WatchWaitResult {
 }
 
 /**
+ * What `--watch` actually watches: a recursive literal directory is `<dir>/**`
+ * (the ledger then says so instead of claiming one directory was watched).
+ */
+export function watchTargetLabel(watch: string, recursive: boolean): string {
+  if (!recursive || hasGlobMeta(watch)) return watch;
+  return `${watch.replace(/[\\/]+$/, '')}/**`;
+}
+
+/**
+ * `watch: build/**\/*.txt (3 files)` — what the wait is actually comparing, so a
+ * `**` pattern that matched nothing is visible instead of silently waiting.
+ */
+export function describeWatchState(target: string, state: WatchState): string {
+  const label = state.pattern ?? target;
+  if (state.matches === undefined) return `watch: ${label}`;
+  return `watch: ${label} (${String(state.matches)} file${state.matches === 1 ? '' : 's'})`;
+}
+
+export interface WatchWaitOptions extends WatchOptions {
+  timeoutMs: number;
+  pollMs?: number;
+  /**
+   * Reuse a just-sampled state so the caller's log line and the comparison in
+   * here describe the same snapshot (no double stat, no missed change between).
+   */
+  before?: WatchState;
+}
+
+/**
  * Block until `target` changes, or the timeout elapses. Polling (not fs.watch)
- * because the signal may be a directory tree and a missed event would strand
- * the loop; a 500ms poll is cheap for an unattended run.
+ * because the signal may be a directory tree or a pattern and a missed event
+ * would strand the loop; a 500ms poll is cheap for an unattended run.
  */
 export async function waitForWatchChange(
   target: string,
-  options: { timeoutMs: number; pollMs?: number }
+  options: WatchWaitOptions
 ): Promise<WatchWaitResult> {
   const pollMs = Math.max(20, options.pollMs ?? WATCH_POLL_MS);
+  const watchOptions: WatchOptions = options.recursive === true ? { recursive: true } : {};
   const startedAt = Date.now();
-  const before = await watchSignature(target);
+  const before = options.before ?? (await watchSignature(target, watchOptions));
   for (;;) {
     const elapsed = Date.now() - startedAt;
     if (elapsed >= options.timeoutMs) {
-      return { changed: false, waitedMs: elapsed, before, after: await watchSignature(target) };
+      return {
+        changed: false,
+        waitedMs: elapsed,
+        before,
+        after: await watchSignature(target, watchOptions),
+      };
     }
     await new Promise<void>((resolve) =>
       setTimeout(resolve, Math.min(pollMs, options.timeoutMs - elapsed))
     );
-    const after = await watchSignature(target);
+    const after = await watchSignature(target, watchOptions);
     if (after.signature !== before.signature) {
       return { changed: true, waitedMs: Date.now() - startedAt, before, after };
     }
@@ -472,6 +736,12 @@ export async function runLoopCommand(
   let pendingWaitMs = 0;
   let lastCheck: CheckResult = { exitCode: 1, stdout: '', stderr: '' };
   let reason: LoopSummaryRecord['reason'] = 'attempts_exhausted';
+  // The ledger records what was actually watched: `--watch build --watch-recursive`
+  // is `build/**`, and `loop show` should not claim one directory was watched.
+  const summaryWatch =
+    options.watch !== undefined
+      ? watchTargetLabel(options.watch, options.watchRecursive === true)
+      : undefined;
   say(`[loop] ledger: ${ledgerLabel}`);
 
   const finish = async (passed: boolean): Promise<number> => {
@@ -487,7 +757,7 @@ export async function runLoopCommand(
       reason,
       until: options.until,
       untilTimeoutMs: options.untilTimeoutMs,
-      ...(options.watch ? { watch: options.watch } : {}),
+      ...(summaryWatch ? { watch: summaryWatch } : {}),
     };
     appendLedger(summary);
     if (passed) {
@@ -608,11 +878,22 @@ export async function runLoopCommand(
         pendingWaitMs += options.everyMs;
       }
       if (options.watch) {
+        const watchOptions: WatchOptions =
+          options.watchRecursive === true ? { recursive: true } : {};
+        // A pattern (or `--watch-recursive`) names what it matched; a literal
+        // path keeps its pre-glob line byte for byte.
+        const patterned = hasGlobMeta(options.watch) || options.watchRecursive === true;
+        const before = await watchSignature(options.watch, watchOptions);
+        const detail = patterned ? ` · ${describeWatchState(options.watch, before)}` : '';
         say(
-          `[loop] waiting for ${options.watch} to change before attempt ${attempt + 1} (--watch, timeout ${String(options.watchTimeoutMs)}ms)`
+          zh
+            ? `[loop] 等待 ${options.watch} 变化，之后开始第 ${String(attempt + 1)} 轮（--watch，超时 ${String(options.watchTimeoutMs)}ms）${detail}`
+            : `[loop] waiting for ${options.watch} to change before attempt ${String(attempt + 1)} (--watch, timeout ${String(options.watchTimeoutMs)}ms)${detail}`
         );
         const wait = await waitForWatchChange(options.watch, {
           timeoutMs: options.watchTimeoutMs,
+          before,
+          ...watchOptions,
         });
         pendingWaitMs += wait.waitedMs;
         if (!wait.changed) {
@@ -620,9 +901,14 @@ export async function runLoopCommand(
           return await finish(false);
         }
         say(`[loop] external signal changed after ${String(wait.waitedMs)}ms: ${options.watch}`);
-        say(
-          `[loop] ${wait.before.signature === 'missing:' ? 'path appeared' : 'signature changed'}`
-        );
+        const appeared = wait.before.signature === 'missing:';
+        const nowMatched =
+          patterned && wait.after.matches !== undefined
+            ? zh
+              ? `（现在 ${String(wait.after.matches)} 个文件匹配）`
+              : ` (now ${String(wait.after.matches)} file${wait.after.matches === 1 ? '' : 's'})`
+            : '';
+        say(`[loop] ${appeared ? 'path appeared' : 'signature changed'}${nowMatched}`);
       }
     }
   }
@@ -651,7 +937,7 @@ export interface LoopRunSummary {
   maxAttempts?: number;
   totalDurationMs?: number;
   until?: string;
-  /** External signal path when the run used `--watch`. */
+  /** External signal (path / glob / `<dir>/**`) when the run used `--watch`. */
   watch?: string;
   /**
    * `passed`/`failed` from the summary; without one, `running` when the start
