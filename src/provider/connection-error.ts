@@ -1,4 +1,8 @@
-import { ensureKeepAliveDispatcherInstalled } from './keep-alive-dispatcher.js';
+import {
+  ensureKeepAliveDispatcherInstalled,
+  hasProxyConfigured,
+  scheduleKeepAliveDispatcherInstalled,
+} from './keep-alive-dispatcher.js';
 import { MossError, ErrorCode, errorMessage } from '../errors.js';
 
 const UPSTREAM = ErrorCode.PROVIDER_UPSTREAM_ERROR;
@@ -120,7 +124,11 @@ export async function fetchWithConnectionContext(
   init: RequestInit
 ): Promise<Response> {
   try {
-    await ensureKeepAliveDispatcherInstalled(); // O83: SDK/embedder paths too
+    // O83: SDK/embedder paths too. With a proxy the dispatcher must exist before
+    // the request; without one the import only enables keep-alive for later
+    // requests and must not delay this one (B64: ~80ms of undici import).
+    if (hasProxyConfigured()) await ensureKeepAliveDispatcherInstalled();
+    else scheduleKeepAliveDispatcherInstalled();
     return await fetch(url, init);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') throw err;

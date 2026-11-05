@@ -75,13 +75,30 @@ export function resolveConnectTimeoutMs(proxyConfigured: boolean): number | unde
   return proxyConfigured ? PROXY_CONNECT_TIMEOUT_MS : undefined;
 }
 
+let installPromise: Promise<void> | undefined;
+
 export async function ensureKeepAliveDispatcherInstalled(): Promise<void> {
   if (installed) return;
   if (typeof process === 'undefined' || !process.versions?.node) return;
+  installPromise ??= installKeepAliveDispatcher();
 
   // Install the proxy-aware dispatcher regardless of MOSS_DISABLE_CONN_WARMUP.
   // That env only skips connection warmup below — never skips HTTPS_PROXY/HTTP_PROXY.
-  await installKeepAliveDispatcher();
+  await installPromise;
+}
+
+/**
+ * Install without waiting for the import.
+ *
+ * Only safe when no proxy is configured: proxied traffic must never leave on the
+ * default dispatcher, but without a proxy the only thing the install buys is the
+ * 60s keep-alive window for later turns. Importing undici costs ~80ms of first
+ * turn latency (110 modules), so callers that are about to issue the first
+ * request can schedule it instead of blocking.
+ */
+export function scheduleKeepAliveDispatcherInstalled(): void {
+  if (installed) return;
+  void ensureKeepAliveDispatcherInstalled().catch(() => {});
 }
 
 async function installKeepAliveDispatcher(): Promise<void> {

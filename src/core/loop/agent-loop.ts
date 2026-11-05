@@ -9,6 +9,8 @@ import { describeError } from '../../provider/errors.js';
 import { classifyLlmError } from '../../provider/llm-error-classifier.js';
 import {
   ensureKeepAliveDispatcherInstalled,
+  hasProxyConfigured,
+  scheduleKeepAliveDispatcherInstalled,
   wasConnectionReused,
 } from '../../provider/keep-alive-dispatcher.js';
 import { resolveToolFollowupBypassCap } from '../../utils/max-agent-turns.js';
@@ -132,9 +134,12 @@ export function runAgentLoop(
   const pendingToolAborts = params.pendingToolAborts ?? defaultPendingToolAborts;
 
   (async () => {
-    // The first model request must see HTTPS_PROXY. Installing in the
-    // background let that request leave before the dispatcher existed.
-    await ensureKeepAliveDispatcherInstalled();
+    // The first model request must see HTTPS_PROXY: with a proxy, block until the
+    // dispatcher exists. Without one the install only buys the keep-alive window
+    // for later turns, so it must not spend its ~80ms of undici import on the
+    // first turn's critical path.
+    if (hasProxyConfigured()) await ensureKeepAliveDispatcherInstalled();
+    else scheduleKeepAliveDispatcherInstalled();
     const {
       runId,
       sessionKey,
