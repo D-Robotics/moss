@@ -4,8 +4,16 @@
  * One row per task run (run, resume, aborted), newest first, so a long-running
  * user can answer "what did I ask across sessions, what passed, what is still
  * unfinished" without reading `.moss/*.jsonl` by hand.
+ *
+ * A row that used independent review also carries the verdict that decided it
+ * (projected from `.moss/review.jsonl`), so "failed on the acceptance command"
+ * and "the reviewer found 2 critical issues" are no longer the same `fail`.
  */
-import type { GoalRunRecord } from '../core/task-runtime/goal-runs.js';
+import type {
+  GoalRunReview,
+  GoalRunReviewVerdict,
+  GoalRunRow,
+} from '../core/task-runtime/goal-runs.js';
 
 const OUTCOME_ZH: Record<string, string> = {
   pass: '通过',
@@ -14,8 +22,15 @@ const OUTCOME_ZH: Record<string, string> = {
   aborted: '已中止',
 };
 
+const REVIEW_VERDICT_ZH: Record<GoalRunReviewVerdict, string> = {
+  PASS: '通过',
+  FAIL: '失败',
+  UNKNOWN: '未知',
+};
+
 const GOAL_PREVIEW = 64;
 const COMMAND_PREVIEW = 48;
+const REVIEW_ID_PREVIEW = 40;
 
 function clip(text: string, limit: number): string {
   const single = text.replace(/\s+/g, ' ').trim();
@@ -37,11 +52,36 @@ function clockTime(ms: number): string {
 }
 
 /**
+ * `↳ review FAIL · 2 critical, 1 important (record rev_…)`, or
+ * `↳ review PASS · 0 findings`. The id keeps a row traceable to
+ * `.moss/review.jsonl` without dumping the whole record.
+ */
+function formatReviewLine(review: GoalRunReview, zh: boolean): string {
+  const verdict = zh ? (REVIEW_VERDICT_ZH[review.verdict] ?? '未知') : review.verdict;
+  const id = clip(review.id, REVIEW_ID_PREVIEW);
+  const counts =
+    review.total === 0
+      ? zh
+        ? '0 项发现'
+        : '0 findings'
+      : zh
+        ? `${String(review.critical)} 个严重、${String(review.important)} 个重要${
+            review.suggestion > 0 ? `、${String(review.suggestion)} 个建议` : ''
+          }`
+        : `${String(review.critical)} critical, ${String(review.important)} important${
+            review.suggestion > 0 ? `, ${String(review.suggestion)} suggestion` : ''
+          }`;
+  return zh
+    ? `↳ 评审 ${verdict} · ${counts}（记录 ${id}）`
+    : `↳ review ${verdict} · ${counts} (record ${id})`;
+}
+
+/**
  * Newest first. `limit` caps the rows; the caller decides the default.
  * With no rows the caller prints a "nothing yet" line, not an empty table.
  */
 export function formatGoalRunRows(
-  records: readonly GoalRunRecord[],
+  records: readonly GoalRunRow[],
   options: { zh?: boolean; limit?: number } = {}
 ): string[] {
   const zh = options.zh === true;
@@ -63,6 +103,8 @@ export function formatGoalRunRows(
       ? `目标运行记录（${String(rows.length)} 条，最新在前）`
       : `goal runs (${String(rows.length)}, newest first)`,
   ];
+  // The continuation-line column: same width as the goal column in the row.
+  const indent = ' '.repeat(8 + outcomeWidth + 2 + idWidth + 2 + 22 + 2 + 7);
   for (const row of rows) {
     const outcome = zh ? (OUTCOME_ZH[row.outcome] ?? row.outcome) : row.outcome;
     const counts = `att:${String(row.attempts)} rep:${String(row.repairs)} turns:${String(row.turns)}`;
@@ -76,14 +118,13 @@ export function formatGoalRunRows(
     ].join('  ');
     lines.push(`  ${line}`);
     if (row.outcome === 'blocked' && row.blockedReason) {
-      lines.push(
-        `  ${' '.repeat(8 + outcomeWidth + 2 + idWidth + 2 + 22 + 2 + 7)}↳ ${clip(row.blockedReason, 96)}`
-      );
+      lines.push(`  ${indent}↳ ${clip(row.blockedReason, 96)}`);
     }
     if (row.acceptanceCommand && row.acceptanceCommand.trim() !== '') {
-      lines.push(
-        `  ${' '.repeat(8 + outcomeWidth + 2 + idWidth + 2 + 22 + 2 + 7)}↳ ${clip(row.acceptanceCommand, COMMAND_PREVIEW)}`
-      );
+      lines.push(`  ${indent}↳ ${clip(row.acceptanceCommand, COMMAND_PREVIEW)}`);
+    }
+    if (row.review) {
+      lines.push(`  ${indent}${formatReviewLine(row.review, zh)}`);
     }
   }
   return lines;

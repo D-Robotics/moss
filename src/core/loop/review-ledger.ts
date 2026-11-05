@@ -29,6 +29,13 @@ export interface ReviewLedgerSummary {
 const REVIEW_LOG_NAME = 'review.jsonl';
 /** Records are small; the tail is enough to find the latest one. */
 const TAIL_BYTES = 64 * 1024;
+/**
+ * `moss task list` projects the ledger across every goal row it shows, which
+ * can span many runs, so it scans a wider tail. A review record is ~0.2-1 KB,
+ * so this covers thousands of runs without loading an unbounded log.
+ */
+const LIST_TAIL_BYTES = 512 * 1024;
+const LIST_MAX_RECORDS = 500;
 
 export function reviewLogPath(workspaceDir: string): string {
   return path.join(workspaceDir, '.moss', REVIEW_LOG_NAME);
@@ -76,27 +83,27 @@ function projectRecord(raw: unknown): ReviewLedgerSummary | undefined {
 }
 
 /**
- * Latest parseable review record, or undefined when the log is absent/empty or
- * every line is torn. Newest-first scan: a half-written trailing line (the
- * process died mid-append) must not hide the record before it.
+ * Parseable records from the tail of the log, in append order (oldest first).
+ * Torn lines are skipped — a half-written trailing line (the process died
+ * mid-append) must not hide the record before it.
  */
-export function readLatestReviewSummary(workspaceDir: string): ReviewLedgerSummary | undefined {
+function readReviewTail(workspaceDir: string, tailBytes: number): ReviewLedgerSummary[] {
   const file = reviewLogPath(workspaceDir);
   let handle: number;
   try {
     handle = fs.openSync(file, 'r');
   } catch {
-    return undefined;
+    return [];
   }
   try {
     const size = fs.fstatSync(handle).size;
-    if (size === 0) return undefined;
-    const readBytes = Math.min(size, TAIL_BYTES);
+    if (size === 0) return [];
+    const readBytes = Math.min(size, tailBytes);
     const buffer = Buffer.alloc(readBytes);
     fs.readSync(handle, buffer, 0, readBytes, size - readBytes);
-    const lines = buffer.toString('utf8').split('\n');
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
-      const line = lines[index]!.trim();
+    const records: ReviewLedgerSummary[] = [];
+    for (const raw of buffer.toString('utf8').split('\n')) {
+      const line = raw.trim();
       if (line === '') continue;
       // A tail window can start mid-line; only full JSON objects are records.
       if (!line.startsWith('{') || !line.endsWith('}')) continue;
@@ -107,12 +114,31 @@ export function readLatestReviewSummary(workspaceDir: string): ReviewLedgerSumma
         continue;
       }
       const summary = projectRecord(parsed);
-      if (summary) return summary;
+      if (summary) records.push(summary);
     }
-    return undefined;
+    return records;
   } catch {
-    return undefined;
+    return [];
   } finally {
     fs.closeSync(handle);
   }
+}
+
+/**
+ * Latest parseable review record, or undefined when the log is absent/empty or
+ * every line is torn. This is the completion gate's read (B102).
+ */
+export function readLatestReviewSummary(workspaceDir: string): ReviewLedgerSummary | undefined {
+  const records = readReviewTail(workspaceDir, TAIL_BYTES);
+  return records.length > 0 ? records[records.length - 1] : undefined;
+}
+
+/**
+ * Recent review records for the `moss task list` projection: append order
+ * (oldest first), missing log → [], torn lines skipped, bounded to the last
+ * `LIST_MAX_RECORDS` so a long-lived workspace stays cheap to list.
+ */
+export function readReviewSummaries(workspaceDir: string): ReviewLedgerSummary[] {
+  const records = readReviewTail(workspaceDir, LIST_TAIL_BYTES);
+  return records.length > LIST_MAX_RECORDS ? records.slice(-LIST_MAX_RECORDS) : records;
 }

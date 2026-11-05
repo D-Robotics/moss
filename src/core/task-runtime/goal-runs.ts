@@ -16,6 +16,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
+import type { ReviewLedgerSummary } from '../loop/review-ledger.js';
 import { readJsonlFile } from './artifacts.js';
 
 export const GOAL_RUNS_FILE = 'goals.jsonl';
@@ -109,4 +110,70 @@ export async function listGoalRuns(workspaceDir: string): Promise<GoalRunRecord[
       typeof row.goal === 'string' &&
       typeof row.outcome === 'string'
   );
+}
+
+/**
+ * Slack for the review window's upper bound: `review_changes` appends its
+ * record just before the run's final accounting, and `recordGoalRun` stamps
+ * `endedAt` at the same moment, so a record a few seconds "late" still belongs
+ * to the run. The completion gate applies the same economics to the start
+ * (`createdAtMs >= runStart - 5s`).
+ */
+export const REVIEW_WINDOW_SLACK_MS = 5_000;
+
+export type GoalRunReviewVerdict = 'PASS' | 'FAIL' | 'UNKNOWN';
+
+/** The `.moss/review.jsonl` record projected onto a goal row. */
+export interface GoalRunReview {
+  id: string;
+  verdict: GoalRunReviewVerdict;
+  critical: number;
+  important: number;
+  suggestion: number;
+  total: number;
+}
+
+/** A goal-run row with the independent review that decided it, when one fell inside the run window. */
+export type GoalRunRow = GoalRunRecord & { review?: GoalRunReview };
+
+function reviewVerdict(verdict: ReviewLedgerSummary['verdict']): GoalRunReviewVerdict {
+  if (verdict === 'pass') return 'PASS';
+  if (verdict === 'fail') return 'FAIL';
+  return 'UNKNOWN';
+}
+
+/**
+ * Project review records onto goal rows. A record belongs to a run when its
+ * `createdAtMs` is inside `[startedAt, endedAt + REVIEW_WINDOW_SLACK_MS]`; the
+ * latest in-window record wins, so a repair review replaces the FAIL it fixed.
+ * Records from before or after the window never appear on that row, and rows
+ * without one keep no `review` key at all.
+ */
+export function projectGoalRunReviews(
+  records: readonly GoalRunRecord[],
+  reviews: readonly ReviewLedgerSummary[]
+): GoalRunRow[] {
+  if (reviews.length === 0) return records.map((record) => ({ ...record }));
+  return records.map((record) => {
+    const end = record.endedAt + REVIEW_WINDOW_SLACK_MS;
+    let latest: ReviewLedgerSummary | undefined;
+    for (const review of reviews) {
+      if (review.createdAtMs < record.startedAt) continue;
+      if (review.createdAtMs > end) continue;
+      // `>=` keeps the later append when two records carry the same timestamp.
+      if (!latest || review.createdAtMs >= latest.createdAtMs) latest = review;
+    }
+    if (!latest) return { ...record };
+    return {
+      ...record,
+      review: {
+        id: latest.id,
+        verdict: reviewVerdict(latest.verdict),
+        critical: latest.findings.critical,
+        important: latest.findings.important,
+        suggestion: latest.findings.suggestion,
+        total: latest.findings.total,
+      },
+    };
+  });
 }

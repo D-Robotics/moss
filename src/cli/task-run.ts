@@ -23,7 +23,12 @@ import {
   localizeTaskDetail,
 } from '../core/task/task-store.js';
 import { listEvidenceRecords } from '../core/task-runtime/artifacts.js';
-import { recordGoalRun, listGoalRuns } from '../core/task-runtime/goal-runs.js';
+import {
+  recordGoalRun,
+  listGoalRuns,
+  projectGoalRunReviews,
+} from '../core/task-runtime/goal-runs.js';
+import { readReviewSummaries } from '../core/loop/review-ledger.js';
 import { formatGoalRunRows } from './task-list.js';
 import { errorMessage } from '../errors.js';
 import { listDeploymentRecords } from '../device/deployment.js';
@@ -661,12 +666,15 @@ export async function runTaskCommand(
   if (sub === 'list') {
     const parsed = listOptions(commandArgs.slice(1));
     const records = await listGoalRuns(ctx.workspace);
-    const newestFirst = [...records].sort((left, right) => right.endedAt - left.endedAt);
+    // The review verdict is only recorded in `.moss/review.jsonl`; project the
+    // record that fell inside each run's window so a row says *why* it failed.
+    const rows = projectGoalRunReviews(records, readReviewSummaries(ctx.workspace));
+    const newestFirst = [...rows].sort((left, right) => right.endedAt - left.endedAt);
     if (parsed.json || ctx.outputJson === true) {
       output('stdout', `${JSON.stringify(newestFirst.slice(0, parsed.limit), null, 2)}\n`);
       return 0;
     }
-    for (const line of formatGoalRunRows(records, { zh, limit: parsed.limit })) {
+    for (const line of formatGoalRunRows(rows, { zh, limit: parsed.limit })) {
       output('stdout', `${line}\n`);
     }
     return 0;
