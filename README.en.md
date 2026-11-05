@@ -101,7 +101,7 @@ stopped; the state lives on disk and `resume` continues from the breakpoint inst
 | ---------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | Change permission mode (TUI) | `Shift+Tab` (status bar shows `manual / acceptEdits / plan / full`) | From ask-everything to ask-less, back to strict at any time                      |
 | Stop the current action      | `Esc`                                                               | Completed work is kept; `Ctrl+C` in a task run **pauses, never discards**        |
-| Resume a paused task         | `/goal resume` · `moss run --resume` · `moss task resume <id>`      | Continues from disk state, no re-run of finished turns; budget optional          |
+| Resume a paused task         | `/run resume` · `moss run --resume` · `moss task resume <id>`       | Continues from disk state, no re-run of finished turns; budget optional          |
 | Undo this turn               | `/rewind`                                                           | Files return to the checkpoint and this turn leaves the context too              |
 | See/review changes           | `/diff` · `/review`                                                 | Working-tree diff · independent review with critical/important/suggestion        |
 | Manage context               | `/compact` · `/todos` · `/context`                                  | Compress history, watch the plan, inspect the window                             |
@@ -119,7 +119,7 @@ sessions can be saved / searched / exported / forked. One screen for what this i
 `moss capabilities` (tools / skills / commands / agents / hooks / MCP / devices, read-only, no model config). **13 device tools** bring SSH hardware work
 into the same evidence and acceptance model; `moss device fleet` inspects many boards in one command.
 
-**Long runs.** `/goal` and `moss run` share one task state machine; `moss loop` repeats
+**Long runs.** `/run` and `moss run` share one task state machine; `moss loop` repeats
 "run → check with your command → feed failures back"; `moss task status|timeline|list` are the
 offline read paths; `moss artifacts` (contracts/evidence/deployments/acceptance/device) needs no model configuration at all; a resumed task verifies the workspace first and only then spends execution
 turns. Write sub-agents can run in isolated git worktrees and merge back as three-way patches.

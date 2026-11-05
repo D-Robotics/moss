@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### The interactive run command is `/run` (`/goal` stays as an alias) (B142)
+
+- With the CLI now exposing `moss run` (start / `--until` / `--workflow` / `--resume`), the
+  interactive surface had a different name for the same idea. `/run <condition>` is now the
+  canonical command (`/run resume`, `/run clear`), and `/goal …` keeps working as an exact alias,
+  so existing muscle memory and scripts are unaffected. Help, the TUI palette/keys, the pause and
+  interrupt notices, resume hints, `moss task list` hints and the structured run note all name
+  `/run`; alias help still lists `/goal alias of /run`.
+- TUI: the help key row and slash dispatch use `/run`; the composer command palette resolves the
+  alias.
+
+### 交互式运行命令改为 `/run`（`/goal` 保留为等价别名）（B142）
+
+- CLI 已经有 `moss run`（开始 / `--until` / `--workflow` / `--resume`），交互面却还叫 `/goal`。
+  现在 `/run <条件>` 是规范命令（`/run resume`、`/run clear`），`/goal …` 继续作为完全等价的别名，
+  老的肌肉记忆与脚本不受影响。帮助、TUI 命令面板/按键、暂停与中断提示、续跑提示、
+  `moss task list` 提示与结构化运行备注都改成 `/run`；别名帮助仍列出 `/goal alias of /run`。
+- TUI：帮助按键行与 slash 分发使用 `/run`；输入框命令面板能解析该别名。
+
 ### Verification gate back under budget (B141)
 
 - `npm run verify` dropped from 51.0s to 43.0s without removing a single stage:
