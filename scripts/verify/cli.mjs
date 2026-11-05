@@ -38,6 +38,9 @@ import { stage as compactionTimeoutFallbackStage } from './stages/compaction-tim
 import { stage as compactionWindowClampStage } from './stages/compaction-window-clamp.mjs';
 import { stage as windowEconomicsStage } from './stages/window-economics.mjs';
 import { stage as tinyWindowSurfaceStage } from './stages/tiny-window-surface.mjs';
+import { stage as tinyWindowCliBootStage } from './stages/tiny-window-cli-boot.mjs';
+import { stage as tinyWindowDiagnosticsStage } from './stages/tiny-window-diagnostics.mjs';
+import { stage as tinyWindowTuiNoticeStage } from './stages/tiny-window-tui-notice.mjs';
 import { stage as readImageStage } from './stages/read-image.mjs';
 import { stage as readPdfStage } from './stages/read-pdf.mjs';
 import { stage as planEndStage } from './stages/plan-end.mjs';
@@ -83,6 +86,9 @@ const STAGES = new Map(
     compactionWindowClampStage,
     windowEconomicsStage,
     tinyWindowSurfaceStage,
+    tinyWindowCliBootStage,
+    tinyWindowDiagnosticsStage,
+    tinyWindowTuiNoticeStage,
     readImageStage,
     readPdfStage,
     planEndStage,
@@ -129,6 +135,9 @@ const FAST_GATE = [
   'compaction-window-clamp',
   'window-economics',
   'tiny-window-surface',
+  'tiny-window-cli-boot',
+  'tiny-window-diagnostics',
+  'tiny-window-tui-notice',
   'read-image',
   'read-pdf',
   'plan-end',
