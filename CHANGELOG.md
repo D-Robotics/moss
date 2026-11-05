@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### `moss artifacts`: one read-only inspection verb (B131)
+
+- `moss tasks <kind>` was a top-level command one letter away from `moss task`, with its own help and
+  usage. It is now `moss artifacts [contracts|tasks|history|evidence|deployments|acceptance|device|failures]`,
+  a workspace command that needs no model configuration (CI can inspect evidence and verdicts on a
+  machine that never configured a provider). `contracts` is the default and preserves the old
+  `tasks list` output; `moss tasks …` keeps working as an alias. `moss task artifacts …` delegates to
+  the same implementation.
+
+### `moss artifacts`：一个只读巡检动词（B131）
+
+- `moss tasks <kind>` 原是与 `moss task` 只差一个字母的顶层命令，自带帮助与用法。现在折叠为
+  `moss artifacts [contracts|tasks|history|evidence|deployments|acceptance|device|failures]`，
+  是 WorkspaceReady 命令、不需要模型配置（CI 在没配 provider 的机器上也能查证据与裁决）。
+  默认 `contracts` 保留原 `tasks list` 输出；`moss tasks …` 继续作为等价别名；
+  `moss task artifacts …` 委托同一实现。
+
 ### One run ledger: `moss runs` (B130)
 
 - Every `moss run` / `moss task run|resume` now also writes

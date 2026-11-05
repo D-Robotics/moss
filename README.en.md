@@ -113,7 +113,7 @@ into the same evidence and acceptance model; `moss device fleet` inspects many b
 
 **Long runs.** `/goal` and `moss run` share one task state machine; `moss loop` repeats
 "run → check with your command → feed failures back"; `moss task status|timeline|list` are the
-offline read paths; a resumed task verifies the workspace first and only then spends execution
+offline read paths; `moss artifacts` (contracts/evidence/deployments/acceptance/device) needs no model configuration at all; a resumed task verifies the workspace first and only then spends execution
 turns. Write sub-agents can run in isolated git worktrees and merge back as three-way patches.
 
 **Extend.** MCP client (stdio + streamable HTTP, lazy-loaded tools), lightweight skills (progressive

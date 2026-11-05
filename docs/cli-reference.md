@@ -5,21 +5,21 @@
 
 ## 命令参考
 
-| 子命令                                                                     | 用途                                                                                |
-| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `moss`（或 `moss "prompt"`）                                               | 交互界面 / 一次性模式                                                               |
-| `moss run "<intent>" [--accept "<cmd>"]`                                   | `moss task run` 的快捷方式：意图进，验收过的结果出                                  |
-| `moss runs [list\|show\|prune] [--json]`                                   | 统一运行账本（`.moss/runs/<run_id>/run.json`）：状态 / 原因 / 下一步 / 工件路径     |
-| `moss setup` · `moss auth status\|logout`                                  | 配置向导 · 查看登录态 / 删除已存 key                                                |
-| `moss doctor`（别名 `moss status`）                                        | 体检配置 / 凭证 / 工作区 / 运行时                                                   |
-| `moss config show\|env\|init\|set\|unset\|validate`                        | 配置读写；`moss config --help` 是键的完整参考，`moss config env` 是环境变量权威清单 |
-| `moss resume` · `moss fork` · `moss sessions list\|delete\|search\|export` | 会话恢复 / 分叉 / 管理                                                              |
-| `moss task run\|resume\|status\|timeline`                                  | 统一任务运行时（目标进 → 已验证结果出）                                             |
-| `moss tasks list\|evidence\|deployments\|acceptance\|device`               | 只读巡检机器人闭环产物                                                              |
-| `moss device add\|list\|remove\|test\|fleet`                               | 设备清单与多机只读巡检                                                              |
-| `moss mcp add\|list\|remove\|test`                                         | MCP 服务器管理                                                                      |
-| `moss skill create\|list\|validate\|install\|update\|lock`                 | 技能管理 / 规范校验 / 带 hash 锁的安装与升级                                        |
-| `moss update`                                                              | 打印升级命令（npm 全局或 git 克隆）；不执行                                         |
+| 子命令                                                                                                     | 用途                                                                                |
+| ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `moss`（或 `moss "prompt"`）                                                                               | 交互界面 / 一次性模式                                                               |
+| `moss run "<intent>" [--accept "<cmd>"]`                                                                   | `moss task run` 的快捷方式：意图进，验收过的结果出                                  |
+| `moss runs [list\|show\|prune] [--json]`                                                                   | 统一运行账本（`.moss/runs/<run_id>/run.json`）：状态 / 原因 / 下一步 / 工件路径     |
+| `moss setup` · `moss auth status\|logout`                                                                  | 配置向导 · 查看登录态 / 删除已存 key                                                |
+| `moss doctor`（别名 `moss status`）                                                                        | 体检配置 / 凭证 / 工作区 / 运行时                                                   |
+| `moss config show\|env\|init\|set\|unset\|validate`                                                        | 配置读写；`moss config --help` 是键的完整参考，`moss config env` 是环境变量权威清单 |
+| `moss resume` · `moss fork` · `moss sessions list\|delete\|search\|export`                                 | 会话恢复 / 分叉 / 管理                                                              |
+| `moss task run\|resume\|status\|timeline`                                                                  | 统一任务运行时（目标进 → 已验证结果出）                                             |
+| `moss artifacts [contracts\|tasks\|history\|evidence\|deployments\|acceptance\|device\|failures] [--json]` | 只读巡检闭环工件（不需要模型配置）；`moss tasks …` 是等价旧别名                     |
+| `moss device add\|list\|remove\|test\|fleet`                                                               | 设备清单与多机只读巡检                                                              |
+| `moss mcp add\|list\|remove\|test`                                                                         | MCP 服务器管理                                                                      |
+| `moss skill create\|list\|validate\|install\|update\|lock`                                                 | 技能管理 / 规范校验 / 带 hash 锁的安装与升级                                        |
+| `moss update`                                                                                              | 打印升级命令（npm 全局或 git 克隆）；不执行                                         |
 
 > `plugins` / `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback。`moss <command> --help` 仍给出该子命令自己的用法。
 
