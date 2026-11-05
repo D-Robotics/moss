@@ -32,6 +32,7 @@ export {
   type CompactionSettings,
   type SummarizeFn,
   DEFAULT_COMPACTION_SETTINGS,
+  clampCompactionSettingsToWindow,
   DEFAULT_SUMMARY_MAX_TOKENS,
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   POST_COMPACT_MAX_FILES_TO_RESTORE,

@@ -530,6 +530,7 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 | B59 | P2     | **lean 档只覆盖一半工具**：B08 给 15 个工具写了短描述，但 main-headless 的 20 个声明里仍有 10 个只有长版（`list_directory` 283 / `run_tests` 256 / `write_file` 246 / `apply_patch` 231 / `todo_write` 217 / `exec_logs` 187 / `move_file` 186 / 还有 exec\_\* 小工具），小窗口（≤64k，Cursor/Claude Code 按窗口发精简声明的做法）省不下来                                     | **已实现并验证（2026-11-05）**：给 17 个工具补 `leanDescription`（文件/编辑族 `write_file`/`multi_edit`/`list_directory`/`move_file`/`apply_patch`、任务族 `todo_write`、验证族 `run_tests`、后台族 `exec_logs`、交互族 `ask_user_question`/`exit_plan`、设备族 `device_file_read`/`device_file_list`、子代理族 `create_subagent`/`fan_out_subagents`/`merge_subagent_patch`/`subagent_status`/`subagent_stop`），长版按 B08 规矩补「不是用来做什么」的否定句；`measure-tool-surface --check` 新增**覆盖不变式**：main-headless/main-tty/main-plan 里声明且描述 ≥150 字符的工具必须有 lean 档 | lean 覆盖 15→**33/49 工具**（可见 42 个中 32 个）；同一构建内 lean 声明总量：main-headless 11,803→**10,834**（−969，≈−242 tokens）、main-tty 16,261→**14,735**（−1,526，≈−382）、main-plan 12,182→**11,114**、main-qa −969；子代理 scope：device-read −567、explore −567、verify −986、plan −728；净代价：默认长版 +491（headless 13,524→14,015）/ +550（tty 19,774→20,324），换的是否定句与 patch 匹配规则等关键约束；真 CLI wire（脚本化 provider 记录请求体，`MOSS_LEAN_TOOLS=1`）：`write_file` 246→141、`list_directory` 283→163、`apply_patch` 399→189、`todo_write` 301→140、`run_tests` 321→188、`move_file` 270→155、`device_file_read` 438→228；负向控制：删掉 `write_file` 的 lean 档 → `--check` 失败并点名；`npm run check` 绿、`npm run verify` PASS 52.2s |
 | B60 | P2     | **启动图里还白付 110 个 undici 模块**：`runCli()` 第一件事就 `await ensureKeepAliveDispatcherInstalled()`（为 O83 代理语义），把 undici 整包（110 模块，单进程冷 import 128ms）拖进每次启动；交互式 composer 要等它，`--help`/REPL 都付                                                                                                                                        | **已实现并验证（2026-11-05）**：改为「配了代理才在启动时装，否则首个真实请求时由 `fetchWithConnectionContext` 懒装」——`keep-alive-dispatcher` 导出 `hasProxyConfigured()`，`runtime.ts` 只在 HTTP(S)\_PROXY 存在时 eager 安装                                                                                                                                                                                                                                                                                                                                                                 | 见本节末 B60 证据                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 持续进行                                                                                                                          |
 | B61 | P1     | **压缩准备超时=静默跳过**（B13 首片）：`runWithCompactionPrepareTimeout` 30s 超时后 `runCompactionCore` 只 `log.warn` 一句，本次压缩被放弃、上下文原样跑——用户看不到降级，小窗口模型随后撞上限                                                                                                                                                                                 | **已实现并验证（2026-11-05）**：`compaction-timeout` 增加类型化 `CompactionPrepareTimeoutError` + `isCompactionPrepareTimeout()`；`runCompactionCore` 在超时（非用户 abort）时打一条结构化 warn（phase/timeoutMs/elapsedMs/messages/runId/sessionKey），再以 `skipLlmCompaction: true` 重试一次确定性摘要；`compaction` 事件带 `degraded: true`，TUI 行 / REPL 横幅 / `--output-format stream-json` 都显示「deterministic summary (the model summary timed out)」；`deterministic-summary` 的预算改成「不超过被替换消息字符数的 50%」（下限 400、上限 12k），保证降级摘要不会让上下文变大     | 见本节末 B61 证据                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 已验收（B13 首片；B13 余量=超时成因与 reserveTokens 关系未定位）                                                                  |
+| B62 | P1     | **小窗口压缩预算整体失真**（B13 根因首片）：`reserveTokens`/`keepRecentTokens` 默认 20000，窗口 5000 时触发阈值 = `5000-20000 < 0`——每轮都算「超预算」；汇总请求 `maxTokens = min(4096, 0.8×reserve) = 4096`，占 5k 窗口的 82%，小模型上极易拖到 30s 超时（B13 的真实现象）                                                                                                    | **已实现并验证（2026-11-05）**：`clampCompactionSettingsToWindow()` 只收敛「配置值 ≥ 整个窗口」的荒谬情况（reserve→窗口 25%、keepRecent→窗口 50%），32k+ 标准窗口与用户显式设置完全不变；`buildCompactionSummary` 再加一道输出封顶 `min(4096, 窗口×25%)`；`shouldTriggerCompaction` 与 `compactHistoryIfNeeded` 都走同一个 clamp                                                                                                                                                                                                                                                              | 见本节末 B62 证据                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 已验收（B13 根因首片；余量=窗口经济学常量对小窗口的适配，见 B13 段）                                                              |
 
 **B32 证据（2026-11-05，已实跑）**：模块加载计数器（`module.registerHooks`）跑 7 次真实 `-p`：
 
@@ -538,6 +539,26 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 - 改造后 370 个：上述 8 个消失，新增 3 行的 `cli/diff-preview.js`；
 - 墙钟中位 583ms → 606ms（min 564 → 559）——**噪声内，本轮只声称图更小**；
 - 行为：`-p` 让模型把文件 20 行改掉，headless diff 预览仍**恰好 14 行**后打印 `... 27 more lines ...`（`DIFF_PREVIEW_LINES` 语义未变）。
+
+**B62 证据（2026-11-05，已实跑：模块级对照 + 真 CLI 请求预算 A/B + 负向控制）**：B13 记录的真实现象是
+「窗口设 5000/6000 时每次压缩准备都 30s 超时」。根因不在汇总器本身，而在窗口小于默认保留额度时的预算失真：
+`shouldTriggerCompaction` 的阈值是 `contextWindowTokens - reserveTokens`，默认 reserve=20000，
+窗口 5000 → 阈值 −15000，**任何对话都算超预算**；同时 `maxTokens = min(4096, 0.8×reserve)` 在 5k 窗口上
+仍然要 4096 个输出 token（窗口的 82%），小模型只能拖到超时。
+
+- 模块级对照（`scripts/verify/compaction-window-clamp.mjs`）：窗口 5000 + 默认设置，
+  改造前 `shouldTriggerCompaction(tiny) = true`、汇总 `maxTokens = 4096`；改造后
+  `shouldTriggerCompaction(tiny) = false`、`maxTokens = 1000`（=0.8×reserve，reserve 由 20000 收敛到 1250）；
+  keepRecent 由 20000 收敛到 2500；`reserveTokens < 窗口` 时完全不干预（`clamp(DEFAULT, 32k) === DEFAULT`，
+  显式 `reserveTokens=4000/keepRecent=6000` 也原样保留）——标准 32k 窗口行为零变化。
+- 真 CLI A/B（同一个脚本化 stub，`agent.contextTokens=5000`，记录每次 POST 的 `max_tokens`）：
+  改造前汇总请求 `max_tokens: 4096`（连发两次：验证失败重试），改造后 `max_tokens: 800`；
+  两次运行都正常完成压缩（`tokens_before 5026 → tokens_after 928`），说明收紧预算没有把压缩弄坏。
+  注：这条 E2E 的触发来自 prompt-prune 路径（`tokens_before 2440` 也发生压缩，改造前后一致），
+  阈值从「恒真」到「真超预算才触发」是由上面的模块级对照证明的。
+- 负向控制：把 clamp 临时改成直接返回原设置（等价修复前）→ 探针失败 `expected 1250, got 20000`；
+  恢复后 5 checks passed。回归门 `compaction-window-clamp`（0.2s）与 `compaction-timeout-fallback`（0.4s）都在 FAST_GATE。
+- 质量门：`npm run check` 绿；`npm run verify` PASS 58.8s（static 36.9s，两个新 stage 合计 0.6s）。
 
 **B61 证据（2026-11-05，已实跑：模块级探针 + 真 CLI E2E + 三种渲染面）**：B13 的真实现象是压缩准备 30s 超时后
 只留一行 log、上下文原样继续；小窗口模型下一轮就撞上限，而用户不知道该做什么。
@@ -1573,8 +1594,12 @@ entry 的成本**按模块个数线性**，不是某个"大模块"；后续 H1 �
 需真实 LLM 或注入慢 summarize）。风险：确定性摘要质量低，必须标记 `degraded` 并保留 B02 指针，不能冒充完整摘要。
 
 **B13 首片已落地（2026-11-05）**：超时不再静默跳过——结构化 warn + 确定性摘要重试 + `degraded` 事件/横幅/JSON，
-确定性摘要自身也按「不超过被替换内容的 50%」设预算（详见 B61）。仍未定位：为什么 summarize 会 >30s
-（`reserveTokens`/`keepRecentTokens` 默认 20000 与小窗口的关系），或是否该在超时后再试一次带更长超时的 LLM 摘要。
+确定性摘要自身也按「不超过被替换内容的 50%」设预算（详见 B61）。
+**B13 根因首片也已落地（2026-11-05，见 B62）**：超时的直接原因是窗口 5000 < 默认 reserve 20000，导致
+「每轮都超预算 + 汇总结论要求 4096 输出 token」；现在 reserve/keepRecent 只在 `>= 整个窗口` 时收敛，
+汇总输出再加 `窗口×25%` 封顶。仍未解决：窗口经济学常量本身对小窗口仍不友好——`MIN_EFFECTIVE_WINDOW = 4000`
+会把 1200–3000 的配置窗口抬到 4000（实际超过用户配置的模型窗口），`AUTOCOMPACT_BUFFER_TOKENS = 13000`
+与 `MIN_DYNAMIC_BUFFER = 2000` 也让 4k–8k 窗口的主动压缩阈值落在窗口的 ~50% 以下；需要按窗口比例重新标定。
 
 **B14 验证门串行执行，墙钟紧贴 CI 预算（P0，基础设施；对应 CR/B15 之外的独立发现）**
 `scripts/verify/cli.mjs` 原来是 `for (const name of stages) { await stage.run() }`：`static`（prettier+eslint+tsc）

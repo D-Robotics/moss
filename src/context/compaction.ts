@@ -131,6 +131,48 @@ export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
  */
 export const MAX_SUMMARY_OUTPUT_TOKENS = 4096;
 
+/** Smallest reserve/keepRecent a compaction may be clamped to. */
+const MIN_COMPACTION_SETTING_TOKENS = 512;
+/** Reserve as a share of the window when the configured value exceeds it. */
+const CLAMPED_RESERVE_WINDOW_RATIO = 0.25;
+/** keepRecentTokens as a share of the window when the configured value exceeds it. */
+const CLAMPED_KEEP_RECENT_WINDOW_RATIO = 0.5;
+
+/**
+ * `reserveTokens`/`keepRecentTokens` default to 20k. A model with a smaller
+ * window (local 4k–8k models, `agent.contextTokens=5000`) then gets a threshold of
+ * `window - 20000 < 0`: compaction triggers on every turn, and the summarizer is
+ * asked for up to 4096 output tokens — ~82% of a 5k window — so the request
+ * stalls and the 30s prepare timeout silently skips compaction (B13).
+ * Only impossible values (>= the whole window) are clamped, so standard 32k+
+ * windows keep their configured behavior.
+ */
+export function clampCompactionSettingsToWindow(
+  settings: CompactionSettings,
+  contextWindowTokens: number
+): CompactionSettings {
+  const window = Math.max(1, Math.floor(contextWindowTokens));
+  const reserveCap = Math.max(
+    MIN_COMPACTION_SETTING_TOKENS,
+    Math.floor(window * CLAMPED_RESERVE_WINDOW_RATIO)
+  );
+  const keepRecentCap = Math.max(
+    MIN_COMPACTION_SETTING_TOKENS,
+    Math.floor(window * CLAMPED_KEEP_RECENT_WINDOW_RATIO)
+  );
+  return {
+    ...settings,
+    reserveTokens:
+      settings.reserveTokens < window
+        ? settings.reserveTokens
+        : Math.min(settings.reserveTokens, reserveCap),
+    keepRecentTokens:
+      settings.keepRecentTokens < window
+        ? settings.keepRecentTokens
+        : Math.min(settings.keepRecentTokens, keepRecentCap),
+  };
+}
+
 export const POST_COMPACT_MAX_FILES_TO_RESTORE = 5;
 
 export const POST_COMPACT_TOKEN_BUDGET = 50_000;
@@ -809,10 +851,10 @@ export function shouldTriggerCompaction(params: {
   charsPerTokenUnit?: number;
   includeThinking?: boolean;
 }): boolean {
-  const settings = {
-    ...DEFAULT_COMPACTION_SETTINGS,
-    ...params.settings,
-  };
+  const settings = clampCompactionSettingsToWindow(
+    { ...DEFAULT_COMPACTION_SETTINGS, ...params.settings },
+    params.contextWindowTokens
+  );
   if (!settings.enabled) return false;
   const totalTokens =
     params.systemPrompt !== undefined && params.charsPerTokenUnit !== undefined
@@ -883,9 +925,13 @@ export async function buildCompactionSummary(params: {
   const adaptiveRatio = computeAdaptiveChunkRatio(params.messages, params.contextWindowTokens);
   const maxChunkTokens = Math.max(1, Math.floor(params.contextWindowTokens * adaptiveRatio));
   const reserveTokens = params.reserveTokens ?? DEFAULT_COMPACTION_SETTINGS.reserveTokens;
+  // A summary can never need more than a quarter of the window; without this a
+  // 5k-window model is asked for a 4096-token summary (~82% of its context).
+  const windowOutputCap = Math.max(256, Math.floor(params.contextWindowTokens * 0.25));
   const maxTokens = Math.min(
     Math.max(64, Math.floor(params.maxTokens ?? 0.8 * reserveTokens)),
-    MAX_SUMMARY_OUTPUT_TOKENS
+    MAX_SUMMARY_OUTPUT_TOKENS,
+    windowOutputCap
   );
 
   return summarizeInStages({
@@ -1097,7 +1143,10 @@ export async function compactHistoryIfNeeded(params: {
     pruneResult.droppedChars = recalcDropped;
   }
 
-  const resolvedSettings = { ...DEFAULT_COMPACTION_SETTINGS, ...params.compactionSettings };
+  const resolvedSettings = clampCompactionSettingsToWindow(
+    { ...DEFAULT_COMPACTION_SETTINGS, ...params.compactionSettings },
+    params.contextWindowTokens
+  );
 
   // Select and execute compaction strategy
   const strategy = selectCompactionStrategy({
