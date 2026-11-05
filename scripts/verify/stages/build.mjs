@@ -3,8 +3,13 @@
  *
  * Incremental by default (keeps `dist/` warm, sweeps outputs whose source is
  * gone). `--clean` removes `dist/` first, which is what `npm run build` does.
- * The TypeScript incremental state lives in `node_modules/.cache/` so it never
- * rides along with the published package.
+ * The TypeScript incremental state lives in `<root>/.cache/`, i.e. inside the
+ * checkout that owns the `dist/` it describes. It must not live under
+ * `node_modules/`: parallel worktrees symlink `node_modules` to one shared copy,
+ * so a cache there would let one worktree's file signatures make another
+ * worktree's incremental build skip emitting its own `dist/` (observed: a
+ * merged `task list` change silently kept the old build and failed a probe).
+ * `.cache/` is gitignored and swept by `--clean`.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -47,7 +52,7 @@ export const stage = {
     const root = context.root;
     const distDir = path.join(root, 'dist');
     const srcDir = path.join(root, 'src');
-    const buildInfoDir = path.join(root, 'node_modules', '.cache');
+    const buildInfoDir = path.join(root, '.cache');
     const buildInfo = path.join(buildInfoDir, 'moss.tsbuildinfo');
     const tsc = path.join(root, 'node_modules', 'typescript', 'lib', 'tsc.js');
     if (!fs.existsSync(tsc)) {
