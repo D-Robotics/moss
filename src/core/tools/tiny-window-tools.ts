@@ -72,3 +72,39 @@ const TINY_WINDOW_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = {
 export function tinyWindowToolDescription(name: string, description: string | undefined): string {
   return TINY_WINDOW_TOOL_DESCRIPTIONS[name] ?? description ?? '';
 }
+
+/**
+ * B73: the wire schema is the other half of the declaration cost. On a tiny
+ * window the exec/edit_file schemas spend most of their bytes advertising
+ * optional modes (background runs, batched edits) that B71's small-context
+ * guidance tells the model not to use. Keep the parameters a one-step-at-a-time
+ * run needs; the tool still accepts the others when a caller passes them.
+ */
+const TINY_WINDOW_TOOL_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
+  exec: ['command', 'timeout_ms'],
+  edit_file: ['path', 'old_string', 'new_string', 'replace_all'],
+  list_directory: ['path', 'depth'],
+};
+
+export function tinyWindowToolSchema(
+  name: string,
+  schema: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  const keep = TINY_WINDOW_TOOL_PROPERTIES[name];
+  if (!keep || !schema || typeof schema !== 'object') return schema;
+  const properties = schema.properties;
+  if (!properties || typeof properties !== 'object') return schema;
+  const pruned: Record<string, unknown> = {};
+  for (const key of keep) {
+    const value = (properties as Record<string, unknown>)[key];
+    if (value !== undefined) pruned[key] = value;
+  }
+  const required = Array.isArray(schema.required)
+    ? schema.required.filter((key) => typeof key === 'string' && key in pruned)
+    : undefined;
+  return {
+    ...schema,
+    properties: pruned,
+    ...(required && required.length > 0 ? { required } : { required: undefined }),
+  };
+}

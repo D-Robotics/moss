@@ -15,6 +15,7 @@ import {
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import {
   tinyWindowToolDescription,
+  tinyWindowToolSchema,
   tinyWindowToolSurfaceEnabled,
   toolAllowedOnTinyWindow,
 } from '../tools/tiny-window-tools.js';
@@ -1369,11 +1370,13 @@ ${result.stderr ?? ''}`.trim();
     const slimTinyWindowTool = (tool: Tool): Tool => {
       if (!tinyToolSurface) return tool;
       const slim = tinyWindowToolDescription(tool.name, tool.description);
+      const schema = tinyWindowToolSchema(tool.name, tool.inputSchema);
       // The wire prefers `metadata.leanDescription` on any window <=64k (all tiny
       // windows qualify), so set both: `description` stays the host-facing text.
       return {
         ...tool,
         description: slim,
+        ...(schema ? { inputSchema: schema as typeof tool.inputSchema } : {}),
         metadata: { ...(tool.metadata ?? {}), leanDescription: slim },
       };
     };

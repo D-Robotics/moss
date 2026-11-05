@@ -18,6 +18,7 @@ const {
   TINY_WINDOW_AUTO_CONTEXT_TOKENS,
   TINY_WINDOW_TOOL_NAMES,
   tinyWindowToolDescription,
+  tinyWindowToolSchema,
   tinyWindowToolSurfaceEnabled,
 } = await import(pathToFileURL(path.join(root, 'dist/core/tools/tiny-window-tools.js')).href);
 const { resolveModelOutputBudget } = await import(
@@ -186,6 +187,32 @@ assert.equal(
   'tools outside the tiny surface keep their own description'
 );
 
+// ── Wire schemas: tiny windows keep the parameters a one-step run needs. ──────
+const execTool = builtinTools.find((tool) => tool.name === 'exec');
+const editTool = builtinTools.find((tool) => tool.name === 'edit_file');
+const tinyExecSchema = tinyWindowToolSchema('exec', execTool.inputSchema);
+const tinyEditSchema = tinyWindowToolSchema('edit_file', editTool.inputSchema);
+assert.deepEqual(Object.keys(tinyExecSchema.properties), ['command', 'timeout_ms']);
+assert.deepEqual(Object.keys(tinyEditSchema.properties), [
+  'path',
+  'old_string',
+  'new_string',
+  'replace_all',
+]);
+assert.deepEqual(tinyExecSchema.required, ['command']);
+const prunedChars = JSON.stringify(tinyExecSchema).length + JSON.stringify(tinyEditSchema).length;
+const fullChars =
+  JSON.stringify(execTool.inputSchema).length + JSON.stringify(editTool.inputSchema).length;
+assert.ok(
+  fullChars - prunedChars > 1_000,
+  `pruning must free real schema bytes, freed ${fullChars - prunedChars}`
+);
+assert.equal(
+  tinyWindowToolSchema('read_file', execTool.inputSchema),
+  execTool.inputSchema,
+  'tools without a tiny schema keep their own'
+);
+
 // ── Tool results: a tiny window must not accept a result sized for a big one. ──
 const { tinyWindowToolResultTokens } = await import(
   pathToFileURL(path.join(root, 'dist/context/window-economics.js')).href
@@ -279,5 +306,6 @@ console.log(
     `4096 boot announces the reduced profile, 32k and forced-off boots do not; ` +
     `tool results capped to ${tinyWindowToolResultTokens(4096)} tokens at 4096, unchanged at 32k; ` +
     `small-context guidance frees ${fullPrompt.length - compactPrompt.length} chars, ` +
-    `tiny tool prose totals ${tinyDescriptionChars} chars for ${TINY_WINDOW_TOOL_NAMES.size} tools`
+    `tiny tool prose totals ${tinyDescriptionChars} chars for ${TINY_WINDOW_TOOL_NAMES.size} tools, ` +
+    `schemas pruned by ${fullChars - prunedChars} chars`
 );
