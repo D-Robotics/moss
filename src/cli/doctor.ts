@@ -384,6 +384,37 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
   return lines;
 }
 
+/**
+ * Behavior switches that are invisible unless asked for: whether the endpoint
+ * accepts images, whether review_changes must run, whether the L1 completion
+ * gate blocks a run. `moss config show` reports them (B56); the diagnostic view
+ * should not disagree with it.
+ */
+function renderBehaviorDoctor(config: ResolvedCliConfig): string[] {
+  const images =
+    config.supportsImages === false
+      ? uiText('text-only (agent.supportsImages=false)', '仅文本（agent.supportsImages=false）')
+      : uiText('image input allowed', '允许图片输入');
+  const reviewMode = config.reviewMode ?? 'manual';
+  const gate = config.verificationGate === false ? uiText('off', '关闭') : uiText('on', '开启');
+  return [
+    ok(
+      uiText('images', '图片输入'),
+      `${images} ${doctorParen(config.supportsImagesSource ?? 'default')}`
+    ),
+    ok(
+      uiText('review mode', '评审模式'),
+      isZhLocale()
+        ? `${reviewMode}（${config.reviewMode ? '配置或环境变量' : '默认'}）`
+        : `${reviewMode} (${config.reviewMode ? 'config or env' : 'default'})`
+    ),
+    ok(
+      uiText('verification gate', '验证门'),
+      `${gate} ${doctorParen(config.verificationGateSource ?? 'default')}`
+    ),
+  ];
+}
+
 function renderBaseUrlDoctor(config: ResolvedCliConfig): string {
   if (config.usingBundledDefault) {
     return ok(uiText('baseUrl', '地址'), uiText('built-in default (hidden)', '内置默认（不显示）'));
@@ -877,6 +908,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(...(await renderRdkDepsDoctor()));
 
   lines.push(...renderApprovalDoctor(options.config));
+  lines.push(...renderBehaviorDoctor(options.config));
   lines.push(...renderMcpConfigDoctor(options.config));
   lines.push(...renderHookConfigDoctor(options.config));
   lines.push(ok(uiText('detail', '详细程度'), detailModeLabel(options.detailMode)));

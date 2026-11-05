@@ -411,6 +411,41 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
     for (const w of warnings) lines.push(doctorWarn(w.code, w.message));
   }
 
+  // Behavior switches the summary would otherwise hide (B56 parity): what the
+  // endpoint may receive, whether review runs, whether the L1 gate blocks.
+  lines.push(
+    doctorOk(
+      zh ? '图片输入' : 'images',
+      auth.supportsImages === false
+        ? zh
+          ? `仅文本（agent.supportsImages=false，${localizeConfigSource(auth.supportsImagesSource ?? 'default')}）`
+          : `text-only (agent.supportsImages=false, ${auth.supportsImagesSource ?? 'default'})`
+        : zh
+          ? `允许图片输入（${localizeConfigSource(auth.supportsImagesSource ?? 'default')}）`
+          : `image input allowed (${auth.supportsImagesSource ?? 'default'})`
+    ),
+    doctorOk(
+      zh ? '评审模式' : 'review mode',
+      auth.reviewMode
+        ? zh
+          ? `${auth.reviewMode}（配置或环境变量）`
+          : `${auth.reviewMode} (config or env)`
+        : zh
+          ? `${auth.reviewMode ?? 'manual'}（默认）`
+          : `${auth.reviewMode ?? 'manual'} (default)`
+    ),
+    doctorOk(
+      zh ? '验证门' : 'verification gate',
+      auth.verificationGate === false
+        ? zh
+          ? `关闭（${localizeConfigSource(auth.verificationGateSource ?? 'default')}）`
+          : `off (${auth.verificationGateSource ?? 'default'})`
+        : zh
+          ? `开启（${localizeConfigSource(auth.verificationGateSource ?? 'default')}）`
+          : `on (${auth.verificationGateSource ?? 'default'})`
+    )
+  );
+
   // MCP and hooks are config surfaces with their own failure modes; /doctor is
   // where a user looks when "something is off", so report live status here
   // instead of making them type /mcp and /hooks one at a time.
