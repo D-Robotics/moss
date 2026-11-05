@@ -572,6 +572,35 @@ export async function runInteractive(
       continue;
     }
 
+    if (msg === '/paste' || msg.startsWith('/paste ')) {
+      // Ctrl+V needs the TUI composer; the readline REPL offers the same gesture
+      // as a command: capture the clipboard, stage it under .moss/runtime/
+      // attachments, and turn the mention into the message the model gets
+      // ("@<path> <rest>"), so read_image can open it.
+      const { captureClipboardAttachment, formatAttachmentMention } =
+        await import('./clipboard-attachment.js');
+      const rest = msg === '/paste' ? '' : msg.slice('/paste'.length).trim();
+      const capture = await captureClipboardAttachment({ workspaceDir: workspace });
+      if (capture.kind === 'image') {
+        console.error(
+          ui.dim(
+            tui('attached {name} ({size}) — ask moss to read_image it', {
+              name: path.basename(capture.relPath),
+              size: `${Math.max(1, Math.round(capture.bytes / 1024))} KB`,
+            })
+          )
+        );
+        msg = `${formatAttachmentMention(capture.relPath)}${rest ? ` ${rest}` : ''}`;
+      } else if (capture.kind === 'text') {
+        console.error(ui.dim(tui('pasted clipboard text')));
+        msg = `${rest}${rest ? '\n' : ''}${capture.text}`;
+      } else {
+        console.error(ui.yellow(`[moss] ${capture.reason}`));
+        rl.prompt();
+        continue;
+      }
+    }
+
     if (msg === '/rules' || msg.startsWith('/rules ')) {
       const { collectRuleRows, renderRulesUsage } = await import('./rules-commands.js');
       const { resolveConfigDir } = await import('./config.js');

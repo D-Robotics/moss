@@ -158,6 +158,13 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
+        command: '/paste',
+        args: '[prompt]',
+        description:
+          'attach the clipboard image (or paste its text) to this turn; read_image opens the staged file',
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/rules',
         args: '[list]',
         description: 'list scoped rules with activation class (always / globs / manual)',

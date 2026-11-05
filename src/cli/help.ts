@@ -36,8 +36,8 @@ export function briefHelpLines(c: Colors, configPath: string, zh: boolean): stri
       `    ${c.green('/status')}        当前模型、工作区状态`,
       `    ${c.green('/model')}         切换本会话模型`,
       process.platform === 'darwin'
-        ? `    ${c.green('Ctrl+V')}              粘贴剪贴板图片 / Finder 文件 / 路径（macOS；Linux：\`wl-paste\`/xclip；Windows：PowerShell）`
-        : `    ${c.green('Ctrl+V')}              粘贴剪贴板图片或路径（Linux 需 \`wl-paste\` 或 xclip）`,
+        ? `    ${c.green('Ctrl+V')}              粘贴剪贴板图片 / Finder 文件 / 路径（TUI；macOS；Linux：\`wl-paste\`/xclip；Windows：PowerShell；REPL 用 /paste）`
+        : `    ${c.green('Ctrl+V')}              粘贴剪贴板图片或路径（TUI；Linux 需 \`wl-paste\` 或 xclip；REPL 用 /paste）`,
       '',
       `  ${c.dim(workspaceWriteLimit(true))}`,
       `  ${c.dim('界面语言优先级：--lang > MOSS_LANG > 配置 > 系统区域。')}`,
@@ -61,8 +61,8 @@ export function briefHelpLines(c: Colors, configPath: string, zh: boolean): stri
     `    ${c.green('/status')}        current model and workspace`,
     `    ${c.green('/model')}         choose/switch model for this session`,
     process.platform === 'darwin'
-      ? `    ${c.green('Ctrl+V')}              attach clipboard image / Finder file / path (macOS; Linux: wl-paste/xclip; Windows: PowerShell)`
-      : `    ${c.green('Ctrl+V')}              attach clipboard image or path (install wl-paste or xclip on Linux)`,
+      ? `    ${c.green('Ctrl+V')}              attach clipboard image / Finder file / path (TUI; macOS; Linux: wl-paste/xclip; Windows: PowerShell; REPL: /paste)`
+      : `    ${c.green('Ctrl+V')}              attach clipboard image or path (TUI; install wl-paste or xclip on Linux; REPL: /paste)`,
     '',
     `  ${c.dim(workspaceWriteLimit(false))}`,
     `  ${c.dim('Language: --lang > MOSS_LANG > config > system locale.')}`,
