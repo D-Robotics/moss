@@ -378,10 +378,22 @@ assert.ok(
   tinyDoctor.includes('tool results capped at 341 tokens'),
   'the doctor row must state the tool-result cap the run really applies'
 );
-const wideDoctor = await bootDoctor(32_000);
 assert.ok(
-  !wideDoctor.includes('context profile'),
-  'doctor must not show a small-window profile on a wide window'
+  !tinyDoctor.includes('lean surface'),
+  'the tiny profile already says more than the lean row, so it must not double up'
+);
+// B77: 32k windows get lean declarations (terse descriptions + pruned schemas).
+const leanDoctor = await bootDoctor(32_000);
+assert.ok(!leanDoctor.includes('context profile'), 'doctor must not show the tiny profile at 32k');
+assert.ok(
+  leanDoctor.includes('lean surface') && leanDoctor.includes('pruned to one-step parameters'),
+  `doctor must explain the lean surface at 32k, got: ${leanDoctor.slice(0, 400)}`
+);
+// B77 boundary: above the lean threshold neither profile applies.
+const wideDoctor = await bootDoctor(100_000);
+assert.ok(
+  !wideDoctor.includes('context profile') && !wideDoctor.includes('lean surface'),
+  'doctor must not show a reduced profile above 64k'
 );
 
 console.log(
@@ -392,5 +404,5 @@ console.log(
     `tool results capped to ${tinyWindowToolResultTokens(4096)} tokens at 4096, unchanged at 32k; ` +
     `small-context guidance frees ${fullPrompt.length - compactPrompt.length} chars, ` +
     `tiny tool prose totals ${tinyDescriptionChars} chars for ${TINY_WINDOW_TOOL_NAMES.size} tools, ` +
-    `schemas pruned by ${fullChars - prunedChars} chars; lean windows send exec ${propsOf(leanDeclarations, 'exec')} / edit_file ${propsOf(leanDeclarations, 'edit_file')} properties (wide: ${propsOf(wideDeclarations, 'exec')} / ${propsOf(wideDeclarations, 'edit_file')}); doctor reports the profile at 4096 only`
+    `schemas pruned by ${fullChars - prunedChars} chars; lean windows send exec ${propsOf(leanDeclarations, 'exec')} / edit_file ${propsOf(leanDeclarations, 'edit_file')} properties (wide: ${propsOf(wideDeclarations, 'exec')} / ${propsOf(wideDeclarations, 'edit_file')}); doctor reports the tiny profile at 4096 and the lean surface at 32k, neither at 100k`
 );

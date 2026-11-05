@@ -30,6 +30,10 @@ import {
   TINY_WINDOW_TOOL_NAMES,
 } from '../core/tools/tiny-window-tools.js';
 import { deriveMaxOutputTokens as deriveMaxOutputTokensForProfile } from './agent-runtime.js';
+import {
+  LEAN_TOOL_AUTO_CONTEXT_TOKENS,
+  shouldLeanToolDescriptions,
+} from '../core/loop/agent-loop-context-prep.js';
 import { isZhLocale, setupCopy } from './cli-locale.js';
 import { glossConfigValue, localizeConfigSource } from './config-snapshot.js';
 import { detectEnvCredentials } from './env-credentials.js';
@@ -897,6 +901,22 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
                 `(or use a model with a bigger window) to get the full tool surface.`,
               `小窗口档位：${TINY_WINDOW_TOOL_NAMES.size} 个核心工具、本地（确定性）压缩、` +
                 `工具结果上限 ${resultCap ?? '默认'} 词元。需要完整工具面请提高 agent.contextTokens（或换更大窗口的模型）。`
+            )
+          )
+        );
+      } else if (shouldLeanToolDescriptions({ contextWindowTokens: effectivePrompt })) {
+        // B77: windows up to 64k already pay for lean tool declarations (terse
+        // descriptions plus B76's pruned schemas). Say so, because missing
+        // schema parameters otherwise look like a bug.
+        lines.push(
+          ok(
+            uiText('lean surface', '精简档位'),
+            uiText(
+              `tool descriptions are trimmed and schemas are pruned to one-step parameters ` +
+                `(exec: command + timeout, edit_file: single edit). Raise agent.contextTokens above ` +
+                `${humanTokens(LEAN_TOOL_AUTO_CONTEXT_TOKENS)} for the full declarations.`,
+              `工具描述已精简、schema 已裁到一次一步的参数（exec：command + timeout；edit_file：单次编辑）。` +
+                `需要完整声明请把 agent.contextTokens 提到 ${humanTokens(LEAN_TOOL_AUTO_CONTEXT_TOKENS)} 以上。`
             )
           )
         );
