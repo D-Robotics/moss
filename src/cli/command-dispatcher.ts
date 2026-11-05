@@ -352,7 +352,32 @@ export const COMMANDS: Record<string, CommandConfig> = {
     name: 'run',
     phase: CliPhase.AgentReady,
     handler: async (ctx) => {
-      await dispatchVerifiedRun(ctx, ['run', ...ctx.commandArgs]);
+      const { shapeRunResumeArgs, resumeTaskArgs } = await import('./run-resume-args.js');
+      const shaped = shapeRunResumeArgs(ctx.commandArgs);
+      if (!shaped.resume) {
+        await dispatchVerifiedRun(ctx, ['run', ...ctx.commandArgs]);
+        return;
+      }
+      const workspace = ctx.workspace as string | undefined;
+      let target = shaped.id;
+      if (!target && workspace) {
+        // No id: the newest resumable task, same rule `/goal resume` uses.
+        const { listTaskStateSnapshots } = await import('../core/index.js');
+        const { isResumableTaskPhase } = await import('../contracts/task-runtime.js');
+        const latest = (await listTaskStateSnapshots(workspace))
+          .filter((snapshot) => isResumableTaskPhase(snapshot.phase))
+          .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+        target = latest?.taskId;
+      }
+      if (!target) {
+        const { ExitCode } = await import('./exit-codes.js');
+        console.error(
+          'moss run --resume: no resumable task in this workspace. Start one with `moss run "<intent>" --accept "<cmd>"`, or pass a task id.'
+        );
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      await dispatchVerifiedRun(ctx, resumeTaskArgs(shaped, target));
     },
     description: 'Verified run: intent in, acceptance-checked result out (moss task run shortcut)',
   },

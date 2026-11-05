@@ -355,6 +355,9 @@ function runHelp(zh: boolean): string {
     return [
       '用法：',
       '  moss run "<意图>" [--accept "<验收命令>"] [--max-repairs N] [--max-turns N]',
+      '  moss run --resume [<task_id>] [--accept "<验收命令>"] [--max-repairs N] [--max-turns N]',
+      '',
+      '  --resume 不给 id 时续跑本工作区最新可恢复任务；给 id 时续跑该任务。',
       '',
       '验证式运行——`moss task run` 的快捷方式：同一个任务状态机、同样的 Ctrl+C 暂停语义、',
       '同样的退出码（0 通过 / 1 失败或阻塞 / 130 中断可续跑）。',
@@ -374,6 +377,10 @@ function runHelp(zh: boolean): string {
   return [
     'Usage:',
     '  moss run "<intent>" [--accept "<command>"] [--max-repairs N] [--max-turns N]',
+    '  moss run --resume [<task_id>] [--accept "<command>"] [--max-repairs N] [--max-turns N]',
+    '',
+    '  --resume without an id continues the newest resumable task in this workspace;',
+    '  with an id it continues that task.',
     '',
     'Verified run — a shortcut for `moss task run`: same task state machine, same',
     'Ctrl+C pause semantics and the same exit codes (0 pass, 1 fail/blocked, 130',

@@ -695,7 +695,9 @@ function runRecordForTask(
     repairs: result.snapshot.repairs.length,
     failures: result.snapshot.failures.length,
     turns: result.turns,
-    ...(reason ? { reason } : {}),
+    // A completed run has no failure to report; the snapshot's latest failure is
+    // history and must not be attached to a PASS row.
+    ...(reason && status !== 'completed' ? { reason } : {}),
     ...(status === 'completed' ? {} : { next: `moss task resume ${result.snapshot.taskId}` }),
     artifacts: {
       taskEvents: '.moss/task-events.jsonl',

@@ -118,6 +118,7 @@ import { stage as initStage } from './stages/init.mjs';
 import { stage as welcomeContextStage } from './stages/welcome-context.mjs';
 import { stage as tuiWelcomeStage } from './stages/tui-welcome.mjs';
 import { stage as workflowRunRecordStage } from './stages/workflow-run-record.mjs';
+import { stage as runResumeStage } from './stages/run-resume.mjs';
 
 const STAGES = new Map(
   [
@@ -214,6 +215,7 @@ const STAGES = new Map(
     welcomeContextStage,
     tuiWelcomeStage,
     workflowRunRecordStage,
+    runResumeStage,
     taskFailReasonsStage,
   ].map((stage) => [stage.name, stage])
 );
@@ -304,6 +306,7 @@ const FAST_GATE = [
   'welcome-context',
   'tui-welcome',
   'workflow-run-record',
+  'run-resume',
   'task-fail-reasons',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;

@@ -114,6 +114,7 @@ export function fullHelpLines(c: Colors, configPath: string, zh = false): string
     `    ${c.green('doctor')} ${c.dim('· permissions')}            health-check the install · show safety and approval settings`,
     `    ${c.green('runs')} ${c.dim('list|show|prune')}            one ledger for every autonomous run (task / loop / workflow)`,
     `    ${c.green('run')} "<intent>" [--accept "<cmd>"]     verified run (shortcut for ${c.green('task')} ${c.dim('run')})`,
+    `    ${c.green('run')} --resume [<task_id>]      continue the newest (or given) resumable task`,
     `    ${c.green('config')} ${c.dim('show|init|set|unset|validate')} · ${c.green('trust')} ${c.dim('list|remove')} — keys: \`moss config --help\``,
     `    ${c.green('auth')} ${c.dim('status|logout')} · ${c.green('update')}   API-key status/sign-out · print the upgrade command`,
     `    ${c.green('loop')} ${c.dim('--until "<cmd>"')} · ${c.green('review')} ${c.dim('list|check')}   run→check→fix loop · CI review records (exit 0/1/2)`,
