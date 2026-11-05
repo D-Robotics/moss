@@ -17,10 +17,14 @@ const { builtinTools } = await import(pathToFileURL(path.join(root, 'dist/tools/
 const {
   TINY_WINDOW_AUTO_CONTEXT_TOKENS,
   TINY_WINDOW_TOOL_NAMES,
+  compactToolSchema,
   tinyWindowToolDescription,
   tinyWindowToolSchema,
   tinyWindowToolSurfaceEnabled,
 } = await import(pathToFileURL(path.join(root, 'dist/core/tools/tiny-window-tools.js')).href);
+const { buildProviderToolDeclarations, shouldLeanToolDescriptions } = await import(
+  pathToFileURL(path.join(root, 'dist/core/loop/agent-loop-context-prep.js')).href
+);
 const { resolveModelOutputBudget } = await import(
   pathToFileURL(path.join(root, 'dist/core/loop/output-limit.js')).href
 );
@@ -213,6 +217,24 @@ assert.equal(
   'tools without a tiny schema keep their own'
 );
 
+// ── Lean windows (<=64k) prune the wire schema too, not just descriptions. ────
+assert.equal(compactToolSchema('read_file', execTool.inputSchema), execTool.inputSchema);
+assert.equal(shouldLeanToolDescriptions({ contextWindowTokens: 32_000, env: {} }), true);
+assert.equal(shouldLeanToolDescriptions({ contextWindowTokens: 200_000, env: {} }), false);
+const leanDeclarations = buildProviderToolDeclarations([execTool, editTool], {
+  contextWindowTokens: 32_000,
+});
+const wideDeclarations = buildProviderToolDeclarations([execTool, editTool], {
+  contextWindowTokens: 200_000,
+});
+const propsOf = (declarations, name) =>
+  Object.keys(declarations.find((declaration) => declaration.name === name).parameters.properties)
+    .length;
+assert.equal(propsOf(leanDeclarations, 'exec'), 2, 'a lean window sends only command+timeout_ms');
+assert.equal(propsOf(leanDeclarations, 'edit_file'), 4, 'a lean window drops the batched edits[]');
+assert.equal(propsOf(wideDeclarations, 'exec'), 7, 'a wide window keeps the full exec schema');
+assert.equal(propsOf(wideDeclarations, 'edit_file'), 5);
+
 // ── Tool results: a tiny window must not accept a result sized for a big one. ──
 const { tinyWindowToolResultTokens } = await import(
   pathToFileURL(path.join(root, 'dist/context/window-economics.js')).href
@@ -370,5 +392,5 @@ console.log(
     `tool results capped to ${tinyWindowToolResultTokens(4096)} tokens at 4096, unchanged at 32k; ` +
     `small-context guidance frees ${fullPrompt.length - compactPrompt.length} chars, ` +
     `tiny tool prose totals ${tinyDescriptionChars} chars for ${TINY_WINDOW_TOOL_NAMES.size} tools, ` +
-    `schemas pruned by ${fullChars - prunedChars} chars; doctor reports the profile at 4096 only`
+    `schemas pruned by ${fullChars - prunedChars} chars; lean windows send exec ${propsOf(leanDeclarations, 'exec')} / edit_file ${propsOf(leanDeclarations, 'edit_file')} properties (wide: ${propsOf(wideDeclarations, 'exec')} / ${propsOf(wideDeclarations, 'edit_file')}); doctor reports the profile at 4096 only`
 );

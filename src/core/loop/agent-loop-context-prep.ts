@@ -26,6 +26,7 @@ import { runProactiveWindowCompaction, runPromptPruneCompaction } from './agent-
 import { shouldSuppressReasoningForToolFollowUpRound } from './follow-up-guard.js';
 import { hasAssistantThinkingHistory } from './agent-loop-assistant-turn.js';
 import { convertMessagesToPi } from '../tools/message-convert.js';
+import { compactToolSchema } from '../tools/tiny-window-tools.js';
 import {
   checkPromptPrefixStable,
   checkToolOrderConsistency,
@@ -136,13 +137,18 @@ export function buildProviderToolDeclarations(
   options: { contextWindowTokens?: number } = {}
 ): ProviderToolDeclaration[] {
   const lean = shouldLeanToolDescriptions(options);
-  return [...toolsForRun].sort(compareToolName).map((tool) => ({
-    name: tool.name,
-    description: toolDescriptionForModel(tool, lean),
-    parameters: compactSchemaNode(
-      tool.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : {}
-    ) as Record<string, unknown>,
-  }));
+  return [...toolsForRun].sort(compareToolName).map((tool) => {
+    const schema = tool.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : {};
+    // B76: a lean window also drops the one-step-only parameters from the wire
+    // declaration (the tool still accepts them). The tiny tier already pruned
+    // the Tool object, so this is idempotent there.
+    const pruned = lean ? (compactToolSchema(tool.name, schema) ?? schema) : schema;
+    return {
+      name: tool.name,
+      description: toolDescriptionForModel(tool, lean),
+      parameters: compactSchemaNode(pruned) as Record<string, unknown>,
+    };
+  });
 }
 
 export function selectMessagesForModel(params: {

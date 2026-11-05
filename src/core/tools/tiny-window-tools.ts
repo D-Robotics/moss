@@ -74,7 +74,7 @@ export function tinyWindowToolDescription(name: string, description: string | un
 }
 
 /**
- * B73: the wire schema is the other half of the declaration cost. On a tiny
+ * B73/B76: the wire schema is the other half of the declaration cost. On a tiny
  * window the exec/edit_file schemas spend most of their bytes advertising
  * optional modes (background runs, batched edits) that B71's small-context
  * guidance tells the model not to use. Keep the parameters a one-step-at-a-time
@@ -86,7 +86,7 @@ const TINY_WINDOW_TOOL_PROPERTIES: Readonly<Record<string, readonly string[]>> =
   list_directory: ['path', 'depth'],
 };
 
-export function tinyWindowToolSchema(
+export function compactToolSchema(
   name: string,
   schema: Record<string, unknown> | undefined
 ): Record<string, unknown> | undefined {
@@ -108,3 +108,11 @@ export function tinyWindowToolSchema(
     ...(required && required.length > 0 ? { required } : { required: undefined }),
   };
 }
+
+/**
+ * B76: the lean surface (<=64k windows) makes the same trade, so one helper
+ * serves both tiers. Cursor's reduced-prompt tier and Claude's ToolSearch are
+ * the observed precedents for spending fewer declaration bytes on constrained
+ * surfaces; the per-window schema prune itself is Moss's extension.
+ */
+export const tinyWindowToolSchema = compactToolSchema;

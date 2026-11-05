@@ -1373,6 +1373,9 @@ ${result.stderr ?? ''}`.trim();
       const schema = tinyWindowToolSchema(tool.name, tool.inputSchema);
       // The wire prefers `metadata.leanDescription` on any window <=64k (all tiny
       // windows qualify), so set both: `description` stays the host-facing text.
+      // Precedent for spending fewer declaration bytes on constrained surfaces:
+      // Cursor's reduced-prompt tier (compactShellDescription) and Claude's
+      // ToolSearch. Trimming the *schema* by window is Moss's own extension.
       return {
         ...tool,
         description: slim,
