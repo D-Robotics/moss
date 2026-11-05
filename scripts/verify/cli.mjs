@@ -81,6 +81,7 @@ import { stage as acceptanceBlockedStage } from './stages/acceptance-blocked.mjs
 import { stage as goalResumeArgsStage } from './stages/goal-resume-args.mjs';
 import { stage as loopHistoryStage } from './stages/loop-history.mjs';
 import { stage as loopWatchStage } from './stages/loop-watch.mjs';
+import { stage as loopWatchGlobStage } from './stages/loop-watch-glob.mjs';
 import { stage as reviewVerdictStage } from './stages/review-verdict.mjs';
 import { stage as loopStatusStage } from './stages/loop-status.mjs';
 import { stage as loopPruneStage } from './stages/loop-prune.mjs';
@@ -158,6 +159,7 @@ const STAGES = new Map(
     goalResumeArgsStage,
     loopHistoryStage,
     loopWatchStage,
+    loopWatchGlobStage,
     reviewVerdictStage,
     loopStatusStage,
     loopPruneStage,
@@ -213,6 +215,7 @@ const FAST_GATE = [
   'goal-resume-args',
   'loop-history',
   'loop-watch',
+  'loop-watch-glob',
   'review-verdict',
   'loop-status',
   'loop-prune',
