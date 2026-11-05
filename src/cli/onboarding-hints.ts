@@ -67,6 +67,7 @@ export function printMissingConfigGuidance(
   print('');
   print(L('  moss                          # interactive setup, then the prompt'));
   print(L('  moss setup                    # same setup, without opening the chat'));
+  print(L('  moss init                     # detect this project and write AGENTS.md'));
   print('');
   print(
     interactive

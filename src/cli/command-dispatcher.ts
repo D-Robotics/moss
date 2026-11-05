@@ -267,6 +267,29 @@ export const COMMANDS: Record<string, CommandConfig> = {
     description:
       'Optional Super-agent admission, durable tickets and isolated verified Moss workers',
   },
+  // First-run onboarding: workspace command, no model config.
+  init: {
+    name: 'init',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runInitCommand } = await import('./init-command.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const workspace = ctx.workspace as string | undefined;
+      if (!workspace) {
+        console.error('[moss] init could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      const code = await runInitCommand(ctx.commandArgs, {
+        workspace,
+        ...(ctx.argv.includes('--json') ? { outputJson: true } : {}),
+      });
+      if (code !== 0) process.exitCode = code;
+    },
+    description:
+      'First-run onboarding: detect commands, write AGENTS.md, print the next verified run',
+  },
+
   // One screen for the capability surface: workspace command, no model config.
   capabilities: {
     name: 'capabilities',

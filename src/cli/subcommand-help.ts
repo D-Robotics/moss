@@ -470,6 +470,10 @@ export async function renderSubcommandHelp(
     }
     case 'run':
       return runHelp(zh);
+    case 'init': {
+      const { renderInitUsage } = await import('./init-command.js');
+      return renderInitUsage(zh);
+    }
     case 'capabilities': {
       const { renderCapabilitiesUsage } = await import('./capabilities-command.js');
       return renderCapabilitiesUsage(zh);

@@ -33,6 +33,7 @@ export type CliCommand =
   | 'runs'
   | 'artifacts'
   | 'capabilities'
+  | 'init'
   | 'review'
   | 'loop'
   | 'remember'
@@ -250,6 +251,7 @@ export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'runs',
   'artifacts',
   'capabilities',
+  'init',
   'review',
   'loop',
   'remember',

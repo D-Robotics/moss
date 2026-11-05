@@ -114,6 +114,7 @@ import { stage as taskArtifactsStage } from './stages/task-artifacts.mjs';
 import { stage as loopRunRecordStage } from './stages/loop-run-record.mjs';
 import { stage as capabilitiesStage } from './stages/capabilities.mjs';
 import { stage as chatRunRecordStage } from './stages/chat-run-record.mjs';
+import { stage as initStage } from './stages/init.mjs';
 
 const STAGES = new Map(
   [
@@ -206,6 +207,7 @@ const STAGES = new Map(
     loopRunRecordStage,
     capabilitiesStage,
     chatRunRecordStage,
+    initStage,
     taskFailReasonsStage,
   ].map((stage) => [stage.name, stage])
 );
@@ -292,6 +294,7 @@ const FAST_GATE = [
   'loop-run-record',
   'capabilities',
   'chat-run-record',
+  'init',
   'task-fail-reasons',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
