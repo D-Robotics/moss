@@ -139,6 +139,7 @@ Moss 在"验收 + 目标任务"上的机制深度已经接近甚至超过产品�
 | P2     | 5.16 已完成（B104） loop 实时跟随：`moss loop follow [<run_id>                                                                                                                                | latest] [--interval 1s]` 轮询账本流式打印新 attempt/summary，结束即退出（pass 0/fail 1），已被杀即报 interrupted；先打印已有状态          | 探针 4/4 + 真实 pass/fail 两 run 跟随（exit 0 / 1） | 已完成 |
 | P2     | 5.17 已完成（B105）检查命令挂起：`--until-timeout`（默认 10m）到点即视为挂起，attempt `check TIMEOUT`、summary reason `check_timeout`、不烧剩余轮次；list/show 措辞区分                       | 探针 4/4 + 真实 `sleep 25` 检查 2s 超时 run（1/3 轮、exit 1）                                                                             | 已完成                                              |
 | P2     | 5.18 已完成（B106）loop 健康度：`loop list` 表头给全账本 total/passed/failed/running/interrupted 计数，`--status` 只筛表格与 JSON（`fail` 别名、无匹配不报错、坏值 exit 2）                   | 探针 6/6 + 真实两 run 的 list/status/json                                                                                                 | 已完成                                              |
+| P2     | 5.19 已完成（B107）loop 账本保留：`loop prune [--keep N] [--dry-run] [--json]` 清已结束旧账本（默认 50），running 永不删                                                                      | 探针 5/5 + 真实两 run 的 prune/dry-run/json                                                                                               | 已完成                                              |
 
 ## 6. 参考
 
