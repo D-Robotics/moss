@@ -1,7 +1,12 @@
 import type { ToolApprovalRequest, ToolApprovalDecision } from '../core/agent/agent-hooks.js';
 import type { ToolCall, ToolResult } from '../core/tools/tool-types.js';
 import type { HooksConfig, HookCommandConfig } from './config.js';
-import { activeSkillHookEntries, type SkillHookEvent } from '../core/skills/skill-hooks.js';
+import {
+  activeSkillHookEntries,
+  claimSkillHookEntry,
+  noteSkillHookEntryResult,
+  type SkillHookEvent,
+} from '../core/skills/skill-hooks.js';
 import { claudeToolInput, claudeToolName, hookMatcherMatches } from './claude-compat.js';
 import { redactEgress } from '../safety/tool-output-redact.js';
 import { CompactHookRegistry } from '../core/loop/compact-hooks.js';
@@ -791,6 +796,9 @@ export function createConfiguredHookCallbacks(
       for (const hook of entries) {
         if (!toolNameMatches(hook, request.tool.name)) continue;
         if (!hookIf.matches(hook, request.tool.name, request.input)) continue;
+        // Claude parity: a `once` skill hook runs at most once per session; a
+        // successful run retires it, a failed one re-arms it.
+        if (!claimSkillHookEntry(hook)) continue;
         const r = await runHook(
           hook,
           {
@@ -802,6 +810,7 @@ export function createConfiguredHookCallbacks(
           cwd,
           timeoutFor(hook)
         );
+        noteSkillHookEntryResult(hook, r.outcome === 'exit' && r.exitCode === 0);
         const parsed = parseHookJson(r.stdout);
         if (preToolUseBlocks(hook, r, parsed)) {
           return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
@@ -851,6 +860,10 @@ export function createConfiguredHookCallbacks(
       for (const hook of hooksForEvent) {
         if (!toolNameMatches(hook, call.name)) continue;
         if (!hookIf.matches(hook, call.name, call.input)) continue;
+        // Post hooks are fire-and-forget, so claim synchronously: two calls in
+        // flight must not both run a `once` hook. The claim is released (or
+        // the hook retired) when the process exits.
+        if (!claimSkillHookEntry(hook)) continue;
         void runHook(
           hook,
           {
@@ -864,11 +877,14 @@ export function createConfiguredHookCallbacks(
           timeoutFor(hook)
         )
           .then((r) => {
+            noteSkillHookEntryResult(hook, r.outcome === 'exit' && r.exitCode === 0);
             if (r.exitCode !== 0) {
               process.stderr.write(`${hookExitedLine(event, r.exitCode, r.stderr, call.name)}\n`);
             }
           })
-          .catch(() => {});
+          .catch(() => {
+            noteSkillHookEntryResult(hook, false);
+          });
       }
     }
   };

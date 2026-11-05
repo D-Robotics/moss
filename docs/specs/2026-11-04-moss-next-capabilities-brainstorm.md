@@ -534,6 +534,17 @@ pytest 以 `-q --tb=line --no-header -p no:cacheprovider` 运行，失败行归�
   catalog 过滤、工具拒绝且不泄正文、普通技能不受影响、slash 令牌保留、`/skills` 预算口径、slash 内联正文），
   verify stage `skill-model-invocation` 0.2s；真实 deepseek-flash 双跑：headless 让模型加载 → 拒绝且不写文件，
   REPL 用户敲 `/release-deploy` → 内联正文并按技能创建 `release-notes.md`。
+- ✅ **技能 hooks 的 `once: true`（2026-11-05，D11 第六片）**：Claude 的技能 frontmatter hook 支持
+  `once: true`（首次**成功**运行后移除，且只在技能 frontmatter 里生效）。Moss 在技能 `hooks.json`
+  的条目上支持同名字段：`{"matcher":"exec","command":"…","once":true}`。实现上 PostToolUse 钩子是
+  不 await 的异步执行，所以用「claim → 运行 → 报告」三段式：claim 同步占位（同一条目并发时第二次直接跳过），
+  退出码 0 视为成功并 retire（`onceEntries`/`claimedOnce`/`retiredOnce` 三重状态），非 0/超时/启动失败
+  则释放 claim 以便重试；重新 invoke 技能会用新条目重新武装；`describeActivatedSkillHooks()` 现在会显示
+  `PostToolUse 1 (1 once)`。非布尔 `once` 值作为坏条目丢弃并警告；项目 `.moss/config.json` 的 hooks
+  不受影响（once 只在技能声明里生效，与 Claude 一致）。验收：新探针 `skill-hook-once` 4/4
+  （解析/拒绝字符串 once、并发 claim 只跑一次、成功 retire、失败重新武装且不影响普通条目、重新 invoke 重新武装）；
+  真实 deepseek-flash REPL 双跑同一 prompt（3 个独立 exec 调用）：`once: true` 的 PostToolUse
+  只落 1 行标记，不带 once 的同类技能落 6 行（每个 exec 都触发），证明 once 只吃首次成功。
 - ⬜ 仍缺：`paths` 文件级自动激活之外的更深 scoping。
 
 - **问题**：Moss 加载技能只是把正文塞进工具结果；参考产品已经让技能**改变运行本身**：

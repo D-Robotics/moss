@@ -87,9 +87,20 @@ hooks: hooks.json
   "PreToolUse": [
     { "matcher": "exec", "if": "exec(git push *)", "command": "node scripts/require-green.mjs" }
   ],
-  "PostToolUse": [{ "matcher": "write_file", "command": "node scripts/check-bundle.mjs" }]
+  "PostToolUse": [
+    { "matcher": "write_file", "command": "node scripts/check-bundle.mjs", "once": true }
+  ]
 }
 ```
+
+`once: true` retires the entry after its first **successful** run (Claude Code's
+skill-hook rule): a `PreToolUse` guard runs once for the first matching call, a
+`PostToolUse` hook fires for the first matching call only even though post hooks
+run without awaiting. A non-zero exit, timeout or spawn failure re-arms it, so a
+guard that could not do its job is not silently used up. Only a JSON boolean is
+accepted (`"once": "true"` is a rejected entry with a warning); project
+`.moss/config.json` hooks ignore the field — once is a skill-frontmatter
+mechanism, matching Claude's "honoured only in skill frontmatter" rule.
 
 Invoking the skill (`skill` tool) makes those entries active **for the rest of
 the session**; the skill tool reports how many hooks it activated. Re-invoking
