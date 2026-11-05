@@ -1,0 +1,32 @@
+annotated-types==0.8.0
+anyio==4.16.0
+attrs==26.1.0
+cffi==2.1.1
+click==8.5.0
+cryptography==50.0.2
+gepa @ git+https://github.com/gepa-ai/gepa@d771eb21b5dd3228bc3f567293d2ccfc423fc900
+h11==0.16.0
+-e git+https://github.com/Infini-AI-Lab/hermit.git@2c9d94a1b1437d1c66b80aab05cb0262f557e6d7#egg=hermit_harness
+httpcore2==2.16.0
+httpx2==2.16.0
+idna==3.20
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+mcp==2.2.0
+mcp-types==2.2.0
+opentelemetry-api==1.45.2
+packaging==26.3
+pycparser==3.12
+pydantic==2.14.2
+pydantic_core==2.50.2
+PyJWT==2.15.1
+python-multipart==0.0.33
+PyYAML==6.0.3
+referencing==0.37.0
+rpds-py==2026.9.1
+sse-starlette==3.6.0
+starlette==1.10.0
+truststore==0.10.5
+typing-inspection==0.4.5
+typing_extensions==4.16.0
+uvicorn==0.54.0
