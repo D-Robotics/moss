@@ -8,7 +8,15 @@
  * A row that used independent review also carries the verdict that decided it
  * (projected from `.moss/review.jsonl`), so "failed on the acceptance command"
  * and "the reviewer found 2 critical issues" are no longer the same `fail`.
+ *
+ * Fail and blocked rows also explain themselves: the latest failure the agent
+ * recorded in `.moss/task-failures.jsonl` (its symptom) is projected as a third
+ * `↳` line, so the table answers "why" without `task status <id>` or reading
+ * `.moss/task-failures.jsonl` by hand.
  */
+import fs from 'node:fs';
+import path from 'node:path';
+import type { FailureRecord } from '../contracts/task-runtime.js';
 import type {
   GoalRunOutcome,
   GoalRunRecord,
@@ -33,10 +41,166 @@ const REVIEW_VERDICT_ZH: Record<GoalRunReviewVerdict, string> = {
 const GOAL_PREVIEW = 64;
 const COMMAND_PREVIEW = 48;
 const REVIEW_ID_PREVIEW = 40;
+const REASON_PREVIEW = 120;
+
+const FAILURES_FILE = 'task-failures.jsonl';
+/**
+ * Failure records are small; the tail of the log covers every run a table can
+ * show (`--limit` defaults to 20) without reading an unbounded history.
+ */
+const FAILURE_TAIL_BYTES = 256 * 1024;
+const FAILURE_MAX_RECORDS = 2_000;
 
 function clip(text: string, limit: number): string {
   const single = text.replace(/\s+/g, ' ').trim();
   return single.length > limit ? `${single.slice(0, limit - 1)}…` : single;
+}
+
+function normalizeLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/** The failure that explains a fail/blocked row, as projected onto its row. */
+export interface GoalRunFailure {
+  stage: string;
+  symptom: string;
+  resolved: boolean;
+}
+
+/** A goal-run row plus the failure record that explains it, when one exists. */
+export type GoalRunListRow = GoalRunRow & { failure?: GoalRunFailure };
+
+function projectFailureRecord(raw: unknown): FailureRecord | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const record = raw as Partial<FailureRecord>;
+  if (typeof record.taskId !== 'string' || record.taskId === '') return undefined;
+  if (typeof record.symptom !== 'string' || record.symptom.trim() === '') return undefined;
+  const timestamp =
+    typeof record.timestamp === 'number' && Number.isFinite(record.timestamp)
+      ? record.timestamp
+      : 0;
+  return {
+    failureId:
+      typeof record.failureId === 'string' && record.failureId !== ''
+        ? record.failureId
+        : `${record.taskId}:${String(timestamp)}`,
+    taskId: record.taskId,
+    stage: (typeof record.stage === 'string' ? record.stage : 'unknown') as FailureRecord['stage'],
+    symptom: record.symptom,
+    attempt: typeof record.attempt === 'number' ? record.attempt : 0,
+    resolved: record.resolved === true,
+    timestamp,
+  };
+}
+
+/** Parseable failure records from the tail, append order; torn lines are skipped. */
+function readFailureRecords(workspaceDir: string): FailureRecord[] {
+  const file = path.join(workspaceDir, '.moss', FAILURES_FILE);
+  let handle: number;
+  try {
+    handle = fs.openSync(file, 'r');
+  } catch {
+    return [];
+  }
+  try {
+    const size = fs.fstatSync(handle).size;
+    if (size === 0) return [];
+    const readBytes = Math.min(size, FAILURE_TAIL_BYTES);
+    const buffer = Buffer.alloc(readBytes);
+    fs.readSync(handle, buffer, 0, readBytes, size - readBytes);
+    const records: FailureRecord[] = [];
+    for (const raw of buffer.toString('utf8').split('\n')) {
+      const line = raw.trim();
+      if (line === '') continue;
+      // A tail window can start mid-line; only full JSON objects are records.
+      if (!line.startsWith('{') || !line.endsWith('}')) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const record = projectFailureRecord(parsed);
+      if (record) records.push(record);
+    }
+    return records.length > FAILURE_MAX_RECORDS ? records.slice(-FAILURE_MAX_RECORDS) : records;
+  } catch {
+    return [];
+  } finally {
+    fs.closeSync(handle);
+  }
+}
+
+/**
+ * Latest failure reason per task. The ledger is append-only and updating a
+ * failure appends another version under the same `failureId`, so the newest
+ * version wins first. Then an unresolved failure is preferred over a later
+ * resolved one (a run that failed again should name the symptom it did not
+ * fix); otherwise the latest record answers for the task.
+ */
+export function projectFailureReasons(
+  records: readonly FailureRecord[]
+): Map<string, GoalRunFailure> {
+  const latestById = new Map<string, FailureRecord>();
+  for (const record of records) {
+    const previous = latestById.get(record.failureId);
+    if (!previous || record.timestamp >= previous.timestamp)
+      latestById.set(record.failureId, record);
+  }
+  const latestUnresolved = new Map<string, FailureRecord>();
+  const latestAny = new Map<string, FailureRecord>();
+  for (const record of latestById.values()) {
+    const anySoFar = latestAny.get(record.taskId);
+    if (!anySoFar || record.timestamp >= anySoFar.timestamp) latestAny.set(record.taskId, record);
+    if (record.resolved) continue;
+    const unresolvedSoFar = latestUnresolved.get(record.taskId);
+    if (!unresolvedSoFar || record.timestamp >= unresolvedSoFar.timestamp) {
+      latestUnresolved.set(record.taskId, record);
+    }
+  }
+  const reasons = new Map<string, GoalRunFailure>();
+  for (const [taskId, record] of latestAny) {
+    const chosen = latestUnresolved.get(taskId) ?? record;
+    reasons.set(taskId, {
+      stage: chosen.stage,
+      symptom: chosen.symptom,
+      resolved: chosen.resolved,
+    });
+  }
+  return reasons;
+}
+
+/** Failure reasons for a whole workspace, ready to attach to the listed rows. */
+export function readFailureReasons(workspaceDir: string): Map<string, GoalRunFailure> {
+  return projectFailureReasons(readFailureRecords(workspaceDir));
+}
+
+/** Attach a failure reason to fail/blocked rows; pass/aborted rows stay untouched. */
+export function projectGoalRunFailures(
+  rows: readonly GoalRunRow[],
+  reasons: ReadonlyMap<string, GoalRunFailure>
+): GoalRunListRow[] {
+  return rows.map((row) => {
+    if (row.outcome !== 'fail' && row.outcome !== 'blocked') return { ...row };
+    const failure = reasons.get(row.taskId);
+    return failure ? { ...row, failure } : { ...row };
+  });
+}
+
+/**
+ * `↳ <first line of the symptom>`, capped so one bad log line cannot wrap the
+ * table. A symptom that only repeats the acceptance command adds nothing, so it
+ * is skipped instead. zh labels the line with `原因：` because a bare Chinese
+ * sentence after the acceptance line would read like another command.
+ */
+function formatFailureLine(row: GoalRunListRow, zh: boolean): string | undefined {
+  if (!row.failure) return undefined;
+  const first = row.failure.symptom.split(/\r?\n/).find((line) => line.trim() !== '');
+  if (!first) return undefined;
+  const command = row.acceptanceCommand ? normalizeLine(row.acceptanceCommand) : '';
+  if (command !== '' && normalizeLine(first) === command) return undefined;
+  const symptom = clip(first, REASON_PREVIEW);
+  return zh ? `↳ 原因：${symptom}` : `↳ ${symptom}`;
 }
 
 function duration(ms: number): string {
@@ -105,7 +269,7 @@ export function summarizeGoalRuns(records: readonly GoalRunRecord[]): GoalRunCou
  * With no rows the caller prints a "nothing yet" line, not an empty table.
  */
 export function formatGoalRunRows(
-  records: readonly GoalRunRow[],
+  records: readonly GoalRunListRow[],
   options: { zh?: boolean; limit?: number; status?: GoalRunOutcome } = {}
 ): string[] {
   const zh = options.zh === true;
@@ -162,6 +326,10 @@ export function formatGoalRunRows(
     }
     if (row.acceptanceCommand && row.acceptanceCommand.trim() !== '') {
       lines.push(`  ${indent}↳ ${clip(row.acceptanceCommand, COMMAND_PREVIEW)}`);
+    }
+    const reason = formatFailureLine(row, zh);
+    if (reason) {
+      lines.push(`  ${indent}${reason}`);
     }
     if (row.review) {
       lines.push(`  ${indent}${formatReviewLine(row.review, zh)}`);
