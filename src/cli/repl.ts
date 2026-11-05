@@ -33,6 +33,7 @@ import {
   abandonLiveGoal,
   acceptanceProposalLines,
   GOAL_USAGE,
+  goalResumeArgs,
   goalRunArgs,
   planGoalInvocation,
   resolveLoopMaxIterations,
@@ -870,16 +871,23 @@ export async function runInteractive(
         continue;
       }
       if (plan.kind === 'resume') {
-        const { listTaskStateSnapshots } = await import('../core/index.js');
-        const resumable = (await listTaskStateSnapshots(workspace))
-          .filter((s) => isResumableTaskPhase(s.phase))
-          .sort((a, b) => b.updatedAt - a.updatedAt)[0];
-        if (!resumable) {
-          process.stderr.write('No resumable task found. Start one with /goal <condition>.\n');
-          rl.prompt();
-          continue;
+        let taskId = plan.taskId;
+        if (!taskId) {
+          const { listTaskStateSnapshots } = await import('../core/index.js');
+          const resumable = (await listTaskStateSnapshots(workspace))
+            .filter((s) => isResumableTaskPhase(s.phase))
+            .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+          if (!resumable) {
+            process.stderr.write('No resumable task found. Start one with /goal <condition>.\n');
+            rl.prompt();
+            continue;
+          }
+          taskId = resumable.taskId;
         }
-        msg = `/task resume ${resumable.taskId}`;
+        msg = `/task ${goalResumeArgs({
+          taskId,
+          ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
+        })}`;
       } else if (plan.kind === 'propose') {
         for (const line of acceptanceProposalLines(plan.goal, plan.candidates)) {
           process.stderr.write(`${line}\n`);

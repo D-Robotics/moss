@@ -110,6 +110,7 @@ import {
   abandonLiveGoal,
   acceptanceProposalLines,
   GOAL_USAGE,
+  goalResumeArgs,
   goalRunArgs,
   planGoalInvocation,
   resolveLoopMaxIterations,
@@ -1568,7 +1569,8 @@ export function TuiAppRoot({
         printBlock(tui('Task'), [...interactiveTaskUsageLines()]);
         return;
       }
-      if (parsed[0] === 'resume' && !parsed[1]) {
+      const resumeHasTaskId = parsed.slice(1).some((arg) => !arg.startsWith('--'));
+      if (parsed[0] === 'resume' && !resumeHasTaskId) {
         const candidate = runtime
           .taskSummaries()
           .filter((task) => isGoalResumeCandidate(task))
@@ -1579,7 +1581,7 @@ export function TuiAppRoot({
           ]);
           return;
         }
-        parsed.push(candidate.taskId);
+        parsed.splice(1, 0, candidate.taskId);
       }
       if (parsed[0] === 'run' || parsed[0] === 'resume') {
         appendRow(store, 'user', display ?? `/task ${parsed.join(' ')}`);
@@ -2046,7 +2048,13 @@ export function TuiAppRoot({
           return true;
         }
         if (plan.kind === 'resume') {
-          await runTaskShellCommand('resume', '/goal resume');
+          await runTaskShellCommand(
+            goalResumeArgs({
+              ...(plan.taskId ? { taskId: plan.taskId } : {}),
+              ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
+            }),
+            args ? `/goal ${args}` : '/goal resume'
+          );
           return true;
         }
         if (plan.kind === 'propose') {

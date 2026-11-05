@@ -78,6 +78,7 @@ import { stage as loopLedgerStage } from './stages/loop-ledger.mjs';
 import { stage as goalPauseStage } from './stages/goal-pause.mjs';
 import { stage as goalRunsStage } from './stages/goal-runs.mjs';
 import { stage as acceptanceBlockedStage } from './stages/acceptance-blocked.mjs';
+import { stage as goalResumeArgsStage } from './stages/goal-resume-args.mjs';
 import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
 import { stage as mcpPromptSlashStage } from './stages/mcp-prompt-slash.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
@@ -144,6 +145,7 @@ const STAGES = new Map(
     goalPauseStage,
     goalRunsStage,
     acceptanceBlockedStage,
+    goalResumeArgsStage,
     runTestsVerdictStage,
     mcpPromptSlashStage,
     contextSurfaceStage,
@@ -188,6 +190,7 @@ const FAST_GATE = [
   'task-ledger-reveal',
   'goal-runs',
   'acceptance-blocked',
+  'goal-resume-args',
   'skill-catalog-usage',
   'tool-output-spill',
   'loop-command',

@@ -117,9 +117,39 @@ export function parseGoalCommandLine(line: string): ParsedGoalCommand | null {
 export type GoalInvocation =
   | { kind: 'usage' }
   | { kind: 'clear' }
-  | { kind: 'resume' }
+  | { kind: 'resume'; taskId?: string; acceptance?: string }
   | { kind: 'run'; goal: string; acceptance?: string; notice?: string }
   | { kind: 'propose'; goal: string; candidates: string[] };
+
+/**
+ * `/goal resume [<task_id>] [--accept "<cmd>"]` — the interactive twin of
+ * `moss task resume <id> --accept "<cmd>"` (B98). Without --accept the newest
+ * resumable task is used, exactly as before.
+ */
+function parseResumeArgs(rest: string): { taskId?: string; acceptance?: string } | null {
+  const raw = rest.trim();
+  if (!raw) return {};
+  const marker = /(^|\s)--accept(\s+|=|$)/.exec(raw);
+  if (!marker) {
+    if (/\s/.test(raw)) return null;
+    return { taskId: raw };
+  }
+  const before = raw.slice(0, marker.index).trim();
+  if (/\s/.test(before)) return null;
+  let command = raw
+    .slice(marker.index)
+    .replace(/^\s*--accept(\s+|=|$)/, '')
+    .trim();
+  if (
+    (command.startsWith('"') && command.endsWith('"')) ||
+    (command.startsWith("'") && command.endsWith("'"))
+  ) {
+    command = command.slice(1, -1);
+  }
+  command = command.trim();
+  if (!command) return null;
+  return { ...(before ? { taskId: before } : {}), acceptance: command };
+}
 
 /** How `/goal` should behave for this argument line. `/loop` does not call this. */
 export function planGoalInvocation(rest: string, workspace: string): GoalInvocation {
@@ -127,7 +157,11 @@ export function planGoalInvocation(rest: string, workspace: string): GoalInvocat
   if (!token) return { kind: 'usage' };
   const first = token.split(/\s+/, 1)[0] ?? token;
   if (CLEAR_WORDS.has(first) && token === first) return { kind: 'clear' };
-  if (first === 'resume' && token === 'resume') return { kind: 'resume' };
+  if (first === 'resume') {
+    const resume = parseResumeArgs(token.slice('resume'.length));
+    if (!resume) return { kind: 'usage' };
+    return { kind: 'resume', ...resume };
+  }
   const parsed = parseGoalCommandLine(token);
   if (!parsed) return { kind: 'usage' };
   if (parsed.acceptance)
@@ -140,7 +174,7 @@ export function planGoalInvocation(rest: string, workspace: string): GoalInvocat
 }
 
 export const GOAL_USAGE =
-  'Usage: /goal <condition> [--accept "<verification command>"] | /goal clear';
+  'Usage: /goal <condition> [--accept "<verification command>"] | /goal resume [task_id] [--accept "<verification command>"] | /goal clear';
 
 export function acceptanceProposalLines(
   goal: string,
@@ -189,6 +223,14 @@ export function resolveLoopMaxIterations(
   if (value === undefined || value.trim() === '') return 0;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+/** Arguments for `/task resume` — optionally correcting the oracle (B98). */
+export function goalResumeArgs(options: { taskId?: string; acceptance?: string } = {}): string {
+  const parts = ['resume'];
+  if (options.taskId) parts.push(options.taskId);
+  if (options.acceptance) parts.push('--accept', quoteCommandArg(options.acceptance));
+  return parts.join(' ');
 }
 
 /** Arguments for `runTaskCommand` (`run <goal> [--accept "…"]`). */
