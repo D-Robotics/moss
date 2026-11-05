@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### The empty composer suggests the next step (B144)
+
+- The TUI composer placeholder used to be the same prompt in every workspace. It now reads
+  the unified ledger and AGENTS.md: when the newest run is not completed it offers
+  `Resume with <that run's next command>` (e.g. `moss task resume <id>`), and a fresh workspace
+  with no runs and no AGENTS.md offers `Try "/init" (detect this project, write AGENTS.md)`.
+  Completed runs, or a workspace that already has AGENTS.md, fall back to the board/code/general
+  prompt as before.
+
+### 空输入框会建议下一步（B144）
+
+- TUI 输入框的占位提示过去在每个工作区都是同一句话。现在它读统一账本与 AGENTS.md：最新一次运行未完成时
+  提示 `继续：moss task resume <id>`（即该运行记录的 next 命令）；全新目录且没有 AGENTS.md 时提示
+  `试试 “/init”（检测项目、写 AGENTS.md）`；最新运行已完成或已有 AGENTS.md 时仍回退到 board/code/general
+  的旧提示。
+
 ### `moss runs export` for PRs and CI (B143)
 
 - `moss runs export [<run_id>|latest] [--format md|json] [--out <file>]` renders one unified-run
