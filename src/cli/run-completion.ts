@@ -605,10 +605,23 @@ const QUESTION_ONLY =
 const SOFT_ZH_CHANGE_NON_IMPERATIVE =
   /(?:能不能|可不可以|是否|能否)[^。！？\n?]{0,24}?(?:修好|改好|修一下|修掉)|(?:修好|改好|修一下|修掉)(?:之后|了没有|了吗|了没)/g;
 
+/**
+ * Explicit read-only directive at the start of the request. A verification-only
+ * task ("run the checker, do not modify any file, report the result") must not
+ * be judged against the change heuristic just because the surrounding context
+ * mentions edits — this is the pattern a workflow `verify` step hits, where the
+ * plan's migration wording is included but the step itself only observes.
+ */
+const NO_CHANGE_DIRECTIVE =
+  /\b(?:do not|don't|never|without)\s+(?:modify|modifying|change|changing|edit|editing|write|writing|touch|touching)\b[^.\n]{0,40}\b(?:files?|anything|code|workspace|the workspace)\b|(?:不要|别|无需|不需要|禁止)(?:修改|改动|编辑|写入|触碰)[^。\n]{0,20}(?:文件|代码|任何东西)/i;
+
 /** Heuristic: does this request expect the run to change files? */
 export function requestExpectsFileChanges(request: string): boolean {
   const text = request.trim();
   if (!text || QUESTION_ONLY.test(text)) return false;
+  // An explicit "do not modify any file" in the leading instruction wins over
+  // later mentions of edits (dependency context, planner wording).
+  if (NO_CHANGE_DIRECTIVE.test(text.slice(0, 400))) return false;
   // A negated directive such as “不要修改文件” is not a request to edit.
   const scrubbed = stripNegatedActionClauses(text.replace(SOFT_ZH_CHANGE_NON_IMPERATIVE, ' '));
   return EXPECTS_CHANGES.test(scrubbed);

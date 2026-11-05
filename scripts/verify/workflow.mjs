@@ -157,6 +157,49 @@ await check('a passing state resumes without rerunning passed steps', async () =
   assert.equal(runnerModule.workflowExitCode(resumed), 0);
 });
 
+await check('resume retries a failed step and unblocks its dependents', async () => {
+  const { plan } = planModule.parseWorkflowPlan(validPlan);
+  const runId = 'run-retry';
+  const state = runnerModule.createWorkflowState({
+    runId,
+    plan,
+    planFile: path.join(workspace, 'plan.json'),
+    workspaceDir: workspace,
+  });
+  const first = [];
+  await runnerModule.runWorkflow({
+    plan,
+    state,
+    workspaceDir: workspace,
+    runner: async (step) => {
+      first.push(step.id);
+      if (step.id === 'fix') return { passed: false, output: 'boom', error: 'step exited 1' };
+      return { passed: true, output: `${step.id} ok` };
+    },
+  });
+  assert.equal(
+    state.steps.find((entry) => entry.id === 'report').status,
+    'blocked',
+    'the dependent must start blocked'
+  );
+  const calls = [];
+  const resumed = runnerModule.loadWorkflowState(workspace, runId);
+  await runnerModule.runWorkflow({
+    plan,
+    state: resumed,
+    workspaceDir: workspace,
+    runner: async (step) => {
+      calls.push(step.id);
+      return { passed: true, output: `${step.id} ok` };
+    },
+  });
+  assert.deepEqual(calls, ['fix', 'report'], 'the failed step and its blocked dependent rerun');
+  const status = Object.fromEntries(resumed.steps.map((entry) => [entry.id, entry.status]));
+  assert.equal(status.fix, 'passed');
+  assert.equal(status.report, 'passed');
+  assert.equal(runnerModule.workflowExitCode(resumed), 0);
+});
+
 await check('concurrency stays within the plan limit', async () => {
   const { plan } = planModule.parseWorkflowPlan({
     name: 'wide',

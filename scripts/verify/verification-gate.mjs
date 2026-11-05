@@ -17,6 +17,9 @@ const { resolveCliConfig } = await import(
   pathToFileURL(path.join(root, 'dist/cli/config.js')).href
 );
 
+const completionModule = await import(
+  pathToFileURL(path.join(root, 'dist/cli/run-completion.js')).href
+);
 let toolUseId = 0;
 function call(name, input = {}) {
   const id = `tool-${++toolUseId}`;
@@ -313,4 +316,29 @@ if (failed.length > 0) {
   console.error(`[verification-gate] ${failed.length} assertion(s) failed`);
   process.exit(1);
 }
+
+// A workflow verify step carries the plan's migration wording as dependency
+// context; the explicit read-only directive must still win.
+assert.equal(
+  completionModule.requestExpectsFileChanges(
+    'Run `node check.mjs` in this workspace and report its exit code and output. Do not modify any file. If it fails, report the failure honestly instead of fixing it.\n\nPreviously: change the single line in src/module-01.ts to v2 and report the changed paths.'
+  ),
+  false,
+  'an explicit no-change directive must beat change mentions in context'
+);
+assert.equal(
+  completionModule.requestExpectsFileChanges('Please fix the failing test and report.'),
+  true
+);
+assert.equal(
+  completionModule.requestExpectsFileChanges('Only inspect the repo, do not modify any file.'),
+  false
+);
+assert.equal(
+  completionModule.requestExpectsFileChanges('不要修改文件，只跑检查并报告结果。'),
+  false
+);
+assert.equal(completionModule.requestExpectsFileChanges('修复这个 bug 并跑测试。'), true);
+console.log('[verification-gate] no-change directive ok');
+
 console.log(`[verification-gate] ${cases.length} assertion(s) passed`);

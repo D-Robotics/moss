@@ -25,9 +25,14 @@ export interface DiagnosticsInput {
   paths?: string[];
   /** Cap on rendered findings (default 50, maximum 500). */
   max?: number;
+  /**
+   * Which toolchain family to run. Omitted = auto: Node toolchains when a
+   * tsconfig/ESLint config exists, else Python pytest when tests are found.
+   */
+  kind?: 'auto' | 'node' | 'python';
 }
 
-export type DiagnosticSource = 'tsc' | 'eslint';
+export type DiagnosticSource = 'tsc' | 'eslint' | 'pytest';
 export type DiagnosticSeverity = 'error' | 'warning';
 
 export interface Diagnostic {
@@ -83,6 +88,147 @@ interface RunOutcome {
   exitCode: number | null;
   timedOut: boolean;
   spawnError?: string;
+}
+
+const PYTEST_TIMEOUT_MS = 180_000;
+/** `--tb=line` failure line: `/abs/test_x.py:5: AssertionError: assert 1 == 2`. */
+const PYTEST_TRACEBACK_RE = /^\s*(.+?\.py):(\d+):\s+(.+)$/;
+const ANSI_RE = /\u001b\[[0-9;]*m/g;
+
+/** Files/dirs that would make pytest a meaningful diagnostics source. */
+function hasPythonTests(workspaceDir: string): boolean {
+  const stack: Array<{ dir: string; depth: number }> = [{ dir: workspaceDir, depth: 0 }];
+  while (stack.length > 0) {
+    const { dir, depth } = stack.pop()!;
+    if (depth > 2) continue;
+    let names: string[];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (name === 'tests' || name === 'test') return true;
+      if (name.endsWith('.py') && (name.startsWith('test_') || name.endsWith('_test.py')))
+        return true;
+      if (name === 'node_modules' || name === '.git' || name === '.venv' || name === 'venv')
+        continue;
+      if (name.startsWith('.')) continue;
+      const child = path.join(dir, name);
+      try {
+        if (fs.statSync(child).isDirectory()) stack.push({ dir: child, depth: depth + 1 });
+      } catch {
+        // unreadable entry: skip
+      }
+    }
+  }
+  return false;
+}
+
+interface PytestOutcome {
+  diagnostics: Diagnostic[];
+  ran: boolean;
+  failed: number;
+  passed: number;
+  notes: string[];
+}
+
+/**
+ * Run `python3 -m pytest -q --tb=line` and normalize its failure lines. Pytest
+ * exits 5 when it collected no tests and 2 on a usage/config error; neither is
+ * a "findings" list, so they become notes instead of fake diagnostics.
+ */
+async function runPytest(
+  workspaceDir: string,
+  ctx: ToolContext,
+  filters: readonly string[]
+): Promise<PytestOutcome> {
+  const notes: string[] = [];
+  const args = ['-m', 'pytest', '-q', '--tb=line', '--no-header', '-p', 'no:cacheprovider'];
+  if (filters.length > 0) args.push(...filters);
+  let result: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean };
+  try {
+    const finished = await runProcess(process.env.MOSS_PYTHON_PATH ?? 'python3', {
+      args,
+      cwd: canonicalWorkspace(workspaceDir),
+      timeout: PYTEST_TIMEOUT_MS,
+      ...(ctx.abortSignal ? { signal: ctx.abortSignal } : {}),
+    });
+    result = {
+      stdout: finished.stdout,
+      stderr: finished.stderr,
+      exitCode: finished.exitCode,
+      timedOut: false,
+    };
+  } catch (err) {
+    if (err instanceof ProcessError) {
+      result = {
+        stdout: err.stdout,
+        stderr: err.stderr,
+        exitCode: err.exitCode,
+        timedOut: err.timedOut,
+      };
+    } else {
+      notes.push(
+        `pytest: could not start python3 (${err instanceof Error ? err.message : String(err)}).`
+      );
+      return { diagnostics: [], ran: false, failed: 0, passed: 0, notes };
+    }
+  }
+  const output = `${result.stdout}\n${result.stderr}`.replace(ANSI_RE, '');
+  const diagnostics: Diagnostic[] = [];
+  const lines = output.split('\n');
+  let inFailures = false;
+  for (const line of lines) {
+    if (/^=+ FAILURES =+/.test(line)) {
+      inFailures = true;
+      continue;
+    }
+    if (
+      inFailures &&
+      /^=+ (?:short test summary info|warnings summary|slowest|ERRORS)/.test(line)
+    ) {
+      inFailures = false;
+      continue;
+    }
+    if (!inFailures) continue;
+    const match = PYTEST_TRACEBACK_RE.exec(line);
+    if (!match) continue;
+    const rawFile = match[1];
+    const codeMatch = /^([A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Warning)?)/.exec(match[3]);
+    // `--tb=line` shows a bare `assert ...` for plain assertions; normalize it
+    // to the exception pytest would name in its short summary.
+    const code = codeMatch?.[1] === 'assert' ? 'AssertionError' : (codeMatch?.[1] ?? 'pytest');
+    diagnostics.push({
+      file: normalizeFile(rawFile, workspaceDir),
+      line: Number(match[2]),
+      column: 1,
+      severity: 'error',
+      code,
+      message: capMessage(match[3].trim()),
+      source: 'pytest',
+    });
+  }
+  // pytest only prints counts in its summary line, not a machine format.
+  const summary = lines
+    .slice(-25)
+    .reverse()
+    .find((line) => /\d+ (?:passed|failed)\b.*\bin \d/.test(line));
+  const failed = Number(/(\d+) failed/.exec(summary ?? '')?.[1] ?? diagnostics.length);
+  const passed = Number(/(\d+) passed/.exec(summary ?? '')?.[1] ?? 0);
+  if (result.timedOut) {
+    notes.push('pytest: timed out; raise the budget or narrow paths.');
+  } else if (diagnostics.length === 0) {
+    if (result.exitCode === 5) {
+      notes.push('pytest: collected no tests (exit 5) — nothing to check.');
+    } else if ((result.exitCode ?? 0) !== 0) {
+      const detail = firstLine(result.stderr) || firstLine(result.stdout);
+      notes.push(
+        `pytest: exited ${result.exitCode ?? 'unknown'} without parseable failures${detail ? ` — ${detail}` : ''}.`
+      );
+    }
+  }
+  return { diagnostics, ran: true, failed, passed, notes };
 }
 
 function isFile(filePath: string): boolean {
@@ -390,14 +536,14 @@ function renderDiagnostic(diagnostic: Diagnostic): string {
 export const diagnosticsTool: Tool<DiagnosticsInput> = {
   name: 'diagnostics',
   description:
-    'Run the workspace TypeScript and ESLint toolchains and return normalized compiler/linter findings ' +
-    '(file:line:col, severity, code, message, source) sorted and capped. Use it before/after an edit to ' +
-    'see real type and lint errors instead of grepping build output. Readonly: tsc runs with --noEmit and ' +
-    'eslint without --fix. A missing toolchain or an empty result is reported explicitly. Not for running ' +
-    'tests (run_tests) or arbitrary shell commands (exec).',
+    'Run the workspace diagnostics toolchains (tsc, ESLint, and pytest when chosen/auto-detected) and ' +
+    'return normalized findings (file:line:col, severity, code, message, source) sorted and capped. ' +
+    'Use it before/after an edit to see real type/lint/test failures instead of grepping build output. ' +
+    'Readonly: tsc runs with --noEmit, eslint without --fix, pytest without cache writes. A missing ' +
+    'toolchain or an empty result is reported explicitly. Not for arbitrary shell commands (exec).',
   metadata: {
     leanDescription:
-      'Run workspace tsc/eslint and return normalized findings; readonly. Not for tests (run_tests).',
+      'Run workspace tsc/eslint/pytest and return normalized findings; readonly. Not for exec.',
     sideEffectClass: 'readonly',
     planMode: 'allow',
     requiresApproval: false,
@@ -423,6 +569,13 @@ export const diagnosticsTool: Tool<DiagnosticsInput> = {
         type: 'number',
         description: `Maximum findings to render (default ${DEFAULT_MAX}, maximum ${MAX_LIMIT}).`,
       },
+      kind: {
+        type: 'string',
+        enum: ['auto', 'node', 'python'],
+        description:
+          'Toolchain family: auto (default — Node when tsconfig/ESLint exists, otherwise pytest when ' +
+          'Python tests exist), node (tsc + ESLint only), or python (pytest only).',
+      },
     },
   },
   async execute(input, ctx: ToolContext): Promise<string> {
@@ -435,14 +588,19 @@ export const diagnosticsTool: Tool<DiagnosticsInput> = {
 
     const hasTsconfig = isFile(path.join(workspaceDir, 'tsconfig.json'));
     const hasEslint = hasEslintConfig(workspaceDir);
-    if (!hasTsconfig && !hasEslint) {
+    const hasPython = hasPythonTests(workspaceDir);
+    const requested = input?.kind ?? 'auto';
+    const runNode = requested === 'node' || (requested === 'auto' && (hasTsconfig || hasEslint));
+    const runPython =
+      requested === 'python' || (requested === 'auto' && !hasTsconfig && !hasEslint && hasPython);
+    if (!runNode && !runPython) {
       return [
-        `No diagnostics sources in ${workspaceDir}: no tsconfig.json and no ESLint config were found.`,
-        'Add a tsconfig.json (TypeScript) and/or an ESLint config, then re-run; nothing was executed.',
+        `No diagnostics sources in ${workspaceDir}: no tsconfig.json, ESLint config, or Python test files were found.`,
+        'Add a tsconfig.json (TypeScript), an ESLint config, or test_*.py/tests/, then re-run; nothing was executed.',
       ].join('\n');
     }
 
-    if (hasTsconfig) {
+    if (runNode && hasTsconfig) {
       const resolved = resolveNodeScript(process.env.MOSS_TSC_PATH, workspaceDir, TSC_SEGMENTS);
       if (resolved.envInvalid) {
         notes.push(
@@ -480,7 +638,7 @@ export const diagnosticsTool: Tool<DiagnosticsInput> = {
       }
     }
 
-    if (hasEslint) {
+    if (runNode && hasEslint) {
       const resolved = resolveNodeScript(
         process.env.MOSS_ESLINT_PATH,
         workspaceDir,
@@ -527,6 +685,15 @@ export const diagnosticsTool: Tool<DiagnosticsInput> = {
       }
     }
 
+    let pytestCounts: { failed: number; passed: number } | undefined;
+    if (runPython) {
+      sources.push('pytest');
+      const outcome = await runPytest(workspaceDir, ctx, filters);
+      diagnostics.push(...outcome.diagnostics);
+      notes.push(...outcome.notes);
+      if (outcome.ran) pytestCounts = { failed: outcome.failed, passed: outcome.passed };
+    }
+
     const filtered = diagnostics.filter((diagnostic) =>
       matchesPaths(diagnostic, filters, workspaceDir)
     );
@@ -537,6 +704,11 @@ export const diagnosticsTool: Tool<DiagnosticsInput> = {
     const from = sources.length > 0 ? sources.join(', ') : 'no toolchain';
 
     const lines = [`${errors} error(s), ${warnings} warning(s) from ${from}`];
+    if (pytestCounts) {
+      lines.push(
+        `pytest: ${pytestCounts.failed} failed, ${pytestCounts.passed} passed — failures are listed below with file:line.`
+      );
+    }
     if (filters.length > 0) {
       lines.push(
         `Filtered to: ${filters.map((filter) => normalizeFile(filter, workspaceDir)).join(', ')}`

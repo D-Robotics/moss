@@ -91,7 +91,7 @@ assert.equal(tool.metadata?.planMode, 'allow');
 assert.equal(tool.metadata?.requiresApproval, false);
 assert.equal(tool.metadata?.maxResultTokens, 5_000);
 assert.ok(typeof tool.metadata?.truncationHint === 'string' && tool.metadata.truncationHint);
-assert.deepEqual(Object.keys(tool.inputSchema.properties).sort(), ['max', 'paths']);
+assert.deepEqual(Object.keys(tool.inputSchema.properties).sort(), ['kind', 'max', 'paths']);
 assert.equal(tool.inputSchema.required, undefined);
 const lean = tool.metadata?.leanDescription;
 assert.ok(typeof lean === 'string' && lean.length > 0, 'a >150-char description needs a lean tier');
@@ -99,7 +99,7 @@ assert.ok(
   lean.length < tool.description.length * 0.6,
   `lean description is ${lean.length} chars (full ${tool.description.length})`
 );
-assert.match(tool.description, /Not for running\s+tests/);
+assert.match(tool.description, /Not for arbitrary shell commands/);
 ok('diagnostics is registered as a readonly, plan-safe, capped tool');
 
 // ── 2. tsc findings are normalized and workspace-relative ──────────────────
@@ -232,6 +232,64 @@ await check('the result is compact text with a summary line first', async () => 
   assert.match(text.split('\n')[0] ?? '', /^\d+ error\(s\), \d+ warning\(s\) from /);
   assert.ok(text.length < 20_000, `result should stay compact, got ${text.length} chars`);
 });
+
+// ── 9. Python: pytest failures are normalized, auto-detected when no Node config ──
+
+const procLib = await import(pathToFileURL(path.join(root, 'dist/utils/run-process.js')).href);
+const pytestAvailable = (() => {
+  try {
+    return procLib.runProcessSync('python3', ['-m', 'pytest', '--version']).status === 0;
+  } catch {
+    return false;
+  }
+})();
+
+if (pytestAvailable) {
+  const PY_TEST = [
+    'def test_adds():',
+    '    assert 1 + 1 == 2',
+    '',
+    'def test_fails():',
+    '    assert 2 + 2 == 5',
+    '',
+  ].join('\n');
+  const pyWorkspace = makeWorkspace({ 'tests/test_math.py': PY_TEST });
+
+  await check('pytest failures become normalized findings (kind:python)', async () => {
+    const text = await tool.execute({ kind: 'python' }, ctxFor(pyWorkspace));
+    assert.match(text, /^1 error\(s\), 0 warning\(s\) from pytest$/m);
+    const line = renderLines(text)[0];
+    assert.ok(line, `expected a rendered pytest finding, got:\n${text}`);
+    assert.match(line, /^tests\/test_math\.py:\d+:1 error AssertionError: assert /);
+    assert.ok(line.endsWith('(pytest)'));
+    assert.match(text, /pytest: 1 failed, 1 passed/);
+    assert.ok(!text.includes(pyWorkspace), 'paths must be workspace-relative');
+  });
+
+  await check('auto detects pytest when no tsconfig/ESLint config exists', async () => {
+    const text = await tool.execute({}, ctxFor(pyWorkspace));
+    assert.match(text, /^1 error\(s\), 0 warning\(s\) from pytest$/m);
+  });
+
+  await check('kind:node on a Python-only workspace reports nothing executed', async () => {
+    const text = await tool.execute({ kind: 'node' }, ctxFor(pyWorkspace));
+    assert.match(text, /No diagnostics were run/);
+    assert.match(text, /0 error\(s\), 0 warning\(s\) from no toolchain/);
+  });
+
+  await check('a clean Python project reports pytest counts and no findings', async () => {
+    const clean = makeWorkspace({ 'tests/test_ok.py': 'def test_ok():\n    assert True\n' });
+    const text = await tool.execute({ kind: 'python' }, ctxFor(clean));
+    assert.match(text, /^0 error\(s\), 0 warning\(s\) from pytest$/m);
+    assert.match(text, /pytest: 0 failed, 1 passed/);
+    assert.match(text, /No diagnostics found/);
+    fs.rmSync(clean, { recursive: true, force: true });
+  });
+
+  fs.rmSync(pyWorkspace, { recursive: true, force: true });
+} else {
+  ok('SKIP pytest checks (python3 -m pytest unavailable)');
+}
 
 fs.rmSync(errorWorkspace, { recursive: true, force: true });
 

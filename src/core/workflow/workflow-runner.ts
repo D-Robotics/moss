@@ -131,11 +131,10 @@ export async function runWorkflow(options: RunWorkflowOptions): Promise<Workflow
   const passed = new Set(
     [...stepState.values()].filter((entry) => entry.status === 'passed').map((entry) => entry.id)
   );
-  const failedOrBlocked = new Set(
-    [...stepState.values()]
-      .filter((entry) => entry.status === 'failed' || entry.status === 'blocked')
-      .map((entry) => entry.id)
-  );
+  // Failures are re-evaluated on every run (resume retries `failed` and
+  // `blocked` steps), so this set starts empty: a step that failed in a
+  // previous run but passes now must not keep its dependents blocked.
+  const failedOrBlocked = new Set<string>();
   const waves = planWaves(plan, new Set(passed));
 
   for (const wave of waves) {
@@ -177,6 +176,7 @@ export async function runWorkflow(options: RunWorkflowOptions): Promise<Workflow
             if (result.passed) {
               entry.status = 'passed';
               delete entry.error;
+              failedOrBlocked.delete(step.id);
             } else {
               entry.status = 'failed';
               entry.error = result.error ?? 'step failed';
