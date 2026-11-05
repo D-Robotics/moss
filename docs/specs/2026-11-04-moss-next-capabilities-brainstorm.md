@@ -302,6 +302,21 @@
 - **验收**：一个"修类型错误"bench 任务：有 diagnostics 与没有的 A/B（turn 数与 token）。
 - **成本**：中；**风险**：LSP 生命周期复杂；**优先级**：P2。
 
+**进度（2026-11-05，D8 第一片：聚合 diagnostics 已落地）**
+
+- ✅ 新工具 `diagnostics {paths?, max?}`（`src/tools/diagnostics.ts`）：检测工作区 `tsconfig.json` →
+  `tsc --noEmit --pretty false`；检测 eslint 配置（flat/legacy/package.json）→ `eslint . --format json`；
+  两者输出归一化为 `{file,line,column,severity,code,message,source}`，路径相对工作区、可按 `paths` 过滤、
+  按文件/行排序、默认上限 50（`max` 可调，超限给总数注记）；输出以摘要行开头，无问题/无配置/工具链缺失
+  都是显式文案而不是抛错；工具链解析顺序 `MOSS_TSC_PATH`/`MOSS_ESLINT_PATH` → 工作区 `node_modules` →
+  最近祖先 `node_modules`；readonly、免审批、`maxResultTokens: 5000` + 截断提示。
+- 验收证据：确定性探针 `diagnostics`（9 条：真实 TS2322 的 severity/code/相对路径、`max:1` 截断注记、
+  `paths` 过滤、干净工作区、无配置、工具链缺失不抛、eslint JSON 归一化、摘要行在首）；verify stage
+  `diagnostics`（1.5s）。真实仓库工作区跑一次：`0 error(s), 0 warning(s) from tsc, eslint`（两者都真执行）。
+- 已知限制：没做 pytest 聚合；不识别 monorepo 子包；每次全量 tsc/eslint 无缓存；不是 LSP。
+- ⬜ 仍缺：D8 验收要求的"修类型错误"bench A/B（有/无 diagnostics 的 turn 数与 token 对照），以及是否
+  值得做 LSP client 的评估。
+
 ### D9 规则 4 类 + 团队/策略层
 
 - **问题**：Moss 只有 always + globs；缺"按 description 智能激活"和"手动 `@rule`"；
@@ -558,7 +573,7 @@
 | D5 编排                                             | 🟡                      | 已有 `fan_out_subagents` / `create_subagent` 与 Task OS 任务板。缺：workflow 脚本（可重跑/可恢复）、agent teams 共享任务板、对抗式复核。                                                                                                          |
 | D6 记忆写路径                                       | ✅（显式版）            | `/remember` + `moss remember`（预览、去重、500 字符上限、可撤销）+ verify stage `remember`（6 条）+ 真实跨会话运行。❌ 自动记忆（刻意不做）。                                                                                                     |
 | D7 多模态                                           | 🟡                      | 已有 `read_image` 与图像预算（provider 请求只保留最新图）；缺：PDF / `@file` 附件、会话内图片引用。                                                                                                                                               |
-| D8 代码智能（LSP）                                  | ❌                      | 无 LSP / diagnostics 客户端；跨文件符号视图仍靠 `tool_search` + grep。                                                                                                                                                                            |
+| D8 代码智能（LSP / diagnostics）                    | 🟡                      | 聚合 `diagnostics` 工具已落地（tsc+eslint 归一化、9 条探针、真实全仓库运行 0 error）；缺：pytest 聚合、monorepo 扫描、LSP client 评估，以及验收要求的 bench A/B。                                                                                 |
 | D9 规则 4 类 + 团队策略                             | 🟡                      | 已有三类激活（always / globs / manual + `@rule:<name>` 请求注入，`rules-activation` 11 条断言）并且**可见**（`moss rules list [--json]`、`/rules`）。缺：面板式手动选择与团队级策略层。                                                           |
 | D10 产品化小件                                      | ✅                      | `moss skill list` 显示 scope/used/catalog/evals；本地 usage 计数；`moss skill create` 脚手架。缺：`/skills` 在 REPL/TUI 的同等信息（两者仍只列名字与 issues）。                                                                                   |
 | D11 技能运行语义 v2                                 | 🟡                      | 已有 run 级工具收窄、`context: fork`（含 `model` 转发）、**内联 model/effort run 级覆盖**（真实 -p 对照 + `skill-policy` 6 条）、`$ARGUMENTS`、`when_to_use` 别名。缺：`background`、技能自带 hooks、更深 scoping。                               |
