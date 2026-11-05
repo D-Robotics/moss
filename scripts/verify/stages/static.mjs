@@ -5,27 +5,60 @@
  * imports `dist/`, which is why CI can install with `npm ci --ignore-scripts`
  * for this stage.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { captureProcess, formatDuration } from '../lib/proc.mjs';
+
+/**
+ * B68: every tool here keeps a content-addressed cache. A cold run on a loaded
+ * dev machine spends ~1.5-2 minutes on the three checks, which is why local
+ * `verify` kept overshooting the 60s budget; a warm run is single-digit seconds
+ * because nothing changed since the last check. The cache lives inside
+ * `node_modules/` (already ignored) and is cold exactly once in CI, so gate
+ * semantics are unchanged: a changed file invalidates its own entry.
+ */
+function cachePath(root, name) {
+  const dir = path.join(root, 'node_modules', '.cache', 'verify');
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, name);
+}
 
 const STEPS = [
   {
     name: 'format',
-    label: 'prettier --check .',
+    label: 'prettier --check . (cached)',
     binary: ['prettier', 'bin', 'prettier.cjs'],
-    args: ['--check', '.'],
+    args: (root) => [
+      '--check',
+      '.',
+      '--cache',
+      '--cache-location',
+      cachePath(root, 'prettier.cache'),
+    ],
   },
   {
     name: 'lint',
-    label: 'eslint . --max-warnings 0',
+    label: 'eslint . --max-warnings 0 (cached)',
     binary: ['eslint', 'bin', 'eslint.js'],
-    args: ['.', '--max-warnings', '0'],
+    args: (root) => [
+      '.',
+      '--max-warnings',
+      '0',
+      '--cache',
+      '--cache-location',
+      cachePath(root, 'eslint.cache'),
+    ],
   },
   {
     name: 'types',
-    label: 'tsc --noEmit',
+    label: 'tsc --noEmit (incremental)',
     binary: ['typescript', 'lib', 'tsc.js'],
-    args: ['--noEmit'],
+    args: (root) => [
+      '--noEmit',
+      '--incremental',
+      '--tsBuildInfoFile',
+      cachePath(root, 'tsc.tsbuildinfo'),
+    ],
   },
 ];
 
@@ -42,7 +75,7 @@ function binaryFor(root, segments) {
 
 async function runStep(step, root) {
   const binary = binaryFor(root, step.binary);
-  const result = await captureProcess(process.execPath, [binary, ...step.args], {
+  const result = await captureProcess(process.execPath, [binary, ...step.args(root)], {
     cwd: root,
     timeoutMs: 10 * 60 * 1000,
   });
