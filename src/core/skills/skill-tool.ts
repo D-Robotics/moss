@@ -3,6 +3,11 @@ import type { Tool, ToolContext } from '../tools/tool-types.js';
 import { findSkill, parseSkillFile, type SkillManifest } from './skill-registry.js';
 import { applySkillToolScope, describeSkillToolScope } from './skill-tool-scope.js';
 import { recordSkillUse } from './skill-usage.js';
+import {
+  describeSkillRunPolicy,
+  setSkillRunPolicy,
+  type SkillRunPolicy,
+} from './skill-run-policy.js';
 
 /**
  * L2 of progressive disclosure: the full body plus the provenance and resource
@@ -191,9 +196,21 @@ export function createSkillTool(
         ? describeSkillToolScope(ctx.runId ?? ctx.sessionKey)
         : undefined;
       loaded.set(skill.name, args);
+      // D11 inline policy: a skill can switch the model/effort for the rest of
+      // the run (forked skills pass the model to the child instead).
+      const runId = ctx.runId ?? ctx.sessionKey;
+      const policy: SkillRunPolicy = {
+        ...(skill.model ? { model: skill.model } : {}),
+        ...(skill.effort ? { effort: skill.effort } : {}),
+      };
+      const policyNote =
+        policy.model !== undefined || policy.effort !== undefined
+          ? (setSkillRunPolicy(runId, policy), describeSkillRunPolicy(policy))
+          : undefined;
       // D10: local counters power `/skills` cost-vs-usage visibility.
       recordSkillUse(ctx.workspaceDir, skill.name);
-      return scopeNote ? `${wrapped}\n\n${scopeNote}` : wrapped;
+      const notes = [scopeNote, policyNote].filter((note): note is string => note !== undefined);
+      return notes.length > 0 ? `${wrapped}\n\n${notes.join('\n')}` : wrapped;
     },
   };
 }

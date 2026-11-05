@@ -10,6 +10,7 @@ import type { ContentBlock, Message } from '../session/session-jsonl.js';
 import type { Tool } from '../tools/tool-types.js';
 import type { AgentLoopMutableState } from './agent-loop-state.js';
 import { resolveRoutedModel, type ModelTiers } from './agent-loop-types.js';
+import { getSkillRunPolicy, type SkillEffort } from '../skills/skill-run-policy.js';
 import type { CompactHookRegistry } from './compact-hooks.js';
 import { isContextOverflowError, describeError } from '../../provider/errors.js';
 import { totalPromptTokens } from '../llm/usage.js';
@@ -116,14 +117,20 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
   // v0.12 model routing: same pressure signal as adaptive reasoning — cheap
   // tier on clean rounds, strong tier under pressure (per-round, at the
   // round boundary; absent tiers keep the configured model).
-  const routedModel = resolveRoutedModel({
-    tiers: params.modelTiers,
-    defaultModel: modelDef.id,
-    pressure:
-      (state.failingVerifyStreak?.count ?? 0) >= 1 ||
-      state.redVerifyNudgeAttempts > 0 ||
-      state.consecutiveTurnErrors > 0,
-  });
+  // D11: a loaded skill may pin the model/effort for the rest of the run. The
+  // policy outranks adaptive routing — it is an explicit instruction, not a
+  // pressure heuristic.
+  const skillPolicy = getSkillRunPolicy(runId);
+  const routedModel =
+    skillPolicy?.model ??
+    resolveRoutedModel({
+      tiers: params.modelTiers,
+      defaultModel: modelDef.id,
+      pressure:
+        (state.failingVerifyStreak?.count ?? 0) >= 1 ||
+        state.redVerifyNudgeAttempts > 0 ||
+        state.consecutiveTurnErrors > 0,
+    });
   const requestModel = routedModel === modelDef.id ? undefined : routedModel;
 
   // v0.10 W4 adaptive reasoning: failure signals (repeated verify failures,
@@ -152,6 +159,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
     effectiveReasoning = state.reasoningOverrideNextTurn;
   }
   state.reasoningOverrideNextTurn = undefined;
+  if (skillPolicy?.effort) effectiveReasoning = skillPolicy.effort as SkillEffort;
   try {
     const llmTurn = await runAgentLoopLlmTurn({
       requestModel,

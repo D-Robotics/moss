@@ -39,6 +39,7 @@ export type SkillIssueCode =
   | 'duplicate-name'
   | 'unknown-field'
   | 'unknown-context'
+  | 'unknown-effort'
   | 'resource-oversize'
   | 'evals-invalid';
 
@@ -95,8 +96,10 @@ export interface SkillManifest {
    * its summary returns to the parent context. Omitted = inline (the default).
    */
   context?: 'fork';
-  /** D11 `model`: model id for the forked sub-agent (ignored when inline). */
+  /** D11 `model`: model id for this skill (forked sub-agent, or the run's next calls). */
   model?: string;
+  /** D11 `effort`: reasoning level for the run after this skill loads. */
+  effort?: 'low' | 'medium' | 'high';
   metadata: Record<string, string>;
   /** Moss extension: workspace-relative globs that activate the skill's catalog entry. */
   globs: string[];

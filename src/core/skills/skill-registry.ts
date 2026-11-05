@@ -258,6 +258,16 @@ export function readSkillManifest(
     });
   }
   const model = asString(parsed.fields['model']);
+  const rawEffort = asString(parsed.fields['effort']);
+  const effort =
+    rawEffort === 'low' || rawEffort === 'medium' || rawEffort === 'high' ? rawEffort : undefined;
+  if (rawEffort !== undefined && effort === undefined) {
+    issues.push({
+      code: 'unknown-effort',
+      file,
+      message: `effort "${rawEffort}" is not low/medium/high; ignored`,
+    });
+  }
   const globs = asStringList(parsed.fields.globs);
   return {
     issues,
@@ -272,6 +282,7 @@ export function readSkillManifest(
       disallowedTools,
       ...(context ? { context } : {}),
       ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
       metadata,
       globs,
       scope,
