@@ -1122,6 +1122,20 @@ export async function runCli(): Promise<void> {
     }
   }
   startupTiming.mark('mcp');
+  // One source for both `/mcp` views: the registry's live statuses (a `deferred`
+  // server has not connected yet and would read as noise in a list).
+  const listMcpServerStatuses = () =>
+    mcpRegistry
+      ? mcpRegistry
+          .getStatuses()
+          .filter((s) => s.state !== 'deferred')
+          .map((s) => ({
+            name: s.name,
+            state: s.state,
+            ...(s.toolCount !== undefined ? { toolCount: s.toolCount } : {}),
+            ...(s.error ? { error: s.error } : {}),
+          }))
+      : [];
   agent.config.resolveMissingTool = (name, signal) =>
     mcpRegistry?.resolveCallableTool(name, signal) ?? Promise.resolve(undefined);
   agent.config.describeMissingTool = (name) => mcpRegistry?.missingToolReason(name);
@@ -1649,6 +1663,7 @@ export async function runCli(): Promise<void> {
             >,
           }
         : {}),
+      listMcpServers: listMcpServerStatuses,
     });
     // v0.17: interactive TTY sessions get the full-screen TUI (ink); non-TTY
     // pipes and MOSS_NO_TUI=1 keep the readline REPL. The TUI is dynamically
@@ -1778,18 +1793,7 @@ export async function runCli(): Promise<void> {
               current: m.sessionKey === currentSessionKey,
             }));
         },
-        listMcpServers: () =>
-          mcpRegistry
-            ? mcpRegistry
-                .getStatuses()
-                .filter((s) => s.state !== 'deferred')
-                .map((s) => ({
-                  name: s.name,
-                  state: s.state,
-                  ...(s.toolCount !== undefined ? { toolCount: s.toolCount } : {}),
-                  ...(s.error ? { error: s.error } : {}),
-                }))
-            : [],
+        listMcpServers: listMcpServerStatuses,
         onMcpUiReady: () => {
           announceMcpStatus = true;
         },

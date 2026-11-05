@@ -537,6 +537,25 @@ export async function runInteractive(
       continue;
     }
 
+    if (msg === '/mcp' || msg.startsWith('/mcp ')) {
+      // MCP statuses used to be TUI-only; the REPL answered `/mcp` with an
+      // unknown-command error. Same wording as the TUI rows.
+      const { formatMcpStatusLine } = await import('./rdk-docs-mcp.js');
+      const servers = runtime?.listMcpServers?.() ?? [];
+      console.error('MCP');
+      if (servers.length === 0) {
+        console.error(
+          cliLocale() === 'zh'
+            ? '  未配置 MCP 服务器（moss mcp add <name> <command>，或编辑 .moss/mcp.json）'
+            : '  no MCP servers configured (moss mcp add <name> <command>, or .moss/mcp.json)'
+        );
+      } else {
+        for (const server of servers) console.error(`  ${formatMcpStatusLine(server)}`);
+      }
+      rl.prompt();
+      continue;
+    }
+
     if (msg === '/hooks' || msg.startsWith('/hooks ')) {
       // The hooks view used to be TUI-only; a readline REPL user could not see
       // which hook fires on what. Shared formatter + the never-fires warnings.

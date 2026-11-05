@@ -53,6 +53,17 @@ export interface CliRuntimeStatus {
    * carry the hooks table.
    */
   hooksConfig?: Record<string, readonly import('./hooks-view.js').HookViewEntry[]>;
+  /**
+   * Live MCP server statuses (connected / failed / connecting). `/mcp` reads
+   * this: the resolved CLI config does not carry the mcp.json server map, and
+   * the status only exists once the registry is built.
+   */
+  listMcpServers?: () => ReadonlyArray<{
+    name: string;
+    state: string;
+    toolCount?: number;
+    error?: string;
+  }>;
 }
 
 interface ToolGroupSummary {
@@ -81,6 +92,7 @@ function createDefaultRuntime(): Required<CliRuntimeStatus> {
     sessionKey: 'cli',
     permissionsRules: () => ({ rules: [], sources: {} }),
     hooksConfig: {},
+    listMcpServers: () => [],
     permissionRuleRegistry: new PermissionRuleRegistry(),
     config: loadDefaultRuntimeConfig(),
   };

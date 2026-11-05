@@ -508,6 +508,7 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 | B37 | P1     | **REPL 里 `@rule:<name>` 永远不生效**：规则扫描只做一次（`createCliPromptSetup({ initialText: process.argv.join(' ') })`），REPL 的 argv 里没有提示词，所以首轮与后续轮次的 `@rule:` 都被忽略——B06 交付的「可按需加载的 manual 规则」在交互模式下形同虚设                                          | **已修并验证（2026-11-05）**：`prompt-setup.ts` 新增 `noteUserText()`（会话内 sticky 累加已请求规则）；`runtime.ts` 在每轮 `onInputGuardrail` 先扫该轮用户消息；`CliPromptSetup` 接口补声明                                                                                                                                                                    | PTY 实测：改造前「hello」→`none`、「@rule:described give me a fruit」→`none`；改造后同一会话第二轮 → `BANANA`，首轮直接 `@rule:` → `BANANA`；headless `-p` 行为不变（带 `@rule:` → BANANA，不带 → none）；`npm run verify` PASS 44.2s                                                                                                                        |
 | B38 | P1     | **拼错工具名的权限规则静默失效且无处可见**：`deny: ["exce(npm run *)"]` 解析通过、`/permissions` 里显示 `deny 1` 看起来很健康，实际永不匹配（B35/B36 修的是「工具名对但操作数没提取」，这里是「工具名根本不存在」）                                                                                | **已修并验证（2026-11-05）**：`renderCliPermissions` 新增 `knownToolNames` 选项 + `unmatchedRuleToolLines()`：字面量工具名（跳过 `*?[]` 通配）不在注册表时输出 `⚠ rule exce matches no registered tool — check the spelling; it never applies`；`/permissions` 与 `--verbose` 都显示；`registry.ts` 传 `ctx.agent.tools.getAll()`（含 MCP 工具，大小写不敏感） | PTY 实测：改造前 `⚠` 行数 0；改造后仅拼错的 `exce` 报警，`exec(npm run *)`、大小写不同的 `Read_File(...)` 不报，通配规则 `exec*` 被跳过；`npm run verify` PASS 38.7s                                                                                                                                                                                         |
 | B39 | P2     | **`/hooks` 在 REPL 里是 unknown command，且两个界面都读不到 hooks 表**：hooks 视图只写在 TUI 内联分支里；REPL 输入 `/hooks` 得到 `unknown command`（还给出错误建议 `/tasks`）；`CliRuntimeStatus.config`（resolved config）不含 `hooks`，所以 TUI 的 hooks 视图实际永远显示「no hooks configured」 | **已修并验证（2026-11-05）**：新增 `cli/hooks-view.ts`（`formatHookViewLines()`，REPL 与 TUI 共用；对字面量 `matcher` 与 `if:` 条件里的工具名做同一套「永不触发」告警）；`CliRuntimeStatus` 增加 `hooksConfig`，runtime 从 `projectCapabilities.hooks` 发布；REPL 新增 `/hooks` 分支，TUI 改调共享格式化                                                       | PTY 实测：改造前 `/hooks` → `[help] unknown command "/hooks"` + `Did you mean /tasks?`；改造后列出 3 条 hook，并对 `matcher: exce` 与 `if: exce(git *)` 各报一条 ⚠，`exec` / `exec(git *)` 不报；`npm run verify` PASS 41.0s                                                                                                                                 |
+| B40 | P2     | **REPL 里 `/mcp` 是未知命令**：MCP 服务器状态只在 TUI 的 `showBlock('mcp')` 里显示，readline REPL 输入 `/mcp` 得到 `unknown command`（B39 的 `/hooks` 同族：能力面只在 TUI）                                                                                                                       | **已修并验证（2026-11-05）**：`CliRuntimeStatus` 增加 `listMcpServers`（runtime 复用同一个 `listMcpServerStatuses()`，过滤 `deferred`），REPL 新增 `/mcp` 分支用 `formatMcpStatusLine()` 输出与 TUI 相同措辞；无服务器时给出 `moss mcp add` 指引                                                                                                               | PTY 实测：配置 stub stdio server 后 `/mcp` → `● stub — connected (3 tools, lazy)`；无配置 → `no MCP servers configured (moss mcp add …)`；改造前两条路径都是 `unknown command "/mcp"`；`npm run verify` PASS 46.8s                                                                                                                                           |
 
 **B32 证据（2026-11-05，已实跑）**：模块加载计数器（`module.registerHooks`）跑 7 次真实 `-p`：
 
@@ -516,6 +517,16 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 - 改造后 370 个：上述 8 个消失，新增 3 行的 `cli/diff-preview.js`；
 - 墙钟中位 583ms → 606ms（min 564 → 559）——**噪声内，本轮只声称图更小**；
 - 行为：`-p` 让模型把文件 20 行改掉，headless diff 预览仍**恰好 14 行**后打印 `... 27 more lines ...`（`DIFF_PREVIEW_LINES` 语义未变）。
+
+**B40 证据（2026-11-05，已实跑，PTY 真交互）**：REPL 斜杠面清点后只剩 `/mcp` 缺口（`/context` `/usage` `/tasks` `/skills`
+`/agents` 都能用，`/mcp` 与 `/hooks` 一样只存在于 TUI）。
+
+- 改造前 PTY：`/mcp` → `[help] unknown command "/mcp"`；
+- 改造后 PTY（configDir/mcp.json 配置 `/tmp/mcp-srv/server.mjs` stub）：`MCP` + `● stub — connected (3 tools, lazy)`（与 TUI 同措辞）；
+- 无 mcp.json：`MCP` + `no MCP servers configured (moss mcp add <name> <command>, or .moss/mcp.json)`；
+- 实现：`CliRuntimeStatus.listMcpServers` 由 runtime 的 `listMcpServerStatuses()` 发布（TUI 的 `listMcpServers` 选项也改用它，
+  单一数据源），过滤 `deferred` 状态，避免地把「还没连」错报成失败。
+  `npm run check` 绿、`npm run verify` PASS 46.8s。
 
 **B39 证据（2026-11-05，已实跑，PTY 真交互）**：`/hooks` 只存在于 TUI 内联分支，REPL 输入 `/hooks` 是未知命令；
 而 `CliRuntimeStatus.config`（`resolveCliConfig()` 的结果）根本不带 `hooks`（dist 实测 `hasHooks:false`），
