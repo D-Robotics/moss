@@ -792,6 +792,11 @@ export function runAgentLoop(
           overflowRecoveries: state.overflowState.overflowRecoveries,
           totalDurationMs: Date.now() - runStartMs,
           firstTokenMs: state.firstTokenMs,
+          promptReadyMs: state.promptReadyMs,
+          firstTokenProviderMs:
+            state.firstTokenMs !== null && state.promptReadyMs !== null
+              ? Math.max(0, state.firstTokenMs - state.promptReadyMs)
+              : null,
           contextCompactions: state.overflowState.contextCompactions,
           systemPromptChars: activeSystemPrompt.length,
           systemPromptHashShort:

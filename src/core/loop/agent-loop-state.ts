@@ -62,6 +62,8 @@ export interface AgentLoopMutableState {
   pendingMessages: Message[];
   finalText: string;
   firstTokenMs: number | null;
+  /** B75: run-relative time when the first provider request of the run started. */
+  promptReadyMs: number | null;
   lastTurnEndMs: number | null;
   overflowState: OverflowRecoveryState;
   toolExecutionMetrics: AgentLoopToolExecutionMetrics;
@@ -123,6 +125,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     pendingMessages: [],
     finalText: '',
     firstTokenMs: null,
+    promptReadyMs: null,
     lastTurnEndMs: null,
     overflowState: createOverflowRecoveryState(),
     toolExecutionMetrics: {

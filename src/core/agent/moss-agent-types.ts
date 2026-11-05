@@ -470,6 +470,11 @@ export type MossAgentEvent =
 
       cacheReadTokens: number;
       cacheCreationTokens: number;
+
+      /** B75: run-relative time the first provider request went out. */
+      promptReadyMs?: number | null;
+      /** B75: first token minus prompt assembly = provider round-trip. */
+      firstTokenProviderMs?: number | null;
     }
   | { type: 'done'; result: ChatResult };
 

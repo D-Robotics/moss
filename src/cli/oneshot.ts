@@ -582,6 +582,15 @@ export async function runOneShot(
       if (event.type === 'llm_usage' && event.ttftMs != null && state.firstTokenMs === undefined) {
         state.firstTokenMs = event.ttftMs;
       }
+      // B75: split the first-token number into prompt assembly and provider
+      // round-trip so a slow start can be attributed rather than guessed at.
+      if (
+        event.type === 'cache_metrics' &&
+        event.promptReadyMs != null &&
+        state.promptReadyMs === undefined
+      ) {
+        state.promptReadyMs = event.promptReadyMs;
+      }
       noteRunCompletionEvent(completionTracker, event);
       const structuredEvents = formatHeadlessStreamEvent(state, event);
       if (outputFormat === 'text') {

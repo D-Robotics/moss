@@ -130,6 +130,11 @@ export interface RunMetrics {
   overflowRecoveries: number;
   totalDurationMs: number;
   firstTokenMs: number | null;
+  /** B75: wall time from run start to the moment the first provider request was
+   *  issued. `firstTokenMs - promptReadyMs` is the provider round-trip, so a slow
+   *  first token can be attributed instead of guessed. */
+  promptReadyMs?: number | null;
+  firstTokenProviderMs?: number | null;
   contextCompactions: number;
   systemPromptChars: number;
   systemPromptHashShort: string;

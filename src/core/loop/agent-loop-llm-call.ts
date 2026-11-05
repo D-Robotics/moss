@@ -160,6 +160,9 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
   }
   state.reasoningOverrideNextTurn = undefined;
   if (skillPolicy?.effort) effectiveReasoning = skillPolicy.effort as SkillEffort;
+  // B75: stamp the run-relative instant the first request goes out, so the
+  // first-token number can be split into prompt assembly vs provider round-trip.
+  if (state.promptReadyMs === null) state.promptReadyMs = Date.now() - runStartMs;
   try {
     const llmTurn = await runAgentLoopLlmTurn({
       requestModel,

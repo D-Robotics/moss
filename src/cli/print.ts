@@ -134,8 +134,10 @@ export type HeadlessResultEvent = {
   result: string;
   duration_ms: number;
   num_turns: number;
-  /** Milliseconds from run start to the first streamed token, when observed. */
+  /** Provider-reported time-to-first-token of the first call (request start → first token). */
   first_token_ms?: number;
+  /** B75: milliseconds from run start to the first provider request (local prompt assembly). */
+  prompt_ready_ms?: number;
   session_id: string;
   total_cost_usd: number | null;
   cost_unavailable: boolean;
@@ -215,6 +217,9 @@ export interface HeadlessPrintState {
   lastErrorDetails?: MossErrorOutcome;
   /** Wall time from run start to the first streamed token (from run_metrics). */
   firstTokenMs?: number;
+  /** B75: run-relative time the first provider request went out (from run_metrics). */
+  promptReadyMs?: number;
+
   resultEmitted: boolean;
   structuredOutputRequested: boolean;
   usageSlices: UsageSlice[];
@@ -485,6 +490,7 @@ function formatResult(
   };
   if (result?.usage) event.usage = result.usage;
   if (state.firstTokenMs !== undefined) event.first_token_ms = state.firstTokenMs;
+  if (state.promptReadyMs !== undefined) event.prompt_ready_ms = state.promptReadyMs;
   const shell = headlessResultShell();
   if (shell) event.shell = shell;
   if (errorMessage) event.error = redactText(errorMessage);
