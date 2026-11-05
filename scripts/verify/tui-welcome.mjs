@@ -86,7 +86,7 @@ while time.time() < deadline:
         except OSError: break
         if not data: break
         out += data
-    if b'Next:' in out and b'last run' in out:
+    if b'Next:' in out and b'last run' in out and b'Resume with' in out:
         break
 try: os.write(master, b'\x03\x03')
 except OSError: pass
@@ -125,7 +125,12 @@ try {
   assert.match(frame, /last run: verify_failed/, frame.slice(0, 600));
   assert.match(frame, /ship the demo feature/, 'the goal should appear on the first frame');
   assert.match(frame, /Next: moss task resume task_failed_demo/, frame.slice(0, 600));
-  ok('the TUI first frame shows the last run and its resume command');
+  assert.match(
+    frame,
+    /Resume with moss task resume task_failed_demo/,
+    'the empty composer should offer the resume, not a slogan'
+  );
+  ok('the TUI first frame shows the last run, its resume command and the composer hint');
 
   fs.rmSync(tmp, { recursive: true, force: true });
 } catch (error) {

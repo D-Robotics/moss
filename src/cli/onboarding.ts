@@ -275,10 +275,34 @@ function truncateOneLine(text: string, limit: number): string {
  * failed run surfaces its own resume command instead of a generic greeting.
  * Sync on purpose: it runs once at REPL startup over a few small files.
  */
+/**
+ * B144: the empty composer used to suggest the same prompt everywhere. When the
+ * ledger says the newest run needs a human, suggest resuming it; on a fresh
+ * workspace with no AGENTS.md, suggest `/init`. Returns a localized string (the
+ * TUI composer passes already-rendered text through `tui()`'s default branch).
+ */
+export function welcomeComposerSuggestion(
+  latest: { status: string; next?: string } | null,
+  hasAgents: boolean,
+  zh = isZhLocale()
+): string | undefined {
+  const t = (en: string, cn: string): string => (zh ? cn : en);
+  if (latest && latest.status !== 'completed' && latest.next) {
+    return t(`Resume with ${latest.next}`, `继续：${latest.next}`);
+  }
+  if (!latest && !hasAgents) {
+    return t(
+      'Try "/init" (detect this project, write AGENTS.md)',
+      '试试 “/init”（检测项目、写 AGENTS.md）'
+    );
+  }
+  return undefined;
+}
+
 export function renderWelcomeContextLines(
   workspace: string,
   zh = isZhLocale()
-): { lines: string[]; next: string } {
+): { lines: string[]; next: string; suggestion?: string } {
   const t = (en: string, cn: string): string => (zh ? cn : en);
   const runsDir = path.join(workspace, '.moss', 'runs');
   let latest: {
@@ -336,7 +360,12 @@ export function renderWelcomeContextLines(
   } else {
     next = 'moss run "<intent>" --accept "<cmd>"';
   }
-  return { lines, next };
+  const suggestion = welcomeComposerSuggestion(
+    latest ? { status: latest.status, ...(latest.next ? { next: latest.next } : {}) } : null,
+    hasAgents,
+    zh
+  );
+  return { lines, next, ...(suggestion ? { suggestion } : {}) };
 }
 
 export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {}): string {

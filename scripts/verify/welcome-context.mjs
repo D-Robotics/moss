@@ -121,6 +121,36 @@ try {
   assert.equal(formatAgo(Date.now() - 2 * 60 * 60_000), '2h ago');
   assert.equal(formatAgo(Date.now() - 3 * 24 * 60 * 60_000), '3d ago');
   ok('ages read as 30s / 5m / 2h / 3d');
+
+  // 8. B144: the empty composer suggests resuming / onboarding, not a slogan.
+  {
+    const { suggestion } = renderWelcomeContextLines(ws, false);
+    assert.match(suggestion ?? '', /^Resume with make the run actually perform the check/);
+    const zh = renderWelcomeContextLines(ws, true).suggestion;
+    assert.match(zh ?? '', /^继续：make the run actually perform the check/);
+
+    const fresh = path.join(tmp, 'fresh-composer');
+    await fs.mkdir(fresh, { recursive: true });
+    assert.match(renderWelcomeContextLines(fresh, false).suggestion ?? '', /^Try "\/init"/);
+    await fs.writeFile(path.join(fresh, 'AGENTS.md'), '# AGENTS\n', 'utf8');
+    assert.equal(
+      renderWelcomeContextLines(fresh, false).suggestion,
+      undefined,
+      'a workspace with AGENTS.md and no runs falls back to the kind default'
+    );
+
+    // A completed newest run needs no resume hint.
+    await writeRun({
+      runId: 'done_run',
+      kind: 'task',
+      status: 'completed',
+      goal: 'done',
+      endedAt: Date.now(),
+      next: 'moss runs',
+    });
+    assert.equal(renderWelcomeContextLines(ws, false).suggestion, undefined);
+  }
+  ok('a pending run or a fresh workspace drives the composer placeholder');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

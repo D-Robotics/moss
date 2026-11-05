@@ -467,6 +467,9 @@ export function TuiAppRoot({
   // so running it on every render is fine; the environment is only the fallback
   // and the host's explicit `locale` is authoritative.
   setTuiLocale(isZhLocale(activeUiLocale(options.locale)));
+  // B144: empty-composer hint from the ledger (resume the run that needs a
+  // human) or the fresh-workspace onboarding step; kind defaults fill the rest.
+  const composerSuggestionRef = useRef<string | undefined>(undefined);
   const composerProjectKind = useMemo(
     (): ComposerProjectKind =>
       detectComposerProjectKind({
@@ -1107,6 +1110,7 @@ export function TuiAppRoot({
     );
     for (const line of welcomeContext.lines) appendRow(store, 'detail', line);
     appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
+    composerSuggestionRef.current = welcomeContext.suggestion;
     options.onMcpUiReady?.();
     // Crash/quit recovery: history survives per-message, but a bare `moss`
     // used to start blank with no path back. One hint row names the newest
@@ -2870,6 +2874,7 @@ export function TuiAppRoot({
       );
       for (const line of readyContext.lines) appendRow(store, 'detail', line);
       appendRow(store, 'system', tui('Next: {command}', { command: readyContext.next }));
+      composerSuggestionRef.current = readyContext.suggestion;
       appendRow(store, 'system', tui(WORKSPACE_WRITE_LIMIT_EN));
       handle.notify();
     },
@@ -4027,7 +4032,7 @@ export function TuiAppRoot({
           ? tui('Press up to edit queued messages')
           : running
             ? undefined
-            : tui(composerPlaceholder(composerProjectKind))
+            : (composerSuggestionRef.current ?? tui(composerPlaceholder(composerProjectKind)))
         : undefined,
     // Shell mode swaps the prompt glyph (`! ` instead of `❯ `) — E2.
     firstPrefix: shellMode ? '! ' : '❯ ',
