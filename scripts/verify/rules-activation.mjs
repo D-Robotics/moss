@@ -42,6 +42,10 @@ await write(
   'both.md',
   '---\nglobs: docs/**/*.md\ndescription: docs style\n---\nBOTH-BODY: one sentence per line.\n'
 );
+await write(
+  'triggered.md',
+  '---\nactivation: description\ndescription: device bring up checklist\n---\nTRIGGERED-BODY: check /boot free space first.\n'
+);
 
 try {
   const rules = rulesMod.loadInstructionRules({ workspace: dir });
@@ -54,13 +58,32 @@ try {
   assert.deepEqual(rulesMod.ruleActivation(byName.get('globbed')), 'globs');
   assert.equal(rulesMod.ruleActivation(byName.get('described')), 'manual');
   assert.deepEqual(rulesMod.ruleActivation(byName.get('both')), 'globs');
-  ok('always / globs / manual classified from the frontmatter');
+  assert.equal(rulesMod.ruleActivation(byName.get('triggered')), 'description');
+  ok('always / globs / description / manual classified from the frontmatter');
 
   // ── 2. Automatic selection ─────────────────────────────────────────────
 
   const activeNone = rulesMod.selectActiveRules(rules, []).map(rulesMod.ruleName).sort();
   assert.deepEqual(activeNone, ['always']);
   ok('a description-only rule is no longer injected automatically');
+
+  // ── 2b. Description activation (D9) ────────────────────────────────────
+
+  const matched = rulesMod.matchDescriptionRules(rules, 'the device will not bring up');
+  assert.deepEqual(
+    matched.map((match) => rulesMod.ruleName(match.rule)),
+    ['triggered']
+  );
+  assert.deepEqual(matched[0].matched.sort(), ['bring', 'device']);
+  assert.ok(matched[0].score > 0.5);
+  const unmatched = rulesMod.matchDescriptionRules(rules, 'hello, write a doc');
+  assert.deepEqual(unmatched, []);
+  const activeText = rulesMod
+    .selectActiveRules(rules, [], 'the device will not bring up')
+    .map(rulesMod.ruleName)
+    .sort();
+  assert.deepEqual(activeText, ['always', 'triggered']);
+  ok('a description rule activates only on a matching message');
 
   const activeSrc = rulesMod
     .selectActiveRules(rules, ['src/main.ts'])
@@ -98,8 +121,30 @@ try {
   const availableText = plainLayers.get('project:rules:available') ?? '';
   assert.ok(availableText.includes('@rule:described'));
   assert.ok(availableText.includes('device bring-up checklist'));
+  assert.ok(availableText.includes('@rule:triggered'));
   assert.ok(!availableText.includes('GLOB-BODY'));
   ok('requestable rules are named with their description, without bodies');
+
+  const describedLayer = plainLayers.get('project:rules:described') ?? '';
+  assert.ok(!describedLayer.includes('TRIGGERED-BODY'));
+  const describedSetup = await setupMod.createCliPromptSetup({
+    workspace: dir,
+    initialText: 'the device will not bring up',
+  });
+  const describedText = new Map(
+    describedSetup.promptLayers.specs().map((spec) => [spec.id, spec.text])
+  ).get('project:rules:described');
+  assert.ok(describedText?.includes('TRIGGERED-BODY'));
+  const allText = (layers) =>
+    layers
+      .specs()
+      .map((spec) => spec.text)
+      .join('\n');
+  assert.ok(
+    allText(describedSetup.promptLayers).length > allText(plain.promptLayers).length,
+    'the matched rule must add bytes to the prompt'
+  );
+  ok('a matching message attaches the description rule body');
 
   const requestedSetup = await setupMod.createCliPromptSetup({
     workspace: dir,
@@ -144,6 +189,7 @@ try {
       both: 'globs',
       described: 'manual',
       globbed: 'globs',
+      triggered: 'description',
     });
     ok('moss rules list --json reports the same activation classes');
 
@@ -168,6 +214,74 @@ try {
     ok('an unknown rules subcommand is a usage error');
   } finally {
     await fs.rm(home, { recursive: true, force: true });
+  }
+  // ── 5. Managed rules: read-only, highest precedence (D9) ──────────────
+
+  const managedDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-managed-rules-'));
+  const dir2 = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-rules-managed-'));
+  try {
+    await fs.mkdir(path.join(dir2, '.moss', 'rules'), { recursive: true });
+    await fs.writeFile(
+      path.join(dir2, '.moss', 'rules', 'always.md'),
+      'SHADOWED-BODY: workspace wins nothing.\n'
+    );
+    await fs.writeFile(
+      path.join(managedDir, 'always.md'),
+      '---\nname: always\n---\nMANAGED-BODY: organization policy.\n'
+    );
+    const notices = [];
+    const managedRules = rulesMod.loadInstructionRules({
+      workspace: dir2,
+      managedPath: managedDir,
+      notices,
+    });
+    assert.deepEqual(
+      managedRules.map((rule) => [rulesMod.ruleName(rule), rule.scope]),
+      [['always', 'managed']]
+    );
+    assert.ok(managedRules[0].text.includes('MANAGED-BODY'));
+    assert.equal(
+      notices.some((note) => note.includes('shadowed') && note.includes('always')),
+      true
+    );
+    ok('managed rules win a name clash and the shadowed file is reported');
+
+    process.env.MOSS_MANAGED_RULES = managedDir;
+    const managedSetup = await setupMod.createCliPromptSetup({
+      workspace: dir2,
+      initialText: 'hi',
+    });
+    delete process.env.MOSS_MANAGED_RULES;
+    const managedLayer = new Map(
+      managedSetup.promptLayers.specs().map((spec) => [spec.id, spec.text])
+    ).get('project:rules:always');
+    assert.ok(managedLayer?.includes('MANAGED-BODY'));
+    assert.ok(!managedLayer.includes('SHADOWED-BODY'));
+    ok('the managed rule body joins the stable prompt without the project copy');
+
+    const cli = path.join(root, 'dist/cli.js');
+    const listedManaged = await captureProcess(process.execPath, [cli, 'rules', 'list', '--json'], {
+      cwd: dir2,
+      env: {
+        ...process.env,
+        HOME: await fs.mkdtemp(path.join(os.tmpdir(), 'moss-rules-home2-')),
+        MOSS_NO_RDK_DOCS: '1',
+        MOSS_MANAGED_RULES: managedDir,
+        MOSS_LANG: 'en',
+      },
+      timeoutMs: 60_000,
+    });
+    assert.equal(listedManaged.status, 0, listedManaged.stderr);
+    const managedPayload = JSON.parse(listedManaged.stdout);
+    assert.deepEqual(
+      managedPayload.rules.map((rule) => [rule.name, rule.scope]),
+      [['always', 'managed']]
+    );
+    ok('moss rules list marks managed scope');
+  } finally {
+    delete process.env.MOSS_MANAGED_RULES;
+    await fs.rm(managedDir, { recursive: true, force: true });
+    await fs.rm(dir2, { recursive: true, force: true });
   }
 } finally {
   await fs.rm(dir, { recursive: true, force: true });

@@ -233,17 +233,73 @@ export interface InstructionRule {
   /** `rule:<scope>:<name>` — stable across edits to the body. */
   id: string;
   file: string;
-  scope: 'user' | 'workspace';
+  scope: 'user' | 'workspace' | 'managed';
   globs: readonly string[];
   description?: string;
+  /** Explicit `activation:` frontmatter (`always|globs|description|manual`). */
+  declaredActivation?: InstructionRuleActivation;
   text: string;
 }
 
 export interface InstructionRuleOptions {
   workspace: string;
   userDir?: string;
+  /**
+   * Read-only managed rules for an organization: a directory of `*.md` files or
+   * one file. Defaults to `MOSS_MANAGED_RULES`. Managed rules are loaded first,
+   * win a name clash against user/workspace rules, and are never written back —
+   * a project cannot override its organization's instructions.
+   */
+  managedPath?: string;
   maxRuleBytes?: number;
   maxTotalBytes?: number;
+  /** Human-readable notes (e.g. a workspace rule shadowed by a managed one). */
+  notices?: string[];
+}
+
+/** `activation:` frontmatter values; anything else is ignored (inferred). */
+export function parseDeclaredActivation(
+  value: string | undefined
+): InstructionRuleActivation | undefined {
+  const raw = (value ?? '').trim().toLowerCase();
+  if (raw === 'always' || raw === 'globs' || raw === 'description' || raw === 'manual') return raw;
+  return undefined;
+}
+
+/** Load one rule file for a scope that is not a directory of rules (managed). */
+function loadOneRuleFile(
+  file: string,
+  scope: InstructionRule['scope'],
+  maxRuleBytes: number,
+  remainingBytes: number
+): InstructionRule | undefined {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
+  const parsed = parseSkillFile(raw);
+  const body = parsed.body.trim();
+  if (!body) return undefined;
+  const globs = (parsed.frontmatter.globs ?? parsed.frontmatter.glob ?? '')
+    .split(/[,\s]+/)
+    .map((glob) => glob.trim())
+    .filter(Boolean);
+  const name = (parsed.frontmatter.name ?? path.basename(file, '.md')).trim();
+  const description = (parsed.frontmatter.description ?? '').trim();
+  const declaredActivation = parseDeclaredActivation(parsed.frontmatter.activation);
+  const budget = Math.min(maxRuleBytes, remainingBytes);
+  const text = body.length > budget ? `${body.slice(0, budget)}\n[rule truncated]` : body;
+  return {
+    id: `rule:${scope}:${name}`,
+    file,
+    scope,
+    globs,
+    ...(description ? { description } : {}),
+    ...(declaredActivation ? { declaredActivation } : {}),
+    text,
+  };
 }
 
 function listRuleFiles(dir: string): string[] {
@@ -267,6 +323,8 @@ export function loadInstructionRules(options: InstructionRuleOptions): Instructi
   const maxRuleBytes = options.maxRuleBytes ?? INSTRUCTION_RULE_MAX_BYTES;
   const maxTotalBytes = options.maxTotalBytes ?? INSTRUCTION_RULE_MAX_TOTAL_BYTES;
   const dirs: Array<{ dir: string; scope: 'user' | 'workspace' }> = [];
+  const managedRaw = options.managedPath ?? process.env.MOSS_MANAGED_RULES ?? '';
+  const managedDir = managedRaw.trim().length > 0 ? path.resolve(managedRaw.trim()) : '';
   if (options.userDir && path.resolve(options.userDir) !== path.resolve(options.workspace)) {
     dirs.push({ dir: path.join(options.userDir, 'rules'), scope: 'user' });
   }
@@ -274,6 +332,24 @@ export function loadInstructionRules(options: InstructionRuleOptions): Instructi
 
   const rules: InstructionRule[] = [];
   let total = 0;
+  // Managed rules come first so a same-named user/workspace rule cannot shadow
+  // the organization's wording; they are read-only by construction (the loader
+  // never opens them for writing) and `moss rules list` marks the scope.
+  if (managedDir) {
+    const managedFiles =
+      fs.existsSync(managedDir) && fs.statSync(managedDir).isDirectory()
+        ? listRuleFiles(managedDir)
+        : [managedDir];
+    for (const file of managedFiles) {
+      if (total >= maxTotalBytes) break;
+      if (!file.endsWith('.md') || !fs.existsSync(file)) continue;
+      const loadedManaged = loadOneRuleFile(file, 'managed', maxRuleBytes, maxTotalBytes - total);
+      if (!loadedManaged) continue;
+      total += loadedManaged.text.length;
+      rules.push(loadedManaged);
+    }
+  }
+  const seen = new Set(rules.map((rule) => ruleName(rule).toLowerCase()));
   for (const { dir, scope } of dirs) {
     for (const file of listRuleFiles(dir)) {
       if (total >= maxTotalBytes) break;
@@ -291,7 +367,15 @@ export function loadInstructionRules(options: InstructionRuleOptions): Instructi
         .map((glob) => glob.trim())
         .filter(Boolean);
       const name = (parsed.frontmatter.name ?? path.basename(file, '.md')).trim();
+      if (seen.has(name.toLowerCase())) {
+        options.notices?.push(
+          `${file} is shadowed by a higher-precedence rule named ${name} (managed rules win)`
+        );
+        continue;
+      }
+      seen.add(name.toLowerCase());
       const description = (parsed.frontmatter.description ?? '').trim();
+      const declaredActivation = parseDeclaredActivation(parsed.frontmatter.activation);
       const budget = Math.min(maxRuleBytes, maxTotalBytes - total);
       const text = body.length > budget ? `${body.slice(0, budget)}\n[rule truncated]` : body;
       total += text.length;
@@ -301,6 +385,7 @@ export function loadInstructionRules(options: InstructionRuleOptions): Instructi
         scope,
         globs,
         ...(description ? { description } : {}),
+        ...(declaredActivation ? { declaredActivation } : {}),
         text,
       });
     }
@@ -317,19 +402,30 @@ export function ruleMatchesPaths(rule: InstructionRule, relativePaths: readonly 
 }
 
 /**
- * How a rule activates, using Cursor's `.cursor/rules` classes:
- * - `always` — no globs and no description: the file states an unconditional rule;
- * - `globs`  — a path pattern decides (auto attached);
- * - `manual` — only a `description`: the body is *not* injected automatically.
+ * How a rule activates, using Cursor's `.cursor/rules` classes plus one more:
+ * - `always`      — no globs and no description: an unconditional rule;
+ * - `globs`       — a path pattern decides (auto attached);
+ * - `description` — the rule text describes its own trigger; it is attached for
+ *                   the turn whose user message scores a match against that
+ *                   description (D9; deterministic token overlap, no model call);
+ * - `manual`      — only a `description` without `activation:`: the body is
+ *                   *not* injected automatically, `@rule:<name>` loads it.
  *
  * The `manual` branch is the fix for the inverted intent: a description means
  * "tell the model this rule exists and can be requested", not "apply it
  * everywhere". Rules that predate descriptions keep their old always-on
- * behavior because they have neither field.
+ * behavior because they have neither field. `activation:` is explicit and
+ * overrides the inferred class (`activation: always` with a description stays
+ * always-on).
  */
-export type InstructionRuleActivation = 'always' | 'globs' | 'manual';
+export type InstructionRuleActivation = 'always' | 'globs' | 'description' | 'manual';
 
 export function ruleActivation(rule: InstructionRule): InstructionRuleActivation {
+  const declared = rule.declaredActivation;
+  if (declared === 'always') return 'always';
+  if (declared === 'globs' && rule.globs.length > 0) return 'globs';
+  if (declared === 'manual') return 'manual';
+  if (declared === 'description') return rule.description ? 'description' : 'manual';
   if (rule.globs.length > 0) return 'globs';
   if (rule.description) return 'manual';
   return 'always';
@@ -359,22 +455,175 @@ export function selectRequestedRules(
 ): InstructionRule[] {
   const requested = new Set(requestedRuleNames(text));
   if (requested.size === 0) return [];
-  return rules.filter(
-    (rule) => ruleActivation(rule) === 'manual' && requested.has(ruleName(rule).toLowerCase())
-  );
+  return rules.filter((rule) => {
+    const activation = ruleActivation(rule);
+    if (activation !== 'manual' && activation !== 'description') return false;
+    return requested.has(ruleName(rule).toLowerCase());
+  });
 }
 
-/** Rules active for the given touched paths: every always-on rule plus glob matches. */
+/** Rules active for the given touched paths: always-on, glob matches and (when a
+ * message is supplied) description matches. */
 export function selectActiveRules(
   rules: readonly InstructionRule[],
-  relativePaths: readonly string[]
+  relativePaths: readonly string[],
+  text?: string
 ): InstructionRule[] {
+  const described =
+    text !== undefined && text.trim().length > 0
+      ? new Set(selectDescriptionRules(rules, text).map((rule) => rule.id))
+      : new Set<string>();
   return rules.filter((rule) => {
     const activation = ruleActivation(rule);
     if (activation === 'always') return true;
     if (activation === 'globs') return ruleMatchesPaths(rule, relativePaths);
+    if (activation === 'description') return described.has(rule.id);
     return false;
   });
+}
+
+// ── Description activation (D9) ───────────────────────────────────────────
+//
+// A rule whose frontmatter says `activation: description` declares its own
+// trigger in prose ("device bring-up checklist"). Reusing a model call to decide
+// would make the prompt nondeterministic and untestable, so the match is a
+// transparent token overlap: the rule applies for this turn when at least
+// `minMatchedTokens` of its description words appear in the user message and
+// they cover `minCoverage` of the description. Both numbers are exposed so a
+// probe can pin the semantics; a false positive costs one rule body, a false
+// negative is fixed by `@rule:<name>`.
+
+/** Words too common to mean anything in a trigger description. */
+const DESCRIPTION_STOPWORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'that',
+  'this',
+  'from',
+  'when',
+  'before',
+  'after',
+  'into',
+  'your',
+  'you',
+  'are',
+  'not',
+  'use',
+  'using',
+  'only',
+  'also',
+  'must',
+  'should',
+  'will',
+  'can',
+  'any',
+  'all',
+  'its',
+  'their',
+  'them',
+  'then',
+  'than',
+  'there',
+  'here',
+  'have',
+  'has',
+  'had',
+  'was',
+  'were',
+  'been',
+  'being',
+  'does',
+  'did',
+  'but',
+  'per',
+  'via',
+  'out',
+  'off',
+  'over',
+  'under',
+  'more',
+  'most',
+  'some',
+  'such',
+  'each',
+  'other',
+  'own',
+  'same',
+  'just',
+  'like',
+  'make',
+  'made',
+  'get',
+  'got',
+  'new',
+  'old',
+  'one',
+  'two',
+  'first',
+  'last',
+  'rule',
+  'rules',
+  'file',
+  'files',
+  'code',
+  'work',
+  'working',
+]);
+
+/** Content words of a trigger text (lowercase, length >= 3, no stopwords). */
+function descriptionTokens(text: string): string[] {
+  const tokens = new Set<string>();
+  for (const raw of text.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (raw.length < 3 || DESCRIPTION_STOPWORDS.has(raw)) continue;
+    tokens.add(raw);
+  }
+  return [...tokens];
+}
+
+export interface DescriptionRuleMatch {
+  rule: InstructionRule;
+  /** Share of the rule description's content words found in the message. */
+  score: number;
+  matched: string[];
+}
+
+export interface DescriptionMatchOptions {
+  minMatchedTokens?: number;
+  minCoverage?: number;
+}
+
+/** Description-activated rules whose trigger matches `text`, best first. */
+export function matchDescriptionRules(
+  rules: readonly InstructionRule[],
+  text: string,
+  options: DescriptionMatchOptions = {}
+): DescriptionRuleMatch[] {
+  const minMatchedTokens = options.minMatchedTokens ?? 2;
+  const minCoverage = options.minCoverage ?? 0.34;
+  const userTokens = new Set(descriptionTokens(text));
+  const matches: DescriptionRuleMatch[] = [];
+  for (const rule of rules) {
+    if (ruleActivation(rule) !== 'description') continue;
+    const tokens = descriptionTokens(rule.description ?? '');
+    if (tokens.length === 0) continue;
+    const matched = tokens.filter((token) => userTokens.has(token));
+    if (matched.length < minMatchedTokens) continue;
+    const score = matched.length / tokens.length;
+    if (score < minCoverage) continue;
+    matches.push({ rule, score, matched });
+  }
+  return matches.sort((a, b) => b.score - a.score || a.rule.id.localeCompare(b.rule.id));
+}
+
+/** Rules to inject for this message by their description trigger. */
+export function selectDescriptionRules(
+  rules: readonly InstructionRule[],
+  text: string,
+  options?: DescriptionMatchOptions
+): InstructionRule[] {
+  return matchDescriptionRules(rules, text, options).map((match) => match.rule);
 }
 
 /**
@@ -409,13 +658,22 @@ export function formatInstructionRules(title: string, rules: readonly Instructio
 }
 
 /**
- * Index of rules whose body is not injected automatically: the model sees what
+ * Index of rules whose body is not (always) in the prompt: the model sees what
  * exists and that the user can name it, without paying for every body up front.
+ * Description-activated rules get a line too — when their trigger words do not
+ * match a turn, `@rule:<name>` is still a way to force the body in.
  */
 export function formatAvailableRules(rules: readonly InstructionRule[]): string {
   const lines = rules
-    .filter((rule) => ruleActivation(rule) === 'manual')
-    .map((rule) => `- @rule:${ruleName(rule)} — ${rule.description ?? '(no description)'}`);
+    .filter((rule) => {
+      const activation = ruleActivation(rule);
+      return activation === 'manual' || activation === 'description';
+    })
+    .map((rule) => {
+      const activation = ruleActivation(rule);
+      const hint = activation === 'description' ? ' (auto on matching messages)' : '';
+      return `- @rule:${ruleName(rule)} — ${rule.description ?? '(no description)'}${hint}`;
+    });
   if (lines.length === 0) return '';
   return [
     'Project rules that are available on request (not part of this prompt):',

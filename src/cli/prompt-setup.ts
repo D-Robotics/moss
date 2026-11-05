@@ -18,7 +18,9 @@ import {
   formatAvailableRules,
   formatInstructionRules,
   loadInstructionRules,
+  matchDescriptionRules,
   ruleActivation,
+  ruleName,
   selectActiveRules,
   selectRequestedRules,
 } from './project-instructions.js';
@@ -129,7 +131,9 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
           ? { globs: rule.globs }
           : ruleActivation(rule) === 'manual'
             ? ('manual' as const)
-            : ('always' as const),
+            : ruleActivation(rule) === 'description'
+              ? ('description' as const)
+              : ('always' as const),
       source: rule.file,
       ...(rule.description ? { description: rule.description } : {}),
       costChars: rule.text.length,
@@ -148,12 +152,16 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
   // names them (and says how to load one), but their bodies stay out of the
   // prompt until the user asks for them by name.
   const manualRules = instructionRules.filter((rule) => ruleActivation(rule) === 'manual');
-  if (manualRules.length > 0) {
+  const descriptionRules = instructionRules.filter(
+    (rule) => ruleActivation(rule) === 'description'
+  );
+  const indexableRules = [...manualRules, ...descriptionRules];
+  if (indexableRules.length > 0) {
     promptLayers.set({
       id: 'project:rules:available',
       stability: 'stable',
       origin: 'project',
-      text: formatAvailableRules(manualRules),
+      text: formatAvailableRules(indexableRules),
     });
   }
   // `@rule:<name>` is a per-message request, not a startup flag: REPL turns after
@@ -161,8 +169,35 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
   // for the session once a rule has been requested (loading is additive, and a
   // body that vanished from the prompt mid-session would be surprising).
   const requestedRuleIds = new Set<string>();
+  // Description-activated rules are matched per message, not per session: a
+  // question that stops mentioning the trigger must stop paying for the body.
+  const installDescriptionRules = (text: string): void => {
+    if (descriptionRules.length === 0) return;
+    const matches = matchDescriptionRules(descriptionRules, text);
+    promptLayers.set({
+      id: 'project:rules:described',
+      stability: 'dynamic',
+      origin: 'project',
+      text:
+        matches.length > 0
+          ? formatInstructionRules(
+              'Description-activated rules',
+              matches.map((match) => match.rule)
+            )
+          : '',
+    });
+    if (promptLayersDebugEnabled()) {
+      console.error(
+        `[prompt] description rules: ${
+          matches.map((match) => `${ruleName(match.rule)}=${match.score.toFixed(2)}`).join(', ') ||
+          '(none)'
+        }`
+      );
+    }
+  };
   const installRequestedRules = (text: string): void => {
     for (const rule of selectRequestedRules(manualRules, text)) requestedRuleIds.add(rule.id);
+    installDescriptionRules(text);
     if (requestedRuleIds.size === 0) return;
     promptLayers.set({
       id: 'project:rules:requested',

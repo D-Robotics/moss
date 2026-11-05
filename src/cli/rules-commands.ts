@@ -16,8 +16,8 @@ import {
 
 export interface RuleRow {
   name: string;
-  activation: 'always' | 'globs' | 'manual';
-  scope: 'user' | 'workspace';
+  activation: 'always' | 'globs' | 'description' | 'manual';
+  scope: 'user' | 'workspace' | 'managed';
   globs: string[];
   bytes: number;
   file: string;
@@ -27,6 +27,7 @@ export interface RuleRow {
 const ACTIVATION_LABEL: Record<RuleRow['activation'], { en: string; zh: string }> = {
   always: { en: 'always', zh: '始终' },
   globs: { en: 'globs ', zh: '路径' },
+  description: { en: 'desc  ', zh: '描述' },
   manual: { en: 'manual', zh: '手动' },
 };
 
@@ -54,18 +55,23 @@ export function renderRulesUsage(zh: boolean): string {
   if (zh) {
     return [
       '用法：',
-      '  moss rules list [--json]     列出 .moss/rules 与用户级 rules 的激活方式与大小',
+      '  moss rules list [--json]     列出 managed / 用户级 / .moss/rules 的激活方式与大小',
       '',
-      '三类激活：始终（无 globs/description）、路径（globs 命中时自动附加）、',
+      '四类激活（可显式写 activation: always|globs|description|manual）：',
+      '始终（无 globs/description）、路径（globs 命中时自动附加）、',
+      '描述（activation: description，消息命中描述词时附加）、',
       '手动（只有 description，需在消息里写 @rule:<名称> 才注入）。',
+      'managed 规则来自 MOSS_MANAGED_RULES，只读且同名优先。',
     ].join('\n');
   }
   return [
     'Usage:',
-    '  moss rules list [--json]     list scoped rules with activation class and size',
+    '  moss rules list [--json]     list managed / user / workspace rules with class and size',
     '',
     'Classes: always (no globs/description), globs (auto-attached on a matching path),',
+    'description (activation: description; attached when the message matches its words),',
     'manual (description only; inject by writing @rule:<name> in a message).',
+    'Managed rules come from MOSS_MANAGED_RULES, are read-only, and win a name clash.',
   ].join('\n');
 }
 
@@ -106,8 +112,8 @@ export async function runRulesCommand(
   }
   console.error(
     uiText(
-      `  (${rows.length} rule(s) · always+globs load automatically; manual needs @rule:<name>)`,
-      `  （${rows.length} 条 · always+globs 自动加载；manual 需 @rule:<名称>）`
+      `  (${rows.length} rule(s) · always+globs+description load automatically; manual needs @rule:<name>)`,
+      `  （${rows.length} 条 · always+globs+description 自动加载；manual 需 @rule:<名称>）`
     )
   );
   return 0;

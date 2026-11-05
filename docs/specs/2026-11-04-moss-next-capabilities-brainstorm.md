@@ -391,11 +391,22 @@ writePaths?, maxTurns?}]}`），不上 JS 沙箱、不能让计划调用模型 A
 - **成本**：低–中；**风险**：description 激活增加不确定性，需确定性回退。
 - **优先级**：P1。
 
-- **进展（2026-11-05）**：规则已有三类激活（`always` / `globs` / `manual`，其中 manual 只能通过消息里的
-  `@rule:<名称>` 显式请求；`rules-activation` probe 覆盖分类、请求注入、无请求不注入），并且**第一次可见**：
-  `moss rules list [--json]` 与 `/rules` 列出每条规则的激活方式、scope、globs、字节数与 description，
-  Claude/Cursor 的 4 类模型里 Moss 已覆盖 3 类（always / auto-attached / agent-requested）；
-  缺的是**手动点名（`@rule` 之外的面板选择）与团队级策略层**（组织统一规则下发/覆盖优先级）。
+- **进展（2026-11-05，D9 两片）**：第一片规则三类激活（`always` / `globs` / `manual`，
+  manual 用 `@rule:<名称>` 请求）+ 可见性（`moss rules list [--json]`、`/rules`）。第二片补齐第 4 类与团队层：
+  - **`activation: description`**：frontmatter 显式声明第四类；该条消息词面命中其 description 时，正文注入
+    当轮动态层 `project:rules:described`，未命中不注入（层为空，token 差可测）。匹配是**确定性词重叠**
+    （去停用词、≥2 个命中词、覆盖率 ≥34%），不调模型、可被 probe 钉住；`MOSS_PROMPT_DEBUG` 会打印
+    命中规则与分数。`activation:` 显式值覆盖推断，旧规则（无该字段）行为不变。
+  - **managed 策略层**：`MOSS_MANAGED_RULES=<文件或目录>` 加载只读的**组织级规则**，优先级最高
+    （同名时用户/工作区规则被跳过并在 notices 说明 "shadowed by … managed rules win"）；
+    `moss rules list` 标 `managed` scope；loader 只读、不回写。`CapabilityScope` / `CapabilityActivation`
+    相应新增 `managed` / `description`（附加式、导出面 minor）。
+  - 验收：`rules-activation` probe 从 11 条扩到 **16 条**——四类分类、description 只在命中消息注入
+    （并断言命中后 prompt 字节确实变多）、未命中层为空、managed 同名覆盖 + notices、managed 正文进稳定层
+    且工作区副本不出现、`rules list` JSON 正确报告 description class 与 managed scope；`npm run verify`
+    PASS（49.0s，预算 60s ok）。
+  - 仍缺（诚实记录）：团队级 **allowlist/deny 策略文件**（工具/设备/命令级）仍由现有 permissions 规则承担，
+    没有"组织策略文件"这一层；`@rule` 之外的**交互式 picker** 未做。
 
 ### D10 产品化小件（让能力被发现）
 
@@ -625,23 +636,23 @@ writePaths?, maxTurns?}]}`），不上 JS 沙箱、不能让计划调用模型 A
 
 状态口径：✅ 已落地且有回归证据；🟡 部分落地（列出缺的那一片）；❌ 未做（不塞进"已落地"）。
 
-| 方向                                                | 状态                    | 证据 / 缺什么                                                                                                                                                                                                                                                         |
-| --------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1 能力包 plugin-lite                               | ✅                      | `moss plugins validate/install/list/remove` + `plugin.json`（skills/commands/agents/hooks/mcp 任意组合）、逐文件 sha256 漂移检测、hook/MCP 合并与撤回、非交互 `--yes` 信任闸；`plugins` 探针 8 条 + 真实 loader 发现；不做 registry/marketplace。                     |
-| D2 评估 grader                                      | ✅                      | 四类 grader 第一版（expect_regex / expect_tools / post_condition / contains）+ 报告；见 `bench/` 与 D2 段落进度。                                                                                                                                                     |
-| D3 工具面瘦身                                       | 🟡                      | `/context` 与 `tool-surface` 分项测量；44 个工具全部 lean ≤120 chars（lean 面 15,445→8,672 chars，−44%）；`MOSS_HIDE_TOOLS` 无代码 A/B 开关（实 hidden 605 chars）；缺：真实模型 bench 成功率 A/B、`apply_patch`/`edit_file` 合并决策、默认隐藏 `todo_write` 的决策。 |
-| D4 MCP 协议                                         | ✅（resources/prompts） | `mcp_resource`/`mcp_prompt` 工具 + `moss mcp test` 三面清单 + verify stage `mcp-protocol`（mock stdio server，6 条）+ 真实 `moss mcp test rdk-docs`（6 工具、0 resources/0 prompts）。❌ elicitation / OAuth / `@uri` 引用（理由见 D4 进度）。                        |
-| D5 编排                                             | 🟡                      | 声明式 `moss workflow`（JSON 计划、依赖波次、失败隔离、`.moss/workflows` 状态、resume、并发/步数 caps、`--mock` 离线演练）已落地，探针 10 条；缺：20 文件真实迁移验收跑、YAML、agent teams 共享任务板（D9）。                                                         |
-| D6 记忆写路径                                       | ✅（显式版）            | `/remember` + `moss remember`（预览、去重、500 字符上限、可撤销）+ verify stage `remember`（6 条）+ 真实跨会话运行。❌ 自动记忆（刻意不做）。                                                                                                                         |
-| D7 多模态                                           | 🟡                      | `read_pdf` 已落地（Flate、`/ToUnicode`+`/ActualText`、页范围、19 条探针；真实 RDK PDF 对 `pdftotext` 97%/99% 覆盖）；缺：真实视觉模型看接线图、`@file` 附件、设备截图闭环、OCR。                                                                                      |
-| D8 代码智能（LSP / diagnostics）                    | 🟡                      | 聚合 `diagnostics` 工具已落地（tsc+eslint 归一化、9 条探针、真实全仓库运行 0 error）；缺：pytest 聚合、monorepo 扫描、LSP client 评估，以及验收要求的 bench A/B。                                                                                                     |
-| D9 规则 4 类 + 团队策略                             | 🟡                      | 已有三类激活（always / globs / manual + `@rule:<name>` 请求注入，`rules-activation` 11 条断言）并且**可见**（`moss rules list [--json]`、`/rules`）。缺：面板式手动选择与团队级策略层。                                                                               |
-| D10 产品化小件                                      | ✅                      | `moss skill list` 显示 scope/used/catalog/evals；本地 usage 计数；`moss skill create` 脚手架。缺：`/skills` 在 REPL/TUI 的同等信息（两者仍只列名字与 issues）。                                                                                                       |
-| D11 技能运行语义 v2                                 | 🟡                      | 已有 run 级工具收窄、`context: fork`（含 `model` 转发）、**内联 model/effort run 级覆盖**（真实 -p 对照 + `skill-policy` 6 条）、`$ARGUMENTS`、`when_to_use` 别名。缺：`background`、技能自带 hooks、更深 scoping。                                                   |
-| D12 Hooks 契约                                      | ✅                      | `updatedInput` 重过审批、deny>ask>allow、exit-code 矩阵、事件面、fail-closed；`docs/hooks.md` + `hooks-contract`（16 条）+ Stop 完成门 recipe（真实 exit 9/0）。                                                                                                      |
-| D13 定时/循环任务                                   | ❌                      | 只有 `moss loop --until`（本地闭环，一次性），没有 cron / 定时调度。                                                                                                                                                                                                  |
-| D14 环境隔离（OS sandbox）                          | ❌                      | 只有设计文档 `docs/design/os-sandbox.md`，未实现。                                                                                                                                                                                                                    |
-| D15 输出样式/主题/语音/blame/artifacts/浏览器自动化 | ❌                      | 按脑暴结论刻意不做（与产品目标无关）。                                                                                                                                                                                                                                |
+| 方向                                                | 状态                    | 证据 / 缺什么                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1 能力包 plugin-lite                               | ✅                      | `moss plugins validate/install/list/remove` + `plugin.json`（skills/commands/agents/hooks/mcp 任意组合）、逐文件 sha256 漂移检测、hook/MCP 合并与撤回、非交互 `--yes` 信任闸；`plugins` 探针 8 条 + 真实 loader 发现；不做 registry/marketplace。                                |
+| D2 评估 grader                                      | ✅                      | 四类 grader 第一版（expect_regex / expect_tools / post_condition / contains）+ 报告；见 `bench/` 与 D2 段落进度。                                                                                                                                                                |
+| D3 工具面瘦身                                       | 🟡                      | `/context` 与 `tool-surface` 分项测量；44 个工具全部 lean ≤120 chars（lean 面 15,445→8,672 chars，−44%）；`MOSS_HIDE_TOOLS` 无代码 A/B 开关（实 hidden 605 chars）；缺：真实模型 bench 成功率 A/B、`apply_patch`/`edit_file` 合并决策、默认隐藏 `todo_write` 的决策。            |
+| D4 MCP 协议                                         | ✅（resources/prompts） | `mcp_resource`/`mcp_prompt` 工具 + `moss mcp test` 三面清单 + verify stage `mcp-protocol`（mock stdio server，6 条）+ 真实 `moss mcp test rdk-docs`（6 工具、0 resources/0 prompts）。❌ elicitation / OAuth / `@uri` 引用（理由见 D4 进度）。                                   |
+| D5 编排                                             | 🟡                      | 声明式 `moss workflow`（JSON 计划、依赖波次、失败隔离、`.moss/workflows` 状态、resume、并发/步数 caps、`--mock` 离线演练）已落地，探针 10 条；缺：20 文件真实迁移验收跑、YAML、agent teams 共享任务板（D9）。                                                                    |
+| D6 记忆写路径                                       | ✅（显式版）            | `/remember` + `moss remember`（预览、去重、500 字符上限、可撤销）+ verify stage `remember`（6 条）+ 真实跨会话运行。❌ 自动记忆（刻意不做）。                                                                                                                                    |
+| D7 多模态                                           | 🟡                      | `read_pdf` 已落地（Flate、`/ToUnicode`+`/ActualText`、页范围、19 条探针；真实 RDK PDF 对 `pdftotext` 97%/99% 覆盖）；缺：真实视觉模型看接线图、`@file` 附件、设备截图闭环、OCR。                                                                                                 |
+| D8 代码智能（LSP / diagnostics）                    | 🟡                      | 聚合 `diagnostics` 工具已落地（tsc+eslint 归一化、9 条探针、真实全仓库运行 0 error）；缺：pytest 聚合、monorepo 扫描、LSP client 评估，以及验收要求的 bench A/B。                                                                                                                |
+| D9 规则 4 类 + 团队策略                             | 🟡                      | 四类激活齐全：always / globs / `activation: description`（确定性词面命中，未命中不注入）/ manual（`@rule` 注入）；只读 `MOSS_MANAGED_RULES` 组织级规则最高优先级、`rules list` 标 managed；`rules-activation` 16 条断言。缺：组织级 allowlist/deny 策略文件、交互式规则 picker。 |
+| D10 产品化小件                                      | ✅                      | `moss skill list` 显示 scope/used/catalog/evals；本地 usage 计数；`moss skill create` 脚手架。缺：`/skills` 在 REPL/TUI 的同等信息（两者仍只列名字与 issues）。                                                                                                                  |
+| D11 技能运行语义 v2                                 | 🟡                      | 已有 run 级工具收窄、`context: fork`（含 `model` 转发）、**内联 model/effort run 级覆盖**（真实 -p 对照 + `skill-policy` 6 条）、`$ARGUMENTS`、`when_to_use` 别名。缺：`background`、技能自带 hooks、更深 scoping。                                                              |
+| D12 Hooks 契约                                      | ✅                      | `updatedInput` 重过审批、deny>ask>allow、exit-code 矩阵、事件面、fail-closed；`docs/hooks.md` + `hooks-contract`（16 条）+ Stop 完成门 recipe（真实 exit 9/0）。                                                                                                                 |
+| D13 定时/循环任务                                   | ❌                      | 只有 `moss loop --until`（本地闭环，一次性），没有 cron / 定时调度。                                                                                                                                                                                                             |
+| D14 环境隔离（OS sandbox）                          | ❌                      | 只有设计文档 `docs/design/os-sandbox.md`，未实现。                                                                                                                                                                                                                               |
+| D15 输出样式/主题/语音/blame/artifacts/浏览器自动化 | ❌                      | 按脑暴结论刻意不做（与产品目标无关）。                                                                                                                                                                                                                                           |
 
 **验收闭环这条线（独立于 D 系列，全部 ✅）**：见 `docs/specs/2026-11-05-moss-acceptance-loop.md`
 ——L1 完成门、P0-b 逃生阀、P1 独立评审（工具/auto/untracked/`moss review check`）、有界修复环、

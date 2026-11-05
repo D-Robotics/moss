@@ -12,10 +12,14 @@
 export type CapabilityKind = 'instruction' | 'skill' | 'command' | 'agent' | 'mcp_server';
 
 /** Where the capability came from; the resolution order is documented per kind. */
-export type CapabilityScope = 'user' | 'project' | 'workspace';
+export type CapabilityScope = 'user' | 'project' | 'workspace' | 'managed';
 
 /** `always`: stable prompt layer; `{ globs }`: loaded when a matching path is touched; `manual`: menu/tool only. */
-export type CapabilityActivation = 'always' | { globs: readonly string[] } | 'manual';
+export type CapabilityActivation =
+  | 'always'
+  | { globs: readonly string[] }
+  | 'manual'
+  | 'description';
 
 export interface CapabilityDescriptor {
   id: string;
