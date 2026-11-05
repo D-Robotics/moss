@@ -120,6 +120,7 @@ import { stage as tuiWelcomeStage } from './stages/tui-welcome.mjs';
 import { stage as workflowRunRecordStage } from './stages/workflow-run-record.mjs';
 import { stage as runResumeStage } from './stages/run-resume.mjs';
 import { stage as runModesStage } from './stages/run-modes.mjs';
+import { stage as superagentLedgerStage } from './stages/superagent-ledger.mjs';
 
 const STAGES = new Map(
   [
@@ -218,6 +219,7 @@ const STAGES = new Map(
     workflowRunRecordStage,
     runResumeStage,
     runModesStage,
+    superagentLedgerStage,
     taskFailReasonsStage,
   ].map((stage) => [stage.name, stage])
 );
@@ -310,6 +312,7 @@ const FAST_GATE = [
   'workflow-run-record',
   'run-resume',
   'run-modes',
+  'superagent-ledger',
   'task-fail-reasons',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;

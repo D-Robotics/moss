@@ -336,7 +336,53 @@ export class MossSuperagent {
       ? ticket
       : undefined;
   }
+  /**
+   * B149: a Super-agent ticket is an autonomous run too, so it lands in the
+   * unified ledger (`.moss/runs/<ticketId>/run.json`, kind `superagent`). The
+   * ticket state stays authoritative for the engine; the ledger row only makes
+   * `moss runs` / `/runs` tell the whole story. Advisory: a ledger failure never
+   * fails a ticket.
+   */
+  private async recordSuperagentLedger(input: {
+    ticketId: string;
+    title: string;
+    state: string;
+    startedAt: number;
+    taskId?: string;
+    workspace?: string;
+    acceptanceCommand?: string;
+    summary?: string;
+  }): Promise<void> {
+    try {
+      const { writeRunRecord } = await import('../run-ledger.js');
+      const endedAt = Date.now();
+      const completed = input.state === 'ready';
+      await writeRunRecord(this.workspaceDir, {
+        version: 1,
+        runId: input.ticketId,
+        kind: 'superagent',
+        status: completed ? 'completed' : 'blocked',
+        exitCode: completed ? 0 : 1,
+        startedAt: input.startedAt,
+        endedAt,
+        durationMs: Math.max(0, endedAt - input.startedAt),
+        goal: input.title,
+        ...(input.taskId ? { taskId: input.taskId } : {}),
+        ...(input.acceptanceCommand ? { acceptanceCommand: input.acceptanceCommand } : {}),
+        ...(input.summary ? { reason: input.summary } : {}),
+        next: completed ? 'moss superagent status' : `moss superagent retry ${input.ticketId}`,
+        artifacts: {
+          superagentState: '.moss/superagent/state.sqlite',
+          ...(input.workspace ? { workspace: input.workspace } : {}),
+        },
+      });
+    } catch {
+      /* the ledger is a read path; never let it fail the ticket */
+    }
+  }
+
   private async launch(effect: Effect, controller: AbortController): Promise<void> {
+    const ledgerStartedAt = Date.now();
     let binding: Binding | undefined;
     try {
       let ticket = this.current(effect);
@@ -470,15 +516,38 @@ export class MossSuperagent {
             text: `Verified result ready in ${binding!.workspace}`,
           });
       });
+      await this.recordSuperagentLedger({
+        ticketId: ticket.id,
+        title: ticket.title,
+        state,
+        startedAt: ledgerStartedAt,
+        ...(binding.taskId ? { taskId: binding.taskId } : {}),
+        workspace: binding.workspace,
+        acceptanceCommand: request.acceptanceCommand,
+        ...(state === 'ready'
+          ? {}
+          : {
+              summary:
+                'Moss execution requires attention; inspect its native task and session before retrying',
+            }),
+      });
     } catch (error) {
       const ticket = this.current(effect);
-      if (ticket)
-        this.engine.report(ticket.id, {
+      const summary = controller.signal.aborted
+        ? 'Worker interrupted; explicit retry required'
+        : `Worker could not produce a verified result (${error instanceof MossError ? error.code : 'worker_error'}); explicit retry required`;
+      if (ticket) this.engine.report(ticket.id, { state: 'blocked', summary });
+      if (ticket) {
+        await this.recordSuperagentLedger({
+          ticketId: ticket.id,
+          title: ticket.title,
           state: 'blocked',
-          summary: controller.signal.aborted
-            ? 'Worker interrupted; explicit retry required'
-            : `Worker could not produce a verified result (${error instanceof MossError ? error.code : 'worker_error'}); explicit retry required`,
+          startedAt: ledgerStartedAt,
+          ...(binding?.taskId ? { taskId: binding.taskId } : {}),
+          ...(binding?.workspace ? { workspace: binding.workspace } : {}),
+          summary,
         });
+      }
     } finally {
       if (binding) this.store.set('binding', effect.ticketId!, { ...binding, running: false });
       this.store.remove('effect', `start:${effect.id}`);

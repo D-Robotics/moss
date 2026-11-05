@@ -50,6 +50,9 @@ export interface RunRecord {
     taskEvents?: string;
     evidence?: string;
     acceptance?: string;
+    superagentState?: string;
+    /** Isolated worktree the ticket ran in (superagent only). */
+    workspace?: string;
     loopLedger?: string;
     /** Headless chat runs: the session transcript. */
     session?: string;

@@ -95,7 +95,13 @@ export class NativeMossWorker implements SuperagentWorker {
       cwd,
       '--session',
       sessionKey,
-      job.kind === 'assess' || this.options.readOnly ? '--read-only' : '--workspace-write',
+      // B150: a worker is non-interactive, and `--workspace-write` maps to the
+      // `manual` interaction mode, so every mutating tool was denied
+      // ("requires approval, but Moss is running non-interactively") and the
+      // ticket could never finish. Run jobs now inherit the operator's
+      // resolved mode through the policy file (assess stays read-only): the
+      // worktree isolation and the parent's safety settings still bound it.
+      ...(job.kind === 'assess' || this.options.readOnly ? ['--read-only'] : []),
       ...(this.options.configFile ? ['--config-file', this.options.configFile] : []),
     ];
     const child = spawnProcess(process.execPath, args, {
