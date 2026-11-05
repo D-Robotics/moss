@@ -142,6 +142,7 @@ Moss 在"验收 + 目标任务"上的机制深度已经接近甚至超过产品�
 | P2     | 5.19 已完成（B107）loop 账本保留：`loop prune [--keep N] [--dry-run] [--json]` 清已结束旧账本（默认 50），running 永不删                                                                      | 探针 5/5 + 真实两 run 的 prune/dry-run/json                                                                                               | 已完成                                              |
 | P1     | 5.20 已完成（B108）评审裁决回投影：`task list` 行内显示 run 窗口内最新 `review_changes` 裁决（FAIL 带 critical/important 计数与记录 id），`--json` 带 review 对象                             | 探针 5/5 + 真实 review_changes run 的 PASS 行/JSON                                                                                        | 已完成                                              |
 | P1     | 5.21 已完成（B109）并行 worktree 构建隔离：增量构建状态落 `<root>/.cache/`，不再因共享 `node_modules` 让 `dist/` 静默变旧（本轮合并后 `task-review` 假失败的根因）                            | 修复后全量 verify PASS + 增量 2s                                                                                                          | 已完成                                              |
+| P1     | 5.22 已完成（B111）目标账本聚合/筛选：`task list` 表头给全账本 pass/fail/blocked/aborted 计数，`--status` 只筛表格与 JSON，过滤行保留评审投影                                                 | 探针 6/6 + 真实 4 run 账本的 header/筛选/JSON                                                                                             | 已完成                                              |
 
 ## 6. 参考
 
