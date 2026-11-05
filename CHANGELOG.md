@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `moss runs export` for PRs and CI (B143)
+
+- `moss runs export [<run_id>|latest] [--format md|json] [--out <file>]` renders one unified-run
+  record: id/status/kind/goal/timing/exit code/counts/acceptance/reason/`next`/artifact paths.
+  Markdown is the default (English, pasteable into a PR or CI summary), `--format json` emits the
+  record itself, and `--out` writes a file (parents created). Unknown ids and formats exit 2.
+
+### `moss runs export` 给 PR/CI（B143）
+
+- `moss runs export [<run_id>|latest] [--format md|json] [--out <文件>]` 导出单条统一运行记录：
+  id/状态/kind/目标/时间/退出码/计数/验收命令/原因/`next`/工件路径。默认 Markdown（英文，可直接贴进 PR
+  或 CI summary），`--format json` 输出记录本身，`--out` 写文件（自动建父目录）；未知 id/格式 exit 2。
+
 ### The interactive run command is `/run` (`/goal` stays as an alias) (B142)
 
 - With the CLI now exposing `moss run` (start / `--until` / `--workflow` / `--resume`), the

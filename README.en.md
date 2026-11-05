@@ -88,6 +88,7 @@ moss init        # detect test/build/lint entry points, write a minimal AGENTS.m
 ```bash
 moss run "create hello.txt containing MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"
 moss runs                              # one ledger for every autonomous run (task / loop / -p / workflow): status / reason / next
+moss runs export latest > run.md       # export the run as Markdown for a PR / CI
 moss task status --json                # the same facts, for scripts and CI
 ```
 
