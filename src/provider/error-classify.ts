@@ -32,6 +32,7 @@ export type ProviderErrorCategory =
   | 'context_length_exceeded'
   | 'tools_not_supported'
   | 'streaming_not_supported'
+  | 'images_not_supported'
   | 'empty_response'
   | 'runtime_lifecycle'
   | 'unknown'
@@ -384,7 +385,7 @@ function isWafBlock(message: string, status?: number): boolean {
 }
 
 function matchToolUnsupported(text: string): boolean {
-  return /does not support tools|tools? (?:are )?not supported|tool use (?:is )?not supported|unsupported.*tools?|function[ _]call(?:ing)? not supported|no tools? (?:are )?available/i.test(
+  return /does not support tools|does not support tool calls?|tools? calls? (?:are )?not supported|tools? (?:are )?not supported|tool use (?:is )?not supported|unsupported.*tools?|function[ _]call(?:ing)? not supported|no tools? (?:are )?available/i.test(
     text.toLowerCase()
   );
 }
@@ -404,6 +405,32 @@ function matchContextLengthExceeded(text: string, code?: string): boolean {
 function matchStreamingUnsupported(text: string): boolean {
   return /stream(?:ing)? (?:is )?not supported|does not support stream|stream (?:is )?disabled|cannot stream/i.test(
     text.toLowerCase()
+  );
+}
+
+/**
+ * The provider rejected the image parts of a request. Text-only endpoints answer
+ * this either at the capability level ("does not support image input") or at the
+ * wire level ("invalid image_url" / "unsupported content type"), and the raw body
+ * alone leaves the user with no next step: the fix is either a vision model or
+ * `agent.supportsImages=false` so read_image refuses early.
+ */
+function matchImageUnsupported(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return (
+    /(?:images?|image\s*url|vision|multimodal)\s+(?:is\s+|are\s+)?(?:not\s+supported|unsupported)/.test(
+      normalized
+    ) ||
+    /(?:does\s+not|doesn't|do\s+not|don't)\s+support\s+(?:image|vision|multimodal)/.test(
+      normalized
+    ) ||
+    /(?:unsupported|invalid)\s+(?:image|image[_\s-]?url|content\s*type)[^\n]{0,40}(?:image|for\s+image)/.test(
+      normalized
+    ) ||
+    /(?:invalid|unsupported)\s+image[_\s-]?url/.test(normalized) ||
+    /image\s+(?:input|content|parts?)\s+(?:is\s+|are\s+)?(?:not\s+allowed|rejected|blocked)/.test(
+      normalized
+    )
   );
 }
 
@@ -546,6 +573,10 @@ const COPY = {
     '当前模型不支持工具调用，工具任务可能失败；请到设置换用支持 tools 的模型（推荐 qwen3 / qwen3-coder / llama3.1 / gpt-4.x 或同类工具模型）。',
     'This model does not support tool calls, so tool tasks may fail. Switch to a tools-capable model in settings (qwen3, qwen3-coder, llama3.1, gpt-4.x, or similar).',
   ],
+  images: [
+    '当前模型不接受图片输入，这次请求里的图片被拒。用 /model 换一个视觉模型；若只用文本模型，执行 `moss config set agent.supportsImages false`，read_image 会在发请求前直接说明原因。',
+    'This model does not accept image input, so the images in this request were rejected. Switch to a vision model with /model; if you only use text models, run `moss config set agent.supportsImages false` so read_image explains this before the request is sent.',
+  ],
   empty: [
     '模型返回空内容（常见于思考类模型把所有输出放进 reasoning）。请到设置把「推理可见度」改为「stream」让思考过程可见，或换一个非纯思考模型。',
     'The model returned empty content (common when a reasoning model puts everything in reasoning). In settings, set reasoning visibility to stream, or switch to a model that is not reasoning-only.',
@@ -656,6 +687,12 @@ function classifyProviderErrorNow(input: ProviderErrorInput): ProviderErrorSurfa
   if (isTlsProtocolMismatch(raw, code))
     return hit('network', 'httpNotTls', SETTINGS_RETRY, false, 'body');
   if (isTlsCertificate(raw, code)) return hit('network', 'tls', SETTINGS_RETRY, false, 'body');
+  if (matchImageUnsupported(raw)) {
+    return hit('images_not_supported', 'images', SETTINGS_SWITCH, false);
+  }
+  // Ordered before model-not-found on purpose: the transport appends
+  // "this model name is not available on the gateway" to any 400 body, so an
+  // image-unsupported body would otherwise be classified as a missing model.
   if (matchModelNotFound(raw, code)) {
     const localish = inferLocalInferenceStack({
       provider: provider ?? input.provider,
