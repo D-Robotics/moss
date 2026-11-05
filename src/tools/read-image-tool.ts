@@ -80,8 +80,9 @@ export async function prepareImageInput(
           `Error: ${shown} was not attached — this session's endpoint already rejected image input ` +
           '(`invalid_image_url`/unsupported image content) on an earlier turn, so retrying would fail the ' +
           'same way. Describe the file in text instead (read_file for text, exec with `file`/`xxd` for ' +
-          'bytes). If the gateway does support images, set agent.supportsImages true and start a new ' +
-          'session, or run `moss config set agent.supportsImages false` to make this the default.',
+          'bytes). The verdict follows the endpoint, not the process: switch to a vision model with ' +
+          '/model to re-probe, or run `moss config set agent.supportsImages false` to make this refusal ' +
+          'the default everywhere.',
       };
     }
     return {

@@ -369,7 +369,9 @@ function piMessagesToOpenAI(context: PiContext): OpenAiChatMessage[] {
   // conversation continues instead of failing forever.
   const omitImages = providerRejectsImageInput();
   const omittedImageText =
-    '[image omitted: this endpoint rejected image input earlier in this session]';
+    '[image omitted: this endpoint rejected image input earlier in this session. ' +
+    'If the user asked about this image, say that the configured endpoint cannot accept images and ' +
+    'suggest a vision model (/model) or describing it in text — do not guess what it shows.]';
   const out: OpenAiChatMessage[] = [];
   if (context.systemPrompt) {
     out.push({ role: 'system', content: context.systemPrompt });
