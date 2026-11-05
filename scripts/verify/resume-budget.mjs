@@ -104,7 +104,9 @@ ok('a failed task starts from one recorded verification');
     { maxRepairAttempts: 1 }
   );
   assert.equal(resumed.outcome, 'fail');
-  assert.equal(resumed.snapshot.attempt, 4, 'two more verifications (seed 1 + 1 + 2)');
+  // B116 verifies first: seed check + verify-first + the post-repair check.
+  // Cumulative over the two earlier resumes: verify-first + post-repair check.
+  assert.equal(resumed.snapshot.attempt, 4, 'two new verifications on top of the two recorded');
   assert.equal(phases.filter((phase) => phase === 'repairing').length, 1);
   assert.match(resumed.timeline, /after 4 attempts \(repair budget exhausted\)/, resumed.timeline);
   ok('resume --max-repairs 1 spends one repair turn and reports the ledger count');
@@ -127,7 +129,10 @@ ok('a failed task starts from one recorded verification');
   // failed, so the outcome token is fail and the reason is the turn budget.
   assert.equal(resumed.outcome, 'fail');
   assert.match(resumed.timeline, /turn budget exhausted \(1 turns\)/, resumed.timeline);
-  assert.equal(phases.filter((phase) => phase === 'repairing').length, 0);
+  // B116: verify-first does not spend a turn, so the one allowed turn is the
+  // repair turn opened by the red first check.
+  assert.equal(phases.filter((phase) => phase === 'repairing').length, 1);
+  assert.equal(phases.filter((phase) => phase === 'executing').length, 0);
   ok('resume --max-turns 1 stops on the turn budget');
 }
 

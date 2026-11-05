@@ -239,17 +239,108 @@ async function runAgentTurn(
   return 'budget';
 }
 
+/**
+ * One acceptance evaluation: the only place a verdict becomes ledger state.
+ * Shared by the post-execution path and the resume verify-first path (B116), so
+ * PASS / FAIL / blocked / abort semantics cannot drift apart.
+ */
+type VerificationResult =
+  | { kind: 'accepted' }
+  | { kind: 'blocked' }
+  | { kind: 'aborted' }
+  | { kind: 'failed'; verdict: TaskVerdict };
+
+async function runVerification(
+  deps: TaskEngineDeps,
+  state: RunLoopState,
+  provider: VerdictProvider
+): Promise<VerificationResult> {
+  const { workspaceDir } = deps;
+  // Tolerant: the agent may already have entered verification via the
+  // task_acceptance tool during its turn.
+  await tryAppendTaskEvent(workspaceDir, state.taskId, 'verification_started');
+  deps.onProgress?.({
+    taskId: state.taskId,
+    phase: 'verifying',
+    turn: state.turns,
+    detail: 'evaluating acceptance',
+  });
+  const verdict = await provider.evaluate(state.taskId, deps.signal);
+  // Cancellation while a provider awaits evidence outranks its eventual PASS.
+  if (deps.signal?.aborted && !isCommittedTaskVerdict(verdict)) return { kind: 'aborted' };
+  state.lastVerdict = verdict;
+
+  if (verdict.passed) {
+    await tryAppendTaskEvent(
+      workspaceDir,
+      state.taskId,
+      'acceptance_pass',
+      {
+        detail:
+          verdict.source === 'command'
+            ? 'acceptance command exited 0'
+            : 'criteria met with evidence',
+        acceptanceSource: verdict.source,
+      },
+      isCommittedTaskVerdict(verdict) ? undefined : deps.signal
+    );
+    deps.onProgress?.({
+      taskId: state.taskId,
+      phase: 'accepted',
+      turn: state.turns,
+      detail: 'acceptance passed',
+    });
+    return { kind: 'accepted' };
+  }
+
+  // Esc during acceptance is not a failed verdict. Do not write
+  // acceptance_fail; the loop top records aborted.
+  if (deps.signal?.aborted) return { kind: 'aborted' };
+
+  // A missing or timed-out acceptance command is a harness failure, not a
+  // failed repair: no agent turn can make a nonexistent tool exist. Block and
+  // ask the user instead of spending the repair budget on the same verdict
+  // (Claude's hook exit-code semantics, Cursor's hook timeouts).
+  if (verdict.blocked) {
+    await tryAppendTaskEvent(workspaceDir, state.taskId, 'blocked_on_user', {
+      reason: verdict.blocked.detail.slice(0, 400),
+    });
+    deps.onProgress?.({
+      taskId: state.taskId,
+      phase: 'blocked',
+      turn: state.turns,
+      detail: verdict.blocked.kind,
+    });
+    return { kind: 'blocked' };
+  }
+
+  await tryAppendTaskEvent(workspaceDir, state.taskId, 'acceptance_fail', {
+    detail: verdict.detail.slice(0, 400),
+  });
+  deps.onProgress?.({
+    taskId: state.taskId,
+    phase: 'diagnosing',
+    turn: state.turns,
+    detail: 'verification failed — diagnosing',
+  });
+  return { kind: 'failed', verdict };
+}
+
 async function verifyRepairLoop(
   deps: TaskEngineDeps,
   state: RunLoopState,
   provider: VerdictProvider,
   maxRepairAttempts: number,
-  maxTurnsOverride?: number
+  maxTurnsOverride?: number,
+  verifyFirst = false
 ): Promise<'accepted' | 'failed' | 'blocked' | 'budget'> {
   const { workspaceDir } = deps;
   // A resume may narrow the turn budget for this attempt (B114): retrying a
   // failed goal should not silently grant the fresh-run default again.
   const maxTurns = maxTurnsOverride ?? deps.maxTurns ?? DEFAULT_MAX_TURNS;
+  // B116: the first pass of a resume checks the workspace as it stands before
+  // buying an agent turn (see resumeTask). Consumed after one use.
+  let pendingVerifyFirst = verifyFirst;
 
   while (true) {
     // Settled before abort: a turn can accept (or /goal clear) and the user
@@ -263,105 +354,53 @@ async function verifyRepairLoop(
       return 'failed';
     }
 
-    state.turns += 1;
-    if (state.turns > maxTurns) {
-      await appendTaskEvent(workspaceDir, state.taskId, 'task_failed', {
-        detail: `turn budget exhausted (${maxTurns} turns)`,
+    let verified: VerificationResult;
+    if (pendingVerifyFirst) {
+      // A resume retries a goal whose workspace is already attempted: verify it
+      // before spending a whole turn (a corrected oracle, or work that is in
+      // fact finished, must be accepted with zero turns). A red check still
+      // falls through to the normal diagnose → repair path below.
+      pendingVerifyFirst = false;
+      verified = await runVerification(deps, state, provider);
+    } else {
+      state.turns += 1;
+      if (state.turns > maxTurns) {
+        await appendTaskEvent(workspaceDir, state.taskId, 'task_failed', {
+          detail: `turn budget exhausted (${maxTurns} turns)`,
+        });
+        return 'budget';
+      }
+      deps.onProgress?.({
+        taskId: state.taskId,
+        phase: 'executing',
+        turn: state.turns,
+        detail: localizeTaskDetail('agent execution turn'),
       });
-      return 'budget';
-    }
-    deps.onProgress?.({
-      taskId: state.taskId,
-      phase: 'executing',
-      turn: state.turns,
-      detail: localizeTaskDetail('agent execution turn'),
-    });
-    const executed = await runAgentTurn(
-      deps,
-      state,
-      executionPrompt(current.goal ?? '', state.taskId, state.repairsUsed + 1),
-      'executing'
-    );
-    if (executed === 'budget') return 'budget';
-
-    // The turn may already have accepted, failed, abandoned, or blocked the
-    // task (task_acceptance, /goal clear). Do not reopen it with
-    // verification_started — that would bump the attempt and, on a failing
-    // command, fall into repair.
-    const afterExecution = await getTaskStateSnapshot(workspaceDir, state.taskId);
-    // Loop top returns the settled outcome before it consults abort. An Esc
-    // during this turn returns normally; continuing into verification and then
-    // a repair turn would throw on the already-aborted signal and resumeTask
-    // would record that as "run crashed".
-    if (phaseIsSettled(afterExecution?.phase) || deps.signal?.aborted) continue;
-
-    // Tolerant: the agent may already have entered verification via the
-    // task_acceptance tool during its turn.
-    await tryAppendTaskEvent(workspaceDir, state.taskId, 'verification_started');
-    deps.onProgress?.({
-      taskId: state.taskId,
-      phase: 'verifying',
-      turn: state.turns,
-      detail: 'evaluating acceptance',
-    });
-    const verdict = await provider.evaluate(state.taskId, deps.signal);
-    // Cancellation while a provider awaits evidence outranks its eventual PASS.
-    if (deps.signal?.aborted && !isCommittedTaskVerdict(verdict)) continue;
-    state.lastVerdict = verdict;
-
-    if (verdict.passed) {
-      await tryAppendTaskEvent(
-        workspaceDir,
-        state.taskId,
-        'acceptance_pass',
-        {
-          detail:
-            verdict.source === 'command'
-              ? 'acceptance command exited 0'
-              : 'criteria met with evidence',
-          acceptanceSource: verdict.source,
-        },
-        isCommittedTaskVerdict(verdict) ? undefined : deps.signal
+      const executed = await runAgentTurn(
+        deps,
+        state,
+        executionPrompt(current.goal ?? '', state.taskId, state.repairsUsed + 1),
+        'executing'
       );
-      deps.onProgress?.({
-        taskId: state.taskId,
-        phase: 'accepted',
-        turn: state.turns,
-        detail: 'acceptance passed',
-      });
-      return 'accepted';
+      if (executed === 'budget') return 'budget';
+
+      // The turn may already have accepted, failed, abandoned, or blocked the
+      // task (task_acceptance, /goal clear). Do not reopen it with
+      // verification_started — that would bump the attempt and, on a failing
+      // command, fall into repair.
+      const afterExecution = await getTaskStateSnapshot(workspaceDir, state.taskId);
+      // Loop top returns the settled outcome before it consults abort. An Esc
+      // during this turn returns normally; continuing into verification and
+      // then a repair turn would throw on the already-aborted signal and
+      // resumeTask would record that as "run crashed".
+      if (phaseIsSettled(afterExecution?.phase) || deps.signal?.aborted) continue;
+      verified = await runVerification(deps, state, provider);
     }
 
-    // Esc during acceptance is not a failed verdict. Do not write
-    // acceptance_fail; the loop top records aborted.
-    if (deps.signal?.aborted) continue;
-
-    // A missing or timed-out acceptance command is a harness failure, not a
-    // failed repair: no agent turn can make a nonexistent tool exist. Block and
-    // ask the user instead of spending the repair budget on the same verdict
-    // (Claude's hook exit-code semantics, Cursor's hook timeouts).
-    if (verdict.blocked) {
-      await tryAppendTaskEvent(workspaceDir, state.taskId, 'blocked_on_user', {
-        reason: verdict.blocked.detail.slice(0, 400),
-      });
-      deps.onProgress?.({
-        taskId: state.taskId,
-        phase: 'blocked',
-        turn: state.turns,
-        detail: verdict.blocked.kind,
-      });
-      return 'blocked';
-    }
-
-    await tryAppendTaskEvent(workspaceDir, state.taskId, 'acceptance_fail', {
-      detail: verdict.detail.slice(0, 400),
-    });
-    deps.onProgress?.({
-      taskId: state.taskId,
-      phase: 'diagnosing',
-      turn: state.turns,
-      detail: 'verification failed — diagnosing',
-    });
+    if (verified.kind === 'accepted') return 'accepted';
+    if (verified.kind === 'blocked') return 'blocked';
+    if (verified.kind === 'aborted') continue;
+    const verdict = verified.verdict;
 
     if (state.repairsUsed >= maxRepairAttempts) {
       // The agent may verify inside its own turn (`/task verify` tool), which
@@ -685,7 +724,8 @@ export async function resumeTask(
       state,
       provider,
       options.maxRepairAttempts ?? deps.maxRepairAttempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS,
-      options.maxTurns
+      options.maxTurns,
+      true
     );
   } catch (err) {
     if (isUserAbort(err) || deps.signal?.aborted) {

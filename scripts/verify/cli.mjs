@@ -102,6 +102,7 @@ import { stage as taskFailReasonsStage } from './stages/task-fail-reasons.mjs';
 import { stage as taskStatusStage } from './stages/task-status.mjs';
 import { stage as repairBudgetStage } from './stages/repair-budget.mjs';
 import { stage as resumeBudgetStage } from './stages/resume-budget.mjs';
+import { stage as resumeVerifyFirstStage } from './stages/resume-verify-first.mjs';
 
 const STAGES = new Map(
   [
@@ -182,6 +183,7 @@ const STAGES = new Map(
     taskStatusStage,
     repairBudgetStage,
     resumeBudgetStage,
+    resumeVerifyFirstStage,
     taskFailReasonsStage,
   ].map((stage) => [stage.name, stage])
 );
@@ -256,6 +258,7 @@ const FAST_GATE = [
   'task-status',
   'repair-budget',
   'resume-budget',
+  'resume-verify-first',
   'task-fail-reasons',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
