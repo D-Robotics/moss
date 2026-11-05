@@ -98,6 +98,8 @@ async function runReplTurn(
     };
     /** D4: readers for `@server:uri` resource mentions (undefined = no MCP). */
     readMcpResource?: McpResourceReader['read'];
+    /** B125: one-shot context held over from the last autonomous run. */
+    extraContext?: string;
   }
 ): Promise<Awaited<ReturnType<typeof runOneShot>>> {
   const controller = new AbortController();
@@ -118,9 +120,12 @@ async function runReplTurn(
     const { readMcpResource, ...runOptions } = options;
     const mention = await expandMcpResourceMentions(message, { read: readMcpResource });
     for (const line of mention.notes) console.error(line);
+    const extraContext = [options.extraContext, mention.extraContext]
+      .filter((part): part is string => Boolean(part))
+      .join('\n\n');
     return await runOneShot(agent, message, {
       ...runOptions,
-      ...(mention.extraContext ? { extraContext: mention.extraContext } : {}),
+      ...(extraContext ? { extraContext } : {}),
       abortSignal: controller.signal,
     });
   } finally {
@@ -131,6 +136,8 @@ async function runReplTurn(
 }
 
 let taskRunInFlight = false;
+/** B125: run summary handed to exactly one following chat turn, then dropped. */
+let pendingRunContext = '';
 
 export const INTERACTIVE_COMMANDS = [...INTERACTIVE_COMPLETION_COMMANDS];
 
@@ -1057,9 +1064,24 @@ export async function runInteractive(
         process.off('SIGINT', abortTask);
         rl.off('SIGINT', abortTask);
         process.stdin.off('data', onTaskStdin);
+        // B125: hand the outcome to the next chat turn — the run wrote its own
+        // session, so without this the conversation restarts blind.
+        const { listTaskStateSnapshots } = await import('../core/index.js');
+        const snapshots = await listTaskStateSnapshots(workspace);
+        const latest = [...snapshots].sort((left, right) => right.updatedAt - left.updatedAt)[0];
+        if (latest) {
+          const [{ buildTaskStatusJson }, { listTaskEvents }, { formatRunContextNote }] =
+            await Promise.all([
+              import('./task-run.js'),
+              import('../core/task/task-store.js'),
+              import('./run-context.js'),
+            ]);
+          const events = await listTaskEvents(workspace, latest.taskId);
+          const status = await buildTaskStatusJson(workspace, latest, events);
+          pendingRunContext = formatRunContextNote(status, cliLocale() === 'zh');
+        }
         if (taskController.signal.aborted) {
-          const { listTaskStateSnapshots } = await import('../core/index.js');
-          const resumable = (await listTaskStateSnapshots(workspace))
+          const resumable = snapshots
             .filter((snapshot) => isResumableTaskPhase(snapshot.phase))
             .sort((left, right) => right.updatedAt - left.updatedAt)[0];
           const candidate: PausedGoalCandidate | null = resumable
@@ -1139,11 +1161,15 @@ export async function runInteractive(
     }
 
     await openCheckpoint(msg.slice(0, 60));
+    // B125: the note rides exactly one turn, then the conversation owns the rest.
+    const carriedRunContext = pendingRunContext;
+    pendingRunContext = '';
     const stop = await runReplTurn(agent, msg, {
       sessionKey,
       onAgentEvent: (event) => recordAgentEvent(event),
       taskFlow: messageRequestsTaskContract(msg),
       readline: rl,
+      ...(carriedRunContext ? { extraContext: carriedRunContext } : {}),
       ...(runtime?.mcpResources ? { readMcpResource: runtime.mcpResources.read } : {}),
     });
     // O165: a fatal (throwing) Stop hook is terminal — no continuation turn;

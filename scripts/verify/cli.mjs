@@ -107,6 +107,7 @@ import { stage as resumeVerifyFirstStage } from './stages/resume-verify-first.mj
 import { stage as taskNextStepsStage } from './stages/task-next-steps.mjs';
 import { stage as taskSigintStage } from './stages/task-sigint.mjs';
 import { stage as taskQuestionAskStage } from './stages/task-question-ask.mjs';
+import { stage as runContextStage } from './stages/run-context.mjs';
 
 const STAGES = new Map(
   [
@@ -192,6 +193,7 @@ const STAGES = new Map(
     taskNextStepsStage,
     taskSigintStage,
     taskQuestionAskStage,
+    runContextStage,
     taskFailReasonsStage,
   ].map((stage) => [stage.name, stage])
 );
@@ -271,6 +273,7 @@ const FAST_GATE = [
   'task-next-steps',
   'task-sigint',
   'task-question-ask',
+  'run-context',
   'task-fail-reasons',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
