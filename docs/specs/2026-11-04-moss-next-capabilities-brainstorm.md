@@ -258,6 +258,25 @@
 - **成本**：高；**风险**：与「orchestration 冻结」冲突，需 owner 决策。
 - **优先级**：P1（决策后）/P2（不决策）。
 
+**进度（2026-11-05，D5 声明式编排已落地）**
+
+- ✅ `moss workflow run <plan.json> [--dry-run] [--json]` / `resume <runId>` / `status <runId>` /
+  `list [--json]`：计划是**数据不是代码**（`{name, description?, concurrency, steps:[{id, task, dependsOn,
+writePaths?, maxTurns?}]}`），不上 JS 沙箱、不能让计划调用模型 API 或读环境；
+- ✅ 执行语义：按依赖分波，每波内按 `concurrency`（1..4）并发；**每个可运行步骤启动一次全新的 headless
+  会话**（互不共享对话状态，提示里只带已完成依赖的输出尾）；失败步骤只把依赖它的步骤标 `blocked`，
+  无关步骤继续跑；`writePaths` 只作为协作提示注入（写权限仍由子会话自己的审批策略决定）；
+- ✅ 状态与恢复：`.moss/workflows/<runId>/state.json` 记录每步 status/耗时/exitCode/会话键/output 尾；
+  `resume` 跳过已 `passed` 的步骤只补未完成的，`--dry-run` 只打印波次不写状态；
+- ✅ caps：计划最多 50 步、并发最多 4、每步子进程 10 分钟上限；退出码 0 仅当全部步骤 `passed`；
+- ✅ `--mock` 透传给子会话：计划可在无 API key 的离线环境端到端演练（探针就是这么跑的）；
+- 验收证据：确定性探针 `workflow`（10 条：计划校验一次列全错误、依赖波次、失败隔离/blocked、resume
+  不重跑、并发上限、CLI dry-run 不落状态、非法计划 exit 1、真实 mock 单步 run→list→status→resume 全链）；
+  verify stage `workflow`（2.3s）；
+- ⬜ 仍缺：验收要求的"20 文件迁移任务"真实跑（需要真实模型与仓库样本，单列为后续工作）；
+  YAML 只支持 JSON（不引依赖）；agent teams 共享任务板（D9 团队层）未合并；脚本式 workflow 仍按 owner
+  边界只做声明式。
+
 ### D6 记忆写路径（需要解冻）：显式 `/remember` 优先
 
 - **问题**：参考产品都在补"写"：Claude auto memory（200 行/25KB 自动加载）、Cursor Memories；
@@ -570,7 +589,7 @@
 | D2 评估 grader                                      | ✅                      | 四类 grader 第一版（expect_regex / expect_tools / post_condition / contains）+ 报告；见 `bench/` 与 D2 段落进度。                                                                                                                                 |
 | D3 工具面瘦身                                       | 🟡                      | 已有：`tool-surface` 测量 stage、工具搜索/惰性揭示（subagent、task ledger 默认不进 catalog）、`device_*` 无设备时隐藏。缺：描述 lean 化、工具去重、`todo_write` 删除实验。                                                                        |
 | D4 MCP 协议                                         | ✅（resources/prompts） | `mcp_resource`/`mcp_prompt` 工具 + `moss mcp test` 三面清单 + verify stage `mcp-protocol`（mock stdio server，6 条）+ 真实 `moss mcp test rdk-docs`（6 工具、0 resources/0 prompts）。❌ elicitation / OAuth / `@uri` 引用（理由见 D4 进度）。    |
-| D5 编排                                             | 🟡                      | 已有 `fan_out_subagents` / `create_subagent` 与 Task OS 任务板。缺：workflow 脚本（可重跑/可恢复）、agent teams 共享任务板、对抗式复核。                                                                                                          |
+| D5 编排                                             | 🟡                      | 声明式 `moss workflow`（JSON 计划、依赖波次、失败隔离、`.moss/workflows` 状态、resume、并发/步数 caps、`--mock` 离线演练）已落地，探针 10 条；缺：20 文件真实迁移验收跑、YAML、agent teams 共享任务板（D9）。                                     |
 | D6 记忆写路径                                       | ✅（显式版）            | `/remember` + `moss remember`（预览、去重、500 字符上限、可撤销）+ verify stage `remember`（6 条）+ 真实跨会话运行。❌ 自动记忆（刻意不做）。                                                                                                     |
 | D7 多模态                                           | 🟡                      | 已有 `read_image` 与图像预算（provider 请求只保留最新图）；缺：PDF / `@file` 附件、会话内图片引用。                                                                                                                                               |
 | D8 代码智能（LSP / diagnostics）                    | 🟡                      | 聚合 `diagnostics` 工具已落地（tsc+eslint 归一化、9 条探针、真实全仓库运行 0 error）；缺：pytest 聚合、monorepo 扫描、LSP client 评估，以及验收要求的 bench A/B。                                                                                 |

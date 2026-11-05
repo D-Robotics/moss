@@ -25,6 +25,7 @@ export type CliCommand =
   | 'device'
   | 'skill'
   | 'plugins'
+  | 'workflow'
   | 'migrate'
   | 'sessions'
   | 'tasks'
@@ -225,6 +226,7 @@ export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'device',
   'skill',
   'plugins',
+  'workflow',
   'migrate',
   'tasks',
   'task',

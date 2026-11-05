@@ -393,6 +393,10 @@ export async function renderSubcommandHelp(
       const { renderReviewUsage } = await import('./review-commands.js');
       return renderReviewUsage(zh);
     }
+    case 'workflow': {
+      const { renderWorkflowUsage } = await import('./workflow-command.js');
+      return renderWorkflowUsage(zh);
+    }
     case 'rules': {
       const { renderRulesUsage } = await import('./rules-commands.js');
       return renderRulesUsage(zh);

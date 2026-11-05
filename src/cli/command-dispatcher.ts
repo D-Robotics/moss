@@ -365,6 +365,28 @@ export const COMMANDS: Record<string, CommandConfig> = {
     description: 'Local capability packs: validate / install / list / remove',
   },
 
+  workflow: {
+    name: 'workflow',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runWorkflowCommand } = await import('./workflow-command.js');
+      const workspace = ctx.workspace;
+      if (!workspace) {
+        console.error('[moss] workflow could not resolve the workspace.');
+        process.exitCode = 2;
+        return;
+      }
+      const code = await runWorkflowCommand(ctx.commandArgs, {
+        workspaceDir: workspace,
+        json: ctx.argv.includes('--json'),
+        mock: ctx.argv.includes('--mock'),
+      });
+      if (code !== 0) process.exitCode = code;
+    },
+    description:
+      'Declarative orchestration: JSON plan of dependent headless steps (run/resume/status/list)',
+  },
+
   rules: {
     name: 'rules',
     phase: CliPhase.WorkspaceReady,
