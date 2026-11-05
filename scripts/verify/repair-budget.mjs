@@ -50,7 +50,7 @@ const failingProvider = {
  * Run one failing task. `selfVerify` models the agent calling a verification
  * tool during its execution turn (the real behaviour behind att:2 rep:1).
  */
-async function runFailing({ maxRepairAttempts, selfVerify = false, goal }) {
+async function runFailing({ maxRepairAttempts, selfVerify = false, goal, maxTurns }) {
   const phases = [];
   const turnPhases = [];
   let taskId;
@@ -66,6 +66,7 @@ async function runFailing({ maxRepairAttempts, selfVerify = false, goal }) {
       },
       verdictProvider: failingProvider,
       maxRepairAttempts,
+      ...(maxTurns === undefined ? {} : { maxTurns }),
       onProgress: (progress) => {
         taskId ??= progress.taskId;
         phases.push(progress.phase);
@@ -121,6 +122,40 @@ for (const budget of [1, 2]) {
   assert.ok(!run.detail.includes('1 attempts'), 'plural grammar');
 }
 ok('max-repairs N spends N repair turns and reports N+1 attempts');
+
+// 3b. B126: the turn budget must count EXECUTED turns. Checking after the
+// increment made `--max-turns 1` report `turns: 2` in the summary/rollup for a
+// run that only spent the planning turn.
+{
+  const run = await runFailing({
+    maxRepairAttempts: DEFAULT_MAX_REPAIR_ATTEMPTS,
+    goal: 'one turn',
+    maxTurns: 1,
+  });
+  assert.equal(run.result.outcome, 'fail');
+  assert.equal(run.detail, 'turn budget exhausted (1 turns)');
+  assert.equal(run.result.turns, 1, 'only the planning turn executed');
+  assert.equal(run.turnPhases.filter((phase) => phase === 'executing').length, 0);
+  assert.equal(run.turnPhases.filter((phase) => phase === 'repairing').length, 0);
+  const summary = summarizeTaskRun(run.result, 'en');
+  assert.match(summary, /turns: 1\b/, summary);
+  assert.ok(!/turns: 2\b/.test(summary), summary);
+  ok('a turn-budget stop reports the executed turns, not the refused one');
+}
+
+{
+  const run = await runFailing({
+    maxRepairAttempts: DEFAULT_MAX_REPAIR_ATTEMPTS,
+    goal: 'two turns',
+    maxTurns: 2,
+  });
+  assert.equal(run.result.turns, 2, 'planning + one execution turn');
+  assert.equal(run.turnPhases.filter((phase) => phase === 'executing').length, 1);
+  assert.equal(run.turnPhases.filter((phase) => phase === 'repairing').length, 0);
+  assert.equal(run.detail, 'turn budget exhausted (2 turns)');
+  assert.match(summarizeTaskRun(run.result, 'en'), /turns: 2\b/);
+  ok('a two-turn budget spends planning + one execution turn and says so');
+}
 
 // 4. CLI help defaults come from the engine constants, not stale literals.
 {

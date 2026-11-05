@@ -367,13 +367,17 @@ async function verifyRepairLoop(
       pendingVerifyFirst = false;
       verified = await runVerification(deps, state, provider);
     } else {
-      state.turns += 1;
-      if (state.turns > maxTurns) {
+      // B126: refuse before incrementing. `state.turns` is reported in the run
+      // summary and rollup, so incrementing first made a run that executed one
+      // turn (plus planning) print `turns: 2` next to "turn budget exhausted
+      // (1 turns)". Cheap check first, then the executed-turn counter moves.
+      if (state.turns + 1 > maxTurns) {
         await appendTaskEvent(workspaceDir, state.taskId, 'task_failed', {
           detail: `turn budget exhausted (${maxTurns} turns)`,
         });
         return 'budget';
       }
+      state.turns += 1;
       deps.onProgress?.({
         taskId: state.taskId,
         phase: 'executing',
@@ -420,13 +424,15 @@ async function verifyRepairLoop(
       return 'failed';
     }
     state.repairsUsed += 1;
-    state.turns += 1;
-    if (state.turns > maxTurns) {
+    // Same pre-check as the execution branch: the repair turn is only counted
+    // once the budget actually allows it (B126).
+    if (state.turns + 1 > maxTurns) {
       await appendTaskEvent(workspaceDir, state.taskId, 'task_failed', {
         detail: `turn budget exhausted (${maxTurns} turns)`,
       });
       return 'budget';
     }
+    state.turns += 1;
     deps.onProgress?.({
       taskId: state.taskId,
       phase: 'repairing',

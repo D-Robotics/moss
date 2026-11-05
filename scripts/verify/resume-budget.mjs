@@ -133,7 +133,9 @@ ok('a failed task starts from one recorded verification');
   // repair turn opened by the red first check.
   assert.equal(phases.filter((phase) => phase === 'repairing').length, 1);
   assert.equal(phases.filter((phase) => phase === 'executing').length, 0);
-  ok('resume --max-turns 1 stops on the turn budget');
+  // B126: the reported count is the executed turn, not the refused extra one.
+  assert.equal(resumed.turns, 1, `reported turns ${String(resumed.turns)}`);
+  ok('resume --max-turns 1 stops on the turn budget and reports one executed turn');
 }
 
 // 5. Without the flags the fresh-run default still applies (constraint is opt-in).
