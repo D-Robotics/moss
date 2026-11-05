@@ -14,6 +14,10 @@ import {
 } from '../tools/background-process-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import {
+  tinyWindowToolSurfaceEnabled,
+  toolAllowedOnTinyWindow,
+} from '../tools/tiny-window-tools.js';
+import {
   DeferredToolOffer,
   messageRequestsTaskLedger,
   workspaceHasTaskLedger,
@@ -1292,8 +1296,12 @@ ${result.stderr ?? ''}`.trim();
       stdinIsTTY: process.stdin.isTTY === true,
       hookAsker: enrichedRun.askUserQuestion !== undefined,
     });
+    // B66: a window too small for the standard surface gets a core tool set, or
+    // the very first request exceeds the provider context limit.
+    const tinyToolSurface = tinyWindowToolSurfaceEnabled({ effectiveContextTokens });
     const visibleForRun = (tool: Tool): boolean =>
       this.deferredTools.isOffered(tool.name) &&
+      (!tinyToolSurface || toolAllowedOnTinyWindow(tool.name)) &&
       // D11: a skill that declared allowed-tools/disallowed-tools narrows this
       // run; the filter runs per turn, so it applies right after the load.
       skillScopeAllowsTool(runId, tool.name) &&

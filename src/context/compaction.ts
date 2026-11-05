@@ -909,6 +909,21 @@ export function shouldProactiveCompact(params: {
   return false;
 }
 
+/**
+ * B66: below this window the harness cannot afford a model-written summary --
+ * the summarizer prompt (system prompt + transcript) is itself bigger than the
+ * window, so every summarizer request is rejected and the turn stalls. Use the
+ * local deterministic summary instead and keep it inside a slice of the window.
+ */
+export const TINY_WINDOW_COMPACTION_TOKENS = 6_000;
+
+/** Share of a tiny window the deterministic summary may occupy. */
+const TINY_WINDOW_SUMMARY_WINDOW_RATIO = 0.15;
+
+function tinyWindowSummaryChars(contextWindowTokens: number): number {
+  return Math.max(192, Math.floor(contextWindowTokens * TINY_WINDOW_SUMMARY_WINDOW_RATIO)) * 4;
+}
+
 export async function buildCompactionSummary(params: {
   summarize: SummarizeFn;
   messages: Message[];
@@ -948,11 +963,17 @@ export async function buildCompactionSummary(params: {
 // CompactionStrategy implementations
 class DeterministicCompactionStrategy implements CompactionStrategy {
   readonly name = 'deterministic';
+  private readonly maxChars?: number;
+
+  constructor(options: { maxChars?: number } = {}) {
+    this.maxChars = options.maxChars;
+  }
 
   async summarize(params: StrategyParams): Promise<string> {
     return buildDeterministicCompactionSummary(
       params.droppedMessages,
-      'Local deterministic summary'
+      'Local deterministic summary',
+      this.maxChars !== undefined ? { maxChars: this.maxChars } : {}
     );
   }
 }
@@ -1018,15 +1039,30 @@ class RemoteCompactionStrategy implements CompactionStrategy {
 
 function selectCompactionStrategy(params: {
   skipLlmCompaction?: boolean;
+  contextWindowTokens?: number;
   remoteCompactProvider?: RemoteCompactProvider;
 }): CompactionStrategy {
-  if (params.skipLlmCompaction) {
-    return new DeterministicCompactionStrategy();
+  const tinyWindow =
+    typeof params.contextWindowTokens === 'number' &&
+    params.contextWindowTokens > 0 &&
+    params.contextWindowTokens <= TINY_WINDOW_COMPACTION_TOKENS;
+  if (params.skipLlmCompaction || tinyWindow) {
+    return new DeterministicCompactionStrategy(
+      tinyWindow && typeof params.contextWindowTokens === 'number'
+        ? { maxChars: tinyWindowSummaryChars(params.contextWindowTokens) }
+        : {}
+    );
   }
 
   if (params.remoteCompactProvider) {
     return new RemoteCompactionStrategy(
-      new LlmCompactionStrategy(new DeterministicCompactionStrategy())
+      new LlmCompactionStrategy(
+        new DeterministicCompactionStrategy(
+          tinyWindow && typeof params.contextWindowTokens === 'number'
+            ? { maxChars: tinyWindowSummaryChars(params.contextWindowTokens) }
+            : {}
+        )
+      )
     );
   }
 
@@ -1151,6 +1187,7 @@ export async function compactHistoryIfNeeded(params: {
   // Select and execute compaction strategy
   const strategy = selectCompactionStrategy({
     skipLlmCompaction: params.skipLlmCompaction,
+    contextWindowTokens: params.contextWindowTokens,
     remoteCompactProvider: params.remoteCompactProvider,
   });
 

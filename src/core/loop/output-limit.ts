@@ -119,7 +119,13 @@ function clampToContext(tokens: number, contextTokens: number | undefined): numb
  */
 function fitDefaultToContext(tokens: number, contextTokens: number | undefined): number {
   if (!contextTokens || contextTokens <= 0) return positive(tokens);
-  const quarter = Math.max(MIN_OUTPUT_TOKENS, Math.floor(contextTokens / 4));
+  // B66: the 2k output floor is right for a 32k window but wrong for a 4k one --
+  // it took half the window and left the prompt 2048 tokens, so even a reduced
+  // tool surface could not fit. Below 8k the output cap follows the window: a
+  // quarter above 6k, a sixth below it, where the system prompt and one tool
+  // result need the remaining room (256-token floor).
+  const ratio = contextTokens <= 6_000 ? 1 / 6 : 1 / 4;
+  const quarter = Math.max(256, Math.floor(contextTokens * ratio));
   return Math.min(clampToContext(tokens, contextTokens), quarter);
 }
 

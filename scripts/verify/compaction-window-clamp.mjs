@@ -87,9 +87,29 @@ async function summaryMaxTokens(contextWindowTokens) {
   return captured?.maxTokens;
 }
 
-const smallBudget = await summaryMaxTokens(5_000);
-assert.ok(smallBudget !== undefined && smallBudget <= 1_250, `5k window asked for ${smallBudget}`);
+// B66: a 5k window no longer asks the model for a summary at all -- the
+// summarizer prompt (system prompt + transcript) does not fit the window, so
+// compaction uses the bounded local summary instead.
+assert.equal(
+  await summaryMaxTokens(5_000),
+  undefined,
+  'a 5k window must not call the model summarizer'
+);
+const tinyWindowCompaction = await compactHistoryIfNeeded({
+  summarize: async () => {
+    throw new Error('the model summarizer must not run on a tiny window');
+  },
+  messages: tiny,
+  contextWindowTokens: 5_000,
+  forceCompaction: true,
+});
+const tinySummaryChars = tinyWindowCompaction.summary?.length ?? 0;
+assert.ok(tinySummaryChars > 0, 'a 5k window still produces a local deterministic summary');
+assert.ok(
+  tinySummaryChars <= 3_000,
+  `5k window local summary ${tinySummaryChars} chars must fit ~15% of the window`
+);
 assert.equal(await summaryMaxTokens(32_000), 4_096);
-ok('a 5k window asks for a <=25%-of-window summary; 32k keeps the 4096 cap');
+ok('a 5k window uses a bounded local summary; 32k keeps the 4096 model-summary cap');
 
 console.log(`[compaction-window-clamp] ${checks} checks passed`);

@@ -111,13 +111,18 @@ function extractPrimaryUserGoal(messages: Message[]): string {
   return '未能从压缩窗口中可靠提取原始用户目标；继续前先核对当前任务。';
 }
 
-export function buildDeterministicCompactionSummary(messages: Message[], reason: string): string {
+export function buildDeterministicCompactionSummary(
+  messages: Message[],
+  reason: string,
+  options: { maxChars?: number } = {}
+): string {
   if (messages.length === 0) return DEFAULT_SUMMARY_FALLBACK;
   const droppedChars = estimateMessagesChars(messages);
   const budget = Math.max(
-    DETERMINISTIC_SUMMARY_MIN_CHARS,
+    Math.min(DETERMINISTIC_SUMMARY_MIN_CHARS, options.maxChars ?? Infinity),
     Math.min(
       DETERMINISTIC_SUMMARY_MAX_CHARS,
+      options.maxChars ?? Infinity,
       Math.floor(droppedChars * DETERMINISTIC_SUMMARY_REPLACEMENT_RATIO)
     )
   );
