@@ -3,6 +3,8 @@ import path from 'node:path';
 import { isRgAvailable } from '../tools/search-tools.js';
 import {
   auditResolvedCliConfig,
+  HOOK_EVENT_KEYS,
+  loadConfigFile,
   resolveConfigDir,
   envBeforeDotenv,
   hasTrustedToolWildcard,
@@ -29,6 +31,7 @@ import type { RdkDocsPinNote } from './rdk-docs-pin-check.js';
 import { renderBoardProxyDoctor } from './doctor-board-proxy.js';
 import { renderRdkDepsDoctor } from './doctor-rdk-deps.js';
 import { loadMcpConfigs } from './mcp-config.js';
+import { isMossHookEventId } from './hook-event-names.js';
 import { isFolderTrusted } from './folder-trust-store.js';
 
 function doctorL(en: string, vars?: Record<string, string | number>): string {
@@ -617,6 +620,65 @@ function renderMcpConfigDoctor(config: ResolvedCliConfig): string[] {
   return lines;
 }
 
+/**
+ * Static hooks audit. Hooks can only fire on a known event, and an unknown key
+ * is dropped by mergeHooksConfig() without a word — a hook written for a typo'd
+ * or Claude-only event name looks configured and never runs. `moss doctor` is
+ * where that is cheap to catch (the interactive `/doctor` reports live hooks).
+ */
+function renderHookConfigDoctor(config: ResolvedCliConfig): string[] {
+  const label = uiText('hooks', 'hooks');
+  const files: Array<{ path: string; scope: string }> = [];
+  files.push({ path: config.configPath, scope: uiText('user', '用户') });
+  const projectPath = config.projectConfigPath;
+  if (projectPath && isFolderTrusted(resolveConfigDir(), config.workspace)) {
+    files.push({ path: projectPath, scope: uiText('project', '项目') });
+  }
+  const lines: string[] = [];
+  let total = 0;
+  let eventCount = 0;
+  for (const file of files) {
+    let hooks: Record<string, unknown> | undefined;
+    try {
+      hooks = loadConfigFile(file.path).hooks as Record<string, unknown> | undefined;
+    } catch {
+      continue; // Unreadable/invalid config is auditResolvedCliConfig's report.
+    }
+    if (!hooks || typeof hooks !== 'object') continue;
+    for (const [event, entries] of Object.entries(hooks)) {
+      const list = Array.isArray(entries) ? entries : [];
+      if (!isMossHookEventId(event)) {
+        if (list.length === 0) continue;
+        lines.push(
+          warn(
+            label,
+            uiText(
+              `${file.scope} config has ${list.length} hook(s) on "${event}", which is not a Moss event — they never fire (events: ${HOOK_EVENT_KEYS.join(', ')})`,
+              `${file.scope}配置里有 ${list.length} 条 hook 挂在 "${event}" 上，这不是 Moss 事件——永远不会触发（可用事件：${HOOK_EVENT_KEYS.join('、')}）`
+            )
+          )
+        );
+        continue;
+      }
+      if (list.length === 0) continue;
+      total += list.length;
+      eventCount += 1;
+    }
+  }
+  if (total > 0) {
+    lines.push(
+      ok(
+        label,
+        uiText(
+          `${total} hook${total === 1 ? '' : 's'} on ${eventCount} event${eventCount === 1 ? '' : 's'} (config files)`,
+          `${total} 条，${eventCount} 个事件（来自配置文件）`
+        )
+      )
+    );
+  }
+  return lines;
+}
+
 export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   const lines = [uiText('[doctor] Moss', '[诊断] Moss')];
   lines.push(renderNodeDoctorLine());
@@ -799,6 +861,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
 
   lines.push(...renderApprovalDoctor(options.config));
   lines.push(...renderMcpConfigDoctor(options.config));
+  lines.push(...renderHookConfigDoctor(options.config));
   lines.push(ok(uiText('detail', '详细程度'), detailModeLabel(options.detailMode)));
 
   const sessionsDir = path.join(options.runtimeDir, 'sessions');
