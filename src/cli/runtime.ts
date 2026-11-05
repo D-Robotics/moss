@@ -1329,6 +1329,43 @@ export async function runCli(): Promise<void> {
       agent.tools.replace(createWebFetchTool({ allowHosts }));
     }
   }
+  /**
+   * B78: the reduced-profile notice and the `## Context Window` layer both depend
+   * on the *effective* window. In the TUI the probe lands after the first paint
+   * (by design), so both have to be re-evaluated when it does — otherwise a model
+   * whose API reports 4k is told 1000k and never sees the tiny-profile notice.
+   */
+  let tinyWindowAnnounced = false;
+  const announceTinyWindowIfNeeded = (): boolean => {
+    if (tinyWindowAnnounced) return false;
+    const contextTokens = resolvedConfig.contextTokens;
+    if (!contextTokens) return false;
+    const outputBudget =
+      resolvedConfig.maxOutputTokens ??
+      resolveModelOutputBudget({
+        modelId: resolvedConfig.model,
+        contextTokens,
+        pinned: false,
+        overrides: agent.config.modelMaxOutputTokens,
+      }).initial;
+    if (
+      !tinyWindowToolSurfaceEnabled({
+        effectiveContextTokens: getEffectiveContextWindowTokens(contextTokens, outputBudget),
+      })
+    ) {
+      return false;
+    }
+    tinyWindowAnnounced = true;
+    const ctxK = Math.round(contextTokens / 1000);
+    const line = uiText(
+      `[moss] This model's context window is small (${ctxK}k tokens): only the 5 core tools are offered, compaction uses a local summary, and each reply is capped at ${outputBudget} tokens. Configure a bigger window with agent.contextTokens (or use a model with one) for the full tool set.`,
+      `[moss] 这个模型的上下文窗口较小（${ctxK}k tokens）：只提供 5 个核心工具，压缩使用本地摘要，单次回复上限 ${outputBudget} tokens。需要完整工具面请用 agent.contextTokens 配置更大的窗口（或换更大窗口的模型）。`
+    );
+    if (useTui) emitTuiNotice(line);
+    else console.error(line);
+    return true;
+  };
+
   try {
     // Startup context-window probe: if the user didn't explicitly set
     // contextTokens (source is 'unprobed'), ask the provider API.  On success
@@ -1369,7 +1406,24 @@ export async function runCli(): Promise<void> {
     // pick the corrected window up when the probe lands (Cursor/Claude render the
     // composer before optional remote data).
     const contextProbe = probeContextWindow();
-    if (!useTui) await contextProbe;
+    if (!useTui) {
+      await contextProbe;
+    } else {
+      // The TUI paints first; when the probe corrects the window, refresh the
+      // prompt layer that states it and announce the profile if it became tiny.
+      void contextProbe.then(() => {
+        const corrected = resolvedConfig.contextTokens;
+        if (resolvedConfig.contextTokensSource === 'provider-api' && corrected) {
+          promptLayers.set({
+            id: 'cli:context-window',
+            stability: 'dynamic',
+            origin: 'environment',
+            text: `## Context Window\nYour context window is ${Math.round(corrected / 1000)}k tokens. State this number accurately when the user asks about context size — do not guess from training knowledge.`,
+          });
+        }
+        announceTinyWindowIfNeeded();
+      });
+    }
 
     await configuredHooks.runSessionStart();
 
@@ -1399,30 +1453,9 @@ export async function runCli(): Promise<void> {
       // B66/B70: a window this small silently loses the standard tool set and the
       // model-written summary. Say so once, with the knob that changes it: the
       // reduced surface is otherwise invisible until a tool the model wanted is
-      // missing from the request.
-      const outputBudget =
-        resolvedConfig.maxOutputTokens ??
-        resolveModelOutputBudget({
-          modelId: resolvedConfig.model,
-          contextTokens: resolvedConfig.contextTokens,
-          pinned: false,
-          overrides: agent.config.modelMaxOutputTokens,
-        }).initial;
-      if (
-        tinyWindowToolSurfaceEnabled({
-          effectiveContextTokens: getEffectiveContextWindowTokens(
-            resolvedConfig.contextTokens,
-            outputBudget
-          ),
-        })
-      ) {
-        const line = uiText(
-          `[moss] This model's context window is small (${ctxK}k tokens): only the 5 core tools are offered, compaction uses a local summary, and each reply is capped at ${outputBudget} tokens. Configure a bigger window with agent.contextTokens (or use a model with one) for the full tool set.`,
-          `[moss] 这个模型的上下文窗口较小（${ctxK}k tokens）：只提供 5 个核心工具，压缩使用本地摘要，单次回复上限 ${outputBudget} tokens。需要完整工具面请用 agent.contextTokens 配置更大的窗口（或换更大窗口的模型）。`
-        );
-        if (useTui) emitTuiNotice(line);
-        else console.error(line);
-      }
+      // missing from the request. B78 folds this into a helper so the late TUI
+      // probe can announce it too.
+      announceTinyWindowIfNeeded();
     }
 
     // AgentReady table commands (moss task …) dispatch with the fully
