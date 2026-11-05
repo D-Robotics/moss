@@ -140,7 +140,7 @@ import {
   skillSlashName,
   buildEmptySkillsHintLayer,
 } from '../core/skills/skill-registry.js';
-import { renderSkillCatalog } from '../core/skills/skill-catalog.js';
+import { renderSkillCatalog, skillCatalogBudgetForWindow } from '../core/skills/skill-catalog.js';
 import { loadSkillUsage } from '../core/skills/skill-usage.js';
 import { includeBundledRdkDocsSkill } from '../core/skills/rdk-docs-skill.js';
 import {
@@ -1291,7 +1291,7 @@ export async function runCli(): Promise<void> {
       // The CLI renders its own layer (see below), so the port is what core uses
       // for the `skill` tool's name resolution.
       refreshSkillActivation = (): void => {
-        const budget = skillCatalogBudget();
+        const budget = skillCatalogBudget(agent.config.contextTokens);
         agent.setSkillCatalog({
           manifests: () => selectActiveSkills(sessionSkills, touchedPaths()),
           ...('budgetChars' in budget ? { budgetChars: budget.budgetChars } : {}),
@@ -1305,7 +1305,7 @@ export async function runCli(): Promise<void> {
         // B10: entries this workspace actually loaded rank first, so a budget
         // cut drops the least-recently-used skill, not the alphabetically first.
         const catalog = renderSkillCatalog(catalogSkills, {
-          ...skillCatalogBudget(),
+          ...skillCatalogBudget(agent.config.contextTokens),
           usage: loadSkillUsage(workspace),
         });
         const note =
@@ -2113,11 +2113,15 @@ export function handleFatal(err: unknown): void {
   process.exit(code);
 }
 
-/** `MOSS_SKILLS_CATALOG_BUDGET` overrides the L1 catalog character budget. */
-function skillCatalogBudget(): { budgetChars: number } | Record<string, never> {
+/**
+ * L1 catalog budget: `MOSS_SKILLS_CATALOG_BUDGET` wins (operator override),
+ * otherwise ~1% of the model's context window with the 8,000-char fallback.
+ */
+function skillCatalogBudget(contextTokens?: number): { budgetChars: number } {
   const raw = process.env.MOSS_SKILLS_CATALOG_BUDGET;
-  if (!raw) return {};
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 500) return {};
-  return { budgetChars: parsed };
+  if (raw) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed >= 500) return { budgetChars: parsed };
+  }
+  return { budgetChars: skillCatalogBudgetForWindow(contextTokens) };
 }

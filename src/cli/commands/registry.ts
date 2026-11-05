@@ -969,7 +969,15 @@ const skillsCommand: CommandSpec = {
   async run(ctx) {
     const { renderSkillsList } = await import('../skill-commands.js');
     const { resolveConfigDir } = await import('../config.js');
-    ctx.say('system', await renderSkillsList(ctx.workspace, resolveConfigDir(), isZh(ctx.locale)));
+    ctx.say(
+      'system',
+      await renderSkillsList(
+        ctx.workspace,
+        resolveConfigDir(),
+        isZh(ctx.locale),
+        ctx.agent.config.contextTokens
+      )
+    );
   },
 };
 

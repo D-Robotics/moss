@@ -21,6 +21,33 @@ import type { SkillUsage } from './skill-usage.js';
 
 /** Total characters the catalog may take in one prompt. Env-overridable by the host. */
 export const SKILL_CATALOG_DEFAULT_BUDGET_CHARS = 8_000;
+/**
+ * Claude parity: the L1 listing may take ~1% of the model's context window,
+ * expressed as characters (≈4 chars/token), with the 8,000-char fallback as the
+ * ceiling and a readable floor for tiny windows.
+ *
+ * The 8,000-char fallback is therefore exactly 1% of a 200k-token window: on a
+ * small window a fixed 8,000-char catalog would cost several times the share the
+ * reference products budget for it (a 32k window would spend ~25% of the
+ * prompt on skill names) and crowd out history.
+ */
+export const SKILL_CATALOG_WINDOW_SHARE = 0.01;
+export const SKILL_CATALOG_CHARS_PER_TOKEN = 4;
+export const SKILL_CATALOG_BUDGET_FLOOR_CHARS = 800;
+
+/** Budget in characters for a known context window; the default when unknown. */
+export function skillCatalogBudgetForWindow(contextTokens?: number): number {
+  if (contextTokens === undefined || !Number.isFinite(contextTokens) || contextTokens <= 0) {
+    return SKILL_CATALOG_DEFAULT_BUDGET_CHARS;
+  }
+  const chars = Math.round(
+    contextTokens * SKILL_CATALOG_WINDOW_SHARE * SKILL_CATALOG_CHARS_PER_TOKEN
+  );
+  return Math.min(
+    SKILL_CATALOG_DEFAULT_BUDGET_CHARS,
+    Math.max(SKILL_CATALOG_BUDGET_FLOOR_CHARS, chars)
+  );
+}
 export const SKILL_CATALOG_DESCRIPTION_MAX_CHARS = 200;
 export const SKILL_CATALOG_DESCRIPTION_COMPACT_CHARS = 120;
 /**

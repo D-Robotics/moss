@@ -122,11 +122,11 @@ Skill 不是"一堆 markdown 加一个读取工具"。它是四个问题的合�
 
 ### 3.2 三层披露（Moss 版）
 
-| 层           | 内容                                                | 时机                                           | 预算                                                                        |
-| ------------ | --------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------- |
-| L1 catalog   | 名字 + 截断后的 description（≤200 字符渲染）        | 会话开始，动态层                               | 总量 8,000 字符；超出改 name-only 行；仍超出则省略并计数                    |
-| L2 body      | `SKILL.md` 正文 + 来源/版本/资源清单包裹            | 模型调用 `skill` 或用户 `/name`                | 声明 `maxResultTokens`，正文建议 <5,000 tokens；超过按 token 截断并明确提示 |
-| L3 resources | `scripts/`、`references/`、`assets/` 文件清单与路径 | L2 激活时随附清单；内容按需 `read_file`/`exec` | 清单本身 ≤1,000 字符                                                        |
+| 层           | 内容                                                | 时机                                           | 预算                                                                                    |
+| ------------ | --------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------- |
+| L1 catalog   | 名字 + 截断后的 description（≤200 字符渲染）        | 会话开始，动态层                               | 总量 ≈1% 模型窗口（上限 8,000 字符、下限 800）；超出改 name-only 行；仍超出则省略并计数 |
+| L2 body      | `SKILL.md` 正文 + 来源/版本/资源清单包裹            | 模型调用 `skill` 或用户 `/name`                | 声明 `maxResultTokens`，正文建议 <5,000 tokens；超过按 token 截断并明确提示             |
+| L3 resources | `scripts/`、`references/`、`assets/` 文件清单与路径 | L2 激活时随附清单；内容按需 `read_file`/`exec` | 清单本身 ≤1,000 字符                                                                    |
 
 L1 的渲染必须返回可观测值：`skillsCatalogChars`、`skillsCatalogUncappedChars`、`skillsOmitted`、`skillsStrategy`，
 进 `promptLayers.formatReport()` 与 `run_metrics`（与 W2 的 layer hash 并列）。
@@ -224,7 +224,8 @@ export interface SkillIssue {
 
 - 现状实测 186 字符/技能、无上限。60 个技能 = 11,185 字符 ≈ 2.8k tokens **每一轮**都付；
   这不是"容量问题"，是**租金**问题：catalog 在动态层（缓存前缀之后），每轮重发。
-- 目标：预算 `MOSS_SKILLS_BUDGET`（默认 8,000 字符）内渲染完整行；超出逐步降级：
+- 目标：预算 `MOSS_SKILLS_CATALOG_BUDGET`（默认按 Claude 口径 ≈1% 模型窗口，上限 8,000、下限 800 字符；
+  窗口未知时 8,000）内渲染完整行；超出逐步降级：
   1. description 截到 200 字符（保留 when）；
   2. 只留 `name: when` 行；
   3. 省略尾部技能并上报 `skillsOmitted`（排序按 scope 优先 + 名字稳定排序，保证可复现）。
@@ -272,6 +273,9 @@ export interface SkillIssue {
 - `renderSkillCatalog(skills, budget)` 返回 `{text, entries, renderedChars, uncappedChars, omitted, strategy}`；
   `buildSkillsPromptLayer` 改为薄包装（保留导出兼容）。
 - 进 `promptLayers.formatReport()`（`cli:skills 8,000 chars, 3 omitted, strategy=name-only`）与 `run_metrics`。
+- 2026-11-05 对齐 Claude：预算从固定 8,000 改为 `min(8,000, max(800, windowTokens × 1% × 4))`。
+  8,000 字符正好是 200k 窗口的 1%，所以大窗口行为不变；32k 窗口从 6,203 字符降到 1,279（每轮省
+  ~1.2k tokens），16k 窗口保住 800 字符下限。`MOSS_SKILLS_CATALOG_BUDGET` 仍是操作者覆盖。
 - 验收：60 个技能 fixtures → 渲染 ≤8,000 字符、`omitted>0`、`strategy` 正确；`MOSS_PROMPT_LAYERS=1` 真实运行打印；
   与未裁剪 11,185 字符对比。
 

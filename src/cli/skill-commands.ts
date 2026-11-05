@@ -88,11 +88,17 @@ export interface SkillCommandContext {
 export async function renderSkillsList(
   workspaceDir: string,
   configDir: string,
-  zh: boolean = isZhLocale()
+  zh: boolean = isZhLocale(),
+  /** Model context window; the in-session budget is ~1% of it (8k fallback). */
+  contextTokens?: number
 ): Promise<string> {
   const { loadSkillCatalog } = await import('../core/skills/skill-registry.js');
-  const { rankSkillsForCatalog, renderSkillCatalog, SKILL_CATALOG_DEFAULT_BUDGET_CHARS } =
-    await import('../core/skills/skill-catalog.js');
+  const {
+    rankSkillsForCatalog,
+    renderSkillCatalog,
+    skillCatalogBudgetForWindow,
+    SKILL_CATALOG_DEFAULT_BUDGET_CHARS,
+  } = await import('../core/skills/skill-catalog.js');
   const { loadSkillUsage } = await import('../core/skills/skill-usage.js');
   const skills = loadSkillCatalog([
     { dir: path.join(workspaceDir, '.moss', 'skills'), scope: 'workspace' },
@@ -113,7 +119,11 @@ export async function renderSkillsList(
   // `disable-model-invocation` entries are not in the model catalog: they cost
   // the model 0 chars and only appear here (and in slash completion).
   const modelSkills = skills.filter((skill) => skill.modelInvocable !== false);
-  const total = renderSkillCatalog(modelSkills, { usage });
+  const budget =
+    contextTokens === undefined
+      ? SKILL_CATALOG_DEFAULT_BUDGET_CHARS
+      : skillCatalogBudgetForWindow(contextTokens);
+  const total = renderSkillCatalog(modelSkills, { usage, budgetChars: budget });
   const lines: string[] = [
     zh
       ? '  名称                来源      使用  目录成本  评测  描述'
@@ -135,8 +145,8 @@ export async function renderSkillsList(
   }
   lines.push(
     zh
-      ? `\n共 ${skills.length} 个技能；目录 ${total.stats.renderedChars}/${SKILL_CATALOG_DEFAULT_BUDGET_CHARS} 字符（策略 ${total.stats.strategy}，无预算上限时 ${total.stats.uncappedChars} 字符）。会话内用技能工具加载；\`user-only\` 技能仅用户可用（disable-model-invocation），不占目录字符。`
-      : `\n${skills.length} skill(s); catalog ${total.stats.renderedChars}/${SKILL_CATALOG_DEFAULT_BUDGET_CHARS} chars (strategy ${total.stats.strategy}, ${total.stats.uncappedChars} without a budget). Load one in-session with the skill tool. \`user-only\` skills are user-invocable only (disable-model-invocation) and never cost catalog chars.`
+      ? `\n共 ${skills.length} 个技能；目录 ${total.stats.renderedChars}/${budget} 字符（策略 ${total.stats.strategy}，无预算上限时 ${total.stats.uncappedChars} 字符）。会话内用技能工具加载；\`user-only\` 技能仅用户可用（disable-model-invocation），不占目录字符。`
+      : `\n${skills.length} skill(s); catalog ${total.stats.renderedChars}/${budget} chars (strategy ${total.stats.strategy}, ${total.stats.uncappedChars} without a budget). Load one in-session with the skill tool. \`user-only\` skills are user-invocable only (disable-model-invocation) and never cost catalog chars.`
   );
   return lines.join('\n');
 }

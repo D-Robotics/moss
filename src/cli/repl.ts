@@ -546,7 +546,9 @@ export async function runInteractive(
       // renderer already existed; this surface used to print its own narrower row.
       const { renderSkillsList } = await import('./skill-commands.js');
       const configDir = runtime?.configDir ?? services.config.resolveConfigDir();
-      for (const line of (await renderSkillsList(workspace, configDir)).split('\n')) {
+      for (const line of (
+        await renderSkillsList(workspace, configDir, undefined, agent.config.contextTokens)
+      ).split('\n')) {
         console.error(line);
       }
       rl.prompt();

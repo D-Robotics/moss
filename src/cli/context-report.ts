@@ -24,7 +24,7 @@ import { buildMcpStableIndex, mcpSearchToolDeclaration } from '../core/mcp/regis
 import { isDeferredToolName } from '../core/tools/deferred-tool-offer.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from '../core/mcp/rdk-docs.js';
 import { buildEmptySkillsHintLayer } from '../core/skills/skill-registry.js';
-import { renderSkillCatalog } from '../core/skills/skill-catalog.js';
+import { renderSkillCatalog, skillCatalogBudgetForWindow } from '../core/skills/skill-catalog.js';
 import { bundledRdkDocsSkill, includeBundledRdkDocsSkill } from '../core/skills/rdk-docs-skill.js';
 import { createSkillTool } from '../tools/skill-tool.js';
 import { registerBuiltinTools } from '../tools/builtin.js';
@@ -165,7 +165,9 @@ export async function buildFreshSessionContextReport(
   const modelSkills = skills.filter((skill) => skill.modelInvocable !== false);
   const skillsLayer =
     modelSkills.length > 0
-      ? (renderSkillCatalog(modelSkills).text ?? '')
+      ? (renderSkillCatalog(modelSkills, {
+          budgetChars: skillCatalogBudgetForWindow(contextTokens),
+        }).text ?? '')
       : buildEmptySkillsHintLayer(skillDirs);
   const mcpLayer = rdkDocsConnected ? connectedRdkDocsMcpLayer() : '';
   const rdkLayer = rdkDocsConnected

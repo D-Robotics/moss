@@ -2312,7 +2312,8 @@ export function TuiAppRoot({
         const rows = await renderSkillsList(
           options.workspaceDir,
           options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
-          options.locale === 'zh'
+          options.locale === 'zh',
+          options.agent.config.contextTokens
         );
         printBlock(tui('Skills'), rows.split('\n'));
         return;
