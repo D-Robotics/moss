@@ -2417,7 +2417,8 @@ export function TuiAppRoot({
           options.workspaceDir,
           options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
           options.locale === 'zh',
-          options.agent.config.contextTokens
+          options.agent.config.contextTokens,
+          { compact: true }
         );
         printBlock(tui('Skills'), rows.split('\n'));
         return;

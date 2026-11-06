@@ -85,12 +85,24 @@ export interface SkillCommandContext {
  * catalog budget summary. Shared by `moss skill list` and the in-session `/skills`
  * command so both surfaces report the same numbers.
  */
+/**
+ * B243: `/skills` printed each skill's full catalog description, so nineteen
+ * skills filled the whole screen (the TUI wraps the row). The in-session panel
+ * keeps one readable line; `moss skill list` keeps the full text.
+ */
+export function compactSkillDescription(text: string, limit = 72): string {
+  const one = (text.split('\n')[0] ?? '').trim();
+  if (one.length <= limit) return one;
+  return `${one.slice(0, limit - 1).trimEnd()}…`;
+}
+
 export async function renderSkillsList(
   workspaceDir: string,
   configDir: string,
   zh: boolean = isZhLocale(),
   /** Model context window; the in-session budget is ~1% of it (8k fallback). */
-  contextTokens?: number
+  contextTokens?: number,
+  options: { compact?: boolean } = {}
 ): Promise<string> {
   const { loadSkillCatalog } = await import('../core/skills/skill-registry.js');
   const {
@@ -139,8 +151,12 @@ export async function renderSkillsList(
     const uses = usage[skill.name]?.count ?? 0;
     const evals = skill.resources.evals ? 'yes' : '-';
     const problems = skill.issues.length > 0 ? `  (${skill.issues.length} issue(s))` : '';
+    const description =
+      options.compact === true
+        ? compactSkillDescription(skill.description)
+        : (skill.description.split('\n')[0] ?? '');
     lines.push(
-      `  ${skill.name.padEnd(18)} ${skill.scope.padEnd(9)} ${String(uses).padEnd(5)} ${cost.padEnd(8)} ${evals.padEnd(5)} ${skill.description.split('\n')[0] ?? ''}${problems}`
+      `  ${skill.name.padEnd(18)} ${skill.scope.padEnd(9)} ${String(uses).padEnd(5)} ${cost.padEnd(8)} ${evals.padEnd(5)} ${description}${problems}`
     );
   }
   lines.push(

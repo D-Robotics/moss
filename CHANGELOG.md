@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### `/skills` keeps one readable line per skill, and README names memory/permissions/extension (B243/B244)
+
+- The in-session `/skills` panel printed each skill's full catalog description; nineteen skills filled the
+  whole screen with wrapped prose. The panel now shows a compact one-line description (72 chars,
+  ellipsis), while `moss skill list` keeps the full text. Real: 19 skills fit on one screen with the
+  catalog-budget summary.
+- README's handfeel tables now cover three surfaces that existed but were undocumented: remembering a
+  project fact (`moss remember "…"` / `/remember`, preview-then-append, explicit only), permissions and
+  scoped rules (`/permissions` · `/rules`), and the extension surface (`/skills` · `/mcp` · `/hooks`).
+
+### `/skills` 每个技能一行，README 补记忆/权限/扩展面（B243/B244）
+
+- 会话内 `/skills` 面板原来打印每条技能的完整 catalog 描述，19 个技能会刷满整屏并折行。现在面板显示 72 字符的
+  单行摘要（超出省略），`moss skill list` 保留完整文本。真实：19 个技能一屏放下，底部仍显示 catalog 预算摘要。
+- README 手感表补上三个已存在但未记录的能力：记一条项目事实（`moss remember "…"` / `/remember`，预览后追加、仅显式写入）、
+  权限与作用域规则（`/permissions` · `/rules`）、扩展面（`/skills` · `/mcp` · `/hooks`）。
+
 ### The first screen names project memory; panel titles read as labels (B242)
 
 - `moss remember` writes `AGENTS.md`, but the boot context line only listed git/skills/MCP, so a project

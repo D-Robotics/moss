@@ -113,6 +113,19 @@ const list = await commands.renderSkillsList(workspace, configDir);
 const releaseRow = list.split('\n').find((line) => line.includes('release-deploy')) ?? '';
 assert.match(releaseRow, /user-only/, '/skills must mark a user-only skill');
 assert.ok(list.includes('ordinary'));
+// B243: the in-session panel keeps one readable description line.
+const compact = await commands.renderSkillsList(workspace, configDir, false, undefined, {
+  compact: true,
+});
+for (const row of compact.split('\n')) {
+  assert.ok(row.length < 260, `compact /skills row is bounded: ${row.slice(0, 120)}…`);
+}
+assert.equal(
+  commands.compactSkillDescription('x'.repeat(200)).length,
+  72,
+  'a long description is truncated with an ellipsis'
+);
+assert.equal(commands.compactSkillDescription('short'), 'short');
 const summary = list.split('\n').find((line) => line.includes('skill(s); catalog')) ?? '';
 assert.ok(summary.length > 0, 'catalog budget summary must be printed');
 // The budget number must equal the model-visible catalog, not all four skills.

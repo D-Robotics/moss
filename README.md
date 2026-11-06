@@ -139,6 +139,9 @@ Moss 的交互目标是：**敢让它跑、随时能停、停了能续、错了�
 | 撤销这一轮       | `/rewind`                                                       | 文件回到检查点版本，这一轮对话也从上下文撤回（试错成本降到一次按键）                                                    |
 | 看改动 / 审 diff | `/diff` · `/review`                                             | 工作区差异 · 独立评审给出严重/重要/建议三档                                                                             |
 | 把评审接进 CI    | `moss review check [--json]`                                    | 最新独立评审作门禁：0 通过 / 1 有未解决问题 / 2 无评审或 verdict 未知；`--json` 给流水线 verdict 与 findings            |
+| 记一条项目事实   | `moss remember "<fact>"`（会话内 `/remember`）                  | 预览后追加到 `AGENTS.md`；只做显式写入、不自动记忆；下次会话加载并在首屏显示 `AGENTS.md · N facts`                      |
+| 管权限与规则     | `/permissions` · `/rules`                                       | 交互式看/加/删 session 规则；`.moss/rules/*.md` 按 glob 或 `@rule:<name>` 激活                                          |
+| 看扩展面         | `/skills` · `/mcp` · `/hooks`                                   | 已装技能（一行一条）、MCP 服务器、hooks 清单各一屏                                                                      |
 | 管上下文         | `/compact` · `/todos` · `/context`                              | 压缩历史、看计划进度、看窗口用量                                                                                        |
 | 首屏下一步       | `Next:` + 一行旧会话提示                                        | 有未收尾运行→续跑命令；完成→`/diff` 收尾；全新目录→`/init`；旧会话只占一行、不抢主位                                    |
 | 会话内看能力面   | `/capabilities`（REPL / TUI）                                   | 工具 / 技能 / 命令 / 子代理 / hooks / MCP / 设备一屏，`--kind` 只看一节                                                 |
