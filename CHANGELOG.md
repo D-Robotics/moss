@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### README: the verifiability story is now concrete (B176)
+
+- The README said "probes exist" but never showed what a recorded run looks like. A new
+  "Reading one run" / 「怎么读一次运行」 block shows a real `moss runs show latest` output —
+  status, exit code, acceptance command, counts, `model`, `usage`, `gate`, `next` — and names the
+  three exits (human `show`, script `--json`, PR `export`).
+- The quality section now states the current scale honestly: **90+ re-runnable probes/stages** in
+  `npm run verify` (~40s locally, 60s CI budget, same command in CI).
+- Fixed a stale sentence that claimed a `Next` line is reprinted after _every_ autonomous run; it is
+  printed after goal/task runs and points at the resume command / `/diff` / `moss runs` (B157).
+  Both languages updated together.
+
+### README：可验证性叙事变得具体（B176）
+
+- 之前 README 只说"有探针"，却没展示一条被记录下来的运行长什么样。新增「怎么读一次运行」/
+  "Reading one run" 区块，给出真实 `moss runs show latest` 的输出——状态、退出码、验收命令、
+  计数、`model`、`usage`、`gate`、`next`——并点名三个出口（人看 `show`、脚本读 `--json`、
+  PR 贴 `export`）。
+- 质量章节现在如实写出规模：`npm run verify` 里 **90+ 个可复跑探针/阶段**（本地约 40s，
+  CI 预算 60s，CI 跑同一条命令）。
+- 修正一句过期描述（声称**每次**自主运行后都重印 `Next`）；实际在目标/任务运行后打印，指向
+  续跑命令 / `/diff` / `moss runs`（B157）。中英同步更新。
+
 ### Manual mode stops asking for read-only shell chains (B175)
 
 - Manual mode promises "mutations and device changes confirm one by one", but a read-only chain like

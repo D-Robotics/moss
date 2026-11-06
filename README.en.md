@@ -103,6 +103,27 @@ moss runs summary --by model           # attribute tokens/cost per model (unreco
 moss task status --json                # the same facts, for scripts and CI
 ```
 
+### Reading one run (for humans and CI)
+
+```text
+$ moss runs show latest
+<runId> — completed
+kind: task
+goal: create hello.txt containing MOSS_OK
+exit: 0
+acceptance: grep -qx MOSS_OK hello.txt
+counts: attempts 1 · repairs 0 · failures 0 · turns 1
+model: deepseek-flash@latest
+usage: 1.2k in / 84 out
+gate: verification/unverified-change — files were changed but the result was never checked
+next: moss task resume <id>
+```
+
+The same facts have three exits: `moss runs show` for humans, `moss runs --json` for scripts, and
+`moss runs export latest` (Markdown) for a PR/CI comment. `gates[]` says _why_ the run stopped
+(acceptance / verification / review / plan / background + kind); `usage`/`model` make long runs and
+multi-model cost attributable.
+
 ## Handfeel
 
 The interaction goal is: **safe to let it run, always interruptible, resumable after a stop, reversible when wrong.**
@@ -135,7 +156,7 @@ sessions can be saved / searched / exported / forked. One screen for what this i
 `moss capabilities` (tools / skills / commands / agents / hooks / MCP / devices, read-only, no model config). **13 device tools** bring SSH hardware work
 into the same evidence and acceptance model; `moss device fleet` inspects many boards in one command.
 
-**Long runs.** Each run record (task / loop / workflow / superagent / `-p` chat) carries token usage (plus an estimated cost when the gateway has a known price — never an invented one) and a structured record of which gate held the answer (acceptance / verification / review / plan / background + kind); After every autonomous run the REPL prints a fresh ledger-derived `Next` line (a resume command / `moss runs` / `moss init`) instead of leaving boot-time guidance stale; `/goal` and `moss goal` share one task state machine; `moss loop` repeats
+**Long runs.** Each run record (task / loop / workflow / superagent / `-p` chat) carries token usage (plus an estimated cost when the gateway has a known price — never an invented one) and a structured record of which gate held the answer (acceptance / verification / review / plan / background + kind); After a goal/task run finishes, the REPL prints a fresh ledger-derived `Next` line (a resume command / `/diff` / `moss runs`) instead of leaving boot-time guidance stale; `/goal` and `moss goal` share one task state machine; `moss loop` repeats
 "run → check with your command → feed failures back"; `moss task status|timeline|list` are the
 offline read paths (`moss runs --kind task/loop/workflow/chat` narrows by engine, `--since 24h` by window); `moss artifacts` (contracts/evidence/deployments/acceptance/device) needs no model configuration at all; a resumed task verifies the workspace first and only then spends execution
 turns. Write sub-agents can run in isolated git worktrees and merge back as three-way patches.
@@ -184,10 +205,11 @@ npm run verify   # delivery gate: static + build + smoke + examples, budget ≤6
 npm run bench    # capability baseline (DeepSeek base model); bench:swe / bench:deepswe / bench:device
 ```
 
-Behaviour is not "looks right in review": key user-visible behaviours have re-runnable probes
-(`scripts/verify/stages/*`, including PTY terminal behaviour and offline task-engine scenarios), so a
-regression turns `npm run verify` red. Model-level regressions are covered by `npm run bench` and the
-nightly matrix; see [release policy](docs/release-policy.md).
+Behaviour is not "looks right in review": the delivery gate now carries **90+ re-runnable
+probes/stages** (`scripts/verify/stages/*`, including PTY terminal behaviour, TUI render projection and
+offline task-engine/ledger scenarios), ~40s locally with a 60s CI budget; a regression turns
+`npm run verify` red, and CI's fast gate runs the same command. Model-level regressions are covered by
+`npm run bench` and the nightly matrix; see [release policy](docs/release-policy.md).
 
 ## Support matrix
 
