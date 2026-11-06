@@ -386,6 +386,30 @@ assert.equal(
 assert.equal(failingRepairAttempts([failRecordFor('a', 'f1')], 'deep'), 0, 'depth-scoped');
 ok('repair attempts cap at 3 and only count distinct failing diffs');
 
+// B211: the global `--json` flag must reach `review list` through the real CLI
+// parser (it is stripped from commandArgs), not only when called in-process.
+{
+  const cli = await captureProcess(
+    process.execPath,
+    [path.join(root, 'dist/cli.js'), 'review', 'list', '--json'],
+    {
+      cwd: commandRepo,
+      env: {
+        ...process.env,
+        MOSS_LANG: 'en',
+        MOSS_NO_TUI: '1',
+        MOSS_CONFIG_DIR: path.join(commandRepo, 'cfg'),
+      },
+      timeoutMs: 30_000,
+    }
+  );
+  assert.equal(cli.status, 0, cli.stderr);
+  const parsed = JSON.parse(cli.stdout);
+  assert.ok(Array.isArray(parsed) && parsed.length > 0, 'real CLI --json returns records');
+  assert.equal(typeof parsed[0].verdict, 'string');
+  ok('moss review list --json works through the real CLI parser');
+}
+
 for (const dir of tmpRoots) {
   await fs.rm(dir, { recursive: true, force: true });
 }

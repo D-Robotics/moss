@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### `moss review list --json` actually prints JSON (B211)
+
+- `--json` is a global flag, so the top-level parser removes it from the subcommand args; the review
+  handler only looked at those args and printed the human table. The dispatcher now forwards the global
+  flag, so `moss review list --json` returns the records as JSON (real CLI verified; probe now spawns
+  the binary instead of only calling the handler in-process).
+- Maintenance: the two `<turn-context>` strippers (`resume` replay and session titles) are now one
+  helper; the title path collapses whitespace on top of it. −3 lines, probes unchanged.
+
+### `moss review list --json` 真的输出 JSON（B211）
+
+- `--json` 是全局 flag，顶层解析会把它从子命令参数里移除；review handler 只看子命令参数，于是打印了人类可读表格。
+  dispatcher 现在转发该全局 flag，`moss review list --json` 返回 JSON（真实 CLI 验证；探针改为真正 spawn 二进制，
+  不再只进程内调用 handler）。
+- 维护：两处 `<turn-context>` 剥离实现（resume 回放与会话标题）合并为一个 helper，标题路径在其上再做空白折叠。−3 行，探针不变。
+
 ### In-session `/export <path>` stays inside the workspace too (B210)
 
 - `/export /tmp/x.md` (or `../x.md`) wrote the session export wherever the path pointed. It now uses the

@@ -488,7 +488,14 @@ export const COMMANDS: Record<string, CommandConfig> = {
         process.exitCode = ExitCode.USAGE;
         return;
       }
-      const code = await runReviewCommand(ctx.commandArgs, { workspaceDir: workspace });
+      // B211: `--json` is a global flag, so the top-level parser removes it from
+      // commandArgs; pass it down explicitly or `moss review list --json` printed text.
+      const argv = ctx.commandArgs.includes('--json')
+        ? ctx.commandArgs
+        : ctx.argv.includes('--json')
+          ? [...ctx.commandArgs, '--json']
+          : ctx.commandArgs;
+      const code = await runReviewCommand(argv, { workspaceDir: workspace });
       if (code !== 0) process.exitCode = code;
     },
     description: 'Independent review records: list/check (.moss/review.jsonl, CI-ready exit codes)',

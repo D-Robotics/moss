@@ -43,10 +43,7 @@ export function selectNudgeUserText(candidatesNewestFirst: readonly string[]): s
  * so session previews show the user's words, not the environment preamble.
  */
 export function userTextWithoutTurnContext(text: string): string {
-  const closed = text.replace(/<turn-context>[\s\S]*?<\/turn-context>/g, ' ');
-  const open = closed.indexOf('<turn-context>');
-  const cut = open === -1 ? closed : closed.slice(0, open);
-  return cut.replace(/\s+/g, ' ').trim();
+  return stripTurnContext(text).replace(/\s+/g, ' ').trim();
 }
 
 /** Session list title: the user's goal, never the engine's phase prompt. */
