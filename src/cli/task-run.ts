@@ -137,6 +137,32 @@ export function interactiveTaskUsageLines(): readonly string[] {
   ];
 }
 
+/**
+ * B281: an acceptance command that can never exit 0 (`false`, `exit 1`) turns a
+ * verified run into a budget bonfire — a real probe burned 16 attempts / 2.7M
+ * input tokens before reporting the obvious. Refuse it before the first turn.
+ */
+const IMPOSSIBLE_ACCEPTANCE_RE = /^(?:(?:\/usr)?\/bin\/false|false|exit\s+[1-9]\d*)$/i;
+
+export function isImpossibleAcceptance(command: string | undefined): boolean {
+  return typeof command === 'string' && IMPOSSIBLE_ACCEPTANCE_RE.test(command.trim());
+}
+
+function rejectImpossibleAcceptance(
+  command: string,
+  output: (stream: 'stdout' | 'stderr', text: string) => void,
+  zh: boolean
+): boolean {
+  if (!isImpossibleAcceptance(command)) return false;
+  output(
+    'stderr',
+    zh
+      ? `验收命令 "${command}" 不可能以 0 退出（始终失败），因此无法通过验收。请给一个可能成功的命令。\n`
+      : `acceptance command "${command}" can never exit 0, so the run can never pass. Pass a command that can succeed.\n`
+  );
+  return true;
+}
+
 export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
     return [
@@ -833,6 +859,7 @@ export async function runTaskCommand(
     }
     const usageTap = tapUsage(ctx);
     const startedAt = Date.now();
+    if (flags.accept && rejectImpossibleAcceptance(flags.accept, output, zh)) return 2;
     const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
       onEvent: usageTap.onAgentEvent,
       ...(ctx.signal ? { abortSignal: ctx.signal } : {}),
@@ -884,6 +911,7 @@ export async function runTaskCommand(
 
   if (sub === 'resume') {
     const resumeFlags = parseFlags(commandArgs.slice(1));
+    if (resumeFlags.accept && rejectImpossibleAcceptance(resumeFlags.accept, output, zh)) return 2;
     let taskId = resumeFlags.goal[0];
     // B280: `moss task resume` now means "resume the newest resumable task",
     // the same rule `moss goal --resume` and `/goal resume` already used.

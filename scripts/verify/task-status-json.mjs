@@ -300,4 +300,16 @@ assert.equal(resumeEmpty.status, 2);
 assert.match(resumeEmpty.stderr, /no resumable task/);
 ok('task verify/resume accept `latest` and explain an empty workspace');
 
+// 10. B281: an acceptance command that can never exit 0 is refused before the
+// first turn instead of burning the whole repair budget.
+for (const args of [
+  ['task', 'run', 'create x.txt', '--accept', 'false'],
+  ['task', 'resume', '--accept', 'exit 1'],
+]) {
+  const result = await runCli(args);
+  assert.equal(result.status, 2, `${args.join(' ')} must exit 2`);
+  assert.match(result.stderr, /can never exit 0/);
+}
+ok('an impossible acceptance command is refused before spending a turn');
+
 console.log(`[task-status-json] ${String(checks)} checks passed`);

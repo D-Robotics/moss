@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### A `--accept` command that can never pass is refused up front (B281)
+
+- A real probe (`--accept false`) burned 16 attempts and 2.7M input tokens before reporting the obvious
+  failure. `moss task run` and `moss task resume` now reject `false` / `/bin/false` / `exit 1…` before the
+  first model turn: `acceptance command "false" can never exit 0, so the run can never pass.` exit 2 in
+  under a second (nothing spent); `--accept true` is still allowed for smoke runs.
+- B280 evidence: a real failed task resumed with `task resume latest --accept true` →
+  `Resumed — resumed by user` / `Acceptance command updated — true` / `Acceptance passed`, exit 0, no
+  execution turns.
+
+### 不可能通过的 `--accept` 命令在开跑前被拒绝（B281）
+
+- 真实探针（`--accept false`）烧掉 16 次尝试、2.7M input tokens 才报告显然的失败。现在 `moss task run` /
+  `moss task resume` 在第一个模型回合前拒绝 `false` / `/bin/false` / `exit 1…`：
+  `acceptance command "false" can never exit 0, so the run can never pass.`，1 秒内 exit 2、零消耗；
+  `--accept true` 仍允许用于 smoke。
+- B280 证据补充：真实失败任务 `task resume latest --accept true` → `Resumed — resumed by user` /
+  `Acceptance command updated — true` / `Acceptance passed`，exit 0，无执行回合。
+
 ### `moss task resume` / `verify` accept `latest` (B280)
 
 - Every other task read path took `latest`, and `moss goal --resume` already meant "newest resumable";
