@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### A successful command is one line, not a dump (B185)
+
+- Every successful `exec` still printed up to three preview lines plus its headline; six commands in a
+  row meant ~30 transcript rows of file lists the user rarely needs mid-run. Successful exec output is
+  now the headline plus **one** line, with the rest behind `ctrl+o` (failures keep their fuller preview
+  and `Next:` line, code dumps keep theirs).
+
+### 成功的命令只占一行，而不是一段输出（B185）
+
+- 每条成功的 `exec` 仍会打印最多 3 行预览加上标题；连续六条命令就是 ~30 行文件列表，运行时很少需要。
+  现在成功 exec 只显示标题 + **1** 行输出，其余收进 `ctrl+o`（失败仍保留更完整的预览与 `Next:` 行，
+  代码块保持原样）。
+
 ### Two ledger safety fixes: prune keeps in-flight runs, export stays in the workspace (B184)
 
 - `moss runs prune` could delete a `running` row that happened to be older than the newest N runs.

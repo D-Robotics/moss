@@ -103,6 +103,8 @@ export function isShellCommandRow(text: string): boolean {
  * The render bridge also peels those lines into their own rows.
  */
 export const RESULT_PREVIEW_LINES = 3;
+/** Successful exec output: one line, the rest behind ctrl+o. */
+const EXEC_SUCCESS_PREVIEW_LINES = 1;
 
 const HARNESS_NOTICE_LINE = /^\[moss\]\s+\S/;
 
@@ -793,7 +795,11 @@ export function renderTranscriptRow(
           ? source.length
           : codeLike
             ? CODE_PREVIEW_LINES
-            : failedPreviewLimit(row.tool?.isError === true, source, RESULT_PREVIEW_LINES)
+            : row.tool?.name === 'exec' && row.tool?.isError !== true
+              ? // A successful command is one fact plus its first line of output;
+                // three preview lines per call turned a six-command run into 30 rows.
+                EXEC_SUCCESS_PREVIEW_LINES
+              : failedPreviewLimit(row.tool?.isError === true, source, RESULT_PREVIEW_LINES)
       );
       const shown = preview.shown;
       out.push(...headline);

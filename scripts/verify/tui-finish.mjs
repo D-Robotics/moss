@@ -147,6 +147,24 @@ ok('a streaming answer renders an open fence as a code block, not raw backticks'
 }
 ok('file tool titles are workspace-relative');
 
+// 2f. A successful exec collapses to headline + one output line (B185).
+{
+  const row = transcript.renderTranscriptRow(
+    {
+      id: 9,
+      kind: 'result',
+      text: ['total 0', 'file a', 'file b', 'file c', 'file d'].join('\n'),
+      tool: { name: 'exec', summary: 'ok', isError: false, durationMs: 30 },
+    },
+    120
+  );
+  const lines = row.map((entry) => entry.text);
+  assert.ok(lines.length <= 4, `successful exec should be compact, got ${lines.length} lines`);
+  assert.match(lines.join('\n'), /total 0/);
+  assert.match(lines.join('\n'), /more lines · ctrl\+o/);
+}
+ok('a successful exec folds to one preview line; the rest stays behind ctrl+o');
+
 // 3. A failed exec states its error once, not twice.
 const failed = transcript.renderTranscriptRow(
   {
