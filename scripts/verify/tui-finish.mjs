@@ -29,6 +29,7 @@ const renderer = await load('dist/cli/tui/renderer.js');
 const toolSummary = await load('dist/cli/tui/tool-summary.js');
 const promptHistory = await load('dist/cli/tui/prompt-history.js');
 const appHelpers = await load('dist/cli/tui/app-helpers.js');
+const agentFiles = await load('dist/core/subagent/agent-file-loader.js');
 const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
 const interactionMode = await load('dist/cli/interaction-mode.js');
@@ -696,6 +697,25 @@ ok('a resumed replay ends with a resume confirmation');
   assert.match(steered, /^steered: use ES modules — applies at the next step$/);
 }
 ok('a successful steer is reported as steered, not queued');
+
+// 5s. B292: the /agents footer pluralizes ("1 file agent", not "agent(s)").
+{
+  const agent = {
+    id: 'auditor',
+    description: 'Reviews changes',
+    fileDefined: true,
+    scope: 'project',
+  };
+  const one = agentFiles.formatFileAgentReport({ experts: [agent], zh: false });
+  assert.match(one, /1 file agent$/m);
+  assert.doesNotMatch(one, /agent\(s\)/);
+  const two = agentFiles.formatFileAgentReport({
+    experts: [agent, { ...agent, id: 'planner' }],
+    zh: false,
+  });
+  assert.match(two, /2 file agents$/m);
+}
+ok('the agents panel pluralizes its footer');
 
 // 6. B194: the status row labels each number instead of imploding.
 {

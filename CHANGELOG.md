@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### `/agents` pluralizes its footer; agents/hooks counts agree across panels (B292)
+
+- The `/agents` footer said `1 file agent(s)`; it now says `1 file agent` / `N file agents`
+  (`tui-finish` asserts both forms, so a literal `(s)` cannot come back).
+- A fixture workspace also confirmed the "one story" property for these surfaces: `/agents` 1 = `/capabilities`
+  sub-agents 1, `/hooks` 2 = `/capabilities` hooks 2 (PreToolUse 1 · Stop 1).
+
+### `/agents` 页脚复数化；agents/hooks 计数跨面板一致（B292）
+
+- `/agents` 页脚原本是 `1 file agent(s)`；现在 `1 file agent` / `N file agents`（`tui-finish` 断言两种形式，
+  字面 `(s)` 不会回归）。
+- 夹具工作区同时验证了"单一故事"：`/agents` 1 = `/capabilities` sub-agents 1，`/hooks` 2 =
+  `/capabilities` hooks 2（PreToolUse 1 · Stop 1）。
+
 ### `/capabilities` and `mcp list` resolve MCP servers the same way (B291)
 
 - A real session with the device host set showed `mcp: 1 — rdk-docs` in `moss mcp list` and `MCP: 0` in

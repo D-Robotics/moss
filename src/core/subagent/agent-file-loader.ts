@@ -754,7 +754,11 @@ export function formatFileAgentReport(input: {
         );
       }
     }
-    lines.push(zh ? `${agents.length} 个文件子代理` : `${agents.length} file agent(s)`);
+    lines.push(
+      zh
+        ? `${agents.length} 个文件子代理`
+        : `${agents.length} file agent${agents.length === 1 ? '' : 's'}`
+    );
   }
   const notices = input.notices ?? [];
   if (notices.length > 0) {
