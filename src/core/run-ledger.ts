@@ -13,6 +13,7 @@
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type { RunOutcomeStatus } from '../cli/run-outcome.js';
 
@@ -67,6 +68,10 @@ export interface RunRecord {
   /** The single command that moves it forward (`moss task resume …`). */
   next?: string;
   /** Workspace-relative paths of the engine ledgers that hold the details. */
+  /** Process that owns a `running` row, so a crash can be reconciled (B179). */
+  pid?: number;
+  /** Hostname of the owning process; a pid is only meaningful on its host. */
+  host?: string;
   /** Completion-gate holds: which gate stopped the answer, and why (B155). */
   gates?: RunGate[];
   /** Token/cost summary for the run, when the engine collected one (B155). */
@@ -165,6 +170,35 @@ function parseRecord(text: string): RunRecord | null {
   }
 }
 
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the process exists but belongs to another user.
+    return (err as { code?: string }).code === 'EPERM';
+  }
+}
+
+/**
+ * A `running` row whose owning process is gone is not running any more: a crashed
+ * `moss superagent work` used to leave it "in progress" forever. Only reconcile
+ * when the record names this host and a pid; a foreign host or a missing pid is
+ * genuinely unknown and stays `running`.
+ */
+function reconcileStaleRunning(record: RunRecord): RunRecord {
+  if (record.status !== 'running' || typeof record.pid !== 'number') return record;
+  if (record.host !== os.hostname()) return record;
+  if (pidAlive(record.pid)) return record;
+  return {
+    ...record,
+    status: 'interrupted',
+    // Same convention as a Ctrl+C pause: interrupted runs do not claim success.
+    exitCode: 130,
+    reason: 'the run process is gone (crashed or killed while running)',
+  };
+}
+
 /** All readable records, newest first. Unreadable entries are skipped, not fatal. */
 export async function listRunRecords(workspaceDir: string): Promise<RunRecord[]> {
   const dir = runsDir(workspaceDir);
@@ -180,7 +214,7 @@ export async function listRunRecords(workspaceDir: string): Promise<RunRecord[]>
     try {
       const text = await fs.readFile(path.join(dir, entry.name, RECORD_FILE), 'utf8');
       const record = parseRecord(text);
-      if (record) records.push(record);
+      if (record) records.push(reconcileStaleRunning(record));
     } catch {
       /* a missing record is a run that predates the ledger, not an error */
     }
@@ -203,7 +237,8 @@ export async function readRunRecord(
   if (!isSafeRunId(runId)) return null;
   try {
     const text = await fs.readFile(runRecordPath(workspaceDir, runId), 'utf8');
-    return parseRecord(text);
+    const record = parseRecord(text);
+    return record ? reconcileStaleRunning(record) : null;
   } catch {
     return null;
   }

@@ -475,6 +475,59 @@ try {
   assert.match(runningShow.stdout, /exit: —/);
   assert.doesNotMatch(runningShow.stdout, /duration:/);
   ok('an in-flight record reads as running and hides its not-yet-meaningful exit/duration');
+
+  // 13. B179: a running row whose owner is gone reads as interrupted (paused),
+  // not "in progress" forever. Foreign hosts / missing pids stay unknown.
+  const baseRunning = {
+    version: 1,
+    kind: 'superagent',
+    exitCode: 0,
+    startedAt: Date.now() - 1_000,
+    endedAt: Date.now() - 1_000,
+    durationMs: 0,
+    goal: 'crashed ticket',
+    next: 'moss superagent status',
+    artifacts: {},
+  };
+  await writeRunRecord(ws, {
+    ...baseRunning,
+    runId: 'crashed_ticket_row',
+    status: 'running',
+    pid: 999_999_999,
+    host: os.hostname(),
+  });
+  await writeRunRecord(ws, {
+    ...baseRunning,
+    runId: 'live_ticket_row',
+    status: 'running',
+    pid: process.pid,
+    host: os.hostname(),
+  });
+  await writeRunRecord(ws, {
+    ...baseRunning,
+    runId: 'foreign_ticket_row',
+    status: 'running',
+    pid: 999_999_999,
+    host: 'not-this-host',
+  });
+  const crashedShow = await cli(['runs', 'show', 'crashed_ticket_row']);
+  assert.equal(crashedShow.status, 0, crashedShow.stderr);
+  assert.match(crashedShow.stdout, /paused/);
+  assert.match(crashedShow.stdout, /the run process is gone/);
+  assert.match(crashedShow.stdout, /exit: 130/);
+  const liveShow = await cli(['runs', 'show', 'live_ticket_row']);
+  assert.match(liveShow.stdout, /running/);
+  assert.match(liveShow.stdout, /exit: —/);
+  const foreignShow = await cli(['runs', 'show', 'foreign_ticket_row']);
+  assert.match(foreignShow.stdout, /running/, 'a pid from another host is not judged');
+  const liveList = await cli(['runs', '--status', 'running', '--json']);
+  const liveJson = JSON.parse(liveList.stdout);
+  assert.equal(liveJson.total, 3, 'no-pid, live and foreign rows are still running');
+  assert.equal(
+    liveJson.runs.some((row) => row.runId === 'crashed_ticket_row'),
+    false
+  );
+  ok('a dead owner reconciles a running row to paused; live/foreign/unknown stay running');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

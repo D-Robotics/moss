@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -391,6 +392,7 @@ export class MossSuperagent {
         runId: input.ticketId,
         kind: 'superagent',
         status: running ? 'running' : completed ? 'completed' : 'blocked',
+        ...(running ? { pid: process.pid, host: os.hostname() } : {}),
         exitCode: running ? 0 : completed ? 0 : 1,
         startedAt: input.startedAt,
         endedAt,
