@@ -176,4 +176,51 @@ const afterUnset = JSON.parse(fs.readFileSync(path.join(configDir, 'config.json'
 assert.equal(afterUnset.outputStyle, undefined);
 ok('config set/show/unset round-trips and rejects unknown values');
 
+// 7. B186: `/style` switches the session voice; the first screen names a
+//    non-default style (the shared test config in the wild often says learning).
+{
+  process.env.MOSS_LANG = 'en';
+  const registry = await import(
+    pathToFileURL(path.join(root, 'dist/cli/commands/registry.js')).href
+  );
+  const catalog = await import(
+    pathToFileURL(path.join(root, 'dist/cli/interactive-commands.js')).href
+  );
+  const onboarding = await import(pathToFileURL(path.join(root, 'dist/cli/onboarding.js')).href);
+  const row = catalog.INTERACTIVE_COMMAND_SECTIONS.flatMap((section) => section.rows).find(
+    (item) => item.command === '/style'
+  );
+  assert.ok(row, '/style must be catalogued for /help');
+  assert.deepEqual(row.aliases, ['/output-style']);
+
+  styleModule.setOutputStyle('default');
+  const said = [];
+  const ctx = { locale: 'en', say: (kind, text) => said.push({ kind, text }) };
+  assert.ok(await registry.runRegistryCommand('/style learning', ctx));
+  assert.equal(styleModule.currentOutputStyle(), 'learning');
+  assert.match(said.at(-1).text, /output style switched to learning/);
+  await registry.runRegistryCommand('/style', ctx);
+  assert.match(said.at(-1).text, /^output style: learning \(this session\)/);
+  await registry.runRegistryCommand('/style bogus', ctx);
+  assert.equal(styleModule.currentOutputStyle(), 'learning');
+  assert.match(said.at(-1).text, /unknown output style: bogus/);
+  await registry.runRegistryCommand('/style default', ctx);
+  assert.equal(styleModule.currentOutputStyle(), 'default');
+
+  styleModule.setOutputStyle('learning');
+  const welcome = onboarding.renderWelcomeContextLines(workspace, false, 'interactive');
+  assert.ok(
+    welcome.lines.some((lineText) => /output style: learning — \/style default/.test(lineText)),
+    `first screen must name the active style, got: ${welcome.lines.join(' | ')}`
+  );
+  styleModule.setOutputStyle('default');
+  assert.ok(
+    !onboarding
+      .renderWelcomeContextLines(workspace, false, 'interactive')
+      .lines.some((lineText) => lineText.includes('output style:')),
+    'the default voice adds no line'
+  );
+}
+ok('/style switches the session style and the first screen names a non-default one');
+
 console.log(`[output-style] ${checks}/${checks} checks passed`);

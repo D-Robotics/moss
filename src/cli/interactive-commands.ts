@@ -112,6 +112,13 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
+        command: '/style',
+        args: '[default|explanatory|learning]',
+        description: 'show or switch the output style for this session',
+        aliases: ['/output-style'],
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/export',
         args: '[path]',
         description: 'export this session to markdown (path optional; - prints to stdout)',

@@ -45,6 +45,12 @@ import { reportedModelMatchesConfigured } from '../model-resolution.js';
 import { envBeforeDotenv, loadCliConfigFile, resolveConfigDir } from '../config.js';
 import { isFilesystemRoot, forgetFolderTrust, rememberFolderTrust } from '../folder-trust-store.js';
 import { detectProject } from '../init-command.js';
+import {
+  currentOutputStyle,
+  OUTPUT_STYLE_NAMES,
+  parseOutputStyle,
+  setOutputStyle,
+} from '../output-style.js';
 import { resolveFolderKey } from '../workspace-trust.js';
 import {
   configuredBaseUrl,
@@ -657,6 +663,43 @@ const reviewCommand: CommandSpec = {
   },
 };
 
+const styleCommand: CommandSpec = {
+  name: '/style',
+  aliases: ['/output-style'],
+  summary: 'show or switch the output style for this session (default | explanatory | learning)',
+  run(ctx, args) {
+    const zh = isZh(ctx.locale);
+    const requested = args.trim().toLowerCase();
+    if (!requested) {
+      const current = currentOutputStyle();
+      ctx.say(
+        'system',
+        zh
+          ? `输出风格：${current}（本次会话）· 可选：${OUTPUT_STYLE_NAMES.join(' / ')} · 永久保存：moss config set outputStyle <name>`
+          : `output style: ${current} (this session) · options: ${OUTPUT_STYLE_NAMES.join(' / ')} · persist: moss config set outputStyle <name>`
+      );
+      return;
+    }
+    const style = parseOutputStyle(requested);
+    if (!style) {
+      ctx.say(
+        'system',
+        zh
+          ? `未知输出风格：${requested}。可选：${OUTPUT_STYLE_NAMES.join(' / ')}`
+          : `unknown output style: ${requested}. Options: ${OUTPUT_STYLE_NAMES.join(' / ')}`
+      );
+      return;
+    }
+    setOutputStyle(style);
+    ctx.say(
+      'system',
+      zh
+        ? `输出风格已切换为 ${style}（仅本次会话；永久保存：moss config set outputStyle ${style}）`
+        : `output style switched to ${style} (this session; persist with moss config set outputStyle ${style})`
+    );
+  },
+};
+
 const usageCommand: CommandSpec = {
   name: '/usage',
   aliases: ['/cost', '/stats'],
@@ -1193,6 +1236,7 @@ const COMMANDS: readonly CommandSpec[] = [
   skillsCommand,
   mcpCommand,
   usageCommand,
+  styleCommand,
   exportCommand,
 ];
 

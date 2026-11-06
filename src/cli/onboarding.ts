@@ -25,6 +25,7 @@ import {
 } from './doctor.js';
 import { isZhLocale } from './cli-locale.js';
 import { userTextWithoutTurnContext } from '../core/session/internal-transcript.js';
+import { currentOutputStyle } from './output-style.js';
 import { PermissionRuleRegistry, unmatchedRuleToolNames } from './permission-rules.js';
 import { workspaceWriteLimit } from './workspace-write-copy.js';
 import { formatCliInteractionModeLabel, type CliInteractionMode } from './interaction-mode.js';
@@ -356,6 +357,16 @@ export function renderWelcomeContextLines(
 
   const hasAgents = fs.existsSync(path.join(workspace, 'AGENTS.md'));
   const lines: string[] = [];
+  // A non-default voice is a deliberate choice, but easy to forget: say it once
+  // on the first screen with the one-word way out.
+  const style = currentOutputStyle();
+  if (style !== 'default') {
+    lines.push(
+      zh
+        ? `输出风格：${style} — /style default 切回`
+        : `output style: ${style} — /style default to switch back`
+    );
+  }
   if (latest) {
     lines.push(
       `${label(t('last run', '上次运行'))} ${latest.status} · ${formatAgo(latest.endedAt)} · ${latest.kind} ${latest.runId} — ${truncateOneLine(latest.goal, 60)}`
