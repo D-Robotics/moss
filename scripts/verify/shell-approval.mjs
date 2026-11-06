@@ -82,6 +82,10 @@ ok('a multiline exec keeps its first line as the approval subject');
     /^\$ ls -l note\.md && diff note\.md copy\.md && echo finished-with-a-long-tail$/m
   );
   assert.doesNotMatch(dialog.trustOptionLabel ?? '', /try to save in user config/);
+  const approvalView = (await load('dist/cli/approval-view.js')).buildCliApprovalView(dialog);
+  assert.match(approvalView.footer, /press 1\/2\/3/);
+  assert.match(approvalView.footer, /Esc to deny/);
+  assert.equal(approvalView.options.map((option) => option.key).join(''), '123');
   const multiline = describeApprovalDialog(
     { toolName: 'exec', sideEffect: 'local_write' },
     { command: 'cat <<EOF > n.txt\nhi\nEOF' }

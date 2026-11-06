@@ -55,7 +55,7 @@ export const CLI_APPROVAL_OPTIONS: readonly CliApprovalOption[] = [
  * keys that work. When an amend path exists, add it here rather than printing a
  * key that does nothing.
  */
-export const CLI_APPROVAL_FOOTER = 'Esc to deny · ↑↓ then Enter';
+export const CLI_APPROVAL_FOOTER = 'Esc to deny · ↑↓ + Enter, or press 1/2/3';
 
 let viewAsker: CliApprovalViewAsker | null = null;
 

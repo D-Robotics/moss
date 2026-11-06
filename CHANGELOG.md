@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### The approval footer states every key that works (B197)
+
+- `Esc to deny · ↑↓ then Enter` left Enter's target implicit (the focused option, usually `1. Yes`),
+  which is what surprised users when an adjacent protected-path dialog made Enter mean deny. The
+  footer now reads `Esc to deny · ↑↓ + Enter, or press 1/2/3` — the focused-option semantics and the
+  direct number keys are both visible. Protected-path dialogs keep their explicit
+  `Esc or Enter = deny` footer because there deny is the deliberate default.
+- Capability spot-check this round: 3 tasks × 3 samples on the real gateway (deepseek-flash) —
+  `single-edit`, `test-fix-loop`, `error-recovery` — all **9/9 PASS (100%)**, ~5.5 turns / ~12s per
+  sample.
+
+### 审批 footer 明确列出所有可用按键（B197）
+
+- `Esc to deny · ↑↓ then Enter` 没说明 Enter 选中什么（当前高亮项，通常是 `1. Yes`），这正是用户在相邻
+  受保护路径弹窗里遇到"Enter 变成拒绝"时困惑的来源。现在 footer 为
+  `Esc to deny · ↑↓ + Enter, or press 1/2/3`——高亮项语义与数字直选都可见。受保护路径弹窗保留显式的
+  `Esc or Enter = deny`（那里拒绝是刻意的默认值）。
+- 本轮能力抽查：真实网关（deepseek-flash）3 个任务 × 3 样本——`single-edit`、`test-fix-loop`、`error-recovery`——
+  全部 **9/9 PASS（100%）**，每样本约 5.5 回合 / ~12s。
+
 ### Leaving the TUI says what the command does (B196)
 
 - The inline exit hint was a bare `moss --continue`. It now says
