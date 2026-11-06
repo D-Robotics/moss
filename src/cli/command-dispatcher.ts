@@ -969,9 +969,26 @@ export const COMMANDS: Record<string, CommandConfig> = {
       }
 
       if (subCommand === 'export') {
-        const key = ctx.commandArgs[1];
+        let key = ctx.commandArgs[1];
+        // B218: `--last` mirrors `moss resume --last` / `runs export latest`
+        // instead of making the caller copy an opaque session key.
+        const wantsLast =
+          key === '--last' ||
+          key === 'latest' ||
+          (ctx.argv.includes('--last') && (key === undefined || key.startsWith('--out')));
+        if (wantsLast) {
+          const sessions = (await store.listSessions().catch(() => []))
+            .filter((session) => (session.messageCount ?? 0) > 0)
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+          key = sessions[0]?.sessionKey;
+          if (!key) {
+            console.error('[sessions] No saved sessions with messages to export.');
+            process.exitCode = ExitCode.SESSION;
+            return;
+          }
+        }
         if (!key) {
-          console.error('Usage: moss sessions export <key> [--out <file>]');
+          console.error('Usage: moss sessions export <key|--last> [--out=<file>]');
           process.exitCode = ExitCode.USAGE;
           return;
         }

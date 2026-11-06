@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { captureProcess } from './lib/proc.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const dist = (rel) => pathToFileURL(path.join(root, 'dist', rel)).href;
@@ -252,6 +253,39 @@ try {
   assert.match(fs.readFileSync(path.join(tmp, 'session.md'), 'utf8'), /## user/);
   fs.rmSync(tmp, { recursive: true, force: true });
   ok('/export <path> stays inside the workspace');
+}
+
+// 11. B218: `sessions export --last` picks the newest non-empty session.
+{
+  const { JsonlSessionStore } = await import(dist('core/session/jsonl-session-store.js'));
+  const { root: _root } = { root };
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-last-'));
+  const store = new JsonlSessionStore({ dir: path.join(tmp, '.moss', 'sessions') });
+  await store.appendMessage('older', { role: 'user', content: 'older', timestamp: Date.now() });
+  await store.appendMessage('older', { role: 'assistant', content: 'hi', timestamp: Date.now() });
+  // A 0-message session file is newer by mtime but must not be chosen.
+  const emptyPath = store.transcriptPath('empty');
+  fs.writeFileSync(emptyPath, '');
+  const newer = new Date(Date.now() + 5_000);
+  fs.utimesSync(emptyPath, newer, newer);
+  const cli = await captureProcess(
+    process.execPath,
+    [path.join(root, 'dist/cli.js'), 'sessions', 'export', '--last', '--out=-'],
+    {
+      cwd: tmp,
+      env: {
+        ...process.env,
+        MOSS_LANG: 'en',
+        MOSS_NO_TUI: '1',
+        MOSS_CONFIG_DIR: path.join(tmp, 'cfg'),
+      },
+      timeoutMs: 30_000,
+    }
+  );
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.match(cli.stdout, /^# Session older/);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  ok('sessions export --last exports the newest non-empty session');
 }
 
 console.log(`[rewind-conversation] ${checks}/${checks} checks passed`);

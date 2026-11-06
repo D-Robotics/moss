@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `moss sessions export --last` exports the newest non-empty session (B218)
+
+- Export needed an opaque key (`moss sessions list` first), unlike `moss resume --last` and
+  `runs export latest`. `sessions export --last` (and `latest`) now resolves the newest session with
+  messages; `--out` works in both spellings and `--out=-` writes stdout, so
+  `moss sessions export --last --out=-` is the one-line form.
+
+### `moss sessions export --last` 导出最新的非空会话（B218）
+
+- 导出需要先 `moss sessions list` 拿到不透明 key，而 `moss resume --last`、`runs export latest` 都支持"最新"。
+  现在 `sessions export --last`（或 `latest`）会解析最新的非空会话；`--out` 两种写法与 `--out=-`（stdout）都可用，
+  因此 `moss sessions export --last --out=-` 就是一行式导出。
+
 ### `loop show` no longer prints a dead PID as if the run were alive (B217)
 
 - The detail view printed `PID` whenever the ledger had one, including finished and interrupted runs
