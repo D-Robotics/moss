@@ -611,6 +611,30 @@ function resultLines(text: string): string[] {
 // ─── committed transcript rows ────────────────────────────────────────────
 
 /** Keep a result beside its own call, not another concurrent call. */
+const LIST_ITEM_RE = /^\s*(?:[-*+]\s|\d+[.)]\s|[-*+]\s\[[ xX]\]\s)/;
+
+function endsWithListItem(text: string): boolean {
+  const lines = text.split('\n').filter((line) => line.trim() !== '');
+  const last = lines[lines.length - 1];
+  return last !== undefined && LIST_ITEM_RE.test(last);
+}
+
+/**
+ * B193: a streamed answer can commit each markdown list item as its own assistant
+ * row (paragraph-boundary commits). Each continuation is already rendered with
+ * the `⏺`-less indent, but the paragraph gap between rows turned "three bullets"
+ * into three spaced blocks. Attach consecutive list-item continuations.
+ */
+export function isListContinuation(row: TranscriptRow, previous?: TranscriptRow): boolean {
+  return (
+    row.kind === 'assistant' &&
+    row.continuation === true &&
+    previous?.kind === 'assistant' &&
+    LIST_ITEM_RE.test(row.text) &&
+    endsWithListItem(previous.text)
+  );
+}
+
 export function isAttachedResult(row: TranscriptRow, previous?: TranscriptRow): boolean {
   if (row.kind !== 'result' || (previous?.kind !== 'tool' && previous?.kind !== 'result')) {
     return false;
@@ -646,7 +670,7 @@ export function renderTranscriptRow(
 ): TuiLine[] {
   // A tool's result belongs to the call right above it: no blank line between
   // `⏺ Read(x)` and its `⎿ …`, and consecutive results of one fold stay a block.
-  const attached = isAttachedResult(row, previous);
+  const attached = isAttachedResult(row, previous) || isListContinuation(row, previous);
   const out: TuiLine[] = attached ? [] : [line('')];
   switch (row.kind) {
     case 'user': {

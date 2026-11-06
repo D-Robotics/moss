@@ -248,6 +248,40 @@ ok('a self-audit aside folds to one dim line; verbose and normal answers keep th
 }
 ok('read results are one row and todo_write folds to progress (B192)');
 
+// 2i. B193: a streamed list split into continuation rows keeps its items together
+//     (no blank paragraph between bullets), while separate paragraphs still gap.
+{
+  const first = { id: 30, kind: 'assistant', text: '- a.txt → 1' };
+  const second = { id: 31, kind: 'assistant', text: '- b.txt → 2', continuation: true };
+  const third = { id: 32, kind: 'assistant', text: '- c.txt → 3', continuation: true };
+  assert.equal(transcript.isListContinuation(second, first), true);
+  const secondRows = transcript.renderTranscriptRow(second, 120, false, first);
+  assert.ok(
+    !secondRows.some((entry) => entry.text.trim() === ''),
+    'a list continuation must not start with a blank line'
+  );
+  assert.match(secondRows.map((entry) => entry.text).join('\n'), /- b\.txt → 2/);
+  assert.equal(
+    transcript.isListContinuation(second, third),
+    true,
+    'order does not matter for the rule'
+  );
+  const paragraph = {
+    id: 33,
+    kind: 'assistant',
+    text: 'A separate paragraph.',
+    continuation: true,
+  };
+  assert.equal(transcript.isListContinuation(paragraph, first), false);
+  assert.ok(
+    transcript
+      .renderTranscriptRow(paragraph, 120, false, first)
+      .some((entry) => entry.text.trim() === ''),
+    'a paragraph continuation keeps its blank line'
+  );
+}
+ok('streamed list items stay together; paragraph continuations keep their gap');
+
 // 3. A failed exec states its error once, not twice.
 const failed = transcript.renderTranscriptRow(
   {
