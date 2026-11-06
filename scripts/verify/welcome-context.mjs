@@ -282,6 +282,24 @@ try {
     );
   }
   ok('/init appears in the Next row once, not also as the composer suggestion');
+  // 13. B242: a project AGENTS.md with remembered facts is named on the first
+  //     screen, so `moss remember` output is discoverable later.
+  {
+    const { countRememberedFacts } = await import(
+      pathToFileURL(path.join(root, 'dist/cli/remember-command.js')).href
+    );
+    assert.equal(
+      countRememberedFacts(
+        ['# Project', '', '## Remembered facts', '', '- Use pnpm, not npm', '- Run tests'].join(
+          '\n'
+        )
+      ),
+      2
+    );
+    assert.equal(countRememberedFacts('## Other section\n\n- not a memory\n'), 0);
+    assert.equal(countRememberedFacts(''), 0);
+  }
+  ok('remembered facts are counted from the AGENTS.md section (for the context line)');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

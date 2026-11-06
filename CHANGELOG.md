@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### The first screen names project memory; panel titles read as labels (B242)
+
+- `moss remember` writes `AGENTS.md`, but the boot context line only listed git/skills/MCP, so a project
+  with remembered facts looked no different from one without. The line now adds `AGENTS.md · N facts`
+  (or just `AGENTS.md` when the file has no remembered section), so the memory the model will load is
+  visible where the rest of the loaded context is.
+- `/mcp`, `/sessions`, `/subs`, `/bg` printed their action ids as block titles (`⏺ mcp`). They now read
+  `MCP`, `Sessions`, `Sub-agents`, `Background`, matching the other panels.
+
+### 首屏标注项目记忆；面板标题改为可读标签（B242）
+
+- `moss remember` 会写 `AGENTS.md`，但启动 context 行只列 git/skills/MCP，记过事实的项目和没有的看起来一样。
+  现在该行追加 `AGENTS.md · N 条记忆`（文件存在但没有 Remembered facts 小节时只显示 `AGENTS.md`），
+  模型将要加载的记忆与其他已加载上下文一起可见。
+- `/mcp`、`/sessions`、`/subs`、`/bg` 之前把动作 id 当标题打印（`⏺ mcp`）；现在分别是
+  `MCP`、`Sessions`、`Sub-agents`、`Background`，与其他面板一致。
+
 ### The reply language follows the user's latest message (B241)
 
 - The contract never said which language to answer in, so a zh-UI session answered an English prompt in

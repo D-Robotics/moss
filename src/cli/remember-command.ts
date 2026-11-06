@@ -124,6 +124,20 @@ export function buildRememberPlan(
 }
 
 /** Human-readable preview: the file, the new fact, and the added line. */
+/** How many remembered facts a project AGENTS.md carries (`## Remembered facts` bullets). */
+export function countRememberedFacts(agentsText: string): number {
+  const lines = agentsText.split('\n');
+  const headingIndex = lines.findIndex((line) => line.trim() === REMEMBERED_FACTS_HEADING);
+  if (headingIndex === -1) return 0;
+  let count = 0;
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    if (line.trim().startsWith('## ')) break;
+    if (/^\s*[-*]\s+\S/.test(line)) count += 1;
+  }
+  return count;
+}
+
 export function renderRememberPreview(plan: RememberPlan): string {
   const relative = path.basename(plan.file);
   if (!plan.changed) {

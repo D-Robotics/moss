@@ -77,6 +77,8 @@ export interface TuiContextInfo {
   soul?: string;
   /** Current git branch of the workspace, when inside a repo. */
   branch?: string;
+  /** Remembered facts in a project AGENTS.md; undefined when the file is absent. */
+  agentsFacts?: number;
   /** Where the context window size came from; `unprobed` makes the bar an estimate. */
   contextTokensSource?: string;
 }

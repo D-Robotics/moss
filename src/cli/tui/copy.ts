@@ -335,6 +335,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'inspect or control the input queue': '查看或控制输入队列',
   'inject a constraint into the live run': '向当前运行注入一条约束',
   'work until a condition is met; /goal clear cancels': '持续工作直到条件满足；`/goal clear` 取消',
+  'AGENTS.md · {count} facts': 'AGENTS.md · {count} 条记忆',
   'work until a condition (or acceptance command) passes; /goal resume continues, /goal clear cancels':
     '持续工作直到条件（或验收命令）通过；`/goal resume` 继续，`/goal clear` 取消',
   'enter plan mode; with a description, start planning immediately':

@@ -37,6 +37,7 @@ import { configureWindowsUtf8Console } from '../utils/run-process.js';
 import { errorMessage } from '../errors.js';
 import { noteKnownSecret } from '../safety/known-secrets.js';
 import { buildResumeReplay } from './resume-replay.js';
+import { countRememberedFacts } from './remember-command.js';
 import { exitCodeForError, ExitCode } from './exit-codes.js';
 import { createStartupTiming } from './startup-timing.js';
 import { resolveCliAgentRuntimeOptions, deriveMaxOutputTokens } from './agent-runtime.js';
@@ -1306,7 +1307,12 @@ export async function runCli(): Promise<void> {
     file: string;
     manual: boolean;
   }> = [];
-  const sessionContextInfo: { skills?: number; soul?: string; branch?: string } = {};
+  const sessionContextInfo: {
+    skills?: number;
+    soul?: string;
+    branch?: string;
+    agentsFacts?: number;
+  } = {};
   {
     // Discovery scopes: the Moss workspace directory wins, then the cross-client
     // `.agents/skills` / `.claude/skills` conventions, then user-level installs.
@@ -2007,6 +2013,17 @@ export async function runCli(): Promise<void> {
           })(),
           branch: (await getGitBranch(workspace)) ?? undefined,
           contextTokensSource: resolvedConfig.contextTokensSource,
+          // B242: an explicit memory file the model will load is worth one word
+          // on the first screen (`AGENTS.md · 2 facts`).
+          agentsFacts: (() => {
+            try {
+              return countRememberedFacts(
+                fs.readFileSync(path.join(workspace, 'AGENTS.md'), 'utf8')
+              );
+            } catch {
+              return undefined;
+            }
+          })(),
         }),
         skills: loadedSkills,
         ...(resumeInteractive ? { resumePicker: true } : {}),

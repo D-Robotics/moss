@@ -1095,6 +1095,13 @@ export function TuiAppRoot({
           tui(info.skills === 1 ? '{count} skill' : '{count} skills', { count: info.skills })
         );
       }
+      if (info.agentsFacts !== undefined) {
+        parts.push(
+          info.agentsFacts > 0
+            ? tui('AGENTS.md · {count} facts', { count: info.agentsFacts })
+            : tui('AGENTS.md')
+        );
+      }
       if (parts.length > 0) {
         appendRow(store, 'detail', tui('context: {parts}', { parts: parts.join(' · ') }));
       }
@@ -1568,7 +1575,14 @@ export function TuiAppRoot({
         );
         return;
       }
-      printBlock(action, await sessionInfo(action as 'sessions'));
+      // Action ids are command words; the block title is the human label.
+      const blockTitles: Record<string, string> = {
+        sessions: 'Sessions',
+        mcp: 'MCP',
+        subs: 'Sub-agents',
+        bg: 'Background',
+      };
+      printBlock(blockTitles[action] ?? action, await sessionInfo(action as 'sessions'));
     },
     [printBlock, runtime, sessionInfo]
   );
