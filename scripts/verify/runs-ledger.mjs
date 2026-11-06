@@ -339,6 +339,52 @@ try {
   const summaryBadKind = await cli(['runs', 'summary', '--kind', 'nope']);
   assert.equal(summaryBadKind.status, 2);
   ok('moss runs summary aggregates runs, tokens and priced cost with the same filters');
+
+  // 11. B166: --by day/week buckets the same filtered runs, newest first.
+  const byDayJson = JSON.parse((await cli(['runs', 'summary', '--by', 'day', '--json'])).stdout);
+  assert.equal(byDayJson.by, 'day');
+  assert.ok(byDayJson.buckets.length >= 1);
+  assert.equal(
+    byDayJson.buckets.reduce((sum, bucket) => sum + bucket.runs, 0),
+    byDayJson.totalRuns,
+    'buckets partition the filtered runs'
+  );
+  assert.equal(
+    byDayJson.buckets.reduce((sum, bucket) => sum + bucket.inputTokens, 0),
+    byDayJson.total.inputTokens
+  );
+  const keys = byDayJson.buckets.map((bucket) => bucket.bucket);
+  assert.deepEqual([...keys].sort().reverse(), keys, 'newest bucket first');
+  const today = new Date();
+  const localDay = `${String(today.getFullYear())}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  assert.equal(keys[0], localDay, 'the newest bucket is today');
+
+  const byDayText = await cli(['runs', 'summary', '--by', 'day', '--kind', 'task']);
+  assert.equal(byDayText.status, 0, byDayText.stderr);
+  assert.match(byDayText.stdout, new RegExp(`${localDay}\\s+\\d+ runs`));
+  assert.match(byDayText.stdout, /total\s+\d+ runs/);
+
+  const { bucketKeyForRun } = await import(
+    pathToFileURL(path.join(root, 'dist/cli/runs-command.js')).href
+  );
+  const weekKey = bucketKeyForRun(Date.now(), 'week');
+  assert.match(weekKey, /^\d{4}-\d{2}-\d{2} \(week\)$/);
+  const weekStart = new Date(`${weekKey.slice(0, 10)}T00:00:00Z`);
+  assert.equal(weekStart.getUTCDay(), 1, 'ISO week bucket starts on Monday');
+  assert.equal(
+    bucketKeyForRun(Date.UTC(2026, 10, 2, 12), 'week'),
+    bucketKeyForRun(Date.UTC(2026, 10, 8, 12), 'week'),
+    'Monday and Sunday share one week bucket'
+  );
+  assert.notEqual(
+    bucketKeyForRun(Date.UTC(2026, 10, 1, 12), 'week'),
+    bucketKeyForRun(Date.UTC(2026, 10, 2, 12), 'week'),
+    'the previous week is a different bucket'
+  );
+
+  const byMonth = await cli(['runs', 'summary', '--by', 'month']);
+  assert.equal(byMonth.status, 2);
+  ok('moss runs summary --by day|week buckets by local day / ISO week');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

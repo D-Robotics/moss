@@ -34,7 +34,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '  moss runs [list] [--limit N] [--status <状态>] [--kind <引擎>] [--since <时长|日期>] [--json]',
       '  moss runs show [<run_id>|latest] [--json]',
       '  moss runs export [<run_id>|latest] [--format md|json] [--out <文件>]',
-      '  moss runs summary [--since <时长|日期>] [--kind <引擎>] [--json]',
+      '  moss runs summary [--since <时长|日期>] [--kind <引擎>] [--by day|week] [--json]',
       '  moss runs prune [--keep N] [--dry-run] [--json]',
       '',
       '统一运行账本（.moss/runs/<run_id>/goal.json）：每次 task / loop 等自动运行一条。',
@@ -46,8 +46,8 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '  moss runs show latest',
       '  moss runs list --kind loop --limit 5',
       '  moss runs list --since 24h --status fail',
-      '  moss runs summary --since 7d',
-      '  moss runs summary --since 7d',
+      '  moss runs summary --since 7d --by day',
+      '  moss runs summary --since 7d --by day',
       '  moss runs list --since 24h --status fail',
       '  moss runs export latest > run.md',
       '  moss runs prune --keep 20 --dry-run',
@@ -58,7 +58,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
     '  moss runs [list] [--limit N] [--status <status>] [--kind <engine>] [--since <window|date>] [--json]',
     '  moss runs show [<run_id>|latest] [--json]',
     '  moss runs export [<run_id>|latest] [--format md|json] [--out <file>]',
-    '  moss runs summary [--since <window|date>] [--kind <engine>] [--json]',
+    '  moss runs summary [--since <window|date>] [--kind <engine>] [--by day|week] [--json]',
     '  moss runs prune [--keep N] [--dry-run] [--json]',
     '',
     'Unified run ledger (.moss/runs/<run_id>/goal.json): one row per autonomous run.',
@@ -406,13 +406,50 @@ function formatTokenCount(value: number): string {
   return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
 }
 
+export type SummaryGranularity = 'day' | 'week';
+
+/** Local-day or ISO-week label for a run's end time (UTC for weeks, local for days). */
+export function bucketKeyForRun(endedAt: number, by: SummaryGranularity): string {
+  const date = new Date(endedAt);
+  if (by === 'day') {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${String(year)}-${month}-${day}`;
+  }
+  const utc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const weekday = (utc.getUTCDay() + 6) % 7; // Monday = 0
+  utc.setUTCDate(utc.getUTCDate() - weekday);
+  const year = utc.getUTCFullYear();
+  const month = String(utc.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(utc.getUTCDate()).padStart(2, '0');
+  return `${String(year)}-${month}-${day} (week)`;
+}
+
+function bucketSummaries(
+  records: readonly RunRecord[],
+  by: SummaryGranularity
+): Array<{ bucket: string } & RunTotals> {
+  const buckets = new Map<string, RunRecord[]>();
+  for (const record of records) {
+    const key = bucketKeyForRun(record.endedAt, by);
+    const rows = buckets.get(key);
+    if (rows) rows.push(record);
+    else buckets.set(key, [record]);
+  }
+  return [...buckets.entries()]
+    .sort(([left], [right]) => (left < right ? 1 : left > right ? -1 : 0))
+    .map(([bucket, rows]) => ({ bucket, ...buildRunTotals(rows) }));
+}
+
 function renderSummary(
   all: readonly RunRecord[],
   filtered: readonly RunRecord[],
   kinds: readonly ({ kind: RunKind } & RunTotals)[],
   total: RunTotals,
   filterLabel: string,
-  zh: boolean
+  zh: boolean,
+  by?: SummaryGranularity
 ): string {
   const counts = countsOf(all);
   const t = (en: string, cn: string): string => (zh ? cn : en);
@@ -436,11 +473,19 @@ function renderSummary(
     if (totals.withCost === 0) return `${tokens} · ${t('cost: unpriced', '费用：无公开价')}`;
     return `${tokens} · ${t('est.', '估算')} $${totals.costUsd.toFixed(4)} (${totals.withCost}/${totals.withUsage} ${t('priced', '有价')})`;
   };
-  for (const entry of kinds) {
-    if (entry.runs === 0) continue;
-    lines.push(
-      `  ${entry.kind.padEnd(10)} ${String(entry.runs).padStart(3)} ${t('runs', '次')} · ${entry.pass} ${t('pass', '通过')} · ${entry.fail} ${t('fail', '失败')} · ${entry.other} ${t('other', '其他')} · ${costText(entry)}`
-    );
+  if (by) {
+    for (const bucket of bucketSummaries(filtered, by)) {
+      lines.push(
+        `  ${bucket.bucket.padEnd(18)} ${String(bucket.runs).padStart(3)} ${t('runs', '次')} · ${bucket.pass} ${t('pass', '通过')} · ${bucket.fail} ${t('fail', '失败')} · ${bucket.other} ${t('other', '其他')} · ${costText(bucket)}`
+      );
+    }
+  } else {
+    for (const entry of kinds) {
+      if (entry.runs === 0) continue;
+      lines.push(
+        `  ${entry.kind.padEnd(10)} ${String(entry.runs).padStart(3)} ${t('runs', '次')} · ${entry.pass} ${t('pass', '通过')} · ${entry.fail} ${t('fail', '失败')} · ${entry.other} ${t('other', '其他')} · ${costText(entry)}`
+      );
+    }
   }
   lines.push(
     `  ${t('total', '合计').padEnd(10)} ${String(total.runs).padStart(3)} ${t('runs', '次')} · ${total.pass} ${t('pass', '通过')} · ${total.fail} ${t('fail', '失败')} · ${total.other} ${t('other', '其他')} · ${costText(total)}`
@@ -480,7 +525,22 @@ export async function runRunsCommand(
   }
 
   if (sub === 'summary') {
-    const parsed = parseListFlags(rest, ctx.outputJson === true);
+    let by: SummaryGranularity | undefined;
+    const restNoBy: string[] = [];
+    for (let index = 0; index < rest.length; index += 1) {
+      const arg = rest[index] as string;
+      if (arg === '--by' || arg.startsWith('--by=')) {
+        const value = (arg.includes('=') ? arg.slice('--by='.length) : (rest[++index] ?? ''))
+          .trim()
+          .toLowerCase();
+        if (value !== 'day' && value !== 'week') {
+          output('stderr', `--by must be day or week\n\n${renderRunsUsage(zh)}\n`);
+          return 2;
+        }
+        by = value;
+      } else restNoBy.push(arg);
+    }
+    const parsed = parseListFlags(restNoBy, ctx.outputJson === true);
     if ('error' in parsed) {
       output('stderr', `${parsed.error}\n\n${renderRunsUsage(zh)}\n`);
       return 2;
@@ -504,6 +564,7 @@ export async function runRunsCommand(
             counts: countsOf(all),
             total,
             kinds,
+            ...(by ? { by, buckets: bucketSummaries(filtered, by) } : {}),
             ...(parsed.status ? { status: parsed.status } : {}),
             ...(parsed.kind ? { kind: parsed.kind } : {}),
             ...(parsed.since ? { since: new Date(parsed.since.cutoff).toISOString() } : {}),
@@ -513,7 +574,7 @@ export async function runRunsCommand(
         )}\n`
       );
     } else {
-      output('stdout', `${renderSummary(all, filtered, kinds, total, filterLabel, zh)}\n`);
+      output('stdout', `${renderSummary(all, filtered, kinds, total, filterLabel, zh, by)}\n`);
     }
     return 0;
   }
