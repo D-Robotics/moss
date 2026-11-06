@@ -116,6 +116,7 @@ import { stage as runContextStage } from './stages/run-context.mjs';
 import { stage as readmeParityStage } from './stages/readme-parity.mjs';
 import { stage as runsLedgerStage } from './stages/runs-ledger.mjs';
 import { stage as runsExportStage } from './stages/runs-export.mjs';
+import { stage as runsFollowStage } from './stages/runs-follow.mjs';
 import { stage as taskArtifactsStage } from './stages/task-artifacts.mjs';
 import { stage as loopRunRecordStage } from './stages/loop-run-record.mjs';
 import { stage as capabilitiesStage } from './stages/capabilities.mjs';
@@ -221,6 +222,7 @@ const STAGES = new Map(
     readmeParityStage,
     runsLedgerStage,
     runsExportStage,
+    runsFollowStage,
     taskArtifactsStage,
     loopRunRecordStage,
     capabilitiesStage,
@@ -320,6 +322,7 @@ const FAST_GATE = [
   'readme-parity',
   'runs-ledger',
   'runs-export',
+  'runs-follow',
   'task-artifacts',
   'loop-run-record',
   'capabilities',

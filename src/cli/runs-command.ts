@@ -15,6 +15,7 @@ import {
 } from '../core/run-ledger.js';
 import { isZhLocale, uiText } from './cli-locale.js';
 import { formatRunUsage } from './run-usage.js';
+import { followDiff, formatFollowEvent, parseFollowDuration } from './runs-follow.js';
 
 const RUN_STATUSES: readonly RunRecordStatus[] = [
   'completed',
@@ -35,6 +36,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '  moss runs [list] [--limit N] [--status <状态>] [--kind <引擎>] [--since <时长|日期>] [--json]',
       '  moss runs show [<run_id>|latest] [--json]',
       '  moss runs export [<run_id>|latest] [--since <时长|日期>] [--kind <引擎>] [--limit N] [--format md|json] [--out <文件>]',
+      '  moss runs follow [--interval 1s] [--timeout 10m] [--kind <引擎>] [--json]',
       '  moss runs summary [--since <时长|日期>] [--kind <引擎>] [--by day|week|model] [--json]',
       '  moss runs prune [--keep N] [--dry-run] [--json]',
       '',
@@ -59,6 +61,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
     '  moss runs [list] [--limit N] [--status <status>] [--kind <engine>] [--since <window|date>] [--json]',
     '  moss runs show [<run_id>|latest] [--json]',
     '  moss runs export [<run_id>|latest] [--since <window|date>] [--kind <engine>] [--limit N] [--format md|json] [--out <file>]',
+    '  moss runs follow [--interval 1s] [--timeout 10m] [--kind <engine>] [--json]',
     '  moss runs summary [--since <window|date>] [--kind <engine>] [--by day|week|model] [--json]',
     '  moss runs prune [--keep N] [--dry-run] [--json]',
     '',
@@ -604,6 +607,85 @@ export async function runRunsCommand(
       output('stdout', `${renderSummary(all, filtered, kinds, total, filterLabel, zh, by)}\n`);
     }
     return 0;
+  }
+
+  if (sub === 'follow') {
+    let json = ctx.outputJson === true;
+    let intervalMs = 1_000;
+    let timeoutMs = 10 * 60_000;
+    let kind: RunKind | undefined;
+    for (let index = 0; index < rest.length; index += 1) {
+      const arg = rest[index] as string;
+      if (arg === '--json') json = true;
+      else if (arg === '--interval' || arg.startsWith('--interval=')) {
+        const raw = arg.includes('=') ? arg.slice('--interval='.length) : (rest[++index] ?? '');
+        const parsed = parseFollowDuration(raw);
+        if (parsed === undefined) {
+          output('stderr', '--interval must be a duration like 500ms, 1s or 5s\n');
+          return 2;
+        }
+        intervalMs = Math.max(200, parsed);
+      } else if (arg === '--timeout' || arg.startsWith('--timeout=')) {
+        const raw = arg.includes('=') ? arg.slice('--timeout='.length) : (rest[++index] ?? '');
+        const parsed = parseFollowDuration(raw);
+        if (parsed === undefined) {
+          output('stderr', '--timeout must be a duration like 10s, 5m or 1h\n');
+          return 2;
+        }
+        timeoutMs = parsed;
+      } else if (arg === '--kind' || arg.startsWith('--kind=')) {
+        const raw = (
+          arg.includes('=') ? arg.slice('--kind='.length) : (rest[++index] ?? '')
+        ).toLowerCase();
+        if (!RUN_KINDS.includes(raw as RunKind)) {
+          output('stderr', `unknown --kind ${raw}; use ${RUN_KINDS.join(', ')}\n`);
+          return 2;
+        }
+        kind = raw as RunKind;
+      } else {
+        output('stderr', `unknown argument ${arg}\n\n${renderRunsUsage(zh)}\n`);
+        return 2;
+      }
+    }
+    const filter = (records: RunRecord[]): RunRecord[] =>
+      kind ? records.filter((record) => record.kind === kind) : records;
+    const seen = new Map<string, RunRecord>();
+    let sawRunning = false;
+    let firstPoll = true;
+    const deadline = Date.now() + timeoutMs;
+    const emit = (event: ReturnType<typeof followDiff>['events'][number]): void => {
+      if (json) output('stdout', `${JSON.stringify({ version: 1, ...event })}\n`);
+      else output('stdout', `${formatFollowEvent(event, zh)}\n`);
+    };
+    while (Date.now() < deadline) {
+      const records = filter(await listRunRecords(ctx.workspace));
+      const { events, next } = followDiff(seen, records);
+      // The first read is the baseline: only in-flight runs are worth announcing
+      // (history as a wall of `+` lines is not a follow view).
+      for (const event of firstPoll
+        ? events.filter((item) => item.record.status === 'running')
+        : events)
+        emit(event);
+      for (const [id, record] of next) seen.set(id, record);
+      const running = records.filter((record) => record.status === 'running').length;
+      if (running > 0) sawRunning = true;
+      firstPoll = false;
+      if (sawRunning && running === 0) {
+        if (!json) output('stdout', uiText('all runs settled', '所有运行已结束') + '\n');
+        return 0;
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    if (!json) {
+      output(
+        'stderr',
+        sawRunning
+          ? uiText('timeout: runs are still in progress', '超时：仍有运行在进行中')
+          : uiText('timeout: no running run observed', '超时：没有观察到进行中的运行')
+      );
+      output('stderr', '\n');
+    }
+    return 1;
   }
 
   if (sub === 'show') {
