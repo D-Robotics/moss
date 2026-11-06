@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The install page's proxy troubleshooting is self-contained (B269)
+
+- The proxy section sent users to internal backlog item `O87` for "CONNECT works but the answer fails" and
+  described a ticket as the fix. It now gives a three-step diagnosis (compare with `MOSS_NO_RDK_DOCS=1`,
+  check provider/model/baseUrl with `moss doctor`, then proxy/gateway streaming + an A/B endpoint), with
+  no internal ids. `readme-parity` also guards `docs/install.md` against citing `O##` ids.
+
+### 安装页的代理排查不再依赖内部工单（B269）
+
+- 代理小节把"CONNECT 成功但拿不到回答"指向内部 backlog `O87`，并把工单当成修复。现在给出三步排查
+  （用 `MOSS_NO_RDK_DOCS=1` 对照、`moss doctor` 核对 provider/model/baseUrl、检查代理/网关的流式与超时并做端点
+  A/B），不再出现内部编号。`readme-parity` 同时守卫 `docs/install.md` 不得引用 `O##`。
+
 ### Doctor copy no longer cites internal ticket ids (B268)
 
 - The gateway reachability line told users to "see O87 if CONNECT succeeds" and the no-response line said

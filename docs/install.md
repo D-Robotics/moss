@@ -159,7 +159,7 @@ npm uninstall -g @rdk-moss/agent
 export HTTPS_PROXY=http://127.0.0.1:1080
 export HTTP_PROXY=http://127.0.0.1:1080
 export NO_PROXY=localhost,127.0.0.1,::1
-# 当前 Moss main（含 O83 / #81 起）会自动让 Node fetch 走上述代理，
+# 当前 Moss 会自动让 Node fetch 走上述代理，
 # 不必再设 NODE_USE_ENV_PROXY（那是旧 tip 的临时绕过，当前不需要）
 ```
 
@@ -177,4 +177,10 @@ export NO_PROXY=localhost,127.0.0.1,::1
 1. 代理日志里有目标模型 / 网关主机的 `CONNECT`；
 2. 端到端拿到**有效回答**（`moss -p "…"` 退出码 0，不是「网络连接失败」）。
 
-**仅有 CONNECT、仍报网络失败 = 未过关。** 排查时可临时 `MOSS_NO_RDK_DOCS=1` 做对照；根因修复见 backlog **O87**（CONNECT 有、回答无），本 README 不替代该项。连接类错误请检查代理 / 防火墙，**不要**按「换更快的模型」处理。
+**仅有 CONNECT、仍报网络失败 = 未过关。** 排查顺序（从上到下缩小范围）：
+
+1. `MOSS_NO_RDK_DOCS=1 moss -p "say hi"` 做对照：排除启动时 rdk-docs 探测的干扰；
+2. `moss doctor` 核对 provider / model / baseUrl 与密钥变量，并确认代理放行目标网关主机；
+3. 若 CONNECT 成功但拿不到回答，检查代理或网关的流式支持与超时设置；换一个可用的模型端点做 A/B，再回到原端点定位。
+
+连接类错误请检查代理 / 防火墙，**不要**按"换更快的模型"处理。

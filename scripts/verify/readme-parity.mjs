@@ -176,4 +176,13 @@ ok('docs/cli-reference.md lists the current commands and its tables are well for
 }
 ok('CLI copy never cites internal ticket ids');
 
+// 10. B269: the install page is linked from README; it should not send users to
+//     an internal backlog id for a troubleshooting step.
+{
+  const install = read('docs/install.md');
+  const leaked = install.match(/\bO\d{2,3}\b/g) ?? [];
+  assert.deepEqual(leaked, [], `docs/install.md cites internal ids: ${leaked.join(', ')}`);
+}
+ok('the install page carries no internal ticket ids');
+
 console.log(`[readme-parity] ${checks}/${checks} checks passed`);
