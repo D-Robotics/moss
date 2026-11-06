@@ -313,7 +313,13 @@ try {
   ok('moss runs list --since accepts windows/dates and rejects anything else with 2');
 
   // 10. B162: summary aggregates the same ledger (per kind, tokens, priced cost).
-  const summaryJson = JSON.parse((await cli(['runs', 'summary', '--json'])).stdout);
+  const [summaryRun, summaryLoop, summaryEmpty, summaryBadKind] = await Promise.all([
+    cli(['runs', 'summary', '--json']),
+    cli(['runs', 'summary', '--kind', 'loop']),
+    cli(['runs', 'summary', '--since', '2100-01-01']),
+    cli(['runs', 'summary', '--kind', 'nope']),
+  ]);
+  const summaryJson = JSON.parse(summaryRun.stdout);
   assert.equal(summaryJson.version, 1);
   assert.equal(summaryJson.totalRuns, summaryJson.total.runs);
   assert.equal(summaryJson.total.withUsage, 1, 'only usage_run carries usage');
@@ -326,22 +332,23 @@ try {
   assert.equal(loopKind.withUsage, 0);
   assert.equal(summaryJson.kinds.length, 5, 'every kind is reported');
 
-  const summaryLoop = await cli(['runs', 'summary', '--kind', 'loop']);
   assert.equal(summaryLoop.status, 0, summaryLoop.stderr);
   assert.match(summaryLoop.stdout, /loop\s+1 runs/);
   assert.match(summaryLoop.stdout, /total\s+1 runs/);
   assert.match(summaryLoop.stdout, /— kind loop \(1\)/);
 
-  const summaryEmpty = await cli(['runs', 'summary', '--since', '2100-01-01']);
   assert.equal(summaryEmpty.status, 0, summaryEmpty.stderr);
   assert.match(summaryEmpty.stdout, /no runs match since 2100-01-01/);
 
-  const summaryBadKind = await cli(['runs', 'summary', '--kind', 'nope']);
   assert.equal(summaryBadKind.status, 2);
   ok('moss runs summary aggregates runs, tokens and priced cost with the same filters');
 
   // 11. B166: --by day/week buckets the same filtered runs, newest first.
-  const byDayJson = JSON.parse((await cli(['runs', 'summary', '--by', 'day', '--json'])).stdout);
+  const [byDayRun, byDayText] = await Promise.all([
+    cli(['runs', 'summary', '--by', 'day', '--json']),
+    cli(['runs', 'summary', '--by', 'day', '--kind', 'task']),
+  ]);
+  const byDayJson = JSON.parse(byDayRun.stdout);
   assert.equal(byDayJson.by, 'day');
   assert.ok(byDayJson.buckets.length >= 1);
   assert.equal(
@@ -359,7 +366,6 @@ try {
   const localDay = `${String(today.getFullYear())}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   assert.equal(keys[0], localDay, 'the newest bucket is today');
 
-  const byDayText = await cli(['runs', 'summary', '--by', 'day', '--kind', 'task']);
   assert.equal(byDayText.status, 0, byDayText.stderr);
   assert.match(byDayText.stdout, new RegExp(`${localDay}\\s+\\d+ runs`));
   assert.match(byDayText.stdout, /total\s+\d+ runs/);
@@ -384,7 +390,64 @@ try {
 
   const byMonth = await cli(['runs', 'summary', '--by', 'month']);
   assert.equal(byMonth.status, 2);
+
+  // 12. B167: --by model attributes runs to the model they used, unknown included.
+  await writeRunRecord(ws, {
+    version: 1,
+    runId: 'model_a_run',
+    kind: 'task',
+    status: 'completed',
+    exitCode: 0,
+    startedAt: Date.now() - 3_000,
+    endedAt: Date.now() - 2_000,
+    durationMs: 1_000,
+    goal: 'model a',
+    model: 'model-a',
+    usage: { inputTokens: 100, outputTokens: 10 },
+    artifacts: {},
+  });
+  await writeRunRecord(ws, {
+    version: 1,
+    runId: 'model_b_run',
+    kind: 'task',
+    status: 'completed',
+    exitCode: 0,
+    startedAt: Date.now() - 3_000,
+    endedAt: Date.now() - 2_000,
+    durationMs: 1_000,
+    goal: 'model b',
+    model: 'model-b',
+    usage: { inputTokens: 200, outputTokens: 20 },
+    artifacts: {},
+  });
+  const [byModelRun, modelShow, modelExport] = await Promise.all([
+    cli(['runs', 'summary', '--by', 'model', '--json']),
+    cli(['runs', 'show', 'model_a_run']),
+    cli(['runs', 'export', 'model_a_run']),
+  ]);
+  assert.equal(modelShow.status, 0, modelShow.stderr);
+  assert.match(modelShow.stdout, /^model: model-a$/m);
+  assert.equal(modelExport.status, 0, modelExport.stderr);
+  assert.match(modelExport.stdout, /^- model: model-a$/m);
+  const byModel = JSON.parse(byModelRun.stdout);
+  assert.equal(byModel.by, 'model');
+  const modelKeys = byModel.buckets.map((bucket) => bucket.bucket);
+  assert.ok(modelKeys.includes('model-a') && modelKeys.includes('model-b'));
+  assert.ok(modelKeys.includes('unknown'), 'runs without a model are honest unknowns');
+  const modelA = byModel.buckets.find((bucket) => bucket.bucket === 'model-a');
+  assert.equal(modelA.inputTokens, 100);
+  assert.equal(modelA.pass, 1);
+  assert.equal(
+    byModel.buckets.reduce((sum, bucket) => sum + bucket.runs, 0),
+    byModel.totalRuns
+  );
+  assert.deepEqual(
+    byModel.buckets.map((bucket) => bucket.runs),
+    [...byModel.buckets.map((bucket) => bucket.runs)].sort((left, right) => right - left),
+    'model rows are ordered by runs'
+  );
   ok('moss runs summary --by day|week buckets by local day / ISO week');
+  ok('moss runs summary --by model attributes runs to models (unknown included)');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

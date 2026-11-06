@@ -785,6 +785,11 @@ export async function runLoopCommand(
           lastCheckExitCode: lastCheck.exitCode,
           ledgerPath: ledgerLabel,
           ...(() => {
+            const agent = ctx.agent as { config?: { model?: unknown } };
+            const model = agent.config?.model;
+            return typeof model === 'string' && model.trim() ? { model } : {};
+          })(),
+          ...(() => {
             const summary = loopUsage.summary();
             const usage = summary.calls > 0 ? runUsageFromSlices(summary.slices) : undefined;
             return usage ? { usage } : {};

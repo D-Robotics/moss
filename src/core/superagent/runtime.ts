@@ -379,6 +379,7 @@ export class MossSuperagent {
     acceptanceCommand?: string;
     summary?: string;
     usage?: RunRecordUsage;
+    model?: string;
   }): Promise<void> {
     try {
       const { writeRunRecord } = await import('../run-ledger.js');
@@ -397,6 +398,7 @@ export class MossSuperagent {
         ...(input.taskId ? { taskId: input.taskId } : {}),
         ...(input.acceptanceCommand ? { acceptanceCommand: input.acceptanceCommand } : {}),
         ...(input.summary ? { reason: input.summary } : {}),
+        ...(input.model ? { model: input.model } : {}),
         ...(input.usage ? { usage: input.usage } : {}),
         next: completed ? 'moss superagent status' : `moss superagent retry ${input.ticketId}`,
         artifacts: {
@@ -490,6 +492,8 @@ export class MossSuperagent {
       });
       // B165: the worker reports the usage of its own task turns; when it does
       // not (older worker), fall back to the worktree's task row if any.
+      const modelName =
+        typeof result.model === 'string' && result.model.trim() ? result.model : undefined;
       let taskUsage: RunRecordUsage | undefined = sanitizeWorkerUsage(result.usage);
       if (!taskUsage) {
         try {
@@ -566,6 +570,7 @@ export class MossSuperagent {
         ...(binding.taskId ? { taskId: binding.taskId } : {}),
         workspace: binding.workspace,
         acceptanceCommand: request.acceptanceCommand,
+        ...(modelName ? { model: modelName } : {}),
         ...(taskUsage ? { usage: taskUsage } : {}),
         ...(state === 'ready'
           ? {}

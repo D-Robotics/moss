@@ -37,6 +37,10 @@ export async function runSuperagentWorker(ctx: CommandContext): Promise<void> {
   const agent = ctx.agent as MossAgent;
   const session = ctx.sessionKey;
   const signal = new AbortController();
+  const modelName =
+    typeof (agent.config as { model?: unknown }).model === 'string'
+      ? ((agent.config as { model?: string }).model as string)
+      : undefined;
   const inputIds = new Set<string>();
   let started = false;
   const inputs = (rows: SuperagentWorkerInput[]) => {
@@ -154,6 +158,7 @@ export async function runSuperagentWorker(ctx: CommandContext): Promise<void> {
             state: verdict.exitCode === 0 ? 'ready' : 'blocked',
             summary: verdict.summary,
             taskId,
+            ...(modelName ? { model: modelName } : {}),
             readInputIds: [...inputIds].filter((id) => !pending.has(id)),
             ...(() => {
               const value = usageOf();
@@ -177,6 +182,7 @@ export async function runSuperagentWorker(ctx: CommandContext): Promise<void> {
         ? 'Follow-up input awaits a new verified turn'
         : (result.verdictDetail ?? `Moss task ${result.snapshot.phase}`),
       taskId: result.snapshot.taskId,
+      ...(modelName ? { model: modelName } : {}),
       readInputIds: [...inputIds].filter((id) => !pending.has(id)),
       ...(() => {
         const value = usageOf();

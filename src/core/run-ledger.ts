@@ -55,6 +55,8 @@ export interface RunRecord {
   goal: string;
   taskId?: string;
   sessionKey?: string;
+  /** Model id the run used, when the engine knows it (B167: per-model summary). */
+  model?: string;
   acceptanceCommand?: string;
   attempts?: number;
   repairs?: number;

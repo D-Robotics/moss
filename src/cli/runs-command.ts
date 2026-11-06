@@ -34,7 +34,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '  moss runs [list] [--limit N] [--status <状态>] [--kind <引擎>] [--since <时长|日期>] [--json]',
       '  moss runs show [<run_id>|latest] [--json]',
       '  moss runs export [<run_id>|latest] [--format md|json] [--out <文件>]',
-      '  moss runs summary [--since <时长|日期>] [--kind <引擎>] [--by day|week] [--json]',
+      '  moss runs summary [--since <时长|日期>] [--kind <引擎>] [--by day|week|model] [--json]',
       '  moss runs prune [--keep N] [--dry-run] [--json]',
       '',
       '统一运行账本（.moss/runs/<run_id>/goal.json）：每次 task / loop 等自动运行一条。',
@@ -58,7 +58,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
     '  moss runs [list] [--limit N] [--status <status>] [--kind <engine>] [--since <window|date>] [--json]',
     '  moss runs show [<run_id>|latest] [--json]',
     '  moss runs export [<run_id>|latest] [--format md|json] [--out <file>]',
-    '  moss runs summary [--since <window|date>] [--kind <engine>] [--by day|week] [--json]',
+    '  moss runs summary [--since <window|date>] [--kind <engine>] [--by day|week|model] [--json]',
     '  moss runs prune [--keep N] [--dry-run] [--json]',
     '',
     'Unified run ledger (.moss/runs/<run_id>/goal.json): one row per autonomous run.',
@@ -256,6 +256,7 @@ function renderShow(record: RunRecord, zh: boolean): string {
     uiText('duration', '耗时') + `: ${formatDuration(record.durationMs)}`,
     uiText('exit', '退出码') + `: ${record.exitCode}`,
   ];
+  if (record.model) lines.push(uiText('model', '模型') + `: ${record.model}`);
   if (record.acceptanceCommand)
     lines.push(uiText('acceptance', '验收命令') + `: ${record.acceptanceCommand}`);
   if (record.attempts !== undefined || record.repairs !== undefined || record.turns !== undefined) {
@@ -303,6 +304,7 @@ export function renderRunMarkdown(record: RunRecord): string {
       `- attempts: ${record.attempts ?? 0} · repairs: ${record.repairs ?? 0} · failures: ${record.failures ?? 0} · turns: ${record.turns ?? 0}`
     );
   }
+  if (record.model) lines.push(`- model: ${record.model}`);
   const usageLine = formatRunUsage(record.usage, false);
   if (usageLine) lines.push(`- ${usageLine}`);
   for (const gate of record.gates ?? []) {
@@ -406,10 +408,10 @@ function formatTokenCount(value: number): string {
   return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
 }
 
-export type SummaryGranularity = 'day' | 'week';
+export type SummaryGranularity = 'day' | 'week' | 'model';
 
 /** Local-day or ISO-week label for a run's end time (UTC for weeks, local for days). */
-export function bucketKeyForRun(endedAt: number, by: SummaryGranularity): string {
+export function bucketKeyForRun(endedAt: number, by: Exclude<SummaryGranularity, 'model'>): string {
   const date = new Date(endedAt);
   if (by === 'day') {
     const year = date.getFullYear();
@@ -432,14 +434,23 @@ function bucketSummaries(
 ): Array<{ bucket: string } & RunTotals> {
   const buckets = new Map<string, RunRecord[]>();
   for (const record of records) {
-    const key = bucketKeyForRun(record.endedAt, by);
+    const key = by === 'model' ? (record.model ?? 'unknown') : bucketKeyForRun(record.endedAt, by);
     const rows = buckets.get(key);
     if (rows) rows.push(record);
     else buckets.set(key, [record]);
   }
-  return [...buckets.entries()]
-    .sort(([left], [right]) => (left < right ? 1 : left > right ? -1 : 0))
-    .map(([bucket, rows]) => ({ bucket, ...buildRunTotals(rows) }));
+  const entries = [...buckets.entries()].map(([bucket, rows]) => ({
+    bucket,
+    ...buildRunTotals(rows),
+  }));
+  if (by === 'model') {
+    return entries.sort(
+      (left, right) => right.runs - left.runs || left.bucket.localeCompare(right.bucket)
+    );
+  }
+  return entries.sort((left, right) =>
+    left.bucket < right.bucket ? 1 : left.bucket > right.bucket ? -1 : 0
+  );
 }
 
 function renderSummary(
@@ -533,8 +544,8 @@ export async function runRunsCommand(
         const value = (arg.includes('=') ? arg.slice('--by='.length) : (rest[++index] ?? ''))
           .trim()
           .toLowerCase();
-        if (value !== 'day' && value !== 'week') {
-          output('stderr', `--by must be day or week\n\n${renderRunsUsage(zh)}\n`);
+        if (value !== 'day' && value !== 'week' && value !== 'model') {
+          output('stderr', `--by must be day, week or model\n\n${renderRunsUsage(zh)}\n`);
           return 2;
         }
         by = value;

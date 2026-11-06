@@ -58,6 +58,8 @@ export interface SuperagentWorkerResult {
   summary: string;
   taskId?: string;
   readInputIds: string[];
+  /** B167: model the native task ran on, when the worker knows it. */
+  model?: string;
   /** B165: usage accumulated by the native task turns of this dispatch. */
   usage?: {
     inputTokens: number;

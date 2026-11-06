@@ -28,6 +28,8 @@ export interface LoopRunRecordInput {
   ledgerPath: string;
   /** B163: token usage summed over every attempt in this loop. */
   usage?: RunRecordUsage;
+  /** B167: model the attempts ran on, when known. */
+  model?: string;
 }
 
 function statusFor(input: LoopRunRecordInput): RunRecordStatus {
@@ -69,6 +71,7 @@ export function buildLoopRunRecord(input: LoopRunRecordInput): RunRecord {
     attempts: input.attempts,
     ...(status === 'completed' ? {} : { reason: reasonFor(input) }),
     ...(status === 'completed' ? {} : { next: `moss loop show ${input.runId}` }),
+    ...(input.model ? { model: input.model } : {}),
     ...(input.usage ? { usage: input.usage } : {}),
     artifacts: { loopLedger: input.ledgerPath },
   };

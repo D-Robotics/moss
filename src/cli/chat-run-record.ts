@@ -34,6 +34,7 @@ export interface ChatRunRecordInput {
   reason: string;
   prompt: string;
   sessionKey: string;
+  model?: string;
   startedAt: number;
   endedAt: number;
   usage?: RunRecordUsage;
@@ -48,6 +49,7 @@ export function buildChatRunRecord(input: ChatRunRecordInput): RunRecord {
     runId: input.runId,
     kind: 'chat',
     status,
+    ...(input.model ? { model: input.model } : {}),
     exitCode: input.exitCode,
     startedAt: input.startedAt,
     endedAt: input.endedAt,

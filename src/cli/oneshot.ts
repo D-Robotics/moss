@@ -941,6 +941,7 @@ export async function runOneShot(
           reason: outcome.reason,
           prompt: message,
           sessionKey,
+          ...(agent.config.model ? { model: agent.config.model } : {}),
           startedAt: runStartedAt,
           endedAt: Date.now(),
           ...(usage ? { usage } : {}),

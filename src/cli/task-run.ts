@@ -675,6 +675,7 @@ function runRecordForTask(
   goal: string,
   acceptanceCommand: string | undefined,
   sessionKey: string,
+  model: string | undefined,
   usage?: import('../core/run-ledger.js').RunRecordUsage,
   gates?: import('../core/run-ledger.js').RunGate[]
 ): RunRecord {
@@ -700,6 +701,7 @@ function runRecordForTask(
     goal,
     taskId: result.snapshot.taskId,
     sessionKey,
+    ...(model ? { model } : {}),
     ...(acceptanceCommand ? { acceptanceCommand } : {}),
     attempts: result.snapshot.attempt,
     repairs: result.snapshot.repairs.length,
@@ -717,6 +719,12 @@ function runRecordForTask(
       acceptance: '.moss/acceptance.jsonl',
     },
   };
+}
+
+function modelOf(ctx: TaskCommandContext): string | undefined {
+  const agent = ctx.agent as { config?: { model?: unknown } } | undefined;
+  const model = agent?.config?.model;
+  return typeof model === 'string' && model.trim() ? model : undefined;
 }
 
 async function recordRun(
@@ -749,7 +757,16 @@ async function recordRun(
   try {
     await writeRunRecord(
       ctx.workspace,
-      runRecordForTask(result, startedAt, goal, acceptanceCommand, ctx.sessionKey, usage, gates)
+      runRecordForTask(
+        result,
+        startedAt,
+        goal,
+        acceptanceCommand,
+        ctx.sessionKey,
+        modelOf(ctx),
+        usage,
+        gates
+      )
     );
   } catch (err) {
     output('stderr', `[task] could not write the run ledger: ${errorMessage(err)}\n`);
