@@ -24,6 +24,7 @@ import {
   renderNodeDoctorLine,
 } from './doctor.js';
 import { isZhLocale } from './cli-locale.js';
+import { userTextWithoutTurnContext } from '../core/session/internal-transcript.js';
 import { PermissionRuleRegistry, unmatchedRuleToolNames } from './permission-rules.js';
 import { workspaceWriteLimit } from './workspace-write-copy.js';
 import { formatCliInteractionModeLabel, type CliInteractionMode } from './interaction-mode.js';
@@ -366,7 +367,11 @@ export function renderWelcomeContextLines(
     const resume = /^moss task resume (\S+)$/.exec(latest.next);
     next = interactive && resume ? `/goal resume ${resume[1]}` : latest.next;
   } else if (latest) {
-    next = interactive ? `/runs    ${allRuns}` : `moss runs    ${allRuns}`;
+    // B157: a completed run's happy path is reviewing the change, not reading the
+    // ledger; the ledger is one command away if the user wants it.
+    next = interactive
+      ? `/diff    ${t('(review what changed / ship it)', '（看改了什么 / 收尾）')}`
+      : `moss runs    ${allRuns}`;
   } else if (!hasAgents) {
     next = interactive ? `/init    ${initNote}` : `moss init    ${initNote}`;
   } else {
@@ -394,6 +399,23 @@ export function renderNextHint(
 ): string {
   const { next } = renderWelcomeContextLines(workspace, zh, surface);
   return `${ui.dim(zh ? '下一步' : 'Next')} ${next}`;
+}
+
+/** One dim line after the first screen: the newest earlier session can be resumed. */
+export function formatPreviousSessionHint(
+  meta: { title?: string; sessionKey?: string; key?: string; messageCount?: number },
+  zh = isZhLocale()
+): string {
+  const title =
+    userTextWithoutTurnContext(meta.title ?? '') || meta.sessionKey || meta.key || 'session';
+  if (zh) {
+    return meta.messageCount !== undefined
+      ? `上次会话：${title}（${String(meta.messageCount)} 条消息）— 用 moss --continue 续上`
+      : `上次会话：${title} — 用 moss --continue 续上`;
+  }
+  return meta.messageCount !== undefined
+    ? `previous session: ${title} (${String(meta.messageCount)} messages) — restart with \`moss --continue\` to resume it`
+    : `previous session: ${title} — restart with \`moss --continue\` to resume it`;
 }
 
 export function renderCliWelcome(

@@ -13,9 +13,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const { renderWelcomeContextLines, renderNextHint, formatAgo } = await import(
-  pathToFileURL(path.join(root, 'dist/cli/onboarding.js')).href
-);
+const { formatPreviousSessionHint, renderWelcomeContextLines, renderNextHint, formatAgo } =
+  await import(pathToFileURL(path.join(root, 'dist/cli/onboarding.js')).href);
 
 let checks = 0;
 const ok = (name) => {
@@ -174,7 +173,7 @@ try {
       next: 'moss runs',
     });
     assert.match(renderNextHint(ws, false, 'cli'), /^Next moss runs/);
-    assert.match(renderNextHint(ws, false, 'interactive'), /^Next \/runs/);
+    assert.match(renderNextHint(ws, false, 'interactive'), /^Next \/diff/);
     const fresh = path.join(tmp, 'fresh-next');
     await fs.mkdir(fresh, { recursive: true });
     assert.match(renderNextHint(fresh, false, 'cli'), /^Next moss init/);
@@ -208,7 +207,7 @@ try {
       },
       surface
     );
-    assert.match(renderWelcomeContextLines(surface, false, 'interactive').next, /^\/runs/);
+    assert.match(renderWelcomeContextLines(surface, false, 'interactive').next, /^\/diff/);
     assert.match(renderWelcomeContextLines(surface, false, 'cli').next, /^moss runs/);
     await writeRun(
       {
@@ -230,7 +229,28 @@ try {
       'moss task resume task_surface'
     );
   }
-  ok('interactive next hints use /init, /runs and /run resume instead of shell verbs');
+  ok('interactive next hints use /init, /diff and /goal resume instead of shell verbs');
+
+  // 11. B157: one resume hint for the newest earlier session, both locales.
+  {
+    const en = formatPreviousSessionHint({
+      sessionKey: 'sess_old',
+      title: 'refactor auth',
+      messageCount: 7,
+    });
+    assert.match(
+      en,
+      /^previous session: refactor auth \(7 messages\) — restart with `moss --continue`/
+    );
+    const zh = formatPreviousSessionHint(
+      { key: 'sess_old', title: '重构认证', messageCount: 7 },
+      true
+    );
+    assert.match(zh, /^上次会话：重构认证（7 条消息）— 用 moss --continue 续上/);
+    const bare = formatPreviousSessionHint({ key: 'sess_bare' }, true);
+    assert.match(bare, /^上次会话：sess_bare — 用 moss --continue 续上/);
+  }
+  ok('the previous-session hint is one localized line for either session shape');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

@@ -29,7 +29,6 @@ import {
   useWindowSize,
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
-import { userTextWithoutTurnContext } from '../../core/session/internal-transcript.js';
 import {
   TaskRuntime,
   formatDeploymentLine,
@@ -86,7 +85,7 @@ import {
 } from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
-import { renderWelcomeContextLines } from '../onboarding.js';
+import { formatPreviousSessionHint, renderWelcomeContextLines } from '../onboarding.js';
 import { wrapApprovalAsker, wrapApprovalViewAsker } from '../permission-request.js';
 import {
   formatDiffRunFailure,
@@ -1125,18 +1124,10 @@ export function TuiAppRoot({
           const sessions = (await options.listSessions?.()) ?? [];
           const previous = sessions.find((s) => !s.current);
           if (previous) {
-            const title = userTextWithoutTurnContext(previous.title ?? '') || previous.key;
             appendRow(
               store,
               'system',
-              previous.messageCount !== undefined
-                ? tui(
-                    'previous session: {title} ({count} messages) — restart with `moss --continue` to resume it',
-                    { title, count: previous.messageCount }
-                  )
-                : tui('previous session: {title} — restart with `moss --continue` to resume it', {
-                    title,
-                  })
+              formatPreviousSessionHint(previous, activeUiLocale(options.locale) === 'zh')
             );
             handle.notify();
           }

@@ -64,7 +64,12 @@ import { runOneShot } from './oneshot.js';
 import { messageRequestsTaskContract } from './task-flow.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
 import { createCliRunRenderer } from './output.js';
-import { renderCliInteractiveHelp, renderCliWelcome, type CliRuntimeStatus } from './onboarding.js';
+import {
+  formatPreviousSessionHint,
+  renderCliInteractiveHelp,
+  renderCliWelcome,
+  type CliRuntimeStatus,
+} from './onboarding.js';
 import { createCliSessionKey, selectSessionForResume } from './session.js';
 import { compactPath, label, ui } from './ui.js';
 import { runWorkingTreeDiff } from '../utils/git-spawn.js';
@@ -448,6 +453,23 @@ export async function runInteractive(
   console.error(
     ui.dim(`${label('status')} Ready. Type a prompt and press Enter, or /help for commands.`)
   );
+  // B157: the TUI already pointed at the newest earlier session; the REPL had no
+  // path back at all. One dim line, computed once, before the first prompt —
+  // only on a genuinely fresh session (a resumed one already has messages).
+  try {
+    const sessions = await agent.config.sessionStore.listSessions();
+    const current = sessions.find((session) => session.sessionKey === sessionKey);
+    if (!current || current.messageCount === 0) {
+      const previous = [...sessions]
+        .filter((session) => session.sessionKey !== sessionKey && session.messageCount > 0)
+        .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+      if (previous) {
+        console.error(ui.dim(formatPreviousSessionHint(previous, cliLocale() === 'zh')));
+      }
+    }
+  } catch {
+    // session listing must never break startup
+  }
   promptUser();
 
   let pendingGoal: { goal: string } | null = null;
