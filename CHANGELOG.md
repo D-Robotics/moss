@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### `/undo` actually undoes, and replay no longer shows harness corrections as user text (B203)
+
+- The TUI rewrites aliases before dispatch, so `/undo` arrived as the canonical `/rewind`; the new
+  undo branch checked the rewritten text and never ran. It now reads the raw submission:
+  `/undo` restores the latest checkpoint directly (`reverted checkpoint 1: 1 file(s) restored,
+16 message(s) dropped` in a real resumed session), while `/rewind` still lists/restores by seq.
+- Harness corrections were injected as `role: user` with bare text; some gates (verification) did not
+  prefix `[System]`, so a resumed session replayed the nudge as if the user had typed it. Every
+  correction is now marked `[System]` at the single injection point, and replay/internal filters drop
+  it. Probes: `rewind-conversation` 5/5, `verification-gate` 23 assertions.
+
+### `/undo` 真正执行撤销；恢复会话不再把内部纠正显示成用户输入（B203）
+
+- TUI 在分发前会展开别名，`/undo` 到达处理处时已变成规范名 `/rewind`；新的撤销分支检查的是改写后的文本，所以从未执行。
+  现在改为读取原始输入：`/undo` 直接恢复最近检查点（真实恢复会话中显示
+  `reverted checkpoint 1: 1 file(s) restored, 16 message(s) dropped`），`/rewind` 仍可列出/按序号恢复。
+- 内部纠正以 `role: user` 注入且部分 gate（verification）没加 `[System]` 前缀，恢复会话时会被当成用户输入回放。
+  现在统一在单一注入点标记 `[System]`，回放/内部过滤会丢弃。探针：`rewind-conversation` 5/5、`verification-gate` 23 条断言。
+
 ### `/rewind` now sees surgical edits, and says how to restore (B202)
 
 - Checkpoints only tracked `write_file` / `move_file` / `apply_patch`. A turn that used `edit_file` or

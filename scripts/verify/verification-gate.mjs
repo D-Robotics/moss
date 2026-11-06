@@ -341,4 +341,23 @@ assert.equal(
 assert.equal(completionModule.requestExpectsFileChanges('修复这个 bug 并跑测试。'), true);
 console.log('[verification-gate] no-change directive ok');
 
+// B203: harness corrections are marked [System] so replay/internal filters drop
+// them instead of showing them as a fake user turn after `--continue`.
+{
+  const { buildCorrectionMessage } = await import(
+    pathToFileURL(path.join(root, 'dist/core/loop/agent-loop.js')).href
+  );
+  const { resumeUserText } = await import(
+    pathToFileURL(path.join(root, 'dist/core/session/internal-transcript.js')).href
+  );
+  const bare = buildCorrectionMessage('You changed files but never checked the result.');
+  const bareText = bare.content[0].text;
+  assert.match(bareText, /^\[System\] You changed files/);
+  assert.equal(resumeUserText(bareText), '');
+  const already = buildCorrectionMessage('[System] Completion rejected: prove it.');
+  assert.equal(already.content[0].text, '[System] Completion rejected: prove it.');
+  assert.equal(resumeUserText('what the user actually typed'), 'what the user actually typed');
+  console.log('[verification-gate] corrections are marked and replay-hidden');
+}
+
 console.log(`[verification-gate] ${cases.length} assertion(s) passed`);

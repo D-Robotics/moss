@@ -100,10 +100,15 @@ export function lastMessageNeedsToolFollowUpLlm(messages: Message[]): boolean {
   );
 }
 
-function buildCorrectionMessage(systemText: string): Message {
+export function buildCorrectionMessage(systemText: string): Message {
+  // B203: every harness correction is marked `[System]` so transcript replay and
+  // the internal-text filter can tell it apart from something the user typed.
+  // Some gates (e.g. verification) shipped bare text, which resurfaced as a
+  // fake user turn after `--continue`.
+  const text = /^\s*\[System\]/.test(systemText) ? systemText : `[System] ${systemText}`;
   return {
     role: 'user',
-    content: [{ type: 'text', text: systemText }],
+    content: [{ type: 'text', text }],
     timestamp: Date.now(),
   };
 }

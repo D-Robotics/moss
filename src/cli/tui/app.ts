@@ -2488,7 +2488,27 @@ export function TuiAppRoot({
       ) {
         const arg = text.split(' ')[1];
         const checkpoints = options.listCheckpoints?.() ?? [];
-        if (!arg) {
+        // `/undo` is an alias of `/rewind` and is rewritten to the canonical
+        // name before this block, so the raw submission decides the behavior.
+        const isUndo = /^\/undo(?:\s|$)/.test(raw.trim());
+        if (isUndo && !arg) {
+          // B203: REPL `/undo` rewinds the latest checkpoint; the TUI branch
+          // treated it like a bare `/rewind` and only listed, so the edit stayed.
+          const last = checkpoints[checkpoints.length - 1];
+          if (!last) {
+            printBlock('Undo', [tui('no checkpoints to undo')]);
+          } else {
+            const result = await options.rewindTo?.(last.seq);
+            printBlock('Undo', [
+              result?.ok
+                ? tui('reverted checkpoint {seq}: {detail}', {
+                    seq: last.seq,
+                    detail: result.detail,
+                  })
+                : (result?.detail ?? tui('undo to {seq} failed', { seq: last.seq })),
+            ]);
+          }
+        } else if (!arg) {
           // B202: a bare list used to leave the restore syntax implicit; a
           // follow-up "1" went to the model as a chat message instead of a rewind.
           printBlock(

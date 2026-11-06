@@ -99,4 +99,36 @@ try {
   await agent.close();
 }
 
-console.log(`[rewind-conversation] ${checks}/4 checks passed`);
+// 5. B203: a stored harness correction never replays as a user turn.
+{
+  const { buildResumeReplay } = await import(dist('cli/resume-replay.js'));
+  const replay = buildResumeReplay([
+    { role: 'user', content: [{ type: 'text', text: 'add subtract() to sum.js' }] },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Added subtract().' }],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: '[System] You changed files but the last thing you did was answer your own claim.',
+        },
+      ],
+    },
+    { role: 'assistant', content: [{ type: 'text', text: 'Verified with node --test.' }] },
+  ]);
+  assert.deepEqual(
+    replay.items.map((item) => `${item.kind}:${item.text}`),
+    [
+      'user:add subtract() to sum.js',
+      'assistant:Added subtract().',
+      'assistant:Verified with node --test.',
+    ],
+    'the correction is dropped; real user/assistant turns remain'
+  );
+  ok('a stored [System] correction is not replayed as a user turn');
+}
+
+console.log(`[rewind-conversation] ${checks}/${checks} checks passed`);
