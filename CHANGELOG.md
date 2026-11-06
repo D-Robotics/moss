@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Transcript tool labels use `/` on every platform (B285)
+
+- On Windows a file tool row read `Read(src\a.ts)` while every doc, path argument and shortcut around it
+  uses `/` — and the probe that guards labels failed the nightly Windows leg on exactly that. `toolLabel`'s
+  path compaction now renders display paths with `/` (relative, `~/…`, and absolute), so the transcript reads
+  the same everywhere; the actual filesystem path is untouched.
+
+### 各平台的 transcript 工具标题统一用 `/`（B285）
+
+- Windows 上文件工具行显示 `Read(src\a.ts)`，而文档、参数和快捷键都用 `/`；守卫标题的探针正是因此在
+  夜间 Windows leg 失败。`toolLabel` 的路径压缩现在统一以 `/` 渲染（相对路径、`~/…`、绝对路径），
+  真实文件系统路径不受影响。
+
 ### The deep gate's Windows leg can pass again (B284)
 
 - `Deep verification` had been red on every nightly since 2026-11-04: the clipboard probe asserted a POSIX

@@ -240,16 +240,20 @@ function isPathTool(toolName: string): boolean {
 /** File tools read better relative to the workspace (the TUI's cwd). */
 export function compactToolPath(value: string): string {
   const text = value.replace(/\s+/g, ' ').trim();
-  if (!path.isAbsolute(text)) return text;
+  // B285: transcript labels are display text, not OS paths — `Read(src\a.ts)`
+  // reads as a typo next to the `/` every doc and keyboard shortcut uses.
+  const display = (candidate: string): string => candidate.replace(/\\/g, '/');
+  if (!path.isAbsolute(text)) return display(text);
   try {
     const relative = path.relative(process.cwd(), text);
-    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) return relative;
+    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative))
+      return display(relative);
   } catch {
     /* a deleted cwd is not a reason to fail a label */
   }
   const home = os.homedir();
-  if (home && text.startsWith(`${home}${path.sep}`)) return `~${text.slice(home.length)}`;
-  return text;
+  if (home && text.startsWith(`${home}${path.sep}`)) return display(`~${text.slice(home.length)}`);
+  return display(text);
 }
 
 export function toolLabel(toolName: string, input: Record<string, unknown> = {}): string {
