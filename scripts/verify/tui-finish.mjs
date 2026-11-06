@@ -11,6 +11,15 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// B284: the nightly Windows leg reported only "probe exited 1: Node.js v…"
+// because the uncaught error's stack was behind the banner in the log; print it.
+for (const signal of ['uncaughtException', 'unhandledRejection']) {
+  process.on(signal, (error) => {
+    console.error(`[tui-finish] ${signal}:`, error);
+    process.exit(1);
+  });
+}
+
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const transcript = await load('dist/cli/tui/transcript.js');
