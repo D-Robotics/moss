@@ -82,7 +82,15 @@ for (const [name, text] of [
 ok(`tool counts match the build (${builtinTools.length} tools, ${deviceCount} device tools)`);
 
 // 5. The hero commands and the verification story are present in both.
-for (const required of ['moss goal', '--accept', 'moss device', 'moss task status', 'moss loop']) {
+for (const required of [
+  'moss goal',
+  '--accept',
+  'moss device',
+  'moss task status',
+  'moss loop',
+  'moss runs follow',
+  '/style',
+]) {
   assert.ok(zh.includes(required), `zh README lost \`${required}\``);
   assert.ok(en.includes(required), `en README lost \`${required}\``);
 }

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### README handfeel/capability claims match the shipped behavior again (B195)
+
+- The handfeel table still promised that a fresh folder shows `Try "/init"` in the empty-composer
+  hint; since B192 `/init` lives in the `Next:` row and the hint follows the workspace kind. The row
+  now says exactly that, and the table gained the two new interaction surfaces: `/style` (switch the
+  voice mid-session) and `moss runs follow` (watch the ledger settle).
+- The quality section still claimed "~40s locally"; the sharded CI gate and heavier probe set make
+  the real number ~1–1.5 min locally depending on load. Both READMEs now state the local figure and
+  the two-shard/60s-per-shard CI arrangement. The README parity probe also pins `/style` and
+  `moss runs follow` so the product page cannot drift from the CLI surface.
+
+### README 的手感/能力表述再次与实现一致（B195）
+
+- 手感表还写着"全新目录提示 `Try "/init"`"；自 B192 起 `/init` 只在 `Next:` 行，占位提示跟随工作区类型。
+  该行已改正，并补上两个新交互面：`/style`（会话内切换语气）与 `moss runs follow`（实时盯着账本收尾）。
+- 质量段还写"本地约 40s"；分片 CI 与更重的探针集后实际约 1–1.5 分钟（随负载）。中英 README 现在同时写明本地耗时
+  与"两片并行、每片 60s 预算"的 CI 安排；README parity 探针新增 `/style` 与 `moss runs follow` 断言，防止产品页与 CLI 面漂移。
+
 ### The status row labels every number, and a long wait names what it waits for (B194)
 
 - `9.7k in / 161 out · 1% ctx` read like one value plus an unexplained `ctx`. The row now says
