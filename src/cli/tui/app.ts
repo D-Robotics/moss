@@ -1126,9 +1126,6 @@ export function TuiAppRoot({
       'interactive'
     );
     for (const line of welcomeContext.lines) appendRow(store, 'detail', line);
-    if (!resumedBoot) {
-      appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
-    }
     composerSuggestionRef.current = welcomeContext.suggestion;
     options.onMcpUiReady?.();
     // Crash/quit recovery: history survives per-message, but a bare `moss`
@@ -1141,17 +1138,26 @@ export function TuiAppRoot({
           const sessions = (await options.listSessions?.()) ?? [];
           const previous = sessions.find((s) => !s.current);
           if (previous) {
+            // B263: one next step, not two — an earlier session to continue wins
+            // over the generic onboarding hint.
             appendRow(
               store,
               'system',
               formatPreviousSessionHint(previous, activeUiLocale(options.locale) === 'zh')
             );
             handle.notify();
+            return;
           }
         } catch {
           // Session listing must never break boot.
         }
+        if (!resumedBoot) {
+          appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
+          handle.notify();
+        }
       })();
+    } else if (!resumedBoot) {
+      appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
     }
     if (options.resumePicker) {
       // `moss resume` on a TTY: the picker overlay opens with real sessions.

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### The first screen has one next step, not two (B263)
+
+- A fresh boot with an earlier session showed both `Next: /init …` and `previous session: … restart
+with moss --continue` — two different actions competing (and the hint wrapped to three lines at 60
+  columns). When an earlier session exists, its resume hint (now one short line: `previous session: <title>
+(N messages) · moss --continue`) is the single next step; the generic `Next:` row is only shown when
+  there is nothing to continue.
+
+### 首屏只保留一个"下一步"（B263）
+
+- 有旧会话的新启动会同时显示 `Next: /init …` 与 `previous session: … restart with moss --continue`，
+  两个不同的下一步互相竞争（60 列下提示还会折成三行）。现在有旧会话时只显示一行短提示
+  （`previous session: <title> (N messages) · moss --continue`），没有可续会话时才显示通用 `Next:` 行。
+
 ### A short terminal keeps result previews to one or two lines (B262)
 
 - At rows < 20 a five-line tool result left almost no conversation on screen. Result previews now keep one

@@ -285,17 +285,14 @@ try {
       title: 'refactor auth',
       messageCount: 7,
     });
-    assert.match(
-      en,
-      /^previous session: refactor auth \(7 messages\) — restart with `moss --continue`/
-    );
+    assert.match(en, /^previous session: refactor auth \(7 messages\) · moss --continue$/);
     const zh = formatPreviousSessionHint(
       { key: 'sess_old', title: '重构认证', messageCount: 7 },
       true
     );
-    assert.match(zh, /^上次会话：重构认证（7 条消息）— 用 moss --continue 续上/);
+    assert.match(zh, /^上次会话：重构认证（7 条）· moss --continue$/);
     const bare = formatPreviousSessionHint({ key: 'sess_bare' }, true);
-    assert.match(bare, /^上次会话：sess_bare — 用 moss --continue 续上/);
+    assert.match(bare, /^上次会话：sess_bare · moss --continue$/);
   }
   ok('the previous-session hint is one localized line for either session shape');
 

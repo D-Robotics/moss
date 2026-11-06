@@ -438,14 +438,15 @@ export function formatPreviousSessionHint(
 ): string {
   const title =
     userTextWithoutTurnContext(meta.title ?? '') || meta.sessionKey || meta.key || 'session';
+  // B263: one short line — narrow terminals wrapped the old wording into three.
   if (zh) {
     return meta.messageCount !== undefined
-      ? `上次会话：${title}（${String(meta.messageCount)} 条消息）— 用 moss --continue 续上`
-      : `上次会话：${title} — 用 moss --continue 续上`;
+      ? `上次会话：${title}（${String(meta.messageCount)} 条）· moss --continue`
+      : `上次会话：${title} · moss --continue`;
   }
   return meta.messageCount !== undefined
-    ? `previous session: ${title} (${String(meta.messageCount)} messages) — restart with \`moss --continue\` to resume it`
-    : `previous session: ${title} — restart with \`moss --continue\` to resume it`;
+    ? `previous session: ${title} (${String(meta.messageCount)} messages) · moss --continue`
+    : `previous session: ${title} · moss --continue`;
 }
 
 export function renderCliWelcome(
