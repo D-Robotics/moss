@@ -165,6 +165,49 @@ ok('file tool titles are workspace-relative');
 }
 ok('a successful exec folds to one preview line; the rest stays behind ctrl+o');
 
+// 2g. B189: a self-audit aside is dim and one line, not a bright markdown block.
+{
+  const asideRow = transcript.renderTranscriptRow(
+    {
+      id: 10,
+      kind: 'assistant',
+      text: '**Spec audit:** no docs exist in this workspace, so no SPEC-AUDIT.md is needed.',
+    },
+    120
+  );
+  const asideBody = asideRow.filter((entry) => entry.text.trim() !== '');
+  assert.equal(asideBody.length, 1, 'the aside folds to one content row');
+  assert.equal(asideBody[0].dim, true, 'the aside is dim');
+  assert.doesNotMatch(asideBody[0].text, /\*\*/);
+  assert.match(asideBody[0].text, /Spec audit: no docs exist/);
+  const verboseAside = transcript.renderTranscriptRow(
+    {
+      id: 11,
+      kind: 'assistant',
+      text: '**Spec audit:** no docs exist in this workspace, so no SPEC-AUDIT.md is needed.',
+    },
+    120,
+    true
+  );
+  assert.ok(
+    verboseAside.some((entry) => entry.text.includes('Spec audit: no docs exist')),
+    'verbose keeps the full text'
+  );
+  assert.ok(
+    !verboseAside.some((entry) => entry.text.trim() !== '' && entry.dim),
+    'verbose is not collapsed to a dim aside'
+  );
+  const normal = transcript.renderTranscriptRow(
+    { id: 12, kind: 'assistant', text: 'Spec audit is not part of this answer at all.' },
+    120
+  );
+  assert.ok(
+    !normal.some((entry) => entry.text.trim() !== '' && entry.dim),
+    'a normal answer stays bright'
+  );
+}
+ok('a self-audit aside folds to one dim line; verbose and normal answers keep their shape');
+
 // 3. A failed exec states its error once, not twice.
 const failed = transcript.renderTranscriptRow(
   {

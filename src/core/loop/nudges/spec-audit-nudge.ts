@@ -57,7 +57,8 @@ export function evaluateSpecAuditNudge(request: SpecAuditNudgeRequest): SpecAudi
     correction:
       '[System] This request cites documentation/spec/requirements as an authority. Before another source edit: ' +
       'compare the task text, docs/comments, and locked tests, then choose the authority explicitly. ' +
-      'If they conflict or the spec is stale, write SPEC-AUDIT.md in the workspace root and restore any premature source/doc edit. ' +
-      'Only continue coding when the audit shows a consistent, implementable requirement.',
+      'If the cited authority is missing from the workspace, do NOT write SPEC-AUDIT.md: ask the user for the exact ' +
+      'doc path or text in one short question and stop. Only if the docs exist and conflict with the task or are stale, ' +
+      'write SPEC-AUDIT.md and restore any premature source/doc edit. Keep the whole check to one or two sentences.',
   };
 }

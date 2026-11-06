@@ -621,6 +621,23 @@ export function isAttachedResult(row: TranscriptRow, previous?: TranscriptRow): 
 }
 
 /** Project a committed row; verbose mode reveals the full output and reasoning. */
+/**
+ * B189: a model aside about its own process (`Spec audit: …`, `Interpretation: …`)
+ * is not the answer. Keep the text (honest, still readable) but fold it into one
+ * dim line instead of a bright markdown block. Long or substantive messages are
+ * left alone; verbose mode always renders the full markdown.
+ */
+const META_ASIDE_RE =
+  /^(?:\*\*)?(?:spec[ -]?audit|interpretation|aside|note|fyi|disclaimer)\s*(?:\*\*)?\s*[:：—–-]/i;
+
+export function metaAsideLine(text: string): string | undefined {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.length === 0 || clean.length > 320) return undefined;
+  if (!META_ASIDE_RE.test(clean)) return undefined;
+  const plain = clean.replace(/\*\*/g, '').replace(/`/g, '');
+  return plain.length > 200 ? `${plain.slice(0, 199).trimEnd()}…` : plain;
+}
+
 export function renderTranscriptRow(
   row: TranscriptRow,
   width: number,
@@ -659,6 +676,13 @@ export function renderTranscriptRow(
       // Answers are markdown: headings/code/lists get their own projection while
       // the ⏺ + 2-space continuation grammar stays exactly as it was.
       // A continuation row is a later block of the same answer (stream commit).
+      if (!verbose) {
+        const aside = metaAsideLine(row.text);
+        if (aside) {
+          out.push(line(clip(`${ANSWER_MARK} ${aside}`, width), { dim: true }));
+          return out;
+        }
+      }
       const reasoning = verbose ? rowReasoning(row) : undefined;
       if (reasoning) out.push(...renderReasoning(reasoning, width));
       else if (rowReasoning(row)) {

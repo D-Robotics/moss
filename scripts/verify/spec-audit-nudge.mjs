@@ -70,6 +70,14 @@ assert.equal(
   false,
   'fires at most once'
 );
+const correction = evaluateSpecAuditNudge({
+  messages: [],
+  userText: 'per the docs, cache must be bounded',
+  totalToolCalls: 1,
+  attempts: 0,
+}).correction;
+assert.match(correction ?? '', /do NOT write SPEC-AUDIT\.md/);
+assert.match(correction ?? '', /ask the user for the exact/);
 ok('citation phrasing fires once; plain mentions and completed audits stay quiet');
 
 console.log(`[spec-audit-nudge] ${checks}/${checks} checks passed`);
