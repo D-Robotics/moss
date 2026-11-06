@@ -321,8 +321,8 @@ export function formatGoalRunRows(
   if (records.length === 0) {
     return [
       zh
-        ? '还没有目标运行记录（`.moss/runs.jsonl`）。先跑 `/goal <条件>` 或 `moss task run …`。'
-        : 'no goal runs recorded yet (`.moss/runs.jsonl`). Start one with /goal <condition> or moss task run …',
+        ? '还没有目标运行记录（`.moss/goals.jsonl`）。先跑 `/goal <条件>` 或 `moss task run …`。'
+        : 'no goal runs recorded yet (`.moss/goals.jsonl`). Start one with /goal <condition> or moss task run …',
     ];
   }
   const counts = summarizeGoalRuns(records);
@@ -338,7 +338,19 @@ export function formatGoalRunRows(
       : ` — status ${options.status} (${String(scoped.length)})`
     : '';
   const lines: string[] = [`${header}${statusLabel}`];
-  const rows = [...scoped].sort((left, right) => right.endedAt - left.endedAt).slice(0, limit);
+  // Ties (two records written in the same millisecond) must still read newest
+  // first: fall back to startedAt, then to the later ledger row. CI hit the
+  // unstable order with two fixtures created in the same tick.
+  const rows = scoped
+    .map((row, index) => ({ row, index }))
+    .sort(
+      (left, right) =>
+        right.row.endedAt - left.row.endedAt ||
+        right.row.startedAt - left.row.startedAt ||
+        right.index - left.index
+    )
+    .slice(0, limit)
+    .map((entry) => entry.row);
   if (rows.length === 0) {
     lines.push(
       zh
