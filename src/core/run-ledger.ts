@@ -300,7 +300,9 @@ export async function pruneRunRecords(
   const keep = options.keep ?? DEFAULT_KEEP;
   if (!Number.isInteger(keep) || keep < 1) throw new Error('keep must be a positive integer');
   const records = await listRunRecords(workspaceDir);
-  const doomed = records.slice(keep);
+  // Never prune an in-flight run: its row is the only place the owner pid lives,
+  // so deleting it would make a running task look like it never existed.
+  const doomed = records.slice(keep).filter((record) => record.status !== 'running');
   let bytes = 0;
   const removed: string[] = [];
   for (const record of doomed) {
@@ -318,5 +320,5 @@ export async function pruneRunRecords(
       await fs.rm(dir, { recursive: true, force: true });
     }
   }
-  return { removed, kept: Math.min(keep, records.length), bytes };
+  return { removed, kept: records.length - removed.length, bytes };
 }

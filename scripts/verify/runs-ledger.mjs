@@ -549,6 +549,28 @@ try {
     1
   );
   ok('a running row from writeRunningRecord is replaced by the final record');
+
+  // 16. B184: prune never deletes an in-flight run.
+  {
+    const dry = JSON.parse(
+      (await cli(['runs', 'prune', '--keep', '1', '--dry-run', '--json'])).stdout
+    );
+    assert.equal(dry.removed.includes('running_ticket_row'), false);
+    assert.equal(dry.removed.includes('live_ticket_row'), false);
+    assert.equal(
+      dry.removed.includes('crashed_ticket_row'),
+      true,
+      'a reconciled (paused) row is history'
+    );
+    const pruned = await cli(['runs', 'prune', '--keep', '1', '--json']);
+    assert.equal(pruned.status, 0, pruned.stderr);
+    const remaining = JSON.parse((await cli(['runs', '--json'])).stdout);
+    const ids = remaining.runs.map((row) => row.runId);
+    assert.ok(ids.includes('running_ticket_row'));
+    assert.ok(ids.includes('live_ticket_row'));
+    assert.equal(ids.includes('crashed_ticket_row'), false);
+  }
+  ok('prune keeps in-flight runs (and may delete a reconciled paused row)');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

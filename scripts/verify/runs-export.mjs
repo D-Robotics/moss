@@ -128,6 +128,14 @@ const written = await fs.readFile(path.join(ws, 'out', 'run.md'), 'utf8');
 assert.match(written, /^## Run task_fail — verify_failed/m);
 assert.equal((await cli(['runs', 'export', 'latest', '--format', 'xml'])).status, 2);
 assert.equal((await cli(['runs', 'export', 'does-not-exist'])).status, 2);
+// B184: --out stays inside the workspace (no ../ or absolute escape).
+const escapeOut = await cli(['runs', 'export', 'latest', '--out', '../escape.md']);
+assert.equal(escapeOut.status, 2);
+assert.match(escapeOut.stderr, /must stay inside the workspace/);
+const absoluteOut = await cli(['runs', 'export', 'latest', '--out', path.join(tmp, 'absolute.md')]);
+assert.equal(absoluteOut.status, 2);
+await assert.rejects(() => fs.stat(path.join(tmp, 'escape.md')));
+await assert.rejects(() => fs.stat(path.join(tmp, 'absolute.md')));
 ok('single-run export renders Markdown/JSON/--out and rejects bad input');
 
 // 2. Filtered export: one combined PR/CI report.
@@ -155,6 +163,9 @@ assert.equal(emptyBulk.status, 0);
 assert.match(emptyBulk.stdout, /_no runs match_/);
 assert.equal(badKindRes.status, 2);
 assert.equal(conflictRun.status, 2);
+const bulkEscape = await cli(['runs', 'export', '--since', '24h', '--out', '../bulk-escape.md']);
+assert.equal(bulkEscape.status, 2);
+assert.match(bulkEscape.stderr, /must stay inside the workspace/);
 ok('a filtered export renders a combined report (md/json/--out) and validates filters');
 
 await fs.rm(tmp, { recursive: true, force: true });

@@ -5,6 +5,7 @@
  * knowing whether the run was a task, a loop or a workflow. Details stay in the
  * per-engine ledgers; this only indexes them.
  */
+import path from 'node:path';
 import {
   listRunRecords,
   pruneRunRecords,
@@ -523,6 +524,20 @@ function renderSummary(
   return lines.join('\n');
 }
 
+/** `--out` writes inside the workspace, like every other user-visible artifact. */
+function resolveExportOutPath(
+  workspace: string,
+  out: string
+): { absolute: string } | { error: string } {
+  const root = path.resolve(workspace);
+  const absolute = path.resolve(root, out);
+  const relative = path.relative(root, absolute);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return { error: `--out must stay inside the workspace: ${out}` };
+  }
+  return { absolute };
+}
+
 export async function runRunsCommand(
   args: readonly string[],
   ctx: RunsCommandContext
@@ -815,8 +830,13 @@ export async function runRunsCommand(
           ].join('\n');
       if (out) {
         const { mkdir, writeFile } = await import('node:fs/promises');
-        const { dirname, resolve } = await import('node:path');
-        const absolute = resolve(ctx.workspace, out);
+        const { dirname } = await import('node:path');
+        const resolvedOut = resolveExportOutPath(ctx.workspace, out);
+        if ('error' in resolvedOut) {
+          output('stderr', `${resolvedOut.error}\n`);
+          return 2;
+        }
+        const absolute = resolvedOut.absolute;
         try {
           await mkdir(dirname(absolute), { recursive: true });
           await writeFile(absolute, text, 'utf8');
@@ -847,8 +867,13 @@ export async function runRunsCommand(
     const text = json ? `${JSON.stringify(record, null, 2)}\n` : `${renderRunMarkdown(record)}\n`;
     if (out) {
       const { mkdir, writeFile } = await import('node:fs/promises');
-      const { dirname, resolve } = await import('node:path');
-      const absolute = resolve(ctx.workspace, out);
+      const { dirname } = await import('node:path');
+      const resolvedOut = resolveExportOutPath(ctx.workspace, out);
+      if ('error' in resolvedOut) {
+        output('stderr', `${resolvedOut.error}\n`);
+        return 2;
+      }
+      const absolute = resolvedOut.absolute;
       try {
         await mkdir(dirname(absolute), { recursive: true });
         await writeFile(absolute, text, 'utf8');
