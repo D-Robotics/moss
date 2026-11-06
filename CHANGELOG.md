@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### `/style` makes the voice visible and switchable mid-session (B186)
+
+- The output style (`default` / `explanatory` / `learning`) could only be changed through config, and
+  nothing on screen said which voice was active — a `learning` config left users with "teaching run"
+  explanations they never asked for. The first screen now says `output style: learning — /style
+default to switch back` when a non-default style is active.
+- New `/style` (alias `/output-style`): no argument prints the current style, options and the
+  persist command; `/style default|explanatory|learning` switches this session immediately (the prompt
+  layer is dynamic, so the next turn uses the new voice) and prints how to persist it.
+
+### `/style` 让"语气"可见、可在会话中切换（B186）
+
+- 输出风格（`default` / `explanatory` / `learning`）以前只能改配置，界面上也不说明当前是什么语气——
+  配成 `learning` 后用户会一直收到没要的"教学式"解释。现在首屏在有非默认风格时会显示
+  `output style: learning — /style default to switch back`。
+- 新增 `/style`（别名 `/output-style`）：不带参数打印当前风格、可选项与持久化命令；
+  `/style default|explanatory|learning` 立即切换本次会话（提示词层是动态的，下一回合即生效），并提示如何持久化。
+
 ### A successful command is one line, not a dump (B185)
 
 - Every successful `exec` still printed up to three preview lines plus its headline; six commands in a
