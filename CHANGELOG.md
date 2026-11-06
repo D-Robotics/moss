@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### A streamed bullet list stays one list (B193)
+
+- The stream commits prose at paragraph boundaries, so a three-bullet answer arrived as three separate
+  assistant rows — each with its own `⏺`-less indent but a paragraph gap between them, which read as
+  three spaced blocks. A continuation row whose text starts with a list marker (and whose previous row
+  ends with one) is now attached: bullets render as one contiguous list; genuine paragraph
+  continuations keep their blank line.
+
+### 流式输出的项目符号列表保持为一个列表（B193）
+
+- 流式回答按段落边界提交，三段 bullet 会变成三行独立的 assistant 行——虽已去掉 `⏺` 并缩进，但行间仍有段落空行，
+  看起来像三个分散的块。现在"以列表标记开头且上一行也以列表项结尾"的 continuation 行会紧贴：三个 bullet 连成一个列表；
+  真正的段落 continuation 仍保留空行。
+
 ### First screen, approval dialogs and tool rows: fewer duplicates, full commands (B192)
 
 A real-TUI usability audit (two PTY sessions, four real model turns) ranked the remaining "feel"
