@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### A resumed boot does not show onboarding's `Next:` (B235)
+
+- Third-audit finding #5: after `moss --continue`, the first screen still printed
+  `Next: /init (detect this project, write AGENTS.md)` above the replayed conversation — the next step
+  for a session that already has context is not project init. The `Next:` row is now omitted when the
+  boot is a resume (replay rows or resume picker); the `[session] Resuming session:` line and the replayed
+  conversation are the confirmation.
+
+### 恢复会话的首屏不再显示 onboarding 的 `Next:`（B235）
+
+- 第三轮审计 #5：`moss --continue` 后首屏仍在回放的对话上方打印
+  `Next: /init (detect this project, write AGENTS.md)`——已有上下文的会话，下一步不是初始化项目。
+  现在恢复启动（有 replay 行或 resume picker）不再显示 `Next:` 行；`[session] Resuming session:` 与回放的
+  对话就是确认。
+
 ### Prompt recall is per workspace (B234)
 
 - The TUI and REPL merged the user config dir's `prompt-history.jsonl` into every project's history,

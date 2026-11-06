@@ -1106,13 +1106,18 @@ export function TuiAppRoot({
     }
     // B137: the first screen answers "what happened last, what now" — same
     // ledger read as the REPL welcome, so both surfaces tell one story.
+    // B235: a resumed boot already has a conversation on screen; onboarding's
+    // `Next: /init` (or any other first-run suggestion) is not the next step.
+    const resumedBoot = (options.replayRows?.length ?? 0) > 0 || options.resumePicker === true;
     const welcomeContext = renderWelcomeContextLines(
       options.workspaceDir,
       activeUiLocale(options.locale) === 'zh',
       'interactive'
     );
     for (const line of welcomeContext.lines) appendRow(store, 'detail', line);
-    appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
+    if (!resumedBoot) {
+      appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
+    }
     composerSuggestionRef.current = welcomeContext.suggestion;
     options.onMcpUiReady?.();
     // Crash/quit recovery: history survives per-message, but a bare `moss`
