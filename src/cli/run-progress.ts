@@ -141,7 +141,10 @@ export function thinkingWaitSeconds(elapsedMs: number, stepMs = THINKING_WAIT_IN
 
 export function formatThinkingWaitLine(elapsedMs: number, zh: boolean): string {
   const n = thinkingWaitSeconds(elapsedMs);
-  return zh ? `正在推理，已等待 ${n}s` : `Still reasoning, waited ${n}s`;
+  // B194: "Still reasoning, waited 60s" sounded stuck but offered no next step.
+  // The TUI's stall line already carries the Esc hint, so this line stays factual
+  // and names what is actually pending: the model, not the harness.
+  return zh ? `等待模型响应，已 ${n}s` : `Waiting on the model, ${n}s`;
 }
 
 export function formatToolStartLine(

@@ -14,6 +14,7 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const transcript = await load('dist/cli/tui/transcript.js');
+const statusLine = await load('dist/cli/status-line.js');
 const bridge = await load('dist/cli/tui/render-bridge.js');
 const markdown = await load('dist/cli/tui/markdown.js');
 const outcome = await load('dist/cli/run-outcome.js');
@@ -311,5 +312,32 @@ assert.match(text, /Command failed \(exit 1\):/, 'the exit-code label stays');
 assert.match(text, /todo\.py/, 'real output stays');
 assert.match(text, /failed — ls:/, 'the headline stays');
 ok('a failed exec prints its error once (label + headline, not the same sentence twice)');
+
+// 6. B194: the status row labels each number instead of imploding.
+{
+  const en = statusLine.formatStatusLine({
+    model: 'm',
+    cwd: '~/proj',
+    tokensIn: 9_700,
+    tokensOut: 161,
+    contextPct: 2,
+  });
+  assert.match(en, /in 9\.7k · out 161/);
+  assert.match(en, /ctx 2%/);
+  const zh = statusLine.formatStatusLine({
+    model: 'm',
+    cwd: '~/proj',
+    tokensIn: 9_700,
+    tokensOut: 161,
+    contextPct: 2,
+    zh: true,
+  });
+  assert.match(zh, /入 9\.7k · 出 161/);
+  assert.match(zh, /上下文 2%/);
+  const waitLine = await load('dist/cli/run-progress.js');
+  assert.match(waitLine.formatThinkingWaitLine(60_000, false), /^Waiting on the model, 60s$/);
+  assert.match(waitLine.formatThinkingWaitLine(60_000, true), /^等待模型响应，已 60s$/);
+}
+ok('the status row labels in/out/ctx and a long wait names the model');
 
 console.log(`[tui-finish] ${checks}/${checks} checks passed`);

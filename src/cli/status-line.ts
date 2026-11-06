@@ -138,13 +138,15 @@ export function statusLineParts(
       if (inn > 0 || out > 0) {
         const left = formatCompactTokenCount(inn);
         const right = formatCompactTokenCount(out);
-        push('tokens', zh ? `${left} 入 / ${right} 出` : `${left} in / ${right} out`);
+        // B194: labelled, not mirrored around a slash — "9.7k in / 161 out"
+        // read as one value and sat next to an unlabelled "2% ctx".
+        push('tokens', zh ? `入 ${left} · 出 ${right}` : `in ${left} · out ${right}`);
       }
     }
     if (field === 'cost' && input.costLabel) push('cost', input.costLabel);
     if (field === 'context' && input.contextPct !== undefined) {
       const pct = Math.min(100, Math.max(0, Math.round(input.contextPct)));
-      contextPart = zh ? `${pct}% 上下文` : `${pct}% ctx`;
+      contextPart = zh ? `上下文 ${pct}%` : `ctx ${pct}%`;
       push('context', contextPart);
     }
     if (field === 'device' && input.device) {

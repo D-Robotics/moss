@@ -80,8 +80,9 @@ ok('the mutation notice only fires for a file whose read body went stale');
     120
   );
   const text = lines.map((entry) => entry.text).join('\n');
-  assert.match(text, /Still reasoning, waited 570s/);
-  assert.doesNotMatch(text, /waited 570s\s+\d+s/);
+  assert.match(text, /Waiting on the model, 570s/);
+  assert.doesNotMatch(text, /570s\.\.\. 570s/);
+  assert.doesNotMatch(text, /570s\s+\d+s/);
   assert.doesNotMatch(text, /570s 5\d\ds/);
   assert.match(text, /4\.8k out/);
   const short = transcript.renderLive(

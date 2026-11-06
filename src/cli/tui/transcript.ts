@@ -1112,10 +1112,12 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   } else {
     verb = runVerb(seconds);
   }
-  const waitVerb = verb.includes('等待') || verb.includes('waited');
+  // The wait verb carries its own bucket ("Waiting on the model, 570s");
+  // appending the raw elapsed seconds again printed "570s 573s". Match the
+  // current wording too, not just the old English "waited" (B194).
+  const waitVerb =
+    verb.includes('等待') || /\bwaited\b/i.test(verb) || /waiting on the model/i.test(verb);
   const showEllipsis = !view.toolLine && !waitVerb;
-  // The wait verb already carries its own bucket ("Still reasoning, waited
-  // 570s"); appending the raw elapsed seconds again printed "570s 573s".
   const showSeconds = !waitVerb;
   out.push(
     line(
