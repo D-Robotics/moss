@@ -24,6 +24,15 @@ import {
   type PluginValidation,
 } from '../core/skills/plugin-manifest.js';
 
+/**
+ * B287: installed-file records and `plugins list --json` are data, not OS paths;
+ * a Windows install wrote `.moss\skills\…` and the same pack looked different in
+ * CI reports. Normalize to `/` (fs access accepts both separators).
+ */
+function toPosixPath(value: string): string {
+  return value.replaceAll('\\', '/');
+}
+
 export const PLUGINS_SCHEMA = 'moss_plugins.v1';
 export const PLUGIN_INSTALLED_SCHEMA = 'moss_plugin_installed.v1';
 
@@ -191,8 +200,9 @@ function planInstall(validation: PluginValidation): PluginFile[] {
       }
     }
   }
+  const normalized = planned.map((file) => ({ ...file, to: toPosixPath(file.to) }));
   const deduped = new Map<string, PluginFile>();
-  for (const file of planned) deduped.set(file.to, file);
+  for (const file of normalized) deduped.set(file.to, file);
   return [...deduped.values()].sort((a, b) => a.to.localeCompare(b.to));
 }
 
@@ -220,11 +230,13 @@ function carryFiles(
   const byPath = new Map<string, InstalledFile>();
   for (const file of plan) byPath.set(file.to, { path: file.to, sha256: file.sha256 });
   for (const file of previous?.files ?? []) {
-    if (byPath.has(file.path)) continue;
-    const target = path.join(workspaceDir, file.path);
+    const installedPath = toPosixPath(file.path);
+    if (byPath.has(installedPath)) continue;
+    const target = path.join(workspaceDir, installedPath);
     if (!fs.existsSync(target)) continue;
     try {
-      if (sha256File(target) === file.sha256) byPath.set(file.path, file);
+      if (sha256File(target) === file.sha256)
+        byPath.set(installedPath, { path: installedPath, sha256: file.sha256 });
     } catch {
       // Unreadable: do not claim it.
     }

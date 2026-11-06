@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Windows: plugin records use `/`, hook fixtures avoid inline `-e` paths (B287)
+
+- `plugins list --json` reported drift paths as `.moss\skills\…` on Windows while the same pack is
+  `.moss/skills/…` everywhere else. Installed-file records and drift now normalize to `/` (fs access accepts
+  both), so CI reports and probes agree across OSes.
+- The skill-hooks probe wrote its PostToolUse marker through `node -e "…'${marker}'…"`; on Windows the
+  path's backslashes are parsed as JS escapes, so the hook silently did nothing. The probe now points the
+  hook at a tiny script file instead.
+
+### Windows：插件记录统一 `/`，hook 夹具不再用内联 `-e` 路径（B287）
+
+- Windows 上 `plugins list --json` 的漂移路径是 `.moss\skills\…`，而同一包在其它平台是 `.moss/skills/…`。
+  安装记录与漂移现在统一 `/`（文件系统两种分隔符都接受），CI 报告与探针跨平台一致。
+- skill-hooks 探针通过 `node -e "…'${marker}'…"` 写 PostToolUse 标记；Windows 上路径反斜杠被当作 JS 转义，
+  hook 静默失败。探针现在改为让 hook 执行一个小脚本文件。
+
 ### Deep-gate probes speak the platform shell on Windows (B286)
 
 - `loop-command` used POSIX `[ -f flag ]` / `>&2` check commands, which can never pass through `cmd.exe`,
