@@ -86,13 +86,6 @@ export function commandForKey(
   return bindings.find((binding) => binding.key === key)?.command;
 }
 
-export function keyForCommand(
-  bindings: readonly KeyBinding[],
-  command: ShellCommand
-): string | undefined {
-  return bindings.find((binding) => binding.command === command)?.key;
-}
-
 export interface LoadedKeybindings {
   bindings: KeyBinding[];
   warnings: string[];

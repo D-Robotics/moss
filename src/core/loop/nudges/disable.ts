@@ -50,12 +50,6 @@ export const NUDGE_IDS = [
 
 export type NudgeId = (typeof NUDGE_IDS)[number];
 
-const KNOWN_NUDGE_IDS: ReadonlySet<string> = new Set(NUDGE_IDS);
-
-export function isKnownNudgeId(id: string): id is NudgeId {
-  return KNOWN_NUDGE_IDS.has(id);
-}
-
 /** Split a comma list. Empty pieces are dropped. The set may contain unknown ids. */
 export function parseDisabledNudgeIds(raw: string | undefined): ReadonlySet<string> {
   if (!raw || !raw.trim()) return EMPTY_IDS;

@@ -108,13 +108,6 @@ export function takeCmdFallbackToolNote(
 }
 
 let cached: ResolvedHostShell | undefined;
-/** Default-probe entries. Importing a tool module must not increment this. */
-let defaultProbeCount = 0;
-
-/** @internal How many times the default (spawning) probe has run. */
-export function hostShellDefaultProbeCount(): number {
-  return defaultProbeCount;
-}
 
 /** Windows' own default when PATHEXT is unset (cmd.exe uses the same list). */
 const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
@@ -283,7 +276,6 @@ export function resolveHostShell(probe: HostShellProbe = {}): ResolvedHostShell 
     probe.lookup !== undefined ||
     probe.pwshMajor !== undefined;
   if (!injected && cached) return cached;
-  if (!injected) defaultProbeCount += 1;
   const resolved = resolveUncached(probe);
   if (!injected) cached = resolved;
   return resolved;

@@ -417,7 +417,3 @@ export function findIndirectProtectedWrites(
 
   return findings;
 }
-
-export function shouldSkipDeepScan(command: string): boolean {
-  return SKIP_DEEP_SCAN.test(command);
-}

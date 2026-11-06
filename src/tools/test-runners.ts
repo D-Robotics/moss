@@ -629,15 +629,6 @@ function judge(
   );
 }
 
-export function renderCommandResult(
-  command: string,
-  exitCode: number,
-  output: string,
-  timedOut = false
-): string {
-  return judge(command, exitCode, output, timedOut).text;
-}
-
 function collectFailures(output: string, result: TestResult): void {
   const seen = new Set<string>();
   // Node prints `✖ failing tests:` as a section header and repeats every

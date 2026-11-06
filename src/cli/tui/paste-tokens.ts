@@ -36,10 +36,6 @@ export interface PasteDoc {
   tokens: PasteToken[];
 }
 
-export function emptyPasteDoc(value = ''): PasteDoc {
-  return { state: { value, caret: value.length }, tokens: [] };
-}
-
 /** Visual lines: a trailing newline does not add an empty line. */
 export function pasteVisualLines(text: string): number {
   if (text.length === 0) return 0;

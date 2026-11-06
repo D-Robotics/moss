@@ -70,11 +70,6 @@ export function hookEventZhName(event: MossHookEventId): string {
   return HOOK_EVENT_ZH_NAMES[event];
 }
 
-/** Locale-aware label: the zh display name when `zh`, the English id otherwise. */
-export function hookEventDisplayName(event: MossHookEventId, zh: boolean): string {
-  return zh ? hookEventZhName(event) : event;
-}
-
 /**
  * The `/hooks` empty-state catalog: which event keys the config accepts.
  * en lists the bare keys (they are the literals the user types); zh pairs each

@@ -1341,11 +1341,6 @@ export function redactEgress(
   return sanitizeWithoutTouchingPlaceholders(out);
 }
 
-/** @deprecated Use `redactEgress`. Kept so existing callers stay on the one path. */
-export function redactToolOutput(text: string, env?: NodeJS.ProcessEnv): string {
-  return redactEgress(text, env);
-}
-
 /**
  * Whole-file strict when the tool targets a credential file. Otherwise each
  * `path:line:body` hit is strict when that path's file name is credential-like.

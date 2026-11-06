@@ -27,47 +27,6 @@ function toolResultText(block: { content?: unknown }): string {
   return '';
 }
 
-/**
- * Chronological tool results for one tool name, extracted from the message
- * history (assistant tool_use id ↔ user tool_result pairing by order of
- * appearance is unnecessary here: result blocks carry the tool's own output,
- * and the acceptance output is uniquely tagged).
- */
-export function collectToolResultsByName(messages: Message[], toolName: string): string[] {
-  const results: string[] = [];
-  // First pass: tool_use ids for the tool name.
-  const useIds = new Set<string>();
-  for (const message of messages) {
-    if (message.role !== 'assistant' || !Array.isArray(message.content)) continue;
-    for (const block of message.content) {
-      if (
-        block &&
-        typeof block === 'object' &&
-        (block as { type?: string }).type === 'tool_use' &&
-        (block as { name?: string }).name === toolName &&
-        typeof (block as { id?: string }).id === 'string'
-      ) {
-        useIds.add((block as { id: string }).id);
-      }
-    }
-  }
-  // Second pass: tool_result blocks for those ids, in message order.
-  for (const message of messages) {
-    if (message.role !== 'user' || !Array.isArray(message.content)) continue;
-    for (const block of message.content) {
-      if (
-        block &&
-        typeof block === 'object' &&
-        (block as { type?: string }).type === 'tool_result' &&
-        useIds.has((block as { tool_use_id?: string }).tool_use_id ?? '')
-      ) {
-        results.push(toolResultText(block as { content?: unknown }));
-      }
-    }
-  }
-  return results;
-}
-
 export type AcceptanceGateDecision =
   | { ok: true }
   | {

@@ -228,27 +228,6 @@ export function renderWhlProbeLines(results: WhlProbeResult[]): string[] {
   return lines;
 }
 
-/**
- * Hard rule: doctor output must never recommend :8080 or …/simple/ as install
- * commands. This helper is used by tests and keeps the copy in one place.
- */
-export function doctorCopyRecommendsDeprecatedSource(text: string): boolean {
-  // Allow "offline / do not retry / 404" warnings that mention the host.
-  if (
-    /do not retry|已下线|请勿重试|not a working pip index|不是可用的 pip 索引|Deprecated pip index|已停用/i.test(
-      text
-    )
-  ) {
-    return false;
-  }
-  return (
-    /pip install[^\n]*sdk\.d-robotics\.cc:8080/i.test(text) ||
-    /pip install[^\n]*archive\.d-robotics\.cc\/simple/i.test(text) ||
-    /-i\s+https?:\/\/sdk\.d-robotics\.cc:8080/i.test(text) ||
-    /-i\s+https?:\/\/archive\.d-robotics\.cc\/simple/i.test(text)
-  );
-}
-
 export async function renderRdkDepsDoctor(
   options: {
     env?: NodeJS.ProcessEnv;

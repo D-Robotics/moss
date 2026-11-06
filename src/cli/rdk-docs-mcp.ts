@@ -7,7 +7,6 @@
  * wins). A loaded mcp.json entry of the same name replaces the builtin. An
  * untrusted project entry is not loaded, so Moss still injects its own.
  */
-import { loadDeviceRegistry } from '../device/device-registry-file.js';
 import {
   DEFAULT_RDK_DOCS_MCP_PACKAGE,
   RDK_DOCS_SERVER_NAME,
@@ -68,11 +67,6 @@ export function rdkDocsOptOut(env: NodeJS.ProcessEnv, rdkDocs: boolean | undefin
   const raw = (env.MOSS_NO_RDK_DOCS ?? '').trim().toLowerCase();
   if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on') return true;
   return rdkDocs === false;
-}
-
-export function hasDeviceTarget(workspaceDir: string, env: NodeJS.ProcessEnv): boolean {
-  if ((env.MOSS_DEVICE_HOST ?? '').trim()) return true;
-  return loadDeviceRegistry(workspaceDir).length > 0;
 }
 
 /**

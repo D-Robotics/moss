@@ -43,11 +43,6 @@ export function consumeDeviceGrant(
   return grant.toolName === toolName && grant.operand === operand;
 }
 
-/** Test isolation. Production callers do not need this. */
-export function resetDeviceOperationGrants(): void {
-  grants.clear();
-}
-
 export function isDeviceTrustEnv(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = (env.MOSS_DEVICE_TRUST ?? '').trim().toLowerCase();
   return raw === 'full' || raw === '1' || raw === 'true' || raw === 'yes';

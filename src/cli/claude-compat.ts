@@ -7,7 +7,6 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import type { McpServerConfig } from '../core/mcp/types.js';
 import { HOOK_EVENT_KEYS, type HookCommandConfig, type HooksConfig } from './config.js';
 import { describeMcpFile, type McpFileBrief } from './mcp-config.js';
 
@@ -204,12 +203,4 @@ export function claudeMcpPath(workspaceDir: string): string {
 /** Names and transports only. Env expansion happens later, when the servers load. */
 export function describeClaudeMcp(workspaceDir: string): McpFileBrief[] {
   return describeMcpFile(claudeMcpPath(workspaceDir), {});
-}
-
-export function readClaudeMcpConfigs(
-  workspaceDir: string,
-  env: NodeJS.ProcessEnv = process.env,
-  onWarning?: (message: string) => void
-): McpServerConfig[] {
-  return describeMcpFile(claudeMcpPath(workspaceDir), env, onWarning).map((brief) => brief.config);
 }

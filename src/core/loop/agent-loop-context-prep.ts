@@ -94,16 +94,6 @@ const envFlag = (value: string | undefined): boolean | undefined => {
   return undefined;
 };
 
-/**
- * Lean surface mode: `MOSS_LEAN_TOOLS=1` forces it, `=0` forces the full surface
- * off even for small context windows, unset means "decide from the context
- * window" (`shouldLeanToolDescriptions`). Read at call time so probes can flip
- * it and so a long-lived process is not stuck on the first read.
- */
-export function leanToolDescriptionsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return envFlag(env.MOSS_LEAN_TOOLS) === true;
-}
-
 /** Context window at or below which the lean surface turns on by itself. */
 export const LEAN_TOOL_AUTO_CONTEXT_TOKENS = 64_000;
 

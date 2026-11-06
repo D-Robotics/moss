@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Maintenance: 19 unreferenced exports removed (−158 lines, no behavior change) (B199)
+
+- A repo-wide reference scan found 24 exported helpers whose only occurrence was their declaration
+  (no `src`/`scripts`/`bench`/`examples`/docs reference, none re-exported through the public barrels in
+  `src/index.ts`). 19 safe internal ones are gone: superseded tool-result/command formatters, unused
+  test-only reset helpers, dead probe counters and config readers. Two multi-line-signature functions
+  were restored rather than risk a mechanical cut.
+- No behavior change: the full gate passes; public API barrels are untouched. This is a deliberate
+  subtraction round after a long additive stretch — no new capability was added.
+
+### 维护：删除 19 个无引用导出（−158 行，无行为变化）（B199）
+
+- 全仓引用扫描发现 24 个导出辅助函数只在声明处出现（`src`/`scripts`/`bench`/`examples`/docs 均无引用，
+  也未通过 `src/index.ts` 的公开 barrel 导出）。删除了其中 19 个安全项：被取代的工具结果/命令格式化器、
+  仅供测试的重置函数、无用的探测计数与配置读取。两个多行签名的函数选择恢复原状，避免机械切割风险。
+- 无行为变化：完整门禁通过；公开 API barrel 未动。这是一轮在长期"只加不减"之后的刻意减法，不新增能力。
+
 ### An unprobed context window is shown as approximate (B198)
 
 - When the provider has no `/models` context-length API (the common gateway case), the window falls

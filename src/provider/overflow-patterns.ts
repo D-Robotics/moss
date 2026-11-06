@@ -83,8 +83,3 @@ export function isOverflowMessage(message: string): boolean {
   if (!message) return false;
   return ALL_OVERFLOW_PATTERNS.some((re) => re.test(message));
 }
-
-/** Exported for testing — returns the full pattern list. */
-export function getOverflowPatterns(): RegExp[] {
-  return [...ALL_OVERFLOW_PATTERNS];
-}

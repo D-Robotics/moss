@@ -25,11 +25,6 @@ const MAX_MAP_SIZE = 1000;
 const TRIM_TO_SIZE = 500;
 const runEpochBySessionKey = new Map<string, number>();
 
-/** Exposed for tests/hosts that want the singleton store explicitly. */
-export function getDefaultRunEpochStore(): Map<string, number> {
-  return runEpochBySessionKey;
-}
-
 export function bumpAgentLoopRunEpoch(
   sessionKey: string,
   store: Map<string, number> = runEpochBySessionKey

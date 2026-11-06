@@ -1247,11 +1247,3 @@ export async function runNotificationHooks(info: {
     process.stderr.write(`${hookFailedLine('Notification', errorMessage(err))}\n`);
   }
 }
-
-export async function runSubagentStopHooks(info: SubagentStopHookInfo): Promise<void> {
-  try {
-    await lifecycleRunner?.runSubagentStop(info);
-  } catch (err) {
-    process.stderr.write(`${hookFailedLine('SubagentStop', errorMessage(err))}\n`);
-  }
-}
