@@ -1605,7 +1605,9 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
         tokensIn: view.sessionIn ?? view.turnIn,
         tokensOut: view.sessionOut ?? view.turnOut,
         ...(view.costLabel ? { costLabel: view.costLabel } : {}),
-        ...(view.contextUsed !== undefined && view.contextTotal
+        // B245: an idle bar does not print a meaningless `ctx ~0%` (e.g. right
+        // after a model switch); the share appears after the window is used.
+        ...(view.contextUsed !== undefined && view.contextTotal && view.contextUsed > 0
           ? {
               contextPct: Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100)),
               ...(view.contextEstimated ? { contextEstimated: true } : {}),

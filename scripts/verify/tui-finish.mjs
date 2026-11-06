@@ -526,6 +526,17 @@ ok('two fresh answer blocks: the earlier one folds, the latest stays full');
     }),
     /ctx ~/
   );
+  // B245: an idle bar does not print a meaningless ctx share.
+  const idleCtx = transcript.renderStatusRight(
+    {
+      statusFields: statusLine.DEFAULT_STATUS_LINE_FIELDS,
+      model: 'm',
+      contextUsed: 0,
+      contextTotal: 1_000_000,
+    },
+    160
+  ).text;
+  assert.doesNotMatch(idleCtx, /ctx/);
   const zh = statusLine.formatStatusLine({
     model: 'm',
     cwd: '~/proj',

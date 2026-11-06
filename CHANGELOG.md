@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The idle status bar does not print `ctx ~0%` (B245)
+
+- Switching model in-session made the status bar show `ctx ~0%` even though the window had not been used;
+  the share is meaningful after a turn, not at zero. The status row now renders the context share only
+  once `contextUsed > 0` (the legacy row already behaved this way).
+
+### 空闲状态栏不再显示 `ctx ~0%`（B245）
+
+- 会话中切换模型后，状态栏会显示 `ctx ~0%`，但窗口还没被用过；0% 没有信息量。现在 `contextUsed > 0` 时才渲染
+  上下文占比（legacy 行本来就是这个行为）。
+
 ### `/skills` keeps one readable line per skill, and README names memory/permissions/extension (B243/B244)
 
 - The in-session `/skills` panel printed each skill's full catalog description; nineteen skills filled the
