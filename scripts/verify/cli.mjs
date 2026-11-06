@@ -18,6 +18,7 @@
  *   --stage <list>       comma-separated stage names (default: the fast gate)
  *   --clean              remove dist/ first (build stage)
  *   --budget <seconds>   gate time budget; CI fails above it (0 disables)
+ *   --shard <i>/<n>      run only shard i of n of the default gate (CI parallelism)
  *   --no-deps            run only the named stages (no dependencies)
  *   --dry-run            print the plan without running
  *   --help
@@ -351,6 +352,7 @@ Options:
   --stage <list>     comma-separated stage names (default: fast gate)
   --clean            remove dist/ first (build stage)
   --budget <seconds> gate time budget; CI fails above it (0 disables)
+  --shard <i>/<n>  run only shard i of n of the default gate (CI sets VERIFY_SHARD)
   --no-deps          do not add stage dependencies
   --dry-run          print the plan without running
   --help             show this help
@@ -369,6 +371,7 @@ function parseArgs(argv) {
     noDeps: false,
     dryRun: false,
     help: false,
+    shard: undefined,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -390,6 +393,10 @@ function parseArgs(argv) {
       options.stages = nextValue();
     } else if (arg.startsWith('--stage=') || arg.startsWith('--stages=')) {
       options.stages = arg.slice(arg.indexOf('=') + 1);
+    } else if (arg === '--shard') {
+      options.shard = parseShard(nextValue());
+    } else if (arg.startsWith('--shard=')) {
+      options.shard = parseShard(arg.slice('--shard='.length));
     } else if (arg === '--budget') {
       options.budget = parseBudget(nextValue());
     } else if (arg.startsWith('--budget=')) {
@@ -399,6 +406,15 @@ function parseArgs(argv) {
     }
   }
   return options;
+}
+
+function parseShard(raw) {
+  const match = /^(\d+)\/(\d+)$/.exec(String(raw ?? '').trim());
+  if (!match) fail('--shard requires i/n, e.g. 1/2');
+  const index = Number(match[1]);
+  const total = Number(match[2]);
+  if (total < 1 || index < 1 || index > total) fail('--shard index must be between 1 and n');
+  return { index, total };
 }
 
 function parseBudget(raw) {
@@ -457,8 +473,26 @@ async function main() {
     return 0;
   }
 
+  const shardInput =
+    options.shard ?? (process.env.VERIFY_SHARD ? parseShard(process.env.VERIFY_SHARD) : undefined);
   const requested = requestedStages(options);
-  const stages = resolveStages(requested, options.noDeps);
+  // B190: CI runs the gate as two parallel jobs; each runs static/build plus
+  // every other (or odd) stage of the default gate. `--stage` still wins.
+  const sharded =
+    shardInput && options.stages === null
+      ? FAST_GATE.filter(
+          (name, index) =>
+            name === 'static' ||
+            name === 'build' ||
+            index % shardInput.total === shardInput.index - 1
+        )
+      : requested;
+  if (shardInput) {
+    console.log(
+      `[verify] shard ${String(shardInput.index)}/${String(shardInput.total)}: ${String(sharded.length)} stages`
+    );
+  }
+  const stages = resolveStages(sharded, options.noDeps);
   if (options.clean && !stages.includes('build')) {
     fail('--clean only applies to the build stage');
   }

@@ -200,3 +200,11 @@ contract is still "the command people actually run".
 - Nightly: four short legs plus one gate job.
 - Tags: the same matrix, so release evidence no longer depends on a manual
   `npm run verify` claim.
+
+## CI shards (B190)
+
+The fast gate is one logical gate but two parallel GitHub jobs: each job runs `static`, `build` and
+alternating stages of `FAST_GATE` (`VERIFY_SHARD=i/2`, same 60s budget), and a final **Fast gate**
+aggregator job (`scripts/verify/ci-gate.mjs`) is the required branch-protection status. This halves
+the wall clock without dropping a stage or relaxing the budget; `npm run verify` locally still runs
+the whole gate in one process.

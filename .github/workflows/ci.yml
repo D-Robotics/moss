@@ -1,12 +1,15 @@
 name: CI
 
-# Per-push CI is one job and one gate: static checks, a build, CLI smoke and
-# the embedding examples — the same command developers run locally
-# (`npm run verify`). It is designed to finish in about a minute; a 60s budget
-# on the gate itself is enforced below. The heavier cross-OS runs live in
-# deep.yml. Rationale: docs/design/ci-and-verify.md.
+# Per-push CI is one gate: static checks, a build, CLI smoke and the embedding
+# examples — the same command developers run locally (`npm run verify`). It is
+# designed to finish in about a minute; a 60s budget on the gate itself is
+# enforced below. The gate runs as two parallel shards (each ≤ half the stages,
+# same budget), and a final "Fast gate" job aggregates them so branch
+# protection still has one status. The heavier cross-OS runs live in deep.yml.
+# Rationale: docs/design/ci-and-verify.md.
 #
-# Branch protection: require the single "Fast gate" job as the status check.
+# Branch protection: require the single "Fast gate" job (the aggregator) as the
+# status check; the shard jobs are its needs.
 
 on:
   push:
@@ -24,13 +27,19 @@ concurrency:
 
 jobs:
   verify:
-    name: Fast gate
+    name: Fast gate (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     env:
       # The gate (not checkout/install) must stay under a minute; exceeding it
-      # fails the job so the budget cannot silently rot.
+      # fails the job so the budget cannot silently rot. Each shard gets the
+      # same budget: a shard is half the gate, never a weaker gate.
       VERIFY_BUDGET_SECONDS: '60'
+      VERIFY_SHARD: ${{ matrix.shard }}/2
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -70,5 +79,23 @@ jobs:
           node scripts/verify/cli.mjs --stage static
           node scripts/verify/cli.mjs --stage build
 
-      - name: Verify (fast gate)
+      - name: Verify (fast gate shard)
         run: npm run verify
+
+  fast-gate:
+    name: Fast gate
+    needs: verify
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      NEEDS_JSON: ${{ toJSON(needs) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+      - name: Aggregate shard results
+        run: node scripts/verify/ci-gate.mjs
