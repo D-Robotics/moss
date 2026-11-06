@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### The CI gate runs as two parallel shards, each with the same 60s budget (B190)
+
+- GitHub's runner speed varies; the same gate that passed in 36.8s tripped the 60s budget on a slower
+  run (61.1s) while every individual stage stayed under 10s — the wall was total work / cores.
+- The gate now runs as two parallel jobs (`VERIFY_SHARD=i/2`): each runs `static`, `build` and
+  alternating stages of the fast gate under the same 60s budget, and a final **Fast gate** aggregator
+  ([scripts/verify/ci-gate.mjs](scripts/verify/ci-gate.mjs)) remains the single required status check.
+  No stage is dropped and the budget is not relaxed; `npm run verify` locally still runs the whole gate.
+  `--shard i/n` validates its argument (bad values exit 2).
+
+### CI 门禁改为两个并行分片，各自保持 60s 预算（B190）
+
+- GitHub runner 速度波动大：同一条门禁先 36.8s 通过，下一次在更慢的 runner 上 61.1s 触线，而单 stage 都不到 10s——墙钟约等于总工作量/核数。
+- 现在拆成两个并行 job（`VERIFY_SHARD=i/2`）：各自运行 `static`、`build` 与快速门禁的交替 stage，预算仍是 60s；
+  最终 **Fast gate** 聚合 job（[scripts/verify/ci-gate.mjs](scripts/verify/ci-gate.mjs)）仍是唯一的必需状态检查。
+  不删 stage、不放宽预算；本地 `npm run verify` 仍一次跑完整门禁。`--shard i/n` 会校验参数（坏值 exit 2）。
+
 ### A cited-but-missing authority becomes a question, not a SPEC-AUDIT detour (B189)
 
 - "Per the docs, …" correctly triggers the spec-audit nudge, but the old correction told the model to
