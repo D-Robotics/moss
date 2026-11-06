@@ -413,6 +413,29 @@ ok('repair attempts cap at 3 and only count distinct failing diffs');
   ok('/diff sees staged, unstaged and untracked changes');
 }
 
+// B223: `review check --json` is the machine-readable form of the same gate.
+{
+  const jsonPass = await captureLog(() =>
+    reviewCommand.runReviewCommand(['check', '--json'], { workspaceDir: commandRepo })
+  );
+  assert.equal(jsonPass.code, 0);
+  const parsed = JSON.parse(jsonPass.lines.join('\n'));
+  assert.equal(parsed.schema, 'moss_review_check.v1');
+  assert.equal(parsed.reviewed, true);
+  assert.equal(parsed.verdict, 'pass');
+  assert.equal(parsed.exitCode, 0);
+  assert.equal(typeof parsed.record.id, 'string');
+  const jsonEmpty = await captureLog(() =>
+    reviewCommand.runReviewCommand(['check', '--json'], { workspaceDir: emptyRepo })
+  );
+  assert.equal(jsonEmpty.code, 2);
+  const empty = JSON.parse(jsonEmpty.lines.join('\n'));
+  assert.equal(empty.reviewed, false);
+  assert.equal(empty.verdict, null);
+  assert.equal(empty.exitCode, 2);
+  ok('review check --json mirrors the exit-code gate (pass + no-review)');
+}
+
 // B211: the global `--json` flag must reach `review list` through the real CLI
 // parser (it is stripped from commandArgs), not only when called in-process.
 {

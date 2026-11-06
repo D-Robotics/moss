@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `moss review check --json` for CI gates (B223)
+
+- The review gate had the right exit codes (0 pass / 1 unresolved / 2 none-or-unknown) but only prose,
+  so a pipeline that needed the verdict or findings had to scrape text. `--json` now returns one object:
+  `{ schema: "moss_review_check.v1", reviewed, verdict, exitCode, record?, repair? }`; the exit codes are
+  unchanged, so `review check && …` keeps working.
+
+### `moss review check --json` 供 CI 使用（B223）
+
+- review 门的退出码（0 通过 / 1 有未解决问题 / 2 无评审或未知）一直正确，但只输出散文，流水线要 verdict/findings
+  只能抓文本。现在 `--json` 返回单个对象：`{ schema: "moss_review_check.v1", reviewed, verdict, exitCode, record?, repair? }`；
+  退出码不变，`review check && …` 的用法保持有效。
+
 ### One Chinese word for full mode, a localised `/goal` row, readable gitignore advice (B221)
 
 - The same mode was `全开` (status bar, `/mode` block) and `完全访问` (help, doctor, config). It is now

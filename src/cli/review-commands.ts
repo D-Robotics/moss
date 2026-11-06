@@ -26,7 +26,7 @@ export function renderReviewUsage(zh: boolean = isZhLocale()): string {
     return [
       '用法：',
       '  moss review list [--limit N] [--json]   最近的独立评审记录',
-      '  moss review check                        最新评审作为门禁：0 通过 / 1 有未解决问题 / 2 无评审或 verdict 未知',
+      '  moss review check [--json]               最新评审作为门禁：0 通过 / 1 有未解决问题 / 2 无评审或 verdict 未知',
       '',
       '评审记录来自 .moss/review.jsonl（由 review_changes 工具或 /review 写入）。',
       '`check` 不启动模型，只读取最后一条记录，适合放进 CI 或循环脚本。',
@@ -139,44 +139,88 @@ export async function runReviewCommand(
   }
 
   if (sub === 'check') {
-    const [latest] = await listReviewRecords(ctx.workspaceDir, 1);
-    if (!latest) {
+    const json = argv.includes('--json');
+    const emit = (
+      code: number,
+      text: string,
+      extra: { reviewed: boolean; verdict: string | null; error?: string }
+    ): number => {
+      if (!json) {
+        out(text);
+        return code;
+      }
+      const [latest] = recordsForJson;
+      const state = latest ? buildReviewState(latest) : undefined;
       out(
+        JSON.stringify(
+          {
+            schema: 'moss_review_check.v1',
+            ...extra,
+            exitCode: code,
+            ...(latest ? { record: latest } : {}),
+            ...(state
+              ? {
+                  repair: {
+                    attempt: state.attempt,
+                    maxAttempts: state.maxAttempts,
+                    exhausted: state.attemptsExhausted,
+                  },
+                }
+              : {}),
+          },
+          null,
+          2
+        )
+      );
+      return code;
+    };
+    const recordsForJson = await listReviewRecords(ctx.workspaceDir, 1);
+    const [latest] = recordsForJson;
+    if (!latest) {
+      return emit(
+        2,
         zh
           ? '没有评审记录：未评审不等于通过（exit 2）。先跑 /review 或 review_changes。'
-          : 'No review recorded: unreviewed is not a pass (exit 2). Run /review or review_changes first.'
+          : 'No review recorded: unreviewed is not a pass (exit 2). Run /review or review_changes first.',
+        { reviewed: false, verdict: null, error: 'no review recorded' }
       );
-      return 2;
     }
     if (latest.verdict === 'pass') {
-      out(`${zh ? '通过' : 'PASS'} — ${verdictLine(latest, zh)}`);
-      return 0;
+      return emit(0, `${zh ? '通过' : 'PASS'} — ${verdictLine(latest, zh)}`, {
+        reviewed: true,
+        verdict: 'pass',
+      });
     }
     if (latest.verdict === 'unknown') {
-      out(
+      if (!json) printFindings(latest, out);
+      return emit(
+        2,
         zh
           ? `verdict 未知（评审没有给出可解析结论）— 不能当作通过。${verdictLine(latest, zh)}`
           : `Unknown verdict (the reviewer gave no parseable conclusion) — not a pass. ${verdictLine(
               latest,
               zh
-            )}`
+            )}`,
+        { reviewed: true, verdict: 'unknown' }
       );
-      printFindings(latest, out);
-      return 2;
     }
-    out(`${zh ? '失败' : 'FAIL'} — ${verdictLine(latest, zh)}`);
-    printFindings(latest, out);
+    if (!json) {
+      out(`${zh ? '失败' : 'FAIL'} — ${verdictLine(latest, zh)}`);
+      printFindings(latest, out);
+    }
     // The loop state (attempt / budget / next action) comes from the projection,
     // falling back to deriving it so a log written before the projection existed
     // still answers "what now?".
     const state = (await readReviewState(ctx.workspaceDir)) ?? buildReviewState(latest);
-    out(
-      zh
-        ? `修复尝试：第 ${state.attempt} / ${state.maxAttempts} 次${state.attemptsExhausted ? '（已用尽）' : ''}`
-        : `repair attempt: ${state.attempt} of ${state.maxAttempts}${state.attemptsExhausted ? ' (exhausted)' : ''}`
-    );
-    out(`${zh ? '下一步' : 'next'}: ${nextActionText(state, zh)}`);
-    return 1;
+    if (!json) {
+      out(
+        zh
+          ? `修复尝试：第 ${state.attempt} / ${state.maxAttempts} 次${state.attemptsExhausted ? '（已用尽）' : ''}`
+          : `repair attempt: ${state.attempt} of ${state.maxAttempts}${state.attemptsExhausted ? ' (exhausted)' : ''}`
+      );
+      out(`${zh ? '下一步' : 'next'}: ${nextActionText(state, zh)}`);
+    }
+    return emit(1, '', { reviewed: true, verdict: 'fail' });
   }
 
   console.error(`moss review: unknown subcommand '${sub}'`);
