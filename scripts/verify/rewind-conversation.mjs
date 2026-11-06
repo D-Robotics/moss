@@ -172,6 +172,25 @@ try {
     ['user:Fix the failing test.', 'assistant:Done.'],
     'steering prompts never replay as user text'
   );
+  // B251: the plan gate's auto-dispatch is a harness turn, not user words.
+  const withPlanApproval = buildResumeReplay([
+    { role: 'user', content: [{ type: 'text', text: 'Plan adding mul().' }] },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: '[System] The plan above is approved (version abc) — proceed with execution now.',
+        },
+      ],
+    },
+    { role: 'assistant', content: [{ type: 'text', text: 'Adding it.' }] },
+  ]);
+  assert.deepEqual(
+    withPlanApproval.items.map((item) => `${item.kind}:${item.text}`),
+    ['user:Plan adding mul().', 'assistant:Adding it.'],
+    'the plan gate dispatch never replays as user text'
+  );
   // B231: a long tool turn collapses to one grouped line; a short one stays detailed.
   const toolUse = (name, input) => ({ type: 'tool_use', name, input });
   const longTurn = buildResumeReplay([

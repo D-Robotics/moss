@@ -1771,12 +1771,14 @@ export function TuiAppRoot({
         if (value === PROCEED_AUTO) {
           setCliInteractionMode('acceptEdits');
           void dispatchRun(
-            `The plan above is approved (version ${planVersion}) — proceed with execution now.`
+            // B251: a harness turn, not something the user typed; `[System]`
+            // keeps it out of resume replay (same rule as gate corrections).
+            `[System] The plan above is approved (version ${planVersion}) — proceed with execution now.`
           );
         } else if (value === PROCEED_MANUAL) {
           setCliInteractionMode('manual');
           void dispatchRun(
-            `The plan above is approved (version ${planVersion}) — proceed with execution now (manual approvals stay on).`
+            `[System] The plan above is approved (version ${planVersion}) — proceed with execution now (manual approvals stay on).`
           );
         } else if (value.trim()) {
           void dispatchRun(`Plan feedback — revise the plan accordingly: ${value}`);

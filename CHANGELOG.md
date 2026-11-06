@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The plan gate's approval turn no longer replays as user text (B251)
+
+- After approving a plan (`1`), the auto-dispatched turn was stored without a marker, so `moss --continue`
+  replayed `❯ The plan above is approved (version …) — proceed with execution now.` as if the user had typed
+  it. Both plan-gate dispatches now carry the `[System]` marker (the same rule as gate corrections), so
+  resume/export/search drop them while the model still sees the instruction.
+
+### plan 批准的自动回合不再回放成用户发言（B251）
+
+- 批准计划（按 `1`）后，自动派发的回合没有标记，`moss --continue` 会把
+  `❯ The plan above is approved (version …) — proceed with execution now.` 回放成用户输入。现在两个 plan gate
+  派发都带 `[System]` 标记（与 gate correction 同规则），恢复/导出/搜索会丢弃，模型仍能看到该指令。
+
 ### The plan → approve → execute ritual is in README and verified end to end (B250)
 
 - A real plan-mode session (`/plan`, one-file plan) hit the blocked `run_tests` explainer, produced a clear
