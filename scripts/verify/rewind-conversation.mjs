@@ -288,7 +288,28 @@ try {
   assert.ok(hit, 'the user prompt is searchable');
   assert.doesNotMatch(hit.snippet, /<turn-context>|Environment/);
   assert.deepEqual(await searchSessions(store, 'Environment'), []);
-  ok('session export/search strip the injected <turn-context> preamble');
+  // B252: internal harness turns ([System] corrections/nudges, [Steering]) are
+  // not conversation; the exported count reflects what is actually written.
+  await store.appendMessage('s1', {
+    role: 'user',
+    content: [{ type: 'text', text: '[System] Long tool loop — pause and summarize.' }],
+    timestamp: Date.now(),
+  });
+  await store.appendMessage('s1', {
+    role: 'user',
+    content: [{ type: 'text', text: '[Steering] Extended tool loop detected.' }],
+    timestamp: Date.now(),
+  });
+  await store.appendMessage('s1', {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Done.' }],
+    timestamp: Date.now(),
+  });
+  const internalMarkdown = renderSessionMarkdown('s1', await store.loadMessages('s1'));
+  assert.doesNotMatch(internalMarkdown, /\[System\]|\[Steering\]/);
+  assert.match(internalMarkdown, /_3 message\(s\) · exported from moss\._/);
+  assert.deepEqual(await searchSessions(store, 'Long tool loop'), []);
+  ok('session export/search strip internal [System] and [Steering] turns');
 }
 
 // 9. B209: `--out` (sessions/runs) is confined to the workspace.

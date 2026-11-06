@@ -2,7 +2,7 @@
 // Replaces 22 if-else branches in main() with a declarative routing table.
 
 import { isZhLocale, uiText } from './cli-locale.js';
-import { stripTurnContext } from '../core/session/internal-transcript.js';
+import { resumeUserText } from '../core/session/internal-transcript.js';
 import { resolveExportOutPath } from './export-path.js';
 import { formatSessionTimestamp } from './session-format.js';
 import type { LLMMessage } from '../core/llm/llm-provider.js';
@@ -49,19 +49,41 @@ const SESSION_EXPORT_TOOL_RESULT_MAX = 2000;
  * export readable); thinking is folded into a <details> element. Exported
  * for unit testing.
  */
+const hasStructuredUserBlocks = (msg: LLMMessage): boolean =>
+  msg.role === 'user' &&
+  Array.isArray(msg.content) &&
+  msg.content.some((block) => block.type === 'tool_result' || block.type === 'tool_use');
+
+/**
+ * B252: harness text is model-facing, never the conversation. The same rules as
+ * resume replay apply — <turn-context> preambles, [System] corrections/nudges
+ * and [Steering] guidance are dropped from the shared markdown (a user turn that
+ * only carried a tool result is still kept for its blocks).
+ */
+function isExportableMessage(msg: LLMMessage): boolean {
+  if (msg.role !== 'user' || hasStructuredUserBlocks(msg)) return true;
+  const rawText =
+    typeof msg.content === 'string'
+      ? msg.content
+      : msg.content
+          .filter((block) => block.type === 'text')
+          .map((block) => block.text ?? '')
+          .join('\n');
+  return resumeUserText(rawText).trim().length > 0;
+}
+
 export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]): string {
+  const exportable = messages.filter(isExportableMessage);
   const lines: string[] = [
     `# Session ${sessionKey}`,
     '',
-    `_${messages.length} message(s) · exported from moss._`,
+    `_${exportable.length} message(s) · exported from moss._`,
     '',
   ];
-  for (const msg of messages) {
-    lines.push(`## ${msg.role}`, '');
-    // A stored user turn also carries the harness <turn-context> preamble;
-    // export is for sharing the conversation, not the dumped environment.
+  for (const msg of exportable) {
     const userVisible = (text: string): string =>
-      msg.role === 'user' ? stripTurnContext(text) : text;
+      msg.role === 'user' ? resumeUserText(text) : text;
+    lines.push(`## ${msg.role}`, '');
     const content = msg.content;
     if (typeof content === 'string') {
       const text = userVisible(content);
@@ -115,11 +137,11 @@ function messageSearchableText(message: LLMMessage): string {
   let text = '';
   const content = message.content;
   if (typeof content === 'string') {
-    text += message.role === 'user' ? stripTurnContext(content) : content;
+    text += message.role === 'user' ? resumeUserText(content) : content;
   } else if (Array.isArray(content)) {
     for (const block of content) {
       if (block.type === 'text' && typeof block.text === 'string') {
-        text += '\n' + (message.role === 'user' ? stripTurnContext(block.text) : block.text);
+        text += '\n' + (message.role === 'user' ? resumeUserText(block.text) : block.text);
       } else if (block.type === 'tool_use') {
         text += `\n[tool_use ${block.name}] ${safeStringify(block.input)}`;
       } else if (block.type === 'tool_result' && typeof block.content === 'string') {

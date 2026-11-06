@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Exported/shared sessions no longer contain harness turns (B252)
+
+- A real `/export` (and `moss sessions export`) wrote `## user` sections containing `[System]` nudges and
+  `[Steering]` guidance — internal instructions a reader of the shared markdown should never see. The
+  renderer now applies the resume-replay rules (`<turn-context>`, `[System]`, `[Steering]` are dropped),
+  keeps a user turn that carried a tool result for its blocks, and the header counts the messages actually
+  written. `sessions search` uses the same filter, so searching for nudge text no longer finds sessions.
+
+### 导出的会话不再包含 harness 内部回合（B252）
+
+- 真实 `/export`（与 `moss sessions export`）会把 `[System]` nudges 与 `[Steering]` 引导写成 `## user` 段落——
+  分享出去的 markdown 不应包含内部指令。渲染器现在套用 resume-replay 的规则（丢弃 `<turn-context>`、
+  `[System]`、`[Steering]`），携带 tool_result 的 user 回合仍保留其块，头部计数改为实际写入条数。
+  `sessions search` 用同一过滤器，搜索 nudge 文本不再命中会话。
+
 ### The plan gate's approval turn no longer replays as user text (B251)
 
 - After approving a plan (`1`), the auto-dispatched turn was stored without a marker, so `moss --continue`
