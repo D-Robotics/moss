@@ -122,7 +122,7 @@ Moss 的交互目标是：**敢让它跑、随时能停、停了能续、错了�
 纳入同一套证据与验收；`moss device fleet` 一条命令做多机只读巡检。
 
 **长任务。** 每次自主运行结束后，REPL 会按统一账本重新打印一行 `Next`（续跑命令 / `moss runs` / `moss init`），不会把启动时的建议留成过期信息；`/run` 与 `moss run` 用同一套任务状态机；`moss loop` 做"跑一轮→用你的命令验收→
-失败把输出喂回下一轮"的本地闭环；`moss task status|timeline|list` 是离线读路径（`moss runs --kind task/loop/workflow/chat` 按引擎过滤）；只读巡检 `moss artifacts`（契约/证据/部署/验收/设备）连模型配置都不需要；中断的任务
+失败把输出喂回下一轮"的本地闭环；`moss task status|timeline|list` 是离线读路径（`moss runs --kind task/loop/workflow/chat` 按引擎过滤、`--since 24h` 按时间窗过滤）；只读巡检 `moss artifacts`（契约/证据/部署/验收/设备）连模型配置都不需要；中断的任务
 `resume` 时先按当前工作区验收再决定要不要花执行回合。写类子代理可跑在独立 worktree 里，产物以
 三方补丁合并回父工作区。
 

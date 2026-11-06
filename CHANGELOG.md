@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### `moss runs list --since` narrows by recency (B152)
+
+- "What failed today" meant reading the whole ledger. `--since` accepts a window
+  (`90s` / `30m` / `24h` / `7d`) or a date (`2026-11-06`, ISO), filters on `endedAt`, combines with
+  `--status` and `--kind`, appears in the header suffix (`— since 24h (2)`) and in `--json` as
+  `since` (ISO cutoff). An empty filter says `no runs match …` instead of pretending the ledger is
+  empty, and a bad value is exit 2 with the accepted forms.
+
+### `moss runs list --since` 按时间窗过滤（B152）
+
+- "今天有什么失败"以前只能翻整本账。`--since` 接受时间窗（`90s` / `30m` / `24h` / `7d`）或日期
+  （`2026-11-06`、ISO），按 `endedAt` 过滤，可与 `--status`、`--kind` 组合；表头后缀显示
+  `— since 24h (2)`，`--json` 里带 `since`（ISO 截止点）。过滤为空时打印 `no runs match …`，
+  不再假装账本是空的；非法值 exit 2 并列出可用形式。
+
 ### The REPL repeats the ledger-derived next step after a run (B151)
 
 - The TUI composer refreshes its hint when a run settles (B145), but the REPL only showed
