@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadDeviceRegistry } from '../device/device-registry-file.js';
+import { dotenvOriginOf } from '../utils/startup-env.js';
 
 export const BOARD_COMPOSER_PLACEHOLDER = 'Try "stream the camera at 30 fps and verify it"';
 export const CODE_COMPOSER_PLACEHOLDER = 'Try "fix the failing test and explain the change"';
@@ -32,12 +33,28 @@ export function composerPlaceholder(kind: ComposerProjectKind): string {
   return GENERAL_COMPOSER_PLACEHOLDER;
 }
 
+/**
+ * A device host only makes this workspace a board when it comes from this
+ * project (its own `.env` or an ancestor's) or from the real process env. A
+ * checkout's `.env` used to leak its board into every workspace, so an
+ * unrelated folder offered "stream the camera" as the first hint (B191).
+ */
+function envFileAppliesToWorkspace(file: string, workspaceDir: string): boolean {
+  const dir = path.resolve(path.dirname(file));
+  const workspace = path.resolve(workspaceDir);
+  return workspace === dir || workspace.startsWith(dir + path.sep);
+}
+
 export function detectComposerProjectKind(input: {
   workspaceDir: string;
   env?: NodeJS.ProcessEnv;
 }): ComposerProjectKind {
   const env = input.env ?? process.env;
-  if ((env.MOSS_DEVICE_HOST ?? '').trim()) return 'board';
+  const deviceHost = (env.MOSS_DEVICE_HOST ?? '').trim();
+  if (deviceHost) {
+    const origin = dotenvOriginOf('MOSS_DEVICE_HOST');
+    if (!origin || envFileAppliesToWorkspace(origin.file, input.workspaceDir)) return 'board';
+  }
   try {
     if (loadDeviceRegistry(input.workspaceDir).length > 0) return 'board';
   } catch {
