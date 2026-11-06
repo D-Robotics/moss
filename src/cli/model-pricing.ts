@@ -456,9 +456,11 @@ export function priceSourceLine(quote: CostQuote, zh = false): string | null {
 
 export function unknownPriceMessage(model: string | undefined, zh = false): string {
   const id = model?.trim() || '<model>';
+  // B228: say what it means and the one key that fixes it; the full schema lives
+  // in `moss config --help`, not on every /usage screen.
   return zh
-    ? `价格未知，请在 moss 配置里设置 pricing.models["${id}"]（input、output、cached 为每百万 token 的价格，currency 为 USD 或 CNY）`
-    : `price unknown, set it with pricing.models["${id}"] in the moss config (input, output, and cached per 1M tokens; currency USD or CNY)`;
+    ? `费用：未知（设置 pricing.models["${id}"] 可显示费用）`
+    : `cost: unpriced (set pricing.models["${id}"] to show cost)`;
 }
 
 let unknownNoted = false;

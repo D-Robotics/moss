@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `/usage` states the unpriced cost in one line (B228)
+
+- The unknown-price note was a two-line config tutorial (`input, output, and cached per 1M tokens;
+currency USD or CNY`) shown on every `/usage` and in the usage block. It is now
+  `cost: unpriced (set pricing.models["<model>"] to show cost)`; the schema lives in
+  `moss config --help`, not on the usage screen.
+
+### `/usage` 用一行说明未定价（B228）
+
+- 未知价格提示原本是两行配置教程（`input/output/cached per 1M tokens; currency USD or CNY`），
+  `/usage` 与用量块里都会出现。现在改为 `cost: unpriced (set pricing.models["<model>"] to show cost)`；
+  完整字段说明留在 `moss config --help`，不占用量屏。
+
 ### `/context` labels an unprobed context window (B227)
 
 - The status row has shown `ctx ~N%` for an unprobed window since B198, but `/context` printed
