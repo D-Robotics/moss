@@ -368,6 +368,16 @@ export function renderWelcomeContextLines(
   return { lines, next, ...(suggestion ? { suggestion } : {}) };
 }
 
+/**
+ * B151: `Next: <command>` for after a run settles. The REPL prints the same
+ * ledger-derived hint at boot; a finished autonomous run changes the ledger, so
+ * the primary non-TUI surface repeats it instead of leaving stale guidance.
+ */
+export function renderNextHint(workspace: string, zh = isZhLocale()): string {
+  const { next } = renderWelcomeContextLines(workspace, zh);
+  return `${ui.dim(zh ? '下一步' : 'Next')} ${next}`;
+}
+
 export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {}): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;

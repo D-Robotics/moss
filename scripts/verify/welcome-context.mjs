@@ -13,7 +13,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const { renderWelcomeContextLines, formatAgo } = await import(
+const { renderWelcomeContextLines, renderNextHint, formatAgo } = await import(
   pathToFileURL(path.join(root, 'dist/cli/onboarding.js')).href
 );
 
@@ -151,6 +151,33 @@ try {
     assert.equal(renderWelcomeContextLines(ws, false).suggestion, undefined);
   }
   ok('a pending run or a fresh workspace drives the composer placeholder');
+
+  // 9. B151: the REPL repeats the ledger-derived next step after a run.
+  {
+    await writeRun({
+      runId: 'pending_run',
+      kind: 'task',
+      status: 'verify_failed',
+      goal: 'pending goal',
+      endedAt: Date.now() + 1_000,
+      next: 'moss task resume task_pending',
+    });
+    assert.match(renderNextHint(ws, false), /^Next moss task resume task_pending/);
+    assert.match(renderNextHint(ws, true), /^下一步/);
+    await writeRun({
+      runId: 'done_run2',
+      kind: 'task',
+      status: 'completed',
+      goal: 'done',
+      endedAt: Date.now() + 2_000,
+      next: 'moss runs',
+    });
+    assert.match(renderNextHint(ws, false), /^Next moss runs/);
+    const fresh = path.join(tmp, 'fresh-next');
+    await fs.mkdir(fresh, { recursive: true });
+    assert.match(renderNextHint(fresh, false), /^Next moss init/);
+  }
+  ok('the after-run next hint names the resume, the ledger or onboarding');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

@@ -1093,6 +1093,12 @@ export async function runInteractive(
             process.stderr.write(`${line}\n`);
           }
         }
+        // B151: the run just changed the ledger, so repeat the ledger-derived
+        // next step; an aborted run already printed its resume lines above.
+        if (!taskController.signal.aborted) {
+          const { renderNextHint } = await import('./onboarding.js');
+          process.stderr.write(`${renderNextHint(workspace, cliLocale() === 'zh')}\n`);
+        }
         // The renderer owns a progress watchdog + spinner; without this the
         // heartbeat kept printing "Still reasoning, waited Ns" at the prompt and
         // its interval kept the process alive after /quit (observed in a PTY).
