@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Super-agent tickets report their work's usage (B165)
+
+- A ticket runs its work in a separate worktree through `moss superagent worker`, which uses the
+  task engine directly — no task run row exists there, so the ticket's ledger row was always
+  `usage: n/a` even after a real 40s run.
+- The worker now accumulates the usage of its task turns and reports it over IPC
+  (`SuperagentWorkerResult.usage`); the runtime validates it, writes it on the one superagent row,
+  and falls back to a task row in the worktree only when an older worker reports none.
+- Real evidence: a completed ticket row shows `usage: 82.8k in / 5.2k out · cache read 79.7k`, and
+  `moss runs summary --kind superagent` includes it.
+
+### superagent 工单行带上自己工作的用量（B165）
+
+- 工单在独立 worktree 里通过 `moss superagent worker` 直接跑 task 引擎，那里没有 task run 行，
+  所以即使真实跑了 40s，工单账本行一直是 `usage: n/a`。
+- worker 现在累加自己的任务回合用量并通过 IPC 上报（`SuperagentWorkerResult.usage`）；runtime 校验后
+  写到唯一的 superagent 行上，只有在旧 worker 没上报时才回退读 worktree 里的 task 行。
+- 真实证据：完成的工单行显示 `usage: 82.8k in / 5.2k out · cache read 79.7k`，
+  `moss runs summary --kind superagent` 也把它计入。
+
 ### Workflow rows aggregate their steps' usage (B164)
 
 - `moss workflow run` writes one row and deliberately suppresses the per-step chat rows, so its
