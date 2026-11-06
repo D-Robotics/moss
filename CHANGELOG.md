@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Workflow rows aggregate their steps' usage (B164)
+
+- `moss workflow run` writes one row and deliberately suppresses the per-step chat rows, so its
+  `usage` used to be `n/a` even after a real two-step run.
+- Each child `-p` step now drops its usage JSON into
+  `.moss/workflows/<runId>/usage/<step>.json` (internal `MOSS_USAGE_FILE`), and the workflow
+  record sums the steps: a real two-step run reports `usage: 57.4k in / 1.8k out`. A step that
+  died before reporting contributes no numbers instead of a guess, and `--kind chat` stays
+  empty for the parent run.
+
+### workflow 行汇总各步骤的用量（B164）
+
+- `moss workflow run` 只写一条行、故意抑制每步的 chat 行，所以即使真实跑完两步，它的
+  `usage` 一直是 `n/a`。
+- 现在每个子 `-p` 步骤把用量 JSON 落到 `.moss/workflows/<runId>/usage/<step>.json`
+  （内部 `MOSS_USAGE_FILE`），workflow 记录再按步骤求和：真实两步运行报告
+  `usage: 57.4k in / 1.8k out`。中途死掉、没来得及报用量的步骤不贡献数字（不猜），
+  父运行的 `--kind chat` 保持为空。
+
 ### Loop runs stop double-recording and carry their usage (B163)
 
 - Every `moss loop` attempt runs a headless chat, and each attempt was also writing its own
