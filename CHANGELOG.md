@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### A cited-but-missing authority becomes a question, not a SPEC-AUDIT detour (B189)
+
+- "Per the docs, …" correctly triggers the spec-audit nudge, but the old correction told the model to
+  write `SPEC-AUDIT.md` whenever the authority was unclear. In a fresh workspace it did exactly that:
+  16s, eight tool calls, a 33-line audit file, and a long answer to a one-file request.
+- The correction now says: if the cited authority is missing, **ask for the exact doc path/text in one
+  short question and stop** — only write `SPEC-AUDIT.md` when the docs exist and conflict or are stale.
+  Same prompt after the change: 7s, two tool calls, no audit file, two-line answer plus one question.
+- Model asides about its own process (`Spec audit: …`, `Interpretation: …`) are folded to one dim line in
+  the TUI instead of a bright markdown block; verbose mode still shows the full text.
+
+### 引用了不存在的"权威"时应追问，而不是去做 SPEC-AUDIT（B189）
+
+- "Per the docs, …" 会正确触发 spec-audit nudge，但旧提示让模型在权威不明确时就写 `SPEC-AUDIT.md`。在空工作区里它真的这么做了：
+  16s、8 次工具调用、33 行审计文件，对一个单文件请求给出长回答。
+- 现在改为：引用的权威不存在时，**用一句短问题问清 doc 路径/原文并停下**；只有 docs 确实存在且与任务冲突或过期时才写
+  `SPEC-AUDIT.md`。同一句 prompt 改后：7s、2 次工具调用、无审计文件、两行回答 + 一个追问。
+- 模型关于自身过程的旁白（`Spec audit: …`、`Interpretation: …`）在 TUI 中折叠为一行 dim 文本，不再是醒目的 Markdown 块；
+  verbose 模式仍显示全文。
+
 ### The status row stops saying "price unknown" forever (B188)
 
 - On an unpriced gateway (the common local setup) the TUI status row carried a permanent
