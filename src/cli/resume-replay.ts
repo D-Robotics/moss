@@ -75,8 +75,30 @@ export function buildResumeReplay(
     // After an assistant turn's prose, surface the tools it called so the
     // resumed user can see the action history. (Skipped on user turns.)
     if (message.role === 'assistant') {
-      for (const toolLine of resumedToolLines(message)) {
-        rows.push({ kind: 'system', text: toolLine });
+      const toolLines = resumedToolLines(message);
+      if (toolLines.length > 3) {
+        // B231: a debugging turn can call 20+ tools; replaying every headline
+        // pushed the conversation off screen. Long turns get one grouped line.
+        const order: string[] = [];
+        const counts = new Map<string, number>();
+        for (const toolLine of toolLines) {
+          const name = /^⎿ (\S+)/.exec(toolLine)?.[1] ?? 'tool';
+          if (!counts.has(name)) order.push(name);
+          counts.set(name, (counts.get(name) ?? 0) + 1);
+        }
+        const shown = order.slice(0, 4).map((name) => {
+          const count = counts.get(name) ?? 1;
+          return count > 1 ? `${name} ×${count}` : name;
+        });
+        const more = order.length > shown.length ? ` · +${order.length - shown.length} more` : '';
+        rows.push({
+          kind: 'system',
+          text: `⎿ ${toolLines.length} tool calls: ${shown.join(' · ')}${more}`,
+        });
+      } else {
+        for (const toolLine of toolLines) {
+          rows.push({ kind: 'system', text: toolLine });
+        }
       }
     }
   }

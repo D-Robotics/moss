@@ -172,7 +172,46 @@ try {
     ['user:Fix the failing test.', 'assistant:Done.'],
     'steering prompts never replay as user text'
   );
-  ok('the injected <turn-context> preamble and [Steering] prompts are stripped from replay');
+  // B231: a long tool turn collapses to one grouped line; a short one stays detailed.
+  const toolUse = (name, input) => ({ type: 'tool_use', name, input });
+  const longTurn = buildResumeReplay([
+    { role: 'user', content: [{ type: 'text', text: 'Fix it.' }] },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'On it.' },
+        toolUse('read_file', { path: 'a.txt' }),
+        toolUse('read_file', { path: 'b.txt' }),
+        toolUse('exec', { command: 'node test.js' }),
+        toolUse('read_file', { path: 'c.txt' }),
+        toolUse('exec', { command: 'node test.js' }),
+        toolUse('list_directory', { path: '.' }),
+        toolUse('write_file', { path: 'c.txt' }),
+      ],
+    },
+  ]);
+  const longRows = longTurn.items.map((item) => `${item.kind}:${item.text}`);
+  assert.equal(longRows.length, 3, 'long turn = user + prose + one grouped tool row');
+  assert.match(
+    longRows[2],
+    /^system:⎿ 7 tool calls: read_file ×3 · exec ×2 · list_directory · write_file$/
+  );
+  const shortTurn = buildResumeReplay([
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Reading.' },
+        toolUse('read_file', { path: 'a.txt' }),
+        toolUse('exec', { command: 'true' }),
+      ],
+    },
+  ]);
+  assert.deepEqual(
+    shortTurn.items.map((item) => `${item.kind}:${item.text}`),
+    ['assistant:Reading.', 'system:⎿ read_file (a.txt)', 'system:⎿ exec (true)'],
+    'short turns keep per-call detail'
+  );
+  ok('a long replay turn groups its tool calls; a short one keeps detail');
 }
 
 // 7. B206: resume never picks an all-empty session as "the latest".

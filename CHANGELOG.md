@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Long tool turns compress to one line when a session replays (B231)
+
+- After `[Steering]` was filtered (B230), the remaining noise in a resumed transcript was tool headlines:
+  one turn that called eight tools printed eight `⎿ …` rows. A replay turn with more than three calls now
+  prints one grouped row (`⎿ 7 tool calls: read_file ×3 · exec ×2 · list_directory · write_file`); short
+  turns keep per-call detail.
+
+### 会话回放时，长工具轮折叠成一行（B231）
+
+- B230 过滤 `[Steering]` 之后，恢复会话的主要噪音变成工具行：一个回合调用 8 个工具就打印 8 行 `⎿ …`。
+  现在回放中超过 3 次调用的回合折叠为一行
+  （`⎿ 7 tool calls: read_file ×3 · exec ×2 · list_directory · write_file`）；短回合保留逐条细节。
+
 ### `[Steering]` loop guidance no longer replays as user text (B230)
 
 - When a resumed session had hit the extended-tool-loop (or any other) steering nudge, `moss --continue`
