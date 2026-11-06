@@ -30,7 +30,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
   if (zh) {
     return [
       '用法：',
-      '  moss runs [list] [--limit N] [--status <状态>] [--kind <引擎>] [--json]',
+      '  moss runs [list] [--limit N] [--status <状态>] [--kind <引擎>] [--since <时长|日期>] [--json]',
       '  moss runs show [<run_id>|latest] [--json]',
       '  moss runs export [<run_id>|latest] [--format md|json] [--out <文件>]',
       '  moss runs prune [--keep N] [--dry-run] [--json]',
@@ -43,13 +43,15 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '  moss runs',
       '  moss runs show latest',
       '  moss runs list --kind loop --limit 5',
+      '  moss runs list --since 24h --status fail',
+      '  moss runs list --since 24h --status fail',
       '  moss runs export latest > run.md',
       '  moss runs prune --keep 20 --dry-run',
     ].join('\n');
   }
   return [
     'Usage:',
-    '  moss runs [list] [--limit N] [--status <status>] [--kind <engine>] [--json]',
+    '  moss runs [list] [--limit N] [--status <status>] [--kind <engine>] [--since <window|date>] [--json]',
     '  moss runs show [<run_id>|latest] [--json]',
     '  moss runs export [<run_id>|latest] [--format md|json] [--out <file>]',
     '  moss runs prune [--keep N] [--dry-run] [--json]',
@@ -113,7 +115,31 @@ interface ListFlags {
   limit: number;
   status?: RunRecordStatus;
   kind?: RunKind;
+  /** Inclusive lower bound for `endedAt`, from `--since <n>s|m|h|d` or an ISO date. */
+  since?: { cutoff: number; label: string };
   json: boolean;
+}
+
+const SINCE_UNITS: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+
+/** `--since` accepts a duration window (`90s`, `30m`, `24h`, `7d`) or an ISO/`YYYY-MM-DD` date. */
+export function parseSinceValue(
+  raw: string,
+  now = Date.now()
+): { cutoff: number; label: string } | null {
+  const value = raw.trim().toLowerCase();
+  const duration = /^(\d+)([smhd])$/.exec(value);
+  if (duration) {
+    const amount = Number(duration[1]);
+    const unit = SINCE_UNITS[duration[2] as string];
+    if (unit && Number.isFinite(amount) && amount > 0) {
+      return { cutoff: now - amount * unit, label: raw.trim() };
+    }
+    return null;
+  }
+  const parsed = Date.parse(raw);
+  if (Number.isNaN(parsed)) return null;
+  return { cutoff: parsed, label: raw.trim() };
 }
 
 function parseListFlags(
@@ -123,6 +149,7 @@ function parseListFlags(
   let limit = DEFAULT_LIMIT;
   let status: RunRecordStatus | undefined;
   let kind: RunKind | undefined;
+  let since: { cutoff: number; label: string } | undefined;
   let json = jsonDefault;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i] as string;
@@ -151,6 +178,11 @@ function parseListFlags(
         return { error: `unknown --status ${raw}; use ${RUN_STATUSES.join(', ')}` };
       }
       status = resolved;
+    } else if (arg === '--since' || arg.startsWith('--since=')) {
+      const raw = arg.includes('=') ? arg.slice('--since='.length) : (args[++i] ?? '');
+      const parsed = parseSinceValue(raw);
+      if (!parsed) return { error: '--since must be a duration (90s, 30m, 24h, 7d) or a date' };
+      since = parsed;
     } else if (arg === '--kind' || arg.startsWith('--kind=')) {
       const raw = (
         arg.includes('=') ? arg.slice('--kind='.length) : (args[++i] ?? '')
@@ -163,7 +195,13 @@ function parseListFlags(
       return { error: `unknown argument ${arg}` };
     }
   }
-  return { limit, json, ...(status ? { status } : {}), ...(kind ? { kind } : {}) };
+  return {
+    limit,
+    json,
+    ...(status ? { status } : {}),
+    ...(kind ? { kind } : {}),
+    ...(since ? { since } : {}),
+  };
 }
 
 function renderList(
@@ -180,7 +218,13 @@ function renderList(
       `运行账本 · 共 ${all.length} · 通过 ${counts.completed ?? 0} · 失败 ${counts.verify_failed ?? 0} · 阻塞 ${counts.blocked ?? 0} · 暂停 ${counts.interrupted ?? 0} · 未完成 ${counts.incomplete ?? 0} · 未验证 ${counts.unverified ?? 0}`
     ) + filterSuffix;
   if (records.length === 0) {
-    return `${header}\n${uiText('no runs recorded yet — start one with `moss run "<intent>" --accept "<cmd>"`', '还没有运行记录——用 `moss run "<意图>" --accept "<命令>"` 开始一次')}`;
+    const empty = filterLabel
+      ? uiText(`no runs match ${filterLabel}`, `没有匹配 ${filterLabel} 的运行记录`)
+      : uiText(
+          'no runs recorded yet — start one with `moss run "<intent>" --accept "<cmd>"`',
+          '还没有运行记录——用 `moss run "<意图>" --accept "<命令>"` 开始一次'
+        );
+    return `${header}\n${empty}`;
   }
   const lines = [header];
   for (const record of records) {
@@ -300,17 +344,19 @@ export async function runRunsCommand(
     const filtered = all.filter(
       (record) =>
         (!parsed.status || record.status === parsed.status) &&
-        (!parsed.kind || record.kind === parsed.kind)
+        (!parsed.kind || record.kind === parsed.kind) &&
+        (!parsed.since || record.endedAt >= parsed.since.cutoff)
     );
     const filterLabel = [
       ...(parsed.status ? [`status ${parsed.status}`] : []),
       ...(parsed.kind ? [`kind ${parsed.kind}`] : []),
+      ...(parsed.since ? [`since ${parsed.since.label}`] : []),
     ].join(', ');
     const page = filtered.slice(0, parsed.limit);
     if (parsed.json) {
       output(
         'stdout',
-        `${JSON.stringify({ version: 1, total: filtered.length, runs: page, counts: countsOf(all), ...(parsed.status ? { status: parsed.status } : {}), ...(parsed.kind ? { kind: parsed.kind } : {}) }, null, 2)}\n`
+        `${JSON.stringify({ version: 1, total: filtered.length, runs: page, counts: countsOf(all), ...(parsed.status ? { status: parsed.status } : {}), ...(parsed.kind ? { kind: parsed.kind } : {}), ...(parsed.since ? { since: new Date(parsed.since.cutoff).toISOString() } : {}) }, null, 2)}\n`
       );
     } else {
       output('stdout', `${renderList(page, all, filterLabel, filtered.length)}\n`);

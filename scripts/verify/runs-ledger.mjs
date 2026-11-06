@@ -239,6 +239,42 @@ try {
   assert.equal(badKind.status, 2);
   assert.match(badKind.stderr, /unknown --kind nope/);
   ok('moss runs list --kind narrows by engine and rejects unknown kinds with 2');
+
+  // 9. --since narrows by recency (duration window or date), combined with kind.
+  await writeRunRecord(ws, {
+    version: 1,
+    runId: 'fresh_run',
+    kind: 'task',
+    status: 'completed',
+    exitCode: 0,
+    startedAt: Date.now() - 5_000,
+    endedAt: Date.now(),
+    durationMs: 5_000,
+    goal: 'fresh run',
+  });
+  const sinceHour = await cli(['runs', 'list', '--since', '1h', '--json']);
+  assert.equal(sinceHour.status, 0, sinceHour.stderr);
+  const sinceHourJson = JSON.parse(sinceHour.stdout);
+  assert.equal(sinceHourJson.total, 1);
+  assert.equal(sinceHourJson.runs[0].runId, 'fresh_run');
+  assert.ok(sinceHourJson.since);
+
+  const sinceDay = JSON.parse(
+    (await cli(['runs', 'list', '--since=24h', '--kind', 'loop', '--json'])).stdout
+  );
+  assert.equal(sinceDay.total, 0, 'the 1970 loop fixture is older than 24h');
+
+  const sinceDate = await cli(['runs', 'list', '--since', '2100-01-01']);
+  assert.equal(sinceDate.status, 0, sinceDate.stderr);
+  assert.match(sinceDate.stdout, /no runs match since 2100-01-01/);
+
+  const sinceTable = await cli(['runs', 'list', '--since', '1h']);
+  assert.match(sinceTable.stdout, /— since 1h \(1\)/);
+
+  const badSince = await cli(['runs', 'list', '--since', 'nope']);
+  assert.equal(badSince.status, 2);
+  assert.match(badSince.stderr, /--since must be a duration/);
+  ok('moss runs list --since accepts windows/dates and rejects anything else with 2');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }
