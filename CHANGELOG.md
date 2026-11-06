@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### The full help names the subcommands that exist (B271)
+
+- `moss --help --all` said `runs list|show|prune` while `export`/`follow`/`summary` shipped, listed
+  `artifacts` as a `task` subcommand (it is its own row), and named `device add|list|remove|test` without
+  `fleet` or `skill create|list` without `install|update`. Both locales now match the dispatcher, and
+  `help-surface` pins the two lists (`list|show|export|follow|summary|prune`,
+  `run|resume|status|timeline`) plus the retirement of the old `status|timeline|artifacts` row.
+
+### 完整帮助列出真实存在的子命令（B271）
+
+- `moss --help --all` 写着 `runs list|show|prune`，但 export/follow/summary 已发布；把 `artifacts` 当成
+  `task` 的子命令（其实有独立行）；`device` 缺 `fleet`、`skill` 缺 `install|update`。中英两版现在与 dispatcher
+  一致，`help-surface` 锁定两组子命令列表与旧 `status|timeline|artifacts` 行的退役。
+
 ### The README's probe count is accurate and guarded (B270)
 
 - The quality section said "90+ re-runnable probes" while the gate now carries 106 stage files; both

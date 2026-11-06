@@ -41,6 +41,21 @@ const failures = [];
 const helpEn = fullHelpLines(colors, '/tmp/config.json', false).join('\n');
 const helpZh = fullHelpLines(colors, '/tmp/config.json', true).join('\n');
 
+// B271: subcommand lists in the full help must name what exists; `runs` said
+// list|show|prune while export/follow/summary were shipped, and `task` listed
+// the separate `artifacts` command as its own subcommand.
+for (const [name, text] of [
+  ['en', helpEn],
+  ['zh', helpZh],
+]) {
+  for (const required of ['list|show|export|follow|summary|prune', 'run|resume|status|timeline']) {
+    if (!text.includes(required)) failures.push(`${name} full help lost "${required}"`);
+  }
+  if (text.includes('status|timeline|artifacts')) {
+    failures.push(`${name} help still lists artifacts as a task subcommand`);
+  }
+}
+
 /**
  * Only the subcommand sections count. The interactive-command section lists
  * `/rules`, `/remember`, … and would otherwise "satisfy" a missing subcommand
