@@ -708,8 +708,33 @@ export function renderTranscriptRow(
       const codeLike = source.some((raw) =>
         /^\s*(\+\s|-\s)?(#include|\/\/|\/\*|\*|template\b|namespace\b)/.test(raw)
       );
+      // A failed exec headline already states the error ("failed — ls: …");
+      // the structured result starts with `Command failed (exit 1):` plus the
+      // same message, which used to print the same sentence twice. Drop the
+      // duplicated leading message, keep the exit-code label and real output.
+      const headlineText = headline
+        .map((entry) => entry.text)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      let deduped = source;
+      if (!verbose && row.tool?.isError === true && source.length > 0 && headlineText) {
+        const duplicate = (raw: string | undefined): boolean => {
+          const trimmed = raw?.trim() ?? '';
+          return trimmed.length > 3 && headlineText.includes(trimmed);
+        };
+        if (duplicate(source[0])) {
+          deduped = source.slice(1);
+        } else if (
+          /^Command failed \(exit \d+\):$/.test(source[0]!.trim()) &&
+          duplicate(source[1])
+        ) {
+          // Keep the exit-code label, drop the message the headline already says.
+          deduped = [source[0]!, ...source.slice(2)];
+        }
+      }
       const preview = compactPreview(
-        source,
+        deduped,
         verbose
           ? source.length
           : codeLike
@@ -1066,10 +1091,25 @@ export const TODO_PANEL_MAX_ROWS = 6;
 export function renderTodoPanel(
   todos: ReadonlyArray<{ content: string; status: string }>,
   width: number,
-  maxRows = TODO_PANEL_MAX_ROWS
+  options: { maxRows?: number; finished?: boolean; failed?: boolean } = {}
 ): TuiLine[] {
   if (todos.length === 0) return [];
+  const maxRows = options.maxRows ?? TODO_PANEL_MAX_ROWS;
   const done = todos.filter((todo) => todo.status === 'completed').length;
+  const open = todos.length - done;
+  // After a run ends the checklist is history: collapse it to one honest line
+  // (it used to keep the full stale list above the composer forever).
+  if (options.finished === true) {
+    const header =
+      open > 0
+        ? tui('{done}/{total} done · {open} left open when the run ended', {
+            done,
+            total: todos.length,
+            open,
+          })
+        : tui('{done}/{total} done', { done, total: todos.length });
+    return [line(clip(`  ${ANSWER_MARK} ${header}`, width), { dim: true })];
+  }
   const out: TuiLine[] = [
     line(
       clip(`  ${ANSWER_MARK} ${tui('{done}/{total} done', { done, total: todos.length })}`, width),

@@ -464,6 +464,20 @@ export function stuckClassFromUnfinished(runError: string): { en: string; zh: st
 }
 
 /**
+ * The transcript's last line. `formatOutcomeLine` is mandatory for headless
+ * output, but a TUI run that simply completed already shows `✻ worked for Ns`;
+ * appending `Completed: run finished` says nothing twice. Keep the line when it
+ * carries information (verification passed, unverified, failed, blocked, …).
+ */
+export function outcomeLineForSummary(outcome: RunOutcome, lang: OutcomeLang): string | undefined {
+  if (outcome.status === 'completed') {
+    const reason = (lang === 'zh' ? outcome.reasonZh : outcome.reason)?.trim();
+    if (!reason || reason === 'run finished' || reason === '运行结束') return undefined;
+  }
+  return formatOutcomeLine(outcome, lang);
+}
+
+/**
  * Mandatory last line for `-p` / TUI / O99.
  * Always non-empty: completed →「完成：…」; others → matching prefix.
  */

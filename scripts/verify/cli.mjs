@@ -41,6 +41,7 @@ import { stage as tinyWindowSurfaceStage } from './stages/tiny-window-surface.mj
 import { stage as tinyWindowCliBootStage } from './stages/tiny-window-cli-boot.mjs';
 import { stage as tinyWindowDiagnosticsStage } from './stages/tiny-window-diagnostics.mjs';
 import { stage as tinyWindowTuiNoticeStage } from './stages/tiny-window-tui-notice.mjs';
+import { stage as tuiFinishStage } from './stages/tui-finish.mjs';
 import { stage as readImageStage } from './stages/read-image.mjs';
 import { stage as readPdfStage } from './stages/read-pdf.mjs';
 import { stage as osSandboxStage } from './stages/os-sandbox.mjs';
@@ -142,6 +143,7 @@ const STAGES = new Map(
     tinyWindowCliBootStage,
     tinyWindowDiagnosticsStage,
     tinyWindowTuiNoticeStage,
+    tuiFinishStage,
     readImageStage,
     readPdfStage,
     osSandboxStage,
@@ -244,6 +246,7 @@ const FAST_GATE = [
   'tiny-window-cli-boot',
   'tiny-window-diagnostics',
   'tiny-window-tui-notice',
+  'tui-finish',
   'read-image',
   'read-pdf',
   'os-sandbox',

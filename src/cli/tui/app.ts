@@ -230,7 +230,7 @@ import { installTuiLogSink } from './terminal-io.js';
 import { noteFrameHeight } from './frame-invariant.js';
 import { createRunCompletionTracker, noteRunCompletionEvent } from '../run-completion.js';
 import { approvalPlanVersion, extractPlanVersion } from '../plan-version.js';
-import { formatOutcomeLine, resolveRunOutcome } from '../run-outcome.js';
+import { outcomeLineForSummary, resolveRunOutcome } from '../run-outcome.js';
 import {
   createViewport,
   moveTranscript,
@@ -1366,7 +1366,9 @@ export function TuiAppRoot({
         finalText,
         request: message,
       });
-      const outcomeLine = formatOutcomeLine(outcome, isZhLocale() ? 'zh' : 'en');
+      // Completed-and-nothing-to-add runs keep only the `✻ worked for` stamp;
+      // formatOutcomeLine stays mandatory for headless output (run-outcome).
+      const outcomeLine = outcomeLineForSummary(outcome, isZhLocale() ? 'zh' : 'en') ?? '';
       endRun(store, halted);
       if (startedAt !== undefined) {
         // Claude leaves a finalizing status line in the transcript; keep the
@@ -4212,7 +4214,9 @@ export function TuiAppRoot({
     // A pending approval/question owns the decision area. Suppress secondary
     // overlays and live checklist noise so its question and options remain
     // visible on short terminals.
-    ...(!approval && !helpOverlay ? renderTodoPanel(store.todos, columns) : []),
+    ...(!approval && !helpOverlay
+      ? renderTodoPanel(store.todos, columns, { finished: !running })
+      : []),
     ...(!approval && !helpOverlay && statusLine
       ? [line(clip(statusLine, columns), { dim: true })]
       : []),

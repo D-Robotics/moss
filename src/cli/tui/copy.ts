@@ -152,6 +152,8 @@ export const ZH: Readonly<Record<string, string>> = {
 
   // ── todo panel (transcript.ts / render-bridge.ts) ──────────────────────
   '{done}/{total} done': '{done}/{total} 完成',
+  '{done}/{total} done · {open} left open when the run ended':
+    '{done}/{total} 完成 · 运行结束时还有 {open} 项未完成',
   '{count} more': '还有 {count} 项',
 
   // ── approval (transcript.ts / approval-view.ts frozen defaults) ────────
