@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Validation round: real TUI task, plus the last two unreferenced exports removed (B200)
+
+- Ran a real end-to-end TUI task on the deepseek-flash gateway (`Create sum.js + node:test, run it`):
+  two files written, `Run Tests` reported `ALL PASSED · 2/2 passed · 227ms`, final answer one sentence.
+  The chrome behaved as designed: one-row tool previews, `in 9.7k · out … · ctx ~2%` (unprobed window
+  marked approximate), no todo panel noise, quiet run end.
+- The last two exports with no reference anywhere (AST-scanned) are gone (`isDenialClass`,
+  `clearSkillToolScope` plus their now-unused local constants): −15 lines, no behavior change.
+- Honest gap observed: the model still volunteered an audit-style aside ("Before editing further: … no
+  external spec cited …") even though the nudge did not fire. It is model behavior, not a code path;
+  per the owner's "don't over-design" instruction this round did not add filtering code for it.
+
+### 验证轮：真实 TUI 任务 + 删除最后两个无引用导出（B200）
+
+- 在 deepseek-flash 真实网关上跑了一次完整 TUI 任务（`Create sum.js + node:test, run it`）：
+  两个文件写入成功，`Run Tests` 报 `ALL PASSED · 2/2 passed · 227ms`，最终回答一句话。
+  界面按设计工作：工具预览单行、`in 9.7k · out … · ctx ~2%`（未探测窗口标为近似）、无 todo 噪音、收尾安静。
+- AST 扫描出最后两个全仓无引用导出（`isDenialClass`、`clearSkillToolScope`）及其连带未用常量已删除：−15 行，无行为变化。
+- 诚实缺口：模型仍会自发来一句审计式旁白（"Before editing further: … no external spec cited …"），本次 nudge 并未触发；
+  这是模型行为而非代码路径。按 owner "不要过度设计" 的指示，本轮没有为它增加过滤代码。
+
 ### Maintenance: 19 unreferenced exports removed (−158 lines, no behavior change) (B199)
 
 - A repo-wide reference scan found 24 exported helpers whose only occurrence was their declaration

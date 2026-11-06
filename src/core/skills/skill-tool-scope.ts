@@ -83,7 +83,3 @@ export function describeSkillToolScope(runId: string | undefined): string | unde
     ? `Tool scope for this run (from skill "${scope.skillName}"): ${parts.join('; ')}.`
     : undefined;
 }
-
-export function clearSkillToolScope(runId: string | undefined): void {
-  if (runId) scopes.delete(runId);
-}

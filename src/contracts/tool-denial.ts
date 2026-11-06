@@ -10,14 +10,3 @@
  * the reason the host produced.
  */
 export type DenialClass = 'user' | 'mode' | 'policy' | 'headless';
-
-const DENIAL_CLASSES: ReadonlySet<string> = new Set<DenialClass>([
-  'user',
-  'mode',
-  'policy',
-  'headless',
-]);
-
-export function isDenialClass(value: unknown): value is DenialClass {
-  return typeof value === 'string' && DENIAL_CLASSES.has(value);
-}
