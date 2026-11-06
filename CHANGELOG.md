@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `[Steering]` loop guidance no longer replays as user text (B230)
+
+- When a resumed session had hit the extended-tool-loop (or any other) steering nudge, `moss --continue`
+  replayed `❯ [Steering] Extended tool loop detected…` as if the user had typed it. Steering is
+  model-facing guidance, never user words: `resumeUserText` now drops it alongside `[System]` corrections
+  and the `<turn-context>` preamble.
+
+### `[Steering]` 循环引导不再回放成用户发言（B230）
+
+- 被恢复的会话如果触发过 extended-tool-loop 等 steering 提示，`moss --continue` 会回放
+  `❯ [Steering] Extended tool loop detected…`，像用户自己说的。steering 是给模型的引导，不是用户的话：
+  `resumeUserText` 现在与 `[System]` 纠偏、`<turn-context>` 前导一样把它丢掉。
+
 ### README documents the review gate for CI (B229)
 
 - `moss review check` is the verifiability story's CI hook (0 pass / 1 unresolved / 2 none-or-unknown,

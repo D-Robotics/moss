@@ -153,7 +153,26 @@ try {
     ['user:Add subtract() to sum.js', 'assistant:Added.', 'user:hi'],
     'the preamble is stripped, including an unclosed block'
   );
-  ok('the injected <turn-context> preamble is stripped from replay');
+  // B230: loop guidance is model-facing; the resumed user never said it.
+  const withSteering = buildResumeReplay([
+    { role: 'user', content: [{ type: 'text', text: 'Fix the failing test.' }] },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: '[Steering] Extended tool loop detected — pause and summarize what is known.',
+        },
+      ],
+    },
+    { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] },
+  ]);
+  assert.deepEqual(
+    withSteering.items.map((item) => `${item.kind}:${item.text}`),
+    ['user:Fix the failing test.', 'assistant:Done.'],
+    'steering prompts never replay as user text'
+  );
+  ok('the injected <turn-context> preamble and [Steering] prompts are stripped from replay');
 }
 
 // 7. B206: resume never picks an all-empty session as "the latest".

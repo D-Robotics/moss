@@ -87,7 +87,7 @@ export function resumeUserText(text: string): string {
   // replay used to print it as if the user had typed the environment + skills.
   const trimmed = stripTurnContext(text);
   if (!trimmed || trimmed.includes('<moss_working_context_checkpoint')) return '';
-  if (trimmed.startsWith('[System]')) return '';
+  if (trimmed.startsWith('[System]') || trimmed.startsWith('[Steering]')) return '';
   if (trimmed.startsWith('[task-phase:planning]')) return goalFromPhasePrompt(text) ?? '';
   if (trimmed.startsWith(PHASE_MARK)) return '';
   if (isInternalAssistantText(trimmed)) return '';
