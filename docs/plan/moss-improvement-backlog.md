@@ -691,6 +691,7 @@ node scripts/verify/loop-watch-glob.mjs
 
 - 真实 CI：run `42200898322` gate 36.8s PASS；随后 run `42202157039` 在另一 runner 上 61.1s FAIL（预算 60s），`slowest stages: task-status-json 9.7s, capabilities 8.9s …`，单 stage 都很快，说明墙钟由总工作量/核数决定。
 - 本地：`node scripts/verify/cli.mjs --shard 1/2 --dry-run` → `shard 1/2: 48 stages`；`--shard 2/2: 49 stages`；分片 2 单独运行 **PASS 38.6s**（含 static/build）；分片 1 并行压力下 PASS 66.1s；坏 `--shard 3/2` exit 2。
+- 真实 CI（run `42203045973`，sharding 后首次）：`Fast gate (shard 1/2)` gate **23.9s**、`Fast gate (shard 2/2)` **21.5s**，聚合 job **Fast gate** success。
 - 质量门：`npm run check` 绿；本地整门 `npm run verify` 仍 PASS。
 - 诚实缺口：CI 矩阵会占用两个 runner（分钟数×2）；聚合 job 依赖 `toJSON(needs)`，若分支保护检查名不是 **Fast gate** 需同步；本地并行跑两个分片时 PTY 类 stage（todos-view）在机器高负载下仍会抖动（单独跑通过）。
 

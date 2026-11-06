@@ -487,7 +487,7 @@ async function main() {
             index % shardInput.total === shardInput.index - 1
         )
       : requested;
-  if (shardInput) {
+  if (shardInput && options.stages === null) {
     console.log(
       `[verify] shard ${String(shardInput.index)}/${String(shardInput.total)}: ${String(sharded.length)} stages`
     );
