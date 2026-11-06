@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### `moss runs summary` answers "how are my runs doing, and what did they cost" (B162)
+
+- The ledger could list and export single runs, but not aggregate. `moss runs summary
+[--since] [--kind] [--json]` now reports per-kind runs/pass/fail/other plus token usage and
+  priced cost, with a total row: `chat 1 runs · 1 pass · 0 fail · … usage: 1.4k in / 2 out ·
+cost: unpriced`. Cost is summed only from records that carry `costUsd`, and the total says
+  how many of the usage-bearing runs were priced; a gateway without public pricing stays
+  "unpriced" instead of inventing a number. `--since`/`--kind` reuse the list filters, and
+  `/runs summary` works in-session through the same command.
+
+### `moss runs summary` 回答「最近的运行怎么样、花了多少」（B162）
+
+- 账本之前只能列出/导出单条运行，不能汇总。`moss runs summary [--since] [--kind] [--json]`
+  现在按引擎给出 次数/通过/失败/其他 + token 用量与可算费用，并有一行合计：
+  `chat 1 runs · 1 pass · 0 fail · … usage: 1.4k in / 2 out · cost: unpriced`。
+  费用只汇总带 `costUsd` 的记录，合计行会说明有价记录占带用量记录的比例；
+  网关没有公开价就显示 unpriced，不编造数字。`--since`/`--kind` 复用 list 的过滤，
+  会话内 `/runs summary` 也直接可用。
+
 ### `moss init` and `/init` are one onboarding with two documented modes (B158)
 
 - The same verb had two behaviours: the CLI command is a deterministic scan (no model,
