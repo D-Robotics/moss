@@ -92,6 +92,7 @@ import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
 import { stage as mcpPromptSlashStage } from './stages/mcp-prompt-slash.mjs';
 import { stage as contextSurfaceStage } from './stages/context-surface.mjs';
 import { stage as replInterruptStage } from './stages/repl-interrupt.mjs';
+import { stage as replGuidanceStage } from './stages/repl-guidance.mjs';
 import { stage as helpSurfaceStage } from './stages/help-surface.mjs';
 import { stage as slashDispatchStage } from './stages/slash-dispatch.mjs';
 import { stage as todosViewStage } from './stages/todos-view.mjs';
@@ -192,6 +193,7 @@ const STAGES = new Map(
     mcpPromptSlashStage,
     contextSurfaceStage,
     replInterruptStage,
+    replGuidanceStage,
     helpSurfaceStage,
     slashDispatchStage,
     todosViewStage,
@@ -285,6 +287,7 @@ const FAST_GATE = [
   'context-surface',
   'goal-pause',
   'repl-interrupt',
+  'repl-guidance',
   'help-surface',
   'slash-dispatch',
   'todos-view',

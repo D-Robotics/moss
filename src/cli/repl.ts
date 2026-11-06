@@ -8,7 +8,7 @@ import {
   savePromptHistory,
 } from './tui/prompt-history.js';
 import type { MossAgent, MossAgentEvent } from '../core/index.js';
-import { setCliApprovalAsker } from './approval.js';
+import { getCliInteractionMode, setCliApprovalAsker } from './approval.js';
 import { noteKnownSecret } from '../safety/known-secrets.js';
 import { wrapApprovalAsker } from './permission-request.js';
 import { handleCompactCommand } from './compact-command.js';
@@ -381,6 +381,31 @@ export async function runInteractive(
     prompt: '\n› ',
     completer: completeInteractiveCommand,
   });
+  // B156 (why-design D4): readline's prompt is permanent, so a mode change
+  // scrolled away was invisible — plan/manual are safety-relevant. Recompute
+  // the prompt before every prompt() call and mark non-full modes.
+  const modePrompt = (): string => {
+    const mode = getCliInteractionMode();
+    if (mode === 'full') return '\n› ';
+    const zh = cliLocale() === 'zh';
+    const label =
+      mode === 'plan'
+        ? zh
+          ? '计划'
+          : 'plan'
+        : mode === 'acceptEdits'
+          ? zh
+            ? '接受编辑'
+            : 'accept-edits'
+          : zh
+            ? '手动'
+            : 'manual';
+    return `\n${ui.dim(`${label}›`)} `;
+  };
+  const promptUser = (): void => {
+    rl.setPrompt(modePrompt());
+    rl.prompt();
+  };
   // The TUI recalls prompts across sessions; the REPL used to start every
   // session with an empty history, so Up only reached this run. Seed readline's
   // history (newest first) from the same workspace/config files.
@@ -423,14 +448,14 @@ export async function runInteractive(
   console.error(
     ui.dim(`${label('status')} Ready. Type a prompt and press Enter, or /help for commands.`)
   );
-  rl.prompt();
+  promptUser();
 
   let pendingGoal: { goal: string } | null = null;
 
   for await (const line of rl) {
     let msg = line.trim();
     if (!msg) {
-      rl.prompt();
+      promptUser();
       continue;
     }
     rememberPrompt(msg);
@@ -448,7 +473,7 @@ export async function runInteractive(
       const rewritten = rewriteSlashInput(msg, cliLocale());
       if (rewritten.suggestion) {
         if (rewritten.migration) console.error(rewritten.migration);
-        rl.prompt();
+        promptUser();
         rl.write(rewritten.suggestion);
         continue;
       }
@@ -504,7 +529,7 @@ export async function runInteractive(
             });
           }
         }
-        rl.prompt();
+        promptUser();
         if (pendingPrefill) rl.write(pendingPrefill);
         continue;
       }
@@ -519,7 +544,7 @@ export async function runInteractive(
           console.error(`    ${command.name.padEnd(18)} ${command.summary}`);
         }
       }
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -535,7 +560,7 @@ export async function runInteractive(
         console.error(
           '[rewind] Usage: /rewind [seq] — pass a checkpoint number from /rewind with no argument.'
         );
-        rl.prompt();
+        promptUser();
         continue;
       }
 
@@ -598,7 +623,7 @@ export async function runInteractive(
           );
         }
       }
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -612,7 +637,7 @@ export async function runInteractive(
           '[compact] You can keep chatting; try /status --verbose to inspect context, or ask Moss to summarize the current session manually.'
         );
       }
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -628,7 +653,7 @@ export async function runInteractive(
       } catch (err) {
         console.error(`[resume] ${errorMessage(err)}`);
       }
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -643,7 +668,7 @@ export async function runInteractive(
           subagents,
         }).join('\n')
       );
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -658,7 +683,7 @@ export async function runInteractive(
       ).split('\n')) {
         console.error(line);
       }
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -677,7 +702,7 @@ export async function runInteractive(
       } else {
         for (const server of servers) console.error(`  ${formatMcpStatusLine(server)}`);
       }
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -693,7 +718,7 @@ export async function runInteractive(
       });
       console.error('Hooks');
       for (const line of lines) console.error(`  ${line}`);
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -721,7 +746,7 @@ export async function runInteractive(
         msg = `${rest}${rest ? '\n' : ''}${capture.text}`;
       } else {
         console.error(ui.yellow(`[moss] ${capture.reason}`));
-        rl.prompt();
+        promptUser();
         continue;
       }
     }
@@ -743,7 +768,7 @@ export async function runInteractive(
         }
         console.error(`  (${rows.length} rule(s) · manual rules need @rule:<name>)`);
       }
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -752,18 +777,18 @@ export async function runInteractive(
       const remember = await import('./remember-command.js');
       if (fact === '') {
         console.error(remember.renderRememberUsage());
-        rl.prompt();
+        promptUser();
         continue;
       }
       const plan = remember.buildRememberPlan(workspace, fact);
       if ('error' in plan) {
         console.error(`/remember: ${plan.error}`);
-        rl.prompt();
+        promptUser();
         continue;
       }
       console.error(remember.renderRememberPreview(plan));
       if (!plan.changed) {
-        rl.prompt();
+        promptUser();
         continue;
       }
       const answer = await new Promise<string>((resolve) => {
@@ -771,7 +796,7 @@ export async function runInteractive(
       });
       if (!/^y(es)?$/i.test(answer)) {
         console.error('cancelled — nothing written');
-        rl.prompt();
+        promptUser();
         continue;
       }
       const applied = remember.applyRememberPlan(plan);
@@ -780,7 +805,7 @@ export async function runInteractive(
         console.error(
           `wrote ${plan.file} (review: git diff AGENTS.md; a new session loads it automatically)`
         );
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -803,7 +828,7 @@ export async function runInteractive(
       } catch (err) {
         console.error(`[diff] ${errorMessage(err)}`);
       }
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -814,7 +839,7 @@ export async function runInteractive(
       console.error(
         '[clear] new conversation, empty context. The previous one stays on disk — moss --continue'
       );
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -828,7 +853,7 @@ export async function runInteractive(
         } catch (err) {
           console.error(`[config] Could not save model config: ${errorMessage(err)}`);
         }
-        rl.prompt();
+        promptUser();
         continue;
       }
 
@@ -846,7 +871,7 @@ export async function runInteractive(
         const unavailable = unavailableModelNote(newModel, modelChoices, undefined, { custom });
         if (unavailable) {
           console.error(`[config] ${unavailable}`);
-          rl.prompt();
+          promptUser();
           continue;
         }
         const selected = services.models.resolveModelSelection(newModel, modelChoices.choices);
@@ -905,7 +930,7 @@ export async function runInteractive(
       } else {
         console.error(services.models.formatModelChoices(modelChoices));
       }
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -916,12 +941,12 @@ export async function runInteractive(
       const plan = planGoalInvocation(msg.slice('/goal'.length).trim(), workspace);
       if (plan.kind === 'usage') {
         process.stderr.write(`${GOAL_USAGE}\n`);
-        rl.prompt();
+        promptUser();
         continue;
       }
       if (plan.kind === 'clear') {
         process.stderr.write(`${await abandonLiveGoal(workspace)}\n`);
-        rl.prompt();
+        promptUser();
         continue;
       }
       if (plan.kind === 'resume') {
@@ -933,7 +958,7 @@ export async function runInteractive(
             .sort((a, b) => b.updatedAt - a.updatedAt)[0];
           if (!resumable) {
             process.stderr.write('No resumable task found. Start one with /goal <condition>.\n');
-            rl.prompt();
+            promptUser();
             continue;
           }
           taskId = resumable.taskId;
@@ -945,7 +970,7 @@ export async function runInteractive(
           process.stderr.write(`${line}\n`);
         }
         pendingGoal = { goal: plan.goal };
-        rl.prompt();
+        promptUser();
         rl.write(plan.candidates[0] ?? '');
         continue;
       } else {
@@ -971,15 +996,24 @@ export async function runInteractive(
       if (!['run', 'resume', 'status', 'timeline', 'view', 'verify', 'list'].includes(sub ?? '')) {
         const { interactiveTaskUsageLines } = await import('./task-run.js');
         process.stderr.write(`${interactiveTaskUsageLines().join('\n')}\n`);
-        rl.prompt();
+        promptUser();
         continue;
       }
       if (taskRunInFlight) {
         process.stderr.write('A /task is already running in this session.\n');
-        rl.prompt();
+        promptUser();
         continue;
       }
       taskRunInFlight = true;
+      // B156 (why-design D3): say how to stop before the user needs it; Esc
+      // used to be dead in a goal run even though it works in plain chat.
+      process.stderr.write(
+        `${ui.dim(
+          cliLocale() === 'zh'
+            ? 'Ctrl+C 暂停（/goal resume 续跑）· Esc 中断'
+            : 'Ctrl+C pauses (/goal resume to continue) · Esc interrupts'
+        )}\n`
+      );
       rl.pause();
       // Ctrl+C pauses, it does not kill the CLI: the run gets an AbortSignal,
       // the task engine records the interruption and the state stays resumable.
@@ -1002,6 +1036,9 @@ export async function runInteractive(
       const onTaskStdin = (chunk: Buffer | string): void => {
         const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
         if (bytes.includes(0x03)) abortTask();
+        // A lone ESC byte aborts like chat turns do; arrow keys arrive as
+        // multi-byte sequences and must not count.
+        else if (bytes.length === 1 && bytes[0] === 0x1b) abortTask();
       };
       process.on('SIGINT', abortTask);
       rl.on('SIGINT', abortTask);
@@ -1107,7 +1144,7 @@ export async function runInteractive(
         runInputHinted = false;
         rl.resume();
         rl.setPrompt('\n› ');
-        rl.prompt();
+        promptUser();
       }
       continue;
     }
@@ -1136,7 +1173,7 @@ export async function runInteractive(
             taskFlow: messageRequestsTaskContract(feedback),
           });
         }
-        rl.prompt();
+        promptUser();
         continue;
       }
       const suggestions = closestSlashCommands(slashHead(msg), [
@@ -1164,7 +1201,7 @@ export async function runInteractive(
         }),
       ];
       console.error(`[help] Available: ${availableCommands.join(' ')}`);
-      rl.prompt();
+      promptUser();
       continue;
     }
 
@@ -1192,7 +1229,7 @@ export async function runInteractive(
         taskFlow: messageRequestsTaskContract(feedback),
       });
     }
-    rl.prompt();
+    promptUser();
   }
 
   agent.unregisterPreToolHook('repl-checkpoint');

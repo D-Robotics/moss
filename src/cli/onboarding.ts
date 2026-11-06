@@ -909,12 +909,20 @@ export function renderCliPermissions(
   ].join('\n');
 }
 
-export function renderCliInteractiveHelp(): string {
+export function renderCliInteractiveHelp(locale?: string): string {
+  const zh = isZhLocale(locale);
   return [
-    ui.bold(ui.black('Commands')),
+    ui.bold(ui.black(zh ? '命令' : 'Commands')),
     ...formatInteractiveCommandSections({ indent: '    ', commandWidth: 24 }),
     '',
-    '  Shortcuts',
-    '    Ctrl+C                   exit',
+    `  ${zh ? '快捷键' : 'Shortcuts'}`,
+    zh ? '    Ctrl+C（空闲）             退出' : '    Ctrl+C (idle)             exit',
+    zh
+      ? '    Ctrl+C（运行中）           暂停，之后用 /goal resume 续跑'
+      : '    Ctrl+C (run in progress)  pause, then /goal resume continues',
+    zh
+      ? '    Esc（运行中）              中断当前回合（目标运行可续跑）'
+      : '    Esc (run in progress)     interrupt the turn (a goal stays resumable)',
+    zh ? '    ↑ / ↓                     历史输入' : '    Up / Down                 prompt history',
   ].join('\n');
 }
