@@ -1097,17 +1097,16 @@ export function renderTodoPanel(
   const maxRows = options.maxRows ?? TODO_PANEL_MAX_ROWS;
   const done = todos.filter((todo) => todo.status === 'completed').length;
   const open = todos.length - done;
-  // After a run ends the checklist is history: collapse it to one honest line
-  // (it used to keep the full stale list above the composer forever).
+  // After a run ends the checklist is history: a fully finished list disappears
+  // (the `✻ worked for` stamp already says the run is done) and an unfinished
+  // one collapses to one honest line instead of parking the stale list forever.
   if (options.finished === true) {
-    const header =
-      open > 0
-        ? tui('{done}/{total} done · {open} left open when the run ended', {
-            done,
-            total: todos.length,
-            open,
-          })
-        : tui('{done}/{total} done', { done, total: todos.length });
+    if (open === 0) return [];
+    const header = tui('{done}/{total} done · {open} left open when the run ended', {
+      done,
+      total: todos.length,
+      open,
+    });
     return [line(clip(`  ${ANSWER_MARK} ${header}`, width), { dim: true })];
   }
   const out: TuiLine[] = [

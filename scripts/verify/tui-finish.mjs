@@ -14,6 +14,7 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const transcript = await load('dist/cli/tui/transcript.js');
+const bridge = await load('dist/cli/tui/render-bridge.js');
 const outcome = await load('dist/cli/run-outcome.js');
 
 let checks = 0;
@@ -65,13 +66,31 @@ const allDone = transcript.renderTodoPanel(
   100,
   { finished: true }
 );
-assert.equal(allDone.length, 1);
-assert.match(allDone[0].text, /5\/5 done/);
-assert.doesNotMatch(allDone[0].text, /left open/);
+assert.equal(allDone.length, 0, 'a fully finished list leaves no panel behind');
 const running = transcript.renderTodoPanel(done4, 100);
 assert.ok(running.length > 1, 'while running the items stay visible');
 assert.match(running[0].text, /4\/5 done/);
 ok('the checklist collapses when the run ends (open items are disclosed)');
+
+// 2b. A new run drops the previous run's checklist before the first event.
+{
+  const store = {
+    rows: [],
+    todos: [
+      { content: 'old finished item', status: 'completed' },
+      { content: 'old open item', status: 'in_progress' },
+    ],
+    usage: { runTokensIn: 10, runTokensOut: 5, tokensIn: 10, tokensOut: 5 },
+    run: undefined,
+    version: 0,
+    nextId: 1,
+    contextWarned: false,
+  };
+  bridge.beginRun(store);
+  assert.deepEqual(store.todos, [], 'a new prompt must not inherit the old checklist');
+  assert.equal(store.run.running, true);
+}
+ok("beginRun clears the previous run's checklist");
 
 // 3. A failed exec states its error once, not twice.
 const failed = transcript.renderTranscriptRow(

@@ -1227,6 +1227,8 @@ export async function runInteractive(
       continue;
     }
 
+    // One checklist per turn: /todos must not echo the previous turn's list.
+    liveTodos = [];
     await openCheckpoint(msg.slice(0, 60));
     // B125: the note rides exactly one turn, then the conversation owns the rest.
     const carriedRunContext = pendingRunContext;

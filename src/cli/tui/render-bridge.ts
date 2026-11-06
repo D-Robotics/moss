@@ -770,6 +770,9 @@ export function beginRun(store: TuiStore, options: { resumeHint?: boolean } = {}
   };
   store.usage.runTokensIn = 0;
   store.usage.runTokensOut = 0;
+  // A checklist belongs to one run: a new prompt must not inherit the previous
+  // run's finished list at the bottom of the screen.
+  store.todos = [];
   store.version++;
 }
 
