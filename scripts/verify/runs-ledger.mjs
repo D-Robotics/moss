@@ -135,14 +135,38 @@ try {
     MOSS_NO_TUI: '1',
     MOSS_LANG: 'en',
   };
-  const cli = (args) =>
+  // Most assertions run the command in-process (the probe is already a Node
+  // process): 27 CLI boots were the stage's whole cost on CI. Two real-binary
+  // spawns below still prove the CLI wiring.
+  process.env.MOSS_LANG = 'en';
+  const { runRunsCommand } = await import(
+    pathToFileURL(path.join(root, 'dist/cli/runs-command.js')).href
+  );
+  const realCli = (args) =>
     captureProcess(process.execPath, [path.join(root, 'dist', 'cli.js'), ...args], {
       cwd: ws,
       env,
       timeoutMs: 60_000,
     });
-  const listed = await cli(['runs', 'list', '--json']);
-  assert.equal(listed.status, 0, listed.stderr);
+  const cli = async (args) => {
+    let stdout = '';
+    let stderr = '';
+    const status = await runRunsCommand(args[0] === 'runs' ? args.slice(1) : args, {
+      workspace: ws,
+      output: (stream, text) => {
+        if (stream === 'stdout') stdout += text;
+        else stderr += text;
+      },
+    });
+    return { status, stdout, stderr };
+  };
+  const listed = await realCli(['runs', 'list', '--json']);
+  assert.equal(
+    listed.status,
+    0,
+    `status ${String(listed.status)} stderr=${listed.stderr} stdout=${listed.stdout}`
+  );
+  assert.ok(listed.stdout.trim(), `empty stdout (stderr=${listed.stderr})`);
   const listedJson = JSON.parse(listed.stdout);
   assert.equal(listedJson.version, 1);
   assert.equal(listedJson.total, 2);
@@ -152,8 +176,13 @@ try {
   );
   assert.equal(listedJson.counts.verify_failed, 1);
 
-  const shown = await cli(['runs', 'show', 'latest', '--json']);
-  assert.equal(shown.status, 0, shown.stderr);
+  const shown = await realCli(['runs', 'show', 'latest', '--json']);
+  assert.equal(
+    shown.status,
+    0,
+    `status ${String(shown.status)} stderr=${shown.stderr} stdout=${shown.stdout}`
+  );
+  assert.ok(shown.stdout.trim(), `empty show stdout (stderr=${shown.stderr})`);
   assert.equal(JSON.parse(shown.stdout).runId, 'task_paused');
 
   const filtered = await cli(['runs', 'list', '--status', 'fail', '--json']);
