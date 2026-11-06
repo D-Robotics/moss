@@ -544,6 +544,73 @@ ok('the resume picker shows a loading line, then the empty line');
 }
 ok('undo after dropping turns notes that the scrollback is no longer in context');
 
+// 5m. B259: a folded narration line says how to expand; provider errors carry
+// the endpoint/error code; a failed run says "failed", not "worked".
+{
+  const longNarration = {
+    id: 41,
+    kind: 'assistant',
+    text: 'Authority: the locked test is the contract here. '.repeat(8),
+    progress: true,
+  };
+  const foldedLong = transcript
+    .renderTranscriptRow(longNarration, 80)
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(foldedLong, /ctrl\+o/, 'a truncated folded narration points at ctrl+o');
+  const foldedShort = transcript
+    .renderTranscriptRow({ id: 42, kind: 'assistant', text: 'short note', progress: true }, 80)
+    .map((line) => line.text)
+    .join('\n');
+  assert.doesNotMatch(foldedShort, /ctrl\+o/);
+
+  const raw = 'TypeError: fetch failed at https://api.example/v1 (cause ECONNREFUSED)';
+  const suffix = renderBridge.errorDetailSuffix(raw, 'Could not connect. Check the base URL.');
+  assert.match(suffix, /ECONNREFUSED/);
+  assert.match(suffix, /https:\/\/api\.example\/v1/);
+  assert.equal(
+    renderBridge.errorDetailSuffix(raw, 'failed (ECONNREFUSED · https://api.example/v1)'),
+    ''
+  );
+  assert.equal(renderBridge.errorDetailSuffix(undefined, 'x'), '');
+
+  const failedSummary = transcript
+    .renderRunSummary(1_000, false, 120, { input: 1, output: 1 }, new Date(), '', true)
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(failedSummary, /failed after 1s/);
+  assert.doesNotMatch(failedSummary, /worked for/);
+  const okSummary = transcript
+    .renderRunSummary(1_000, false, 120, { input: 1, output: 1 }, new Date(), '')
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(okSummary, /worked for 1s/);
+}
+ok('folded narration, provider error details and failed-run summary are honest');
+
+// 5n. B259 (network): a connection failure names the endpoint it tried.
+{
+  const store = renderBridge.createTuiStore();
+  store.run.baseUrl = 'http://127.0.0.1:9/v1';
+  renderBridge.applyAgentEvent(store, {
+    type: 'error',
+    error: 'fetch failed',
+    retriable: true,
+    errorSurface: {
+      category: 'network',
+      userMessage: 'Could not connect. Check the base URL and your network, then retry.',
+      actions: [],
+      silent: false,
+      retryable: true,
+    },
+  });
+  const errorRow = store.rows.find((row) => row.kind === 'error');
+  assert.ok(errorRow, 'an error row is written');
+  assert.match(errorRow.text, /http:\/\/127\.0\.0\.1:9\/v1/);
+  assert.equal(store.run.lastError !== undefined, true);
+}
+ok('a network error row names the base URL and marks the run failed');
+
 // 6. B194: the status row labels each number instead of imploding.
 {
   const en = statusLine.formatStatusLine({

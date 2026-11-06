@@ -288,10 +288,16 @@ export function welcomeComposerSuggestion(
   zh = isZhLocale()
 ): string | undefined {
   const t = (en: string, cn: string): string => (zh ? cn : en);
+  // B260: a ledger `next` may be advice prose ("make the run perform the check…")
+  // rather than a command; "Resume with <prose>" reads like a broken command.
+  const runnable = (value: string | undefined): value is string =>
+    typeof value === 'string' && /^(?:moss\s|\/)/.test(value.trim());
   if (latest && latest.status === 'running') {
-    return t(`In progress — ${latest.next}`, `进行中：${latest.next}`);
+    return runnable(latest.next)
+      ? t(`In progress — ${latest.next}`, `进行中：${latest.next}`)
+      : t('In progress — see /runs', '进行中：见 /runs');
   }
-  if (latest && latest.status !== 'completed' && latest.next) {
+  if (latest && latest.status !== 'completed' && runnable(latest.next)) {
     return t(`Resume with ${latest.next}`, `继续：${latest.next}`);
   }
   // B192: `/init` is already the `Next:` row; repeating it as the composer
@@ -379,7 +385,18 @@ export function renderWelcomeContextLines(
       : `moss runs show latest    ${t('(in progress)', '（进行中）')}`;
   } else if (latest && latest.status !== 'completed' && latest.next) {
     const resume = /^moss task resume (\S+)$/.exec(latest.next);
-    next = interactive && resume ? `/goal resume ${resume[1]}` : latest.next;
+    // B260: some ledger `next` values are advice prose, not commands
+    // ("finish the work, then re-run"). A first screen should offer an
+    // actionable step; the advice stays on the last-run line above.
+    const runnable = /^(?:moss\s|\/)/.test(latest.next.trim());
+    next =
+      interactive && resume
+        ? `/goal resume ${resume[1]}`
+        : runnable
+          ? latest.next
+          : interactive
+            ? `/runs    ${t('(see what happened)', '（看运行记录）')}`
+            : `moss runs    ${allRuns}`;
   } else if (latest) {
     // B157: a completed run's happy path is reviewing the change, not reading the
     // ledger; the ledger is one command away if the user wants it.

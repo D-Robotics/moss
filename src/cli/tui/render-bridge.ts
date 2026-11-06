@@ -113,6 +113,10 @@ export interface TuiRunState {
   streamingText: string;
   toolLine?: string;
   halted?: boolean;
+  /** B259: last error row of this run, so the run summary can say failed. */
+  lastError?: string;
+  /** Provider endpoint of this run, so a network failure names where it tried. */
+  baseUrl?: string;
   /** Inputs of in-flight tool calls, keyed by call id (tool_end summarizes). */
   toolInputs: Map<string, { name: string; input: Record<string, unknown> }>;
   /** Latest provider retry notice (shown in the live region until progress). */
@@ -508,6 +512,26 @@ export function reconcileFinalResponse(store: TuiStore, response: string | undef
   store.version++;
 }
 
+const ERROR_ENDPOINT_RE = /https?:\/\/[^\s)]+/i;
+const ERROR_CODE_RE =
+  /\b(ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH|EPIPE|certificate|401|403)\b/i;
+
+/**
+ * B259: the provider surface says "Could not connect" without saying to what —
+ * the raw error carries the endpoint and the OS error code. Append them when the
+ * reading does not already mention them.
+ */
+export function errorDetailSuffix(raw: unknown, message: string): string {
+  const text = typeof raw === 'string' ? raw : raw instanceof Error ? raw.message : '';
+  if (!text) return '';
+  const code = ERROR_CODE_RE.exec(text)?.[1];
+  const endpoint = ERROR_ENDPOINT_RE.exec(text)?.[0];
+  const parts = [code, endpoint].filter(
+    (part): part is string => Boolean(part) && !message.includes(part!)
+  );
+  return parts.length > 0 ? ` (${parts.join(' · ')})` : '';
+}
+
 /**
  * Feed one MossAgentEvent into the store. Mirrors the REPL renderer's shape:
  * text deltas stream into a live tail, tool calls surface as one system line,
@@ -721,7 +745,16 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         noteInterrupt(store);
         break;
       }
-      appendRow(store, 'error', message);
+      let detail = errorDetailSuffix(event.error, message);
+      // The classifier's surface is deliberately generic; for a network failure
+      // the endpoint is the one fact that tells "wrong base URL" from "offline".
+      // Any provider error is easier to act on with the endpoint named.
+      if (!detail && store.run.baseUrl) {
+        detail = ` (${store.run.baseUrl})`;
+      }
+      const withDetail = `${message}${detail}`;
+      store.run.lastError = withDetail.split('\n')[0] ?? withDetail;
+      appendRow(store, 'error', withDetail);
       break;
     }
     case 'llm_usage': {

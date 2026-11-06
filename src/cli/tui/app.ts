@@ -1310,6 +1310,7 @@ export function TuiAppRoot({
       runtime.beginRun();
       const resumeHint = messageRequestsTaskContract(message);
       beginRun(store, { resumeHint });
+      if (options.agent.config.baseUrl) store.run.baseUrl = options.agent.config.baseUrl;
       runStartedAtRef.current = Date.now();
       handle.notify();
       const controller = new AbortController();
@@ -1388,6 +1389,7 @@ export function TuiAppRoot({
       // Completed-and-nothing-to-add runs keep only the `✻ worked for` stamp;
       // formatOutcomeLine stays mandatory for headless output (run-outcome).
       const outcomeLine = outcomeLineForSummary(outcome, isZhLocale() ? 'zh' : 'en') ?? '';
+      const runFailure = store.run.lastError;
       endRun(store, halted);
       if (startedAt !== undefined) {
         // Claude leaves a finalizing status line in the transcript; keep the
@@ -1402,7 +1404,8 @@ export function TuiAppRoot({
             output: store.usage.runTokensOut,
           },
           new Date(),
-          outcomeLine
+          outcomeLine,
+          runFailure !== undefined
         );
         for (const entry of summary) {
           const text = entry.text.trim();
@@ -1647,6 +1650,7 @@ export function TuiAppRoot({
         appendRow(store, 'user', display ?? `/task ${parsed.join(' ')}`);
         runtime.beginRun();
         beginRun(store, { resumeHint: true });
+        if (options.agent.config.baseUrl) store.run.baseUrl = options.agent.config.baseUrl;
         runStartedAtRef.current = Date.now();
         const controller = new AbortController();
         abortRef.current = controller;

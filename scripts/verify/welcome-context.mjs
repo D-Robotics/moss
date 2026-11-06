@@ -13,8 +13,13 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const { formatPreviousSessionHint, renderWelcomeContextLines, renderNextHint, formatAgo } =
-  await import(pathToFileURL(path.join(root, 'dist/cli/onboarding.js')).href);
+const {
+  formatPreviousSessionHint,
+  renderWelcomeContextLines,
+  renderNextHint,
+  formatAgo,
+  welcomeComposerSuggestion,
+} = await import(pathToFileURL(path.join(root, 'dist/cli/onboarding.js')).href);
 
 let checks = 0;
 const ok = (name) => {
@@ -100,9 +105,33 @@ try {
   {
     const { lines, next } = renderWelcomeContextLines(ws, false);
     assert.match(lines[0], /unverified · 10s ago · chat chat_unverified/);
-    assert.match(next, /actually perform the check/);
+    // B260: advice prose stays on the last-run line; Next is actionable.
+    assert.match(next, /^moss runs/);
+    assert.match(renderWelcomeContextLines(ws, false, 'interactive').next, /^\/runs/);
   }
-  ok('an unverified chat run keeps its recorded next step');
+  ok('an unverified chat run with prose advice falls back to the ledger command');
+  // B260: advice prose is not a command — the composer must not say
+  // "Resume with make the run actually perform…".
+  assert.equal(
+    welcomeComposerSuggestion(
+      {
+        status: 'unverified',
+        next: 'make the run actually perform the check it claims, then re-run',
+      },
+      false
+    ),
+    undefined
+  );
+  assert.match(
+    welcomeComposerSuggestion({ status: 'verify_failed', next: 'moss task resume t1' }, false) ??
+      '',
+    /Resume with moss task resume t1/
+  );
+  assert.match(
+    welcomeComposerSuggestion({ status: 'running', next: 'see what happened' }, false) ?? '',
+    /In progress — see \/runs/
+  );
+  ok('the composer only offers to run a real command');
 
   // 6. Chinese labels and malformed records.
   await fs.mkdir(path.join(ws, '.moss', 'runs', 'broken'), { recursive: true });
@@ -110,7 +139,7 @@ try {
   {
     const { lines, next } = renderWelcomeContextLines(ws, true);
     assert.match(lines[0], /上次运行/);
-    assert.match(next, /actually perform the check/);
+    assert.match(next, /^moss runs/);
   }
   ok('Chinese labels render and a half-written record is skipped');
 
@@ -124,9 +153,9 @@ try {
   // 8. B144: the empty composer suggests resuming / onboarding, not a slogan.
   {
     const { suggestion } = renderWelcomeContextLines(ws, false);
-    assert.match(suggestion ?? '', /^Resume with make the run actually perform the check/);
-    const zh = renderWelcomeContextLines(ws, true).suggestion;
-    assert.match(zh ?? '', /^继续：make the run actually perform the check/);
+    // B260: the pending chat run's `next` is advice prose, not a command; the
+    // composer no longer pretends it can be "resumed".
+    assert.equal(suggestion, undefined);
 
     const fresh = path.join(tmp, 'fresh-composer');
     await fs.mkdir(fresh, { recursive: true });

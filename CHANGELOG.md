@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Failed runs say failed, name the endpoint, and folded narration says ctrl+o (B259)
+
+- A network failure showed `Could not connect…` with no endpoint and closed with `✻ worked for 1s` — the
+  opposite of what happened. The error row now appends the provider base URL when the classifier's text
+  cannot name it, and the run summary says `✻ failed after Ns`. Folded narration lines that get truncated
+  now end with `· ctrl+o` (a bare `…` read as an unfinished sentence with no way to open it).
+
+### 失败运行说 failed、给出 endpoint，折叠叙述提示 ctrl+o（B259）
+
+- 网关不可达时错误行只有 `Could not connect…`（没有 endpoint），收尾却是 `✻ worked for 1s`——与事实相反。
+  现在错误行在分类文案无法给出地址时追加 provider base URL，运行收尾显示 `✻ failed after Ns`；
+  被截断的折叠叙述行以 `· ctrl+o` 结尾（此前只有 `…`，像没说完又没有展开入口）。
+
+### Ledger advice is not a command: Next/composer fall back to the ledger (B260)
+
+- An incomplete chat run records advice (`finish the work, then re-run`) as its `next`; the first screen
+  printed it as `Next: …` and the composer offered `Resume with finish the work, then re-run`. Both now
+  require a runnable command (`moss …` or `/…`); prose advice stays on the last-run line and the next step
+  falls back to `/runs` (interactive) or `moss runs`.
+
+### 账本里的建议不是命令：Next/占位符回退到账本（B260）
+
+- 未完成的 chat 运行会把建议（`finish the work, then re-run`）写进 `next`；首屏把它当命令显示为 `Next: …`，
+  占位符还提示 `Resume with finish the work, then re-run`。现在两者都要求可执行命令（`moss …` 或 `/…`）；
+  建议文案留在 last-run 行，下一步回退为 `/runs`（交互）或 `moss runs`。
+
 ### Nudges decide on the user's words, not the injected context (B258)
 
 - The 4th read-only audit showed an ordinary "run the tests and tell me the result in one line" answered in

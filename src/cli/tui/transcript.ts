@@ -704,9 +704,12 @@ export function renderTranscriptRow(
       // the answer — fold it to one dim line (verbose expands it).
       if (row.progress === true && !verbose) {
         const text = row.text.replace(/\s+/g, ' ').trim();
-        out.push(
-          line(clip(`${ANSWER_MARK} ${clip(text, Math.max(4, width - 4))}`, width), { dim: true })
-        );
+        // B259: a folded narration line says how to open it; a bare `…` read as
+        // a truncated sentence with no way forward.
+        const suffix = tui(' · ctrl+o');
+        const available = Math.max(4, width - 4 - displayWidth(suffix));
+        const body = displayWidth(text) > available ? `${clip(text, available)}${suffix}` : text;
+        out.push(line(clip(`${ANSWER_MARK} ${body}`, width), { dim: true }));
         return out;
       }
       if (!verbose) {
@@ -1181,7 +1184,9 @@ export function renderRunSummary(
   _tokens?: { input: number; output: number },
   now: Date = new Date(),
   /** O98 conclusion line (完成 / 未完成 / 未验证 / …); shown under the done stamp. */
-  outcomeLine?: string
+  outcomeLine?: string,
+  /** B259: the run ended on a provider/tool error; "worked" would be dishonest. */
+  failed = false
 ): TuiLine[] {
   const seconds = Math.max(1, Math.round(elapsedMs / 1000));
   const verb = runVerb(seconds);
@@ -1196,7 +1201,9 @@ export function renderRunSummary(
   });
   const text = halted
     ? tui('✻ {verb} for {seconds}s · interrupted', { verb, seconds })
-    : tui('✻ worked for {seconds}s{doneAt}', { seconds, doneAt });
+    : failed
+      ? tui('✻ failed after {seconds}s{doneAt}', { seconds, doneAt })
+      : tui('✻ worked for {seconds}s{doneAt}', { seconds, doneAt });
   const out: TuiLine[] = [line(''), line(clip(text, width), { dim: true })];
   const conclusion = outcomeLine?.trim();
   if (conclusion && !halted) {
