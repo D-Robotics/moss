@@ -406,7 +406,11 @@ ok('repair attempts cap at 3 and only count distinct failing diffs');
   await git(repo, ['reset', '-q', 'HEAD', 'a.txt']);
   const unstaged = await runWorkingTreeDiff(repo);
   assert.match(unstaged.output, /\+two/, 'an unstaged change stays visible');
-  ok('/diff sees staged and unstaged changes');
+  await fs.writeFile(path.join(repo, 'new-file.txt'), 'new\n');
+  const withUntracked = await runWorkingTreeDiff(repo);
+  assert.match(withUntracked.output, /Untracked files \(1\):/, 'untracked files are named');
+  assert.match(withUntracked.output, /\?\? new-file\.txt/);
+  ok('/diff sees staged, unstaged and untracked changes');
 }
 
 // B211: the global `--json` flag must reach `review list` through the real CLI

@@ -535,5 +535,24 @@ export async function runWorkingTreeDiff(
     output += stat.output + full.output;
     exitCode = full.exitCode;
   }
+  // B214: a newly created file is untracked, so `git diff HEAD` is silent and
+  // `/diff` claimed "no changes" right after the agent wrote files. Name them
+  // (capped) instead of showing their contents in the diff gutter.
+  const status = await captureGit(['status', '--porcelain', '--untracked-files=normal'], cwd);
+  if (status.exitCode === 0) {
+    const untracked = status.output
+      .split('\n')
+      .filter((line) => line.startsWith('?? '))
+      .map((line) => line.slice(3).trim())
+      .filter(Boolean);
+    if (untracked.length > 0) {
+      const shown = untracked.slice(0, 10);
+      output += `\nUntracked files (${untracked.length}):\n${shown
+        .map((file) => `  ?? ${file}`)
+        .join('\n')}${
+        untracked.length > shown.length ? `\n  … and ${untracked.length - shown.length} more` : ''
+      }\n`;
+    }
+  }
   return { output, exitCode };
 }

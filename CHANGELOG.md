@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `/diff` names untracked files too (B214)
+
+- A newly created file is untracked, so `git diff HEAD` was silent: right after the agent wrote new
+  files, `/diff` claimed "(no changes)". Diff output now ends with `Untracked files (N):` and up to ten
+  `?? path` lines (then `… and N more`), so a new file is visible without dumping its contents into the
+  diff gutter.
+
+### `/diff` 也会列出未跟踪的新文件（B214）
+
+- 新建文件处于未跟踪状态，`git diff HEAD` 对它静默：模型刚写完新文件时 `/diff` 会显示 "(no changes)"。
+  现在 diff 输出末尾追加 `Untracked files (N):` 与最多十行 `?? path`（超出显示 `… and N more`），
+  新文件可见，同时不会把内容灌进 diff gutter。
+
 ### `/diff` shows staged changes too (B213)
 
 - `/diff` ran `git diff`, which only covers unstaged edits: after `git add`, the file looked unchanged
