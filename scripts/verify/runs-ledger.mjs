@@ -576,6 +576,31 @@ try {
     1
   );
   ok('a running row from writeRunningRecord is replaced by the final record');
+
+  // 15. B182: filtered export is a combined PR/CI report.
+  const bulk = await cli(['runs', 'export', '--since', '24h', '--format', 'md']);
+  assert.equal(bulk.status, 0, bulk.stderr);
+  assert.match(bulk.stdout, /^# Moss runs — since 24h \(\d+\)/);
+  assert.match(bulk.stdout, /^## Run /m);
+  assert.match(bulk.stdout, /^---$/m);
+  const bulkJson = JSON.parse(
+    (await cli(['runs', 'export', '--since', '24h', '--kind', 'task', '--limit', '1', '--json']))
+      .stdout
+  );
+  assert.equal(bulkJson.kind, 'task');
+  assert.equal(bulkJson.limit, 1);
+  assert.equal(bulkJson.runs.length, 1);
+  assert.equal(bulkJson.runs[0].kind, 'task');
+  assert.ok(bulkJson.ledgerRuns >= bulkJson.total);
+  const bulkOut = await cli(['runs', 'export', '--since', '24h', '--out', 'runs-report.md']);
+  assert.equal(bulkOut.status, 0, bulkOut.stderr);
+  assert.match(await fs.readFile(path.join(ws, 'runs-report.md'), 'utf8'), /^# Moss runs/);
+  const emptyBulk = await cli(['runs', 'export', '--since', '2100-01-01', '--format', 'md']);
+  assert.equal(emptyBulk.status, 0);
+  assert.match(emptyBulk.stdout, /_no runs match_/);
+  assert.equal((await cli(['runs', 'export', '--kind', 'nope'])).status, 2);
+  assert.equal((await cli(['runs', 'export', 'task_pass', '--since', '24h'])).status, 2);
+  ok('a filtered export renders a combined report (md/json/--out) and validates filters');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

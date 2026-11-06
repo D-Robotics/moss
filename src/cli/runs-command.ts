@@ -34,7 +34,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '用法：',
       '  moss runs [list] [--limit N] [--status <状态>] [--kind <引擎>] [--since <时长|日期>] [--json]',
       '  moss runs show [<run_id>|latest] [--json]',
-      '  moss runs export [<run_id>|latest] [--format md|json] [--out <文件>]',
+      '  moss runs export [<run_id>|latest] [--since <时长|日期>] [--kind <引擎>] [--limit N] [--format md|json] [--out <文件>]',
       '  moss runs summary [--since <时长|日期>] [--kind <引擎>] [--by day|week|model] [--json]',
       '  moss runs prune [--keep N] [--dry-run] [--json]',
       '',
@@ -58,7 +58,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
     'Usage:',
     '  moss runs [list] [--limit N] [--status <status>] [--kind <engine>] [--since <window|date>] [--json]',
     '  moss runs show [<run_id>|latest] [--json]',
-    '  moss runs export [<run_id>|latest] [--format md|json] [--out <file>]',
+    '  moss runs export [<run_id>|latest] [--since <window|date>] [--kind <engine>] [--limit N] [--format md|json] [--out <file>]',
     '  moss runs summary [--since <window|date>] [--kind <engine>] [--by day|week|model] [--json]',
     '  moss runs prune [--keep N] [--dry-run] [--json]',
     '',
@@ -633,6 +633,9 @@ export async function runRunsCommand(
     let json = ctx.outputJson === true;
     let out: string | undefined;
     let target: string | undefined;
+    let since: { cutoff: number; label: string } | undefined;
+    let kind: RunKind | undefined;
+    let limit: number | undefined;
     for (let i = 0; i < rest.length; i += 1) {
       const arg = rest[i] as string;
       if (arg === '--json') json = true;
@@ -646,6 +649,31 @@ export async function runRunsCommand(
           output('stderr', `unknown --format ${value}; use md or json\n`);
           return 2;
         }
+      } else if (arg === '--since' || arg.startsWith('--since=')) {
+        const raw = arg.includes('=') ? arg.slice('--since='.length) : (rest[++i] ?? '');
+        const parsed = parseSinceValue(raw);
+        if (!parsed) {
+          output('stderr', '--since must be a duration (90s, 30m, 24h, 7d) or a date\n');
+          return 2;
+        }
+        since = parsed;
+      } else if (arg === '--kind' || arg.startsWith('--kind=')) {
+        const raw = (
+          arg.includes('=') ? arg.slice('--kind='.length) : (rest[++i] ?? '')
+        ).toLowerCase();
+        if (!RUN_KINDS.includes(raw as RunKind)) {
+          output('stderr', `unknown --kind ${raw}; use ${RUN_KINDS.join(', ')}\n`);
+          return 2;
+        }
+        kind = raw as RunKind;
+      } else if (arg === '--limit' || arg.startsWith('--limit=')) {
+        const raw = arg.includes('=') ? arg.slice('--limit='.length) : (rest[++i] ?? '');
+        const value = Number(raw);
+        if (!Number.isInteger(value) || value < 1) {
+          output('stderr', '--limit must be a positive integer\n');
+          return 2;
+        }
+        limit = value;
       } else if (arg === '--out' || arg.startsWith('--out=')) {
         const value = arg.includes('=') ? arg.slice('--out='.length) : (rest[++i] ?? '');
         if (!value) {
@@ -661,6 +689,67 @@ export async function runRunsCommand(
         output('stderr', `unexpected argument ${arg}\n`);
         return 2;
       }
+    }
+    // B182: a filtered export is a combined CI/PR report, not one record.
+    if (since || kind || limit) {
+      if (target !== undefined) {
+        output('stderr', 'a filtered export lists records; omit the run id\n');
+        return 2;
+      }
+      const all = await listRunRecords(ctx.workspace);
+      const filtered = all
+        .filter(
+          (record) => (!kind || record.kind === kind) && (!since || record.endedAt >= since.cutoff)
+        )
+        .slice(0, limit ?? all.length);
+      const filters = [
+        ...(since ? [`since ${since.label}`] : []),
+        ...(kind ? [`kind ${kind}`] : []),
+        ...(limit ? [`limit ${String(limit)}`] : []),
+      ].join(', ');
+      const text = json
+        ? `${JSON.stringify(
+            {
+              version: 1,
+              total: filtered.length,
+              ledgerRuns: all.length,
+              ...(since ? { since: new Date(since.cutoff).toISOString() } : {}),
+              ...(kind ? { kind } : {}),
+              ...(limit ? { limit } : {}),
+              runs: filtered,
+            },
+            null,
+            2
+          )}\n`
+        : [
+            `# Moss runs${filters ? ` — ${filters}` : ''} (${String(filtered.length)})`,
+            '',
+            ...(filtered.length === 0
+              ? ['_no runs match_']
+              : filtered
+                  .map((record) => renderRunMarkdown(record))
+                  .flatMap((section, index) => (index === 0 ? [section] : ['---', '', section]))),
+            '',
+          ].join('\n');
+      if (out) {
+        const { mkdir, writeFile } = await import('node:fs/promises');
+        const { dirname, resolve } = await import('node:path');
+        const absolute = resolve(ctx.workspace, out);
+        try {
+          await mkdir(dirname(absolute), { recursive: true });
+          await writeFile(absolute, text, 'utf8');
+        } catch (err) {
+          output(
+            'stderr',
+            `moss runs export: ${err instanceof Error ? err.message : String(err)}\n`
+          );
+          return 1;
+        }
+        output('stdout', `${uiText('wrote', '已写入')} ${out}\n`);
+      } else {
+        output('stdout', text);
+      }
+      return 0;
     }
     const record = await readRunRecord(ctx.workspace, target ?? 'latest');
     if (!record) {
