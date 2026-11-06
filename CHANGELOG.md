@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### The status row stops saying "price unknown" forever (B188)
+
+- On an unpriced gateway (the common local setup) the TUI status row carried a permanent
+  `price unknown` label on every frame — noise, not information. The label is gone; cost still shows
+  when it is actually computable, and `/usage` plus the run ledger still state that pricing is
+  unavailable. The headless profile keeps its honest `cost: unpriced` wording.
+- Verification: the three `moss doctor` boots in the tiny-window gate now run concurrently, cutting
+  that stage from ~26s on CI to ~2s locally; the gate regains a comfortable budget margin.
+
+### 状态行不再永久显示 "price unknown"（B188）
+
+- 在没有公开定价的网关上（本地常见配置），TUI 状态行每一帧都挂着 `price unknown`——这是噪音而不是信息。
+  该标签已去掉；可计算时仍显示费用，`/usage` 与运行账本仍如实说明无法定价。headless 输出保留诚实的 `cost: unpriced`。
+- 验证：tiny-window 门禁里的三次 `moss doctor` 启动改为并发，该 stage 从 CI 上约 26s 降到本地约 2s，门禁预算余量恢复。
+
 ### The built-in discipline prompt was dead code; it is installed now, with a communication contract (B187)
 
 - `buildMossDefaultWorkflowPrompt()` was exported but never added to any prompt layer, so a workspace
