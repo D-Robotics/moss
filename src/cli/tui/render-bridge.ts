@@ -80,6 +80,8 @@ export interface TranscriptRow {
   tool?: ToolRowMeta;
   /** Later block of an answer that already has its ⏺ row. */
   continuation?: boolean;
+  /** Pre-tool narration: dim, single line (verbose shows it in full). */
+  progress?: boolean;
 }
 
 export interface TuiRunState {
@@ -282,6 +284,19 @@ function capThinking(text: string): string {
 function rememberFlushed(store: TuiStore, text: string): void {
   if (!text.trim()) return;
   store.run.flushed = [...(store.run.flushed ?? []), text];
+}
+
+/**
+ * B220: an assistant paragraph immediately followed by a tool call is progress
+ * narration, not the answer. Mark it so the renderer can fold it to one dim line
+ * (the final answer stays full); replacing the row object invalidates the
+ * per-row projection cache.
+ */
+export function markProgressNarration(store: TuiStore): void {
+  const index = store.rows.length - 1;
+  const last = store.rows[index];
+  if (last?.kind !== 'assistant' || last.progress === true) return;
+  store.rows[index] = { ...last, progress: true };
 }
 
 export function flushProse(store: TuiStore): void {
@@ -548,6 +563,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
     }
     case 'tool_start': {
       closeThinking(store);
+      markProgressNarration(store);
       store.run.retry = undefined;
       // The call itself is transcript content (`⏺ Write(hello.txt)`), not just a
       // status line: it is what the user scrolls back to.

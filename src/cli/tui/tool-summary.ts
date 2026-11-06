@@ -102,6 +102,12 @@ export function summarizeToolCompletion(
     return { summary: detail ? tui('failed — {detail}', { detail }) : tui('failed') };
   }
 
+  // `exit_plan` prints the whole plan again, but the plan itself is already on
+  // screen and the gate panel offers the decision. One line is the receipt.
+  if (toolName === 'exit_plan') {
+    return { summary: tui('Plan submitted for approval'), dropBody: true };
+  }
+
   // run_tests carries a structured verdict — that verdict is the single most
   // useful line of the whole result.
   const verification = summarizeVerificationResult(toolName, body);

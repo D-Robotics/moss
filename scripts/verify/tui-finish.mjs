@@ -16,6 +16,7 @@ const load = (relative) => import(pathToFileURL(path.join(root, relative)).href)
 const transcript = await load('dist/cli/tui/transcript.js');
 const renderer = await load('dist/cli/tui/renderer.js');
 const toolSummary = await load('dist/cli/tui/tool-summary.js');
+const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
 const bridge = await load('dist/cli/tui/render-bridge.js');
 const markdown = await load('dist/cli/tui/markdown.js');
@@ -360,6 +361,40 @@ ok('an empty search summary says No matches, not Found 1 match');
   assert.match(generic, /Esc to skip/);
 }
 ok('the status row can say "Esc keeps planning" for the plan gate');
+
+// 5e. B220: pre-tool narration folds to one dim line; the answer stays full and
+//     `exit_plan` prints a receipt instead of repeating the plan.
+{
+  const narration = {
+    id: 40,
+    kind: 'assistant',
+    text: "I'll read both files first, then make the changes.",
+    progress: true,
+  };
+  const folded = transcript.renderTranscriptRow(narration, 120).filter((r) => r.text.trim());
+  assert.equal(folded.length, 1);
+  assert.equal(folded[0].dim, true);
+  assert.match(folded[0].text, /I'll read both files first/);
+  const verbose = transcript.renderTranscriptRow(narration, 120, true).filter((r) => r.text.trim());
+  assert.ok(!verbose.every((r) => r.dim), 'verbose does not dim narration');
+
+  const store = { rows: [{ id: 1, kind: 'assistant', text: 'progress' }], version: 0 };
+  renderBridge.markProgressNarration(store);
+  assert.equal(store.rows[0].progress, true);
+  const userStore = { rows: [{ id: 2, kind: 'user', text: 'hi' }], version: 0 };
+  renderBridge.markProgressNarration(userStore);
+  assert.equal(userStore.rows[0].progress, undefined, 'user rows are never folded');
+
+  const plan = toolSummary.summarizeToolCompletion(
+    'exit_plan',
+    {},
+    'Append subtract() to sum.js and add a test; run node --test.',
+    false
+  );
+  assert.equal(plan.dropBody, true);
+  assert.match(plan.summary, /Plan submitted for approval/);
+}
+ok('pre-tool narration folds, and exit_plan does not reprint the plan');
 
 // 6. B194: the status row labels each number instead of imploding.
 {

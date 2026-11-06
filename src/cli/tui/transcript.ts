@@ -700,6 +700,15 @@ export function renderTranscriptRow(
       // Answers are markdown: headings/code/lists get their own projection while
       // the ⏺ + 2-space continuation grammar stays exactly as it was.
       // A continuation row is a later block of the same answer (stream commit).
+      // B220: narration immediately followed by a tool call is progress, not
+      // the answer — fold it to one dim line (verbose expands it).
+      if (row.progress === true && !verbose) {
+        const text = row.text.replace(/\s+/g, ' ').trim();
+        out.push(
+          line(clip(`${ANSWER_MARK} ${clip(text, Math.max(4, width - 4))}`, width), { dim: true })
+        );
+        return out;
+      }
       if (!verbose) {
         const aside = metaAsideLine(row.text);
         if (aside) {

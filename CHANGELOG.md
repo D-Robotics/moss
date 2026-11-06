@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Pre-tool narration folds, and `exit_plan` stops reprinting the plan (B220)
+
+- The second audit's top issue was "the same thing said four times": an assistant paragraph immediately
+  followed by a tool call (progress narration) was rendered as a full answer block, then the real answer
+  repeated it, and `exit_plan` re-dumped the entire plan already visible above the gate.
+- When a tool starts, the preceding assistant row is marked as progress and rendered as one dim line
+  (verbose reveals it); the final answer keeps its full markdown. `exit_plan` now summarizes as
+  `Plan submitted for approval` and drops its body, so the plan appears once (in the plan message) plus
+  the gate panel's decision.
+
+### 工具调用前的叙述折叠，`exit_plan` 不再重打印计划（B220）
+
+- 第二轮审计的头号问题是"同一件事说四遍"：紧接工具调用的 assistant 段落（进度叙述）被当成完整回答渲染，
+  真正回答又重复一遍；`exit_plan` 还把已经显示在上方的整份计划再打印一次。
+- 工具开始时把前一条 assistant 行标记为 progress，渲染为一行 dim（verbose 展开）；最终回答保持完整 markdown。
+  `exit_plan` 现在摘要为 `Plan submitted for approval` 并丢弃正文，计划只出现在计划消息与 gate 面板决策中。
+
 ### A real-TUI re-audit: stale wait verbs, stale interrupt hint, lying search summaries (B219)
 
 A second read-only UX audit (3 real sessions) found the next layer of friction. This round fixes three
