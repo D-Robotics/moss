@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Two ledger safety fixes: prune keeps in-flight runs, export stays in the workspace (B184)
+
+- `moss runs prune` could delete a `running` row that happened to be older than the newest N runs.
+  That row is the only place the owner pid lives, so a live run would lose its in-progress record.
+  Prune now never removes `running` rows (a reconciled `paused` row is history and may be removed).
+- `moss runs export --out ../x.md` (single or filtered) wrote outside the workspace, unlike every
+  other user-visible artifact. `--out` is now confined to the workspace and escapes exit 2 with a
+  clear message; no file is written.
+
+### 两处账本安全修复：prune 保留进行中运行，export 不写工作区外（B184）
+
+- `moss runs prune` 可能删掉一条比最新 N 条更旧的 `running` 行——那是进程 pid 唯一的落点，
+  删除会让正在跑的任务失去进行中记录。现在 prune 永不删除 `running` 行（已归一为 `paused` 的崩溃行属于历史，可以删）。
+- `moss runs export --out ../x.md`（单条或过滤合并）会写到工作区之外，与其它用户可见产物不一致。
+  现在 `--out` 限定在工作区内，越界 exit 2 并给出明确信息，且不写任何文件。
+
 ### Watch autonomous runs settle: `moss runs follow` (B183)
 
 - The ledger could be read after the fact; there was no way to watch it like `loop follow` watches a
