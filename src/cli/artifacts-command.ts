@@ -134,14 +134,31 @@ export async function runArtifactsCommand(
   if (kind === 'tasks' || kind === 'history') {
     const snapshots = await listTaskStateSnapshots(ctx.workspace);
     if (snapshots.length === 0) {
-      output('stdout', zh ? '此工作区没有任务。\n' : 'No tasks in this workspace.\n');
+      if (json) {
+        output('stdout', '[]\n');
+      } else {
+        output('stdout', zh ? '此工作区没有任务。\n' : 'No tasks in this workspace.\n');
+      }
       return 0;
     }
     if (kind === 'tasks') {
       output(
         'stdout',
-        `${snapshots.map((snapshot) => `${snapshot.taskId}  ${snapshot.phase}  ${snapshot.goal}`).join('\n')}\n`
+        json
+          ? `${JSON.stringify(snapshots, null, 2)}\n`
+          : `${snapshots.map((snapshot) => `${snapshot.taskId}  ${snapshot.phase}  ${snapshot.goal}`).join('\n')}\n`
       );
+      return 0;
+    }
+    if (json) {
+      const histories = [];
+      for (const snapshot of snapshots) {
+        histories.push({
+          taskId: snapshot.taskId,
+          events: await listTaskEvents(ctx.workspace, snapshot.taskId),
+        });
+      }
+      output('stdout', `${JSON.stringify(histories, null, 2)}\n`);
       return 0;
     }
     const blocks: string[] = [];
@@ -155,6 +172,10 @@ export async function runArtifactsCommand(
 
   // failures
   const failures = await listFailures(ctx.workspace);
+  if (json) {
+    output('stdout', `${JSON.stringify(failures, null, 2)}\n`);
+    return 0;
+  }
   output(
     'stdout',
     failures.length === 0

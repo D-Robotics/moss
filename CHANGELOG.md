@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `moss artifacts --json` returns JSON for every kind (B212)
+
+- `--json` is advertised for the whole command, but only the delegated kinds honored it; `tasks`,
+  `history` and `failures` printed their human text, and the global-flag spelling
+  (`moss --json artifacts …`) was dropped before the handler. All local kinds now emit JSON (empty
+  results are `[]`), and both flag positions work.
+
+### `moss artifacts --json` 对所有 kind 都返回 JSON（B212）
+
+- 帮助里 `--json` 是为整个命令声明的，但只有委托给 task 命令的 kind 生效；`tasks`、`history`、`failures`
+  仍打印人类文本，而且全局写法（`moss --json artifacts …`）在到达 handler 前被丢弃。现在本地 kind 都输出 JSON
+  （空结果为 `[]`），两种 flag 位置都生效。
+
 ### `moss review list --json` actually prints JSON (B211)
 
 - `--json` is a global flag, so the top-level parser removes it from the subcommand args; the review

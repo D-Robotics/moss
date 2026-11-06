@@ -338,7 +338,13 @@ export const COMMANDS: Record<string, CommandConfig> = {
         process.exitCode = ExitCode.USAGE;
         return;
       }
-      const code = await runArtifactsCommand(ctx.commandArgs, { workspace });
+      // B212: `--json` is a global flag and is stripped from commandArgs; the
+      // artifacts handler reads it from its own argv (same trap as review).
+      const argv =
+        ctx.commandArgs.includes('--json') || !ctx.argv.includes('--json')
+          ? ctx.commandArgs
+          : [...ctx.commandArgs, '--json'];
+      const code = await runArtifactsCommand(argv, { workspace });
       if (code !== 0) process.exitCode = code;
     },
     description:

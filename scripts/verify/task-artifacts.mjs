@@ -82,6 +82,20 @@ try {
   assert.match(full.stdout, /artifacts contracts\|tasks\|evidence/);
   assert.ok(!/tasks list\|evidence/.test(full.stdout), 'the retired `tasks` help row must be gone');
   ok('help lists one artifacts entry and no retired `tasks` row');
+
+  // 6. B212: the advertised `--json` works for every kind, including the local
+  //    ones and the global-flag-before-command spelling.
+  for (const args of [
+    ['artifacts', 'tasks', '--json'],
+    ['artifacts', 'history', '--json'],
+    ['artifacts', 'failures', '--json'],
+    ['--json', 'artifacts', 'evidence'],
+  ]) {
+    const result = await cli(args);
+    assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
+    assert.doesNotThrow(() => JSON.parse(result.stdout), `${args.join(' ')} must be JSON`);
+  }
+  ok('artifacts --json returns JSON for every kind (both flag positions)');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }
