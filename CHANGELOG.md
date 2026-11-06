@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### First screen, approval dialogs and tool rows: fewer duplicates, full commands (B192)
+
+A real-TUI usability audit (two PTY sessions, four real model turns) ranked the remaining "feel"
+problems. This round fixes the four cheapest high-impact ones:
+
+- **First screen says `/init` once.** `Next: /init` and the composer placeholder both said it. The
+  composer now uses the workspace-kind hint; `/init` stays in the `Next:` row only.
+- **Approval dialogs show the whole command.** A long `&&` chain is shown as `$ <full command>` in the
+  dialog body (wrapped), not just a clipped subject; protected-path dialogs also print the real command
+  instead of "non-literal command name". The redundant "(try to save in user config)" suffix is gone.
+- **One row per read-only observation and per todo update.** `Read(x) · Read 7 lines` no longer gets a
+  second `… 7 lines · ctrl+o` line (`ctrl+o` moves onto the headline); `todo_write` folds to
+  `⎿ 1/3 done` instead of reprinting the checklist that the composer panel already shows.
+- **Quieter cold start.** The interactive TUI no longer prints the `[moss] Interaction mode …` line
+  (its persistent status row shows the mode); the `.gitignore` suggestion is one line, not three.
+
+### 首屏、审批弹窗、工具行：去重并显示完整命令（B192）
+
+真实 TUI 可用性审计（两次 PTY 会话、四轮真实模型）排出了剩余"手感"问题，本轮修掉成本最低、影响最大的四项：
+
+- **首屏只说一次 `/init`**：`Next: /init` 与输入框占位符重复；占位符改为按工作区类型的提示，`/init` 只留在 `Next:` 行。
+- **审批弹窗显示完整命令**：长 `&&` 链以 `$ <完整命令>`（自动换行）出现在弹窗正文，不再只靠被截断的 subject；
+  受保护路径弹窗也打印真实命令，而不是 "non-literal command name"；去掉多余的 "(try to save in user config)" 后缀。
+- **每次只读观察/待办更新只占一行**：`Read(x) · Read 7 lines` 不再多一行 `… 7 lines · ctrl+o`（`ctrl+o` 并入标题）；
+  `todo_write` 折叠成 `⎿ 1/3 done`，不再重打印输入框上方已有的清单。
+- **冷启动更安静**：交互 TUI 不再打印 `[moss] Interaction mode …`（常驻状态行已显示模式）；`.gitignore` 建议压成一行。
+
 ### The first hint follows the workspace, not a checkout's `.env` (B191)
 
 - A dev checkout's `.env` can name a board (`MOSS_DEVICE_HOST`). Because the CLI also loads the
