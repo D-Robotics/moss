@@ -1108,7 +1108,8 @@ export function TuiAppRoot({
     // ledger read as the REPL welcome, so both surfaces tell one story.
     const welcomeContext = renderWelcomeContextLines(
       options.workspaceDir,
-      activeUiLocale(options.locale) === 'zh'
+      activeUiLocale(options.locale) === 'zh',
+      'interactive'
     );
     for (const line of welcomeContext.lines) appendRow(store, 'detail', line);
     appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
@@ -1283,7 +1284,8 @@ export function TuiAppRoot({
   const refreshComposerSuggestion = useCallback(() => {
     const context = renderWelcomeContextLines(
       options.workspaceDir,
-      activeUiLocale(options.locale) === 'zh'
+      activeUiLocale(options.locale) === 'zh',
+      'interactive'
     );
     composerSuggestionRef.current = context.suggestion;
     handle.notify();
@@ -2901,7 +2903,8 @@ export function TuiAppRoot({
       setSetupView(undefined);
       const readyContext = renderWelcomeContextLines(
         options.workspaceDir,
-        activeUiLocale(options.locale) === 'zh'
+        activeUiLocale(options.locale) === 'zh',
+        'interactive'
       );
       for (const line of readyContext.lines) appendRow(store, 'detail', line);
       appendRow(store, 'system', tui('Next: {command}', { command: readyContext.next }));

@@ -416,7 +416,7 @@ export async function runInteractive(
     )
   );
 
-  console.error(renderCliWelcome(agent, { ...runtime, sessionKey }));
+  console.error(renderCliWelcome(agent, { ...runtime, sessionKey }, 'interactive'));
   console.error(
     ui.dim(`${label('directory')} ${compactPath(workspace)}   ${label('exit')} Ctrl+D or /quit`)
   );

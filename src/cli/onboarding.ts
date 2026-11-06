@@ -299,9 +299,17 @@ export function welcomeComposerSuggestion(
   return undefined;
 }
 
+/**
+ * Which surface reads this hint. Interactive surfaces can type slash commands,
+ * so `Next:` names `/init`, `/runs` and `/run resume …` instead of shell
+ * commands the user would have to leave the session to run (B154).
+ */
+export type WelcomeSurface = 'cli' | 'interactive';
+
 export function renderWelcomeContextLines(
   workspace: string,
-  zh = isZhLocale()
+  zh = isZhLocale(),
+  surface: WelcomeSurface = 'cli'
 ): { lines: string[]; next: string; suggestion?: string } {
   const t = (en: string, cn: string): string => (zh ? cn : en);
   const runsDir = path.join(workspace, '.moss', 'runs');
@@ -350,15 +358,21 @@ export function renderWelcomeContextLines(
     );
   }
   // The welcome line already prefixes `Next:`, so this is the command only.
+  const interactive = surface === 'interactive';
+  const allRuns = t('(all recent runs)', '（最近所有运行）');
+  const initNote = t('(detect this project, write AGENTS.md)', '（检测项目、写 AGENTS.md）');
   let next: string;
   if (latest && latest.status !== 'completed' && latest.next) {
-    next = latest.next;
+    const resume = /^moss task resume (\S+)$/.exec(latest.next);
+    next = interactive && resume ? `/run resume ${resume[1]}` : latest.next;
   } else if (latest) {
-    next = `moss runs    ${t('(all recent runs)', '（最近所有运行）')}`;
+    next = interactive ? `/runs    ${allRuns}` : `moss runs    ${allRuns}`;
   } else if (!hasAgents) {
-    next = `moss init    ${t('(detect this project, write AGENTS.md)', '（检测项目、写 AGENTS.md）')}`;
+    next = interactive ? `/init    ${initNote}` : `moss init    ${initNote}`;
   } else {
-    next = 'moss run "<intent>" --accept "<cmd>"';
+    next = interactive
+      ? '/run "<intent>" --accept "<cmd>"'
+      : 'moss run "<intent>" --accept "<cmd>"';
   }
   const suggestion = welcomeComposerSuggestion(
     latest ? { status: latest.status, ...(latest.next ? { next: latest.next } : {}) } : null,
@@ -373,12 +387,20 @@ export function renderWelcomeContextLines(
  * ledger-derived hint at boot; a finished autonomous run changes the ledger, so
  * the primary non-TUI surface repeats it instead of leaving stale guidance.
  */
-export function renderNextHint(workspace: string, zh = isZhLocale()): string {
-  const { next } = renderWelcomeContextLines(workspace, zh);
+export function renderNextHint(
+  workspace: string,
+  zh = isZhLocale(),
+  surface: WelcomeSurface = 'interactive'
+): string {
+  const { next } = renderWelcomeContextLines(workspace, zh, surface);
   return `${ui.dim(zh ? '下一步' : 'Next')} ${next}`;
 }
 
-export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {}): string {
+export function renderCliWelcome(
+  agent: MossAgent,
+  runtime: CliRuntimeStatus = {},
+  surface: WelcomeSurface = 'cli'
+): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
   const zh = isZhLocale();
@@ -400,7 +422,7 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
         : 'model key missing';
 
   const workspace = rt.workspace || process.cwd();
-  const welcomeContext = renderWelcomeContextLines(workspace, zh);
+  const welcomeContext = renderWelcomeContextLines(workspace, zh, surface);
   const contextLines = welcomeContext.lines;
   const nextLine = welcomeContext.next;
   return [

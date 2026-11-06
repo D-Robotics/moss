@@ -27,8 +27,8 @@ const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-welcome-'));
 const ws = path.join(tmp, 'ws');
 await fs.mkdir(ws, { recursive: true });
 
-async function writeRun(record) {
-  const dir = path.join(ws, '.moss', 'runs', record.runId);
+async function writeRun(record, root = ws) {
+  const dir = path.join(root, '.moss', 'runs', record.runId);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(
     path.join(dir, 'run.json'),
@@ -162,8 +162,9 @@ try {
       endedAt: Date.now() + 1_000,
       next: 'moss task resume task_pending',
     });
-    assert.match(renderNextHint(ws, false), /^Next moss task resume task_pending/);
-    assert.match(renderNextHint(ws, true), /^下一步/);
+    assert.match(renderNextHint(ws, false, 'cli'), /^Next moss task resume task_pending/);
+    assert.match(renderNextHint(ws, true, 'cli'), /^下一步/);
+    assert.match(renderNextHint(ws, false, 'interactive'), /^Next \/run resume task_pending/);
     await writeRun({
       runId: 'done_run2',
       kind: 'task',
@@ -172,12 +173,64 @@ try {
       endedAt: Date.now() + 2_000,
       next: 'moss runs',
     });
-    assert.match(renderNextHint(ws, false), /^Next moss runs/);
+    assert.match(renderNextHint(ws, false, 'cli'), /^Next moss runs/);
+    assert.match(renderNextHint(ws, false, 'interactive'), /^Next \/runs/);
     const fresh = path.join(tmp, 'fresh-next');
     await fs.mkdir(fresh, { recursive: true });
-    assert.match(renderNextHint(fresh, false), /^Next moss init/);
+    assert.match(renderNextHint(fresh, false, 'cli'), /^Next moss init/);
+    assert.match(renderNextHint(fresh, false, 'interactive'), /^Next \/init/);
   }
   ok('the after-run next hint names the resume, the ledger or onboarding');
+
+  // 10. B154: interactive surfaces name the slash command they can actually run.
+  {
+    const surface = path.join(tmp, 'surface-case');
+    await fs.mkdir(surface, { recursive: true });
+    assert.match(renderWelcomeContextLines(surface, false, 'cli').next, /^moss init/);
+    assert.match(renderWelcomeContextLines(surface, false, 'interactive').next, /^\/init/);
+    await fs.writeFile(path.join(surface, 'AGENTS.md'), '# AGENTS\\n', 'utf8');
+    assert.equal(
+      renderWelcomeContextLines(surface, false, 'interactive').next,
+      '/run "<intent>" --accept "<cmd>"'
+    );
+    assert.equal(
+      renderWelcomeContextLines(surface, false, 'cli').next,
+      'moss run "<intent>" --accept "<cmd>"'
+    );
+    await writeRun(
+      {
+        runId: 'surface_done',
+        kind: 'task',
+        status: 'completed',
+        goal: 'done',
+        endedAt: Date.now(),
+        next: 'moss runs',
+      },
+      surface
+    );
+    assert.match(renderWelcomeContextLines(surface, false, 'interactive').next, /^\/runs/);
+    assert.match(renderWelcomeContextLines(surface, false, 'cli').next, /^moss runs/);
+    await writeRun(
+      {
+        runId: 'surface_pending',
+        kind: 'task',
+        status: 'verify_failed',
+        goal: 'pending',
+        endedAt: Date.now() + 5_000,
+        next: 'moss task resume task_surface',
+      },
+      surface
+    );
+    assert.equal(
+      renderWelcomeContextLines(surface, false, 'interactive').next,
+      '/run resume task_surface'
+    );
+    assert.equal(
+      renderWelcomeContextLines(surface, false, 'cli').next,
+      'moss task resume task_surface'
+    );
+  }
+  ok('interactive next hints use /init, /runs and /run resume instead of shell verbs');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }
