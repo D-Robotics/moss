@@ -24,6 +24,8 @@ export interface WorkflowStepState {
   error?: string;
   /** B164: usage of the child session, aggregated into the workflow run record. */
   usage?: RunRecordUsage;
+  /** B177: model the child ran on, when it reported one. */
+  model?: string;
 }
 
 export interface WorkflowState {
@@ -47,6 +49,7 @@ export interface WorkflowStepResult {
   durationMs?: number;
   error?: string;
   usage?: RunRecordUsage;
+  model?: string;
 }
 
 export type WorkflowStepRunner = (step: WorkflowStep) => Promise<WorkflowStepResult>;
@@ -178,6 +181,7 @@ export async function runWorkflow(options: RunWorkflowOptions): Promise<Workflow
             entry.outputTail = tail(result.output);
             if (result.sessionKey) entry.sessionKey = result.sessionKey;
             if (result.usage) entry.usage = result.usage;
+            if (result.model) entry.model = result.model;
             if (result.passed) {
               entry.status = 'passed';
               delete entry.error;

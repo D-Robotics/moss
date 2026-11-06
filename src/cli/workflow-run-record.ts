@@ -51,6 +51,18 @@ export function aggregateWorkflowUsage(state: WorkflowState): RunRecordUsage | u
   };
 }
 
+/**
+ * The one model every step ran on. Undefined when any step did not report a
+ * model (often a blocked/pending step) or the reported models disagree: a
+ * partial answer would mis-attribute the workflow's usage in `--by model`.
+ */
+export function aggregateWorkflowModel(state: WorkflowState): string | undefined {
+  const models = state.steps.map((step) => step.model);
+  if (models.some((model) => !model)) return undefined;
+  const unique = new Set(models as string[]);
+  return unique.size === 1 ? [...unique][0] : undefined;
+}
+
 export function buildWorkflowRunRecord(input: WorkflowRunRecordInput): RunRecord {
   const { state } = input;
   const status = workflowRunStatus(state);
@@ -70,6 +82,10 @@ export function buildWorkflowRunRecord(input: WorkflowRunRecordInput): RunRecord
     ...(status === 'completed'
       ? {}
       : { reason: `${summary} (${state.planFile})`, next: `moss workflow resume ${state.runId}` }),
+    ...(() => {
+      const model = aggregateWorkflowModel(state);
+      return model ? { model } : {};
+    })(),
     ...(() => {
       const usage = aggregateWorkflowUsage(state);
       return usage ? { usage } : {};

@@ -923,7 +923,9 @@ export async function runOneShot(
       });
       if (usageFile) {
         try {
-          fs.writeFileSync(usageFile, `${JSON.stringify(usage ?? null)}\n`, 'utf8');
+          // B177: the parent also needs the model id for per-model attribution.
+          const payload = { usage: usage ?? null, model: agent.config.model ?? null };
+          fs.writeFileSync(usageFile, `${JSON.stringify(payload)}\n`, 'utf8');
         } catch (err) {
           process.stderr.write(`[moss] could not write usage file: ${errorMessage(err)}\n`);
         }

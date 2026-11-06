@@ -178,15 +178,28 @@ export function createChildSessionRunner(options: {
       ? path.join(options.usageDir, `${step.id}.usage.json`)
       : undefined;
     if (usageFile) fs.rmSync(usageFile, { force: true });
-    const readUsage = (): RunRecordUsage | undefined => {
-      if (!usageFile) return undefined;
+    const readUsage = (): { usage?: RunRecordUsage; model?: string } => {
+      if (!usageFile) return {};
       try {
         const raw = JSON.parse(fs.readFileSync(usageFile, 'utf8')) as unknown;
-        if (raw && typeof raw === 'object') return raw as RunRecordUsage;
+        if (!raw || typeof raw !== 'object') return {};
+        const record = raw as { usage?: unknown; model?: unknown };
+        // B164 wrote the usage object directly; B177 wraps it with the model id.
+        if (record.usage === undefined && typeof (raw as RunRecordUsage).inputTokens === 'number') {
+          return { usage: raw as RunRecordUsage };
+        }
+        return {
+          ...(record.usage && typeof record.usage === 'object'
+            ? { usage: record.usage as RunRecordUsage }
+            : {}),
+          ...(typeof record.model === 'string' && record.model.trim()
+            ? { model: record.model }
+            : {}),
+        };
       } catch {
         // A child that died before writing usage yields no numbers, never a guess.
       }
-      return undefined;
+      return {};
     };
     try {
       const result = await runProcess(process.execPath, {
@@ -201,25 +214,27 @@ export function createChildSessionRunner(options: {
         },
         timeout: options.timeoutMs ?? WORKFLOW_STEP_TIMEOUT_MS,
       });
-      const usage = readUsage();
+      const report = readUsage();
       return {
         passed: true,
         output: `${result.stdout}${result.stderr}`.trim(),
         sessionKey,
         durationMs: Date.now() - startedMs,
         exitCode: result.exitCode,
-        ...(usage ? { usage } : {}),
+        ...(report.usage ? { usage: report.usage } : {}),
+        ...(report.model ? { model: report.model } : {}),
       };
     } catch (err) {
       if (!(err instanceof ProcessError)) throw err;
-      const usage = readUsage();
+      const report = readUsage();
       return {
         passed: false,
         output: `${err.stdout}${err.stderr}`.trim(),
         sessionKey,
         durationMs: Date.now() - startedMs,
         ...(err.exitCode !== null ? { exitCode: err.exitCode } : {}),
-        ...(usage ? { usage } : {}),
+        ...(report.usage ? { usage: report.usage } : {}),
+        ...(report.model ? { model: report.model } : {}),
         error: err.timedOut
           ? `step timed out after ${String(err.timeoutMs ?? options.timeoutMs ?? WORKFLOW_STEP_TIMEOUT_MS)}ms`
           : `step exited ${String(err.exitCode ?? err.signal ?? 'unknown')}`,

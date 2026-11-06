@@ -15,9 +15,12 @@ import { captureProcess } from './lib/proc.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
-const { aggregateWorkflowUsage, buildWorkflowRunRecord, workflowRunStatus } = await load(
-  'dist/cli/workflow-run-record.js'
-);
+const {
+  aggregateWorkflowModel,
+  aggregateWorkflowUsage,
+  buildWorkflowRunRecord,
+  workflowRunStatus,
+} = await load('dist/cli/workflow-run-record.js');
 const { listRunRecords, writeRunRecord, readRunRecord } = await load('dist/core/run-ledger.js');
 
 let checks = 0;
@@ -161,5 +164,27 @@ ok('a failed workflow records per-status counts and `moss workflow resume`');
   assert.deepEqual(aggregateWorkflowUsage(partial), { inputTokens: 7, outputTokens: 3 });
 }
 ok('workflow usage sums across steps and omits steps without numbers');
+
+// 7. B177: the model is recorded when every step reports the same one; a mixed
+//    or unknown set stays undefined (per-model summary then buckets it as unknown).
+{
+  const uniform = state(['passed', 'passed']);
+  uniform.steps[0].model = 'deepseek-flash@latest';
+  uniform.steps[1].model = 'deepseek-flash@latest';
+  assert.equal(aggregateWorkflowModel(uniform), 'deepseek-flash@latest');
+  const record = buildWorkflowRunRecord({ state: uniform, ...base });
+  assert.equal(record.model, 'deepseek-flash@latest');
+
+  const mixed = state(['passed', 'passed']);
+  mixed.steps[0].model = 'model-a';
+  mixed.steps[1].model = 'model-b';
+  assert.equal(aggregateWorkflowModel(mixed), undefined);
+
+  const partial = state(['passed', 'passed']);
+  partial.steps[0].model = 'model-a';
+  assert.equal(aggregateWorkflowModel(partial), undefined);
+  assert.equal(buildWorkflowRunRecord({ state: partial, ...base }).model, undefined);
+}
+ok('workflow model is recorded only when every step agrees');
 
 console.log(`[workflow-run-record] ${checks}/${checks} checks passed`);
