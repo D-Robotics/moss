@@ -793,6 +793,31 @@ export async function runTaskCommand(
   const zh = isZhLocale();
   const locale = cliLocale();
 
+  // B181: a task is visible as `running` from the moment the engine creates its
+  // native task id until the final record overwrites the same row.
+  let runningTaskId: string | undefined;
+  let runningTaskWrite: Promise<void> | undefined;
+  const publishRunningTask = (input: {
+    taskId: string;
+    goal: string;
+    startedAt: number;
+    acceptanceCommand?: string;
+  }): void => {
+    if (runningTaskId === input.taskId) return;
+    runningTaskId = input.taskId;
+    runningTaskWrite = (async () => {
+      const { writeRunningRecord } = await import('../core/run-ledger.js');
+      await writeRunningRecord(ctx.workspace, {
+        runId: input.taskId,
+        kind: 'task',
+        goal: input.goal,
+        startedAt: input.startedAt,
+        next: `moss task status ${input.taskId}`,
+        ...(input.acceptanceCommand ? { acceptanceCommand: input.acceptanceCommand } : {}),
+      });
+    })().catch(() => undefined);
+  };
+
   if (sub === 'run') {
     const flags = parseFlags(commandArgs.slice(1));
     const goal = flags.goal.join(' ').trim();
@@ -824,6 +849,12 @@ export async function runTaskCommand(
           : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         onProgress: (progress) => {
+          publishRunningTask({
+            taskId: progress.taskId,
+            goal,
+            startedAt,
+            ...(flags.accept ? { acceptanceCommand: flags.accept } : {}),
+          });
           output('stderr', `${formatTaskProgressLine(progress.phase)}\n`);
         },
       },
@@ -837,6 +868,7 @@ export async function runTaskCommand(
     output('stdout', summarizeTaskRun(result, locale) + '\n');
     const usageLine = usageTap.line();
     if (usageLine) output('stdout', `${usageLine}\n`);
+    if (runningTaskWrite) await runningTaskWrite;
     await recordRun(
       ctx,
       result,
@@ -862,6 +894,7 @@ export async function runTaskCommand(
     }
     const usageTap = tapUsage(ctx);
     const startedAt = Date.now();
+    const resultGoal = `resume ${taskId}`;
     const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
       onEvent: usageTap.onAgentEvent,
       ...(ctx.signal ? { abortSignal: ctx.signal } : {}),
@@ -872,6 +905,12 @@ export async function runTaskCommand(
         runTurn,
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         onProgress: (progress) => {
+          publishRunningTask({
+            taskId: progress.taskId,
+            goal: resultGoal,
+            startedAt,
+            ...(resumeFlags.accept ? { acceptanceCommand: resumeFlags.accept } : {}),
+          });
           output('stderr', `${formatTaskProgressLine(progress.phase)}\n`);
         },
       },
@@ -891,6 +930,7 @@ export async function runTaskCommand(
     output('stdout', summarizeTaskRun(result, locale) + '\n');
     const usageLine = usageTap.line();
     if (usageLine) output('stdout', `${usageLine}\n`);
+    if (runningTaskWrite) await runningTaskWrite;
     await recordRun(
       ctx,
       result,
