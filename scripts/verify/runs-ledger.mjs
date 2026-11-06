@@ -448,6 +448,33 @@ try {
   );
   ok('moss runs summary --by day|week buckets by local day / ISO week');
   ok('moss runs summary --by model attributes runs to models (unknown included)');
+
+  // 12. B178: an in-flight run shows as running (no fake exit code in show).
+  await writeRunRecord(ws, {
+    version: 1,
+    runId: 'running_ticket_row',
+    kind: 'superagent',
+    status: 'running',
+    exitCode: 0,
+    startedAt: Date.now() - 1_000,
+    endedAt: Date.now() - 1_000,
+    durationMs: 0,
+    goal: 'a long ticket',
+    next: 'moss superagent status',
+    artifacts: {},
+  });
+  const runningList = await cli(['runs', '--status', 'running', '--json']);
+  assert.equal(runningList.status, 0, runningList.stderr);
+  const runningJson = JSON.parse(runningList.stdout);
+  assert.equal(runningJson.total, 1);
+  assert.equal(runningJson.runs[0].status, 'running');
+  const runningText = await cli(['runs', 'list']);
+  assert.match(runningText.stdout, /1 running/);
+  const runningShow = await cli(['runs', 'show', 'running_ticket_row']);
+  assert.equal(runningShow.status, 0, runningShow.stderr);
+  assert.match(runningShow.stdout, /exit: —/);
+  assert.doesNotMatch(runningShow.stdout, /duration:/);
+  ok('an in-flight record reads as running and hides its not-yet-meaningful exit/duration');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

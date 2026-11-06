@@ -23,6 +23,7 @@ const RUN_STATUSES: readonly RunRecordStatus[] = [
   'blocked',
   'unverified',
   'interrupted',
+  'running',
 ];
 
 const DEFAULT_LIMIT = 20;
@@ -97,8 +98,19 @@ function statusLabel(status: RunRecordStatus, zh: boolean): string {
     blocked: { en: 'blocked', zh: '阻塞' },
     unverified: { en: 'unverified', zh: '未验证' },
     interrupted: { en: 'paused', zh: '暂停' },
+    running: { en: 'running', zh: '进行中' },
   };
   return zh ? labels[status].zh : labels[status].en;
+}
+
+function runningSuffix(counts: Record<string, number>): string {
+  const running = counts.running ?? 0;
+  return running > 0 ? ` · ${String(running)} running` : '';
+}
+
+function runningSuffixZh(counts: Record<string, number>): string {
+  const running = counts.running ?? 0;
+  return running > 0 ? ` · 进行中 ${String(running)}` : '';
 }
 
 function countsOf(records: readonly RunRecord[]): Record<string, number> {
@@ -219,8 +231,8 @@ function renderList(
   const filterSuffix = filterLabel ? ` — ${filterLabel} (${matched})` : '';
   const header =
     uiText(
-      `run ledger · ${all.length} total · ${counts.completed ?? 0} pass · ${counts.verify_failed ?? 0} fail · ${counts.blocked ?? 0} blocked · ${counts.interrupted ?? 0} paused · ${counts.incomplete ?? 0} incomplete · ${counts.unverified ?? 0} unverified`,
-      `运行账本 · 共 ${all.length} · 通过 ${counts.completed ?? 0} · 失败 ${counts.verify_failed ?? 0} · 阻塞 ${counts.blocked ?? 0} · 暂停 ${counts.interrupted ?? 0} · 未完成 ${counts.incomplete ?? 0} · 未验证 ${counts.unverified ?? 0}`
+      `run ledger · ${all.length} total · ${counts.completed ?? 0} pass · ${counts.verify_failed ?? 0} fail · ${counts.blocked ?? 0} blocked · ${counts.interrupted ?? 0} paused · ${counts.incomplete ?? 0} incomplete · ${counts.unverified ?? 0} unverified${runningSuffix(counts)}`,
+      `运行账本 · 共 ${all.length} · 通过 ${counts.completed ?? 0} · 失败 ${counts.verify_failed ?? 0} · 阻塞 ${counts.blocked ?? 0} · 暂停 ${counts.interrupted ?? 0} · 未完成 ${counts.incomplete ?? 0} · 未验证 ${counts.unverified ?? 0}${runningSuffixZh(counts)}`
     ) + filterSuffix;
   if (records.length === 0) {
     const empty = filterLabel
@@ -253,8 +265,12 @@ function renderShow(record: RunRecord, zh: boolean): string {
     uiText('kind', '类型') + `: ${record.kind}`,
     uiText('goal', '目标') + `: ${record.goal}`,
     uiText('started', '开始') + `: ${new Date(record.startedAt).toISOString()}`,
-    uiText('duration', '耗时') + `: ${formatDuration(record.durationMs)}`,
-    uiText('exit', '退出码') + `: ${record.exitCode}`,
+    ...(record.status === 'running'
+      ? [uiText('exit', '退出码') + ': —']
+      : [
+          uiText('duration', '耗时') + `: ${formatDuration(record.durationMs)}`,
+          uiText('exit', '退出码') + `: ${record.exitCode}`,
+        ]),
   ];
   if (record.model) lines.push(uiText('model', '模型') + `: ${record.model}`);
   if (record.acceptanceCommand)
@@ -466,8 +482,8 @@ function renderSummary(
   const t = (en: string, cn: string): string => (zh ? cn : en);
   const header =
     uiText(
-      `run summary · ${all.length} total · ${counts.completed ?? 0} pass · ${counts.verify_failed ?? 0} fail · ${counts.blocked ?? 0} blocked · ${counts.interrupted ?? 0} paused · ${counts.incomplete ?? 0} incomplete · ${counts.unverified ?? 0} unverified`,
-      `运行汇总 · 共 ${all.length} · 通过 ${counts.completed ?? 0} · 失败 ${counts.verify_failed ?? 0} · 阻塞 ${counts.blocked ?? 0} · 暂停 ${counts.interrupted ?? 0} · 未完成 ${counts.incomplete ?? 0} · 未验证 ${counts.unverified ?? 0}`
+      `run summary · ${all.length} total · ${counts.completed ?? 0} pass · ${counts.verify_failed ?? 0} fail · ${counts.blocked ?? 0} blocked · ${counts.interrupted ?? 0} paused · ${counts.incomplete ?? 0} incomplete · ${counts.unverified ?? 0} unverified${runningSuffix(counts)}`,
+      `运行汇总 · 共 ${all.length} · 通过 ${counts.completed ?? 0} · 失败 ${counts.verify_failed ?? 0} · 阻塞 ${counts.blocked ?? 0} · 暂停 ${counts.interrupted ?? 0} · 未完成 ${counts.incomplete ?? 0} · 未验证 ${counts.unverified ?? 0}${runningSuffixZh(counts)}`
     ) + (filterLabel ? ` — ${filterLabel} (${filtered.length})` : '');
   const lines = [header];
   if (filtered.length === 0) {

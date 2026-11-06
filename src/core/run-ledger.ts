@@ -39,7 +39,7 @@ export interface RunRecordUsage {
 }
 
 /** Gate vocabulary plus `interrupted` (paused, resumable — not a failure). */
-export type RunRecordStatus = RunOutcomeStatus | 'interrupted';
+export type RunRecordStatus = RunOutcomeStatus | 'interrupted' | 'running';
 
 export interface RunRecord {
   version: 1;

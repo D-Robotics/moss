@@ -178,6 +178,20 @@ try {
     await fs.mkdir(fresh, { recursive: true });
     assert.match(renderNextHint(fresh, false, 'cli'), /^Next moss init/);
     assert.match(renderNextHint(fresh, false, 'interactive'), /^Next \/init/);
+    // B178: an in-flight run is "in progress", not something to resume.
+    await writeRun({
+      runId: 'running_ticket',
+      kind: 'superagent',
+      status: 'running',
+      goal: 'long ticket',
+      endedAt: Date.now() + 4_000,
+      next: 'moss superagent status',
+    });
+    assert.match(renderNextHint(ws, false, 'cli'), /^Next moss runs show latest/);
+    assert.match(renderNextHint(ws, false, 'interactive'), /^Next \/runs/);
+    assert.match(renderNextHint(ws, true, 'interactive'), /^下一步 \/runs/);
+    assert.match(renderWelcomeContextLines(ws, false, 'interactive').next, /^\/runs/);
+    assert.match(renderWelcomeContextLines(ws, false, 'cli').next, /^moss runs show latest/);
   }
   ok('the after-run next hint names the resume, the ledger or onboarding');
 

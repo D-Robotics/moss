@@ -384,13 +384,14 @@ export class MossSuperagent {
     try {
       const { writeRunRecord } = await import('../run-ledger.js');
       const endedAt = Date.now();
+      const running = input.state === 'running';
       const completed = input.state === 'ready';
       await writeRunRecord(this.workspaceDir, {
         version: 1,
         runId: input.ticketId,
         kind: 'superagent',
-        status: completed ? 'completed' : 'blocked',
-        exitCode: completed ? 0 : 1,
+        status: running ? 'running' : completed ? 'completed' : 'blocked',
+        exitCode: running ? 0 : completed ? 0 : 1,
         startedAt: input.startedAt,
         endedAt,
         durationMs: Math.max(0, endedAt - input.startedAt),
@@ -400,7 +401,10 @@ export class MossSuperagent {
         ...(input.summary ? { reason: input.summary } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.usage ? { usage: input.usage } : {}),
-        next: completed ? 'moss superagent status' : `moss superagent retry ${input.ticketId}`,
+        next:
+          running || completed
+            ? 'moss superagent status'
+            : `moss superagent retry ${input.ticketId}`,
         artifacts: {
           superagentState: '.moss/superagent/state.sqlite',
           ...(input.workspace ? { workspace: input.workspace } : {}),
@@ -484,6 +488,17 @@ export class MossSuperagent {
         inputs: this.inputs(ticket),
         ...(binding.taskId ? { taskId: binding.taskId } : {}),
       };
+      // B178: an in-flight ticket is visible in `moss runs` instead of appearing
+      // only when it ends; the final record overwrites this row.
+      await this.recordSuperagentLedger({
+        ticketId: ticket.id,
+        title: ticket.title,
+        state: 'running',
+        startedAt: ledgerStartedAt,
+        ...(binding.taskId ? { taskId: binding.taskId } : {}),
+        workspace: binding.workspace,
+        acceptanceCommand: request.acceptanceCommand,
+      });
       const result = await this.worker.run(request, controller.signal, (taskId) => {
         if (typeof taskId !== 'string' || !/^[\w.-]{1,200}$/.test(taskId))
           throw invalid('Invalid native task ID');

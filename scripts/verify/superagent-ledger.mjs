@@ -64,7 +64,13 @@ try {
   }
 
   // Scripted worker: real contract + real accepted phase in its own worktree.
+  // The gate keeps the first dispatch in flight long enough to observe the
+  // B178 `running` ledger row before the worker returns.
   let outcome = 'ready';
+  let releaseWorker;
+  const workerGate = new Promise((resolve) => {
+    releaseWorker = resolve;
+  });
   const worker = {
     async run(request, _signal, onTask) {
       const contract = await createDraftTask(request.workspaceDir, 'probe goal', {
@@ -96,6 +102,7 @@ try {
           detail: 'probe pass',
         });
       }
+      await workerGate;
       return {
         state: outcome,
         summary: 'probe summary',
@@ -132,7 +139,18 @@ try {
       addressed: true,
     });
   receive('evt_completed', 'create ok.txt');
-  await runtime.work();
+  const firstWork = runtime.work();
+  let runningRow;
+  const runningDeadline = Date.now() + 5_000;
+  while (Date.now() < runningDeadline && !runningRow) {
+    const rows = await listRunRecords(ws);
+    runningRow = rows.find((row) => row.kind === 'superagent' && row.status === 'running');
+    if (!runningRow) await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.ok(runningRow, 'an in-flight ticket must appear in the ledger as running');
+  assert.equal(runningRow.goal, 'create ok.txt');
+  releaseWorker();
+  await firstWork;
   const completed = runtime.tickets().find((ticket) => ticket.state === 'completed');
   assert.ok(completed, 'the scripted ready ticket should complete');
 

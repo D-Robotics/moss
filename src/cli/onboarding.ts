@@ -288,6 +288,9 @@ export function welcomeComposerSuggestion(
   zh = isZhLocale()
 ): string | undefined {
   const t = (en: string, cn: string): string => (zh ? cn : en);
+  if (latest && latest.status === 'running') {
+    return t(`In progress — ${latest.next}`, `进行中：${latest.next}`);
+  }
   if (latest && latest.status !== 'completed' && latest.next) {
     return t(`Resume with ${latest.next}`, `继续：${latest.next}`);
   }
@@ -363,7 +366,11 @@ export function renderWelcomeContextLines(
   const allRuns = t('(all recent runs)', '（最近所有运行）');
   const initNote = t('(detect this project, write AGENTS.md)', '（检测项目、写 AGENTS.md）');
   let next: string;
-  if (latest && latest.status !== 'completed' && latest.next) {
+  if (latest && latest.status === 'running') {
+    next = interactive
+      ? `/runs    ${t('(see the run in progress)', '（看进行中的运行）')}`
+      : `moss runs show latest    ${t('(in progress)', '（进行中）')}`;
+  } else if (latest && latest.status !== 'completed' && latest.next) {
     const resume = /^moss task resume (\S+)$/.exec(latest.next);
     next = interactive && resume ? `/goal resume ${resume[1]}` : latest.next;
   } else if (latest) {
