@@ -8,8 +8,10 @@ import type { NudgeMessage } from '../nudge-helpers.js';
 
 export const SPEC_AUDIT_NUDGE_MAX_ATTEMPTS = 1;
 
+// B187: cite-as-authority, not any mention of a doc. The old trigger fired on a
+// bare "文档/说明/需求" and turned ordinary tasks into SPEC-AUDIT detours.
 const SPEC_AUDIT_RE =
-  /(?:\bdocs?\b|\bdocumentation\b|\bspec(?:ification)?\b|\brequirements?\b|\bdesign doc\b|\bcomment says\b|文档|说明|需求|注释)/iu;
+  /(?:\bspec(?:ification)?\b|\bdesign doc\b|\brequirements?\b|\blocked tests?\b|\bcomment says\b|\b(?:according to|per|follows?|from) (?:the )?(?:docs?|documentation|readme)\b|\b(?:docs?|documentation|readme) (?:says?|require|requires|specifies|mandates)\b|文档(?:里)?(?:说|要求|规定)|需求(?:里)?(?:说|要求|规定)|注释(?:里)?(?:说|要求|规定))/iu;
 
 export interface SpecAuditNudgeRequest {
   messages: NudgeMessage[] | undefined;

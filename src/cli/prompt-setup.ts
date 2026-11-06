@@ -27,6 +27,7 @@ import {
 import { buildAnswerLanguageLayer } from './cli-locale.js';
 import { buildOutputStyleLayer, currentOutputStyle, subscribeOutputStyle } from './output-style.js';
 import { buildEnvironmentContextLayer } from '../context/environment.js';
+import { buildMossDefaultWorkflowPrompt } from '../context/default-workflow.js';
 import { PromptAssembler, promptLayersDebugEnabled } from '../core/prompt/index.js';
 import { CapabilityRegistry } from '../core/capabilities/registry.js';
 
@@ -60,6 +61,16 @@ export interface CliPromptSetup {
 export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<CliPromptSetup> {
   const { workspace, configDir, initialText } = input;
   const promptLayers = new PromptAssembler();
+  // B187: the built-in fallback discipline was exported but never installed, so a
+  // workspace without AGENTS.md ran with no engineering or communication contract
+  // at all. It is a stable base layer; project instructions stack on top and may
+  // override specific rules without dropping the discipline.
+  promptLayers.set({
+    id: 'cli:default-workflow',
+    stability: 'stable',
+    origin: 'contract',
+    text: buildMossDefaultWorkflowPrompt(),
+  });
   const installEnvLayer = (envLayer: string | null): void => {
     if (!envLayer) return;
     promptLayers.set({

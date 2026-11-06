@@ -176,6 +176,24 @@ const afterUnset = JSON.parse(fs.readFileSync(path.join(configDir, 'config.json'
 assert.equal(afterUnset.outputStyle, undefined);
 ok('config set/show/unset round-trips and rejects unknown values');
 
+// 6b. B187: the built-in fallback discipline is actually installed (it used to be
+//     dead code), and carries the communication contract.
+{
+  const setup2 = await promptModule.createCliPromptSetup({
+    workspace,
+    configDir,
+    initialText: '',
+  });
+  const base = setup2.promptLayers.specs().find((entry) => entry.id === 'cli:default-workflow');
+  assert.ok(base, 'the default workflow layer must be installed');
+  assert.equal(base.stability, 'stable');
+  assert.equal(base.origin, 'contract');
+  assert.match(base.text, /built-in fallback AGENTS\.md/);
+  assert.match(base.text, /## Communication contract/);
+  assert.match(base.text, /Lead with the result/);
+}
+ok('the default workflow discipline is a stable contract layer with a communication contract');
+
 // 7. B186: `/style` switches the session voice; the first screen names a
 //    non-default style (the shared test config in the wild often says learning).
 {

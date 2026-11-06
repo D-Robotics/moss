@@ -52,6 +52,7 @@ import { stage as orgPolicyStage } from './stages/org-policy.mjs';
 import { stage as outputStyleStage } from './stages/output-style.mjs';
 import { stage as planEndStage } from './stages/plan-end.mjs';
 import { stage as rulesActivationStage } from './stages/rules-activation.mjs';
+import { stage as specAuditNudgeStage } from './stages/spec-audit-nudge.mjs';
 import { stage as subagentResumeStage } from './stages/subagent-resume.mjs';
 import { stage as subagentPromptStage } from './stages/subagent-prompt-contract.mjs';
 import { stage as toolSurfaceStage } from './stages/tool-surface.mjs';
@@ -159,6 +160,7 @@ const STAGES = new Map(
     outputStyleStage,
     planEndStage,
     rulesActivationStage,
+    specAuditNudgeStage,
     subagentPromptStage,
     subagentResumeStage,
     toolSurfaceStage,
@@ -267,6 +269,7 @@ const FAST_GATE = [
   'output-style',
   'plan-end',
   'rules-activation',
+  'spec-audit-nudge',
   'subagent-prompt-contract',
   'subagent-resume',
   'tool-surface',
