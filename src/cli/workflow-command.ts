@@ -50,13 +50,23 @@ export interface WorkflowCommandContext {
 
 export const WORKFLOW_STEP_TIMEOUT_MS = 10 * 60_000;
 
+/**
+ * B248: every other read path accepts `latest` (`runs show latest`,
+ * `loop show latest`, `task status`); `workflow status latest` was the odd one
+ * out and failed with "no workflow run latest". Resolve it to the newest state.
+ */
+function resolveWorkflowTarget(workspaceDir: string, target: string): string | undefined {
+  if (target !== 'latest') return target;
+  return listWorkflowStates(workspaceDir)[0]?.runId;
+}
+
 export function renderWorkflowUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
     return [
       '用法：',
       '  moss workflow run <plan.json> [--dry-run] [--json]',
-      '  moss workflow resume <runId>',
-      '  moss workflow status <runId>',
+      '  moss workflow resume <runId|latest>',
+      '  moss workflow status <runId|latest>',
       '  moss workflow list [--json]',
       '',
       '  计划是数据不是代码：每步有 id / task / dependsOn / writePaths / maxTurns。',
@@ -73,8 +83,8 @@ export function renderWorkflowUsage(zh: boolean = isZhLocale()): string {
   return [
     'Usage:',
     '  moss workflow run <plan.json> [--dry-run] [--json]',
-    '  moss workflow resume <runId>',
-    '  moss workflow status <runId>',
+    '  moss workflow resume <runId|latest>',
+    '  moss workflow status <runId|latest>',
     '  moss workflow list [--json]',
     '',
     '  A plan is data, not code: steps carry id / task / dependsOn / writePaths / maxTurns.',
@@ -381,9 +391,16 @@ export async function runWorkflowCommand(
         console.error(renderWorkflowUsage(zh));
         return 2;
       }
-      const state = loadWorkflowState(context.workspaceDir, parsed.target);
+      const resumeTarget = resolveWorkflowTarget(context.workspaceDir, parsed.target);
+      const state = resumeTarget
+        ? loadWorkflowState(context.workspaceDir, resumeTarget)
+        : undefined;
       if (!state) {
-        console.error(`[moss] no workflow run "${parsed.target}" under .moss/workflows`);
+        console.error(
+          parsed.target === 'latest'
+            ? '[moss] no workflow runs under .moss/workflows'
+            : `[moss] no workflow run "${parsed.target}" under .moss/workflows`
+        );
         return 1;
       }
       if (!fs.existsSync(state.planFile)) {
@@ -405,9 +422,16 @@ export async function runWorkflowCommand(
         console.error(renderWorkflowUsage(zh));
         return 2;
       }
-      const state = loadWorkflowState(context.workspaceDir, parsed.target);
+      const statusTarget = resolveWorkflowTarget(context.workspaceDir, parsed.target);
+      const state = statusTarget
+        ? loadWorkflowState(context.workspaceDir, statusTarget)
+        : undefined;
       if (!state) {
-        console.error(`[moss] no workflow run "${parsed.target}" under .moss/workflows`);
+        console.error(
+          parsed.target === 'latest'
+            ? '[moss] no workflow runs under .moss/workflows'
+            : `[moss] no workflow run "${parsed.target}" under .moss/workflows`
+        );
         return 1;
       }
       printState(state, context.json ?? parsed.json);

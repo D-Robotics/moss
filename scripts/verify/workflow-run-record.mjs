@@ -115,6 +115,37 @@ ok('a failed workflow records per-status counts and `moss workflow resume`');
     assert.equal(records[0].kind, 'workflow');
     assert.equal(records[0].status, 'completed');
     assert.equal((await readRunRecord(ws, records[0].runId))?.exitCode, 0);
+    // B248: `workflow status latest` resolves to the newest run (same word the
+    // ledger and loop read paths accept).
+    const latest = await captureProcess(
+      process.execPath,
+      [path.join(root, 'dist', 'cli.js'), 'workflow', 'status', 'latest'],
+      {
+        cwd: ws,
+        env: {
+          ...process.env,
+          MOSS_CONFIG_DIR: configDir,
+          MOSS_NO_RDK_DOCS: '1',
+          MOSS_NO_TUI: '1',
+          MOSS_LANG: 'en',
+          MOSS_TRUST_WORKSPACE: '1',
+        },
+        timeoutMs: 60_000,
+      }
+    );
+    assert.equal(latest.status, 0, latest.stderr);
+    assert.match(latest.stdout, new RegExp(records[0].runId));
+    const missing = await captureProcess(
+      process.execPath,
+      [path.join(root, 'dist', 'cli.js'), 'workflow', 'status', 'nope'],
+      {
+        cwd: ws,
+        env: { ...process.env, MOSS_CONFIG_DIR: configDir, MOSS_NO_TUI: '1' },
+        timeoutMs: 60_000,
+      }
+    );
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /no workflow run "nope"/);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }

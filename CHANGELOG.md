@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### `moss workflow status|resume latest` works like the other read paths (B248)
+
+- A real two-step workflow (`moss goal --workflow plan.json`) passed both steps and landed one workflow
+  row in the ledger, but `moss workflow status latest` failed with `no workflow run "latest"` — the one
+  read path that did not accept the word the ledger and loop commands accept. `status` and `resume` now
+  resolve `latest` to the newest workflow state (and say `no workflow runs under .moss/workflows` instead
+  of quoting the word back).
+
+### `moss workflow status|resume latest` 与其他读路径一致（B248）
+
+- 真实两步 workflow（`moss goal --workflow plan.json`）两个 step 都通过并写入一条 workflow 账本行，但
+  `moss workflow status latest` 报 `no workflow run "latest"`——唯一不接受 `latest` 的读路径。现在 `status`
+  与 `resume` 会把 `latest` 解析为最新 workflow state（无运行时提示 `no workflow runs under .moss/workflows`，
+  不再把 `latest` 当 id 回显）。
+
 ### `moss loop` reports option-like tokens it treats as prompt text (B247)
 
 - Real loop runs validated the engine (pass on attempt 1, a pass after a fed-back failure, and an honest
