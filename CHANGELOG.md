@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### The CI Fast gate is green again (B161)
+
+- Every push had failed the Fast gate, and the cause was CI-only:
+  - `output-style` failed because GitHub runners export `XDG_CONFIG_HOME`; the probe
+    inspected `$HOME/.config/moss` while the CLI wrote the config under the runner's
+    XDG directory. Reproduced locally with `XDG_CONFIG_HOME=/tmp/fake-xdg` and fixed by
+    pinning `MOSS_CONFIG_DIR` to the probe's own config dir.
+  - `goal-runs` could fail `newest first` when two fixtures were written in the same
+    millisecond; the table now tie-breaks by `startedAt` and then by the later ledger row.
+  - `repl-interrupt` could flag a slow runner: it now waits for the stub to observe the
+    client disconnect (up to 4s) as the authoritative interrupt signal.
+- With the probes fixed, the gate tripped its 60s budget (1m1.5s) because `static` and
+  `build` ran cold on the runner (39s + 20s) — the immutable `node_modules` cache kept
+  restoring the first, empty static/build cache. The workflow now warms both caches in an
+  explicit untimed step, so the budget measures the same warm gate developers run; the
+  budget itself is unchanged. Latest run: **PASS 42.0s** on `ubuntu-latest`.
+
+### CI 的 Fast gate 恢复绿色（B161）
+
+- 之前每次 push 都失败，且是 CI-only：
+  - `output-style`：GitHub runner 会导出 `XDG_CONFIG_HOME`，探针检查 `$HOME/.config/moss`，
+    而 CLI 写到了 runner 的 XDG 目录。用 `XDG_CONFIG_HOME=/tmp/fake-xdg` 本地复现后，
+    通过把 `MOSS_CONFIG_DIR` 固定到探针自己的配置目录修复。
+  - `goal-runs`：两条 fixture 在同一毫秒写入时 `newest first` 不稳定；表格排序改为
+    `startedAt` + 后写入优先的确定性 tie-break。
+  - `repl-interrupt`：慢 runner 上误报；现在以 stub 观察到客户端断开（最多等 4s）为准。
+- 探针修好后门禁撞 60s 预算（1m1.5s）：runner 上 `static`/`build` 是冷的（39s + 20s），
+  不可变的 `node_modules` 缓存一直在恢复最初那个空缓存。workflow 现在用显式的**不计时**
+  预热步骤把两个缓存烤热，预算衡量的是开发者本地同样的 warm gate；预算本身不变。
+  最新一次：**ubuntu-latest 上 PASS 42.0s**。
+
 ### Run records say which gate stopped the answer (B155)
 
 - `RunRecord.reason` was a free-text summary, so `moss runs show` could not tell a verification
