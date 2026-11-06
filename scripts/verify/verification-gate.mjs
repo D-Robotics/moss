@@ -170,6 +170,17 @@ check('an unaddressed review_changes FAIL is held', () => {
   assert.equal(decision.ok, false);
 });
 
+check('gate corrections ask for the delta, not a second full answer', () => {
+  // B238: the retried turn used to re-print the whole answer (same facts,
+  // second code block) and inline scrollback cannot retract it.
+  const decision = evaluateVerificationCompletionGate({
+    response: 'All done — the change is complete and correct.',
+    messages: messages(writeFile()),
+  });
+  assert.equal(decision.ok, false);
+  assert.match(String(decision.correction), /do not restate or re-print the earlier answer/);
+});
+
 check('a review_changes PASS clears an earlier FAIL', () => {
   const decision = evaluateVerificationCompletionGate({
     response: 'Fixed and re-reviewed.',

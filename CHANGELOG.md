@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### A gate retry asks for the delta instead of a second full answer (B238)
+
+- Real TUI in manual mode showed the same change reported three times in one run: the answer, then
+  `Interpretation: …`, then `Done. math.js:1 now has a file-level header comment` with the whole file
+  again. The retried turn is bought by the completion gate's correction, and that correction only said
+  "verify and report what you observed", so the model restated everything. Inline scrollback cannot
+  retract a printed row, so the fix belongs upstream: every gate correction now ends with
+  "report only what changed since your previous message … do not restate or re-print the earlier answer".
+
+### 完成门重试只要求"增量"，不再要求第二个完整回答（B238）
+
+- 真实 TUI（manual 模式）一次 run 里同一改动被报告三次：回答、`Interpretation: …`、再
+  `Done. math.js:1 now has a file-level header comment` 并重贴整份文件。重试回合由完成门的 correction 换来，
+  而 correction 只说"检查并报告你观察到的"，模型于是把全部内容重述一遍。内联滚动区无法撤回已打印的行，
+  所以修复放在上游：每个完成门 correction 现在以"只报告自上一条消息以来的变化……不要重述或重贴先前的回答"结尾。
+
 ### Two full answers for one turn: the superseded one folds (B237)
 
 - Third-audit top-1: a turn nudged into answering again printed both answers in full (`⏺ Fixed …`

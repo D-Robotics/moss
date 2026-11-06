@@ -249,7 +249,7 @@ export function evaluateVerificationCompletionGate(request: {
           `(record ${structuredFailure.id}; \`moss review check\` exits 1 on it). Fix the blocking ` +
           'findings and call review_changes again so a new record passes, or report exactly which ' +
           'findings are still open and why — do not present the change as done while a critical ' +
-          'finding is open.',
+          `finding is open. ${GATE_ANSWER_RULE}`,
       };
     }
     return {
@@ -260,7 +260,7 @@ export function evaluateVerificationCompletionGate(request: {
       correction:
         'The independent reviewer returned FAIL. Fix the findings and re-review, or report the ' +
         'unresolved findings honestly (what is still broken and why) — do not present the change ' +
-        'as done while a critical finding is open.',
+        `as done while a critical finding is open. ${GATE_ANSWER_RULE}`,
     };
   }
   let lastMutation = -1;
@@ -283,9 +283,18 @@ export function evaluateVerificationCompletionGate(request: {
       'Before finishing, inspect the actual result: read the file back, or run the check that ' +
       'proves it (run_tests / a lint, build or verify command), and report what you observed. ' +
       'If verification is genuinely impossible here, say explicitly that the change is unverified ' +
-      'and why — do not present an unchecked change as done.',
+      `and why — do not present an unchecked change as done. ${GATE_ANSWER_RULE}`,
   };
 }
+
+/**
+ * B238: a gate correction buys one more turn, and the model used to spend it on
+ * a second full answer (same facts, second code block) — the transcript cannot
+ * retract the first one, so the duplication is permanent. Ask for the delta.
+ */
+export const GATE_ANSWER_RULE =
+  'Answer in the same message as the work: report only what changed since your previous message ' +
+  '(a line or two, e.g. the observed check output) and do not restate or re-print the earlier answer.';
 
 /** Review-repair cycles allowed per run (Bugbot's autofix cap is 3). */
 const REVIEW_REPAIR_LIMIT = 3;
