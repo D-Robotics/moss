@@ -611,6 +611,38 @@ ok('folded narration, provider error details and failed-run summary are honest')
 }
 ok('a network error row names the base URL and marks the run failed');
 
+// 5o. B261: a narrow status bar shows the directory name, not a mid-truncated
+// path; the Chinese full-mode label does not double up ("完全访问已开启").
+{
+  const narrow = transcript.renderStatusRight(
+    {
+      statusFields: statusLine.DEFAULT_STATUS_LINE_FIELDS,
+      model: 'm',
+      cwd: '/tmp/very/long/path/ux4-ws',
+      tokensIn: 1_000,
+      tokensOut: 20,
+    },
+    60
+  ).text;
+  assert.match(narrow, /ux4-ws/);
+  assert.doesNotMatch(narrow, /…vate|very\/long/);
+  const wide = transcript.renderStatusRight(
+    {
+      statusFields: statusLine.DEFAULT_STATUS_LINE_FIELDS,
+      model: 'm',
+      cwd: '/tmp/very/long/path/ux4-ws',
+    },
+    160
+  ).text;
+  assert.match(wide, /\/tmp\/very\/long\/path\/ux4-ws/);
+
+  const copy = await load('dist/cli/tui/copy.js');
+  copy.setTuiLocale('zh');
+  assert.equal(copy.tui('⏵⏵ {label} mode on', { label: '完全访问' }), '⏵⏵ 完全访问');
+  copy.setTuiLocale('en');
+}
+ok('narrow status uses the directory name and the zh mode label is not doubled');
+
 // 6. B194: the status row labels each number instead of imploding.
 {
   const en = statusLine.formatStatusLine({

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### A narrow status bar shows the directory name; the Chinese full-mode label stops doubling (B261)
+
+- At 60 columns the bar printed a mid-truncated path (`…vate/tmp/ux4-ws (main)`). Below 80 columns it now
+  shows the directory name (`ux4-ws (main)`); wide windows keep the full path.
+- `⏵⏵ 完全访问已开启` doubled the mode and its state; the zh full-mode label is now just `⏵⏵ 完全访问`.
+
+### 窄窗状态栏显示目录名；中文全模式标签不再叠词（B261）
+
+- 60 列时状态栏把路径中截断成 `…vate/tmp/ux4-ws (main)`。现在宽度小于 80 时显示目录名（`ux4-ws (main)`），宽窗保留完整路径。
+- `⏵⏵ 完全访问已开启` 是模式与状态叠词；中文全模式标签改为 `⏵⏵ 完全访问`。
+
 ### Failed runs say failed, name the endpoint, and folded narration says ctrl+o (B259)
 
 - A network failure showed `Could not connect…` with no endpoint and closed with `✻ worked for 1s` — the

@@ -1590,6 +1590,8 @@ function fitStatusFields(
 /** Context fill at/above which the status row turns the percentage yellow. */
 export const CONTEXT_WARN_PCT = 80;
 /** …and red past this line. The live warning row uses CONTEXT_WARN_PCT. */
+/** Below this width the status bar shows the directory name, not the path. */
+const NARROW_STATUS_WIDTH = 80;
 export const CONTEXT_CRIT_PCT = 95;
 
 export function renderStatusRight(view: StatusView, width: number): TuiLine {
@@ -1604,10 +1606,16 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
   let ctxPart: string | undefined;
   let ctxPct: number | undefined;
   if (view.statusFields) {
+    // B261: a narrow bar cannot afford a mid-truncated path (`…vate/tmp/ux4-ws`);
+    // the directory name is the useful part.
+    const statusCwd =
+      width < NARROW_STATUS_WIDTH && view.cwd
+        ? (view.cwd.split(/[\\/]/).filter(Boolean).pop() ?? view.cwd)
+        : view.cwd;
     const built = statusLineParts(
       {
         ...(view.model ? { model: view.model } : {}),
-        ...(view.cwd ? { cwd: view.cwd } : {}),
+        ...(statusCwd ? { cwd: statusCwd } : {}),
         ...(view.branch ? { branch: view.branch } : {}),
         tokensIn: view.sessionIn ?? view.turnIn,
         tokensOut: view.sessionOut ?? view.turnOut,
