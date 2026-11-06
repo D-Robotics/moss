@@ -215,7 +215,7 @@ npm run verify   # delivery gate: static + build + smoke + examples, budget ≤6
 npm run bench    # capability baseline (DeepSeek base model); bench:swe / bench:deepswe / bench:device
 ```
 
-Behaviour is not "looks right in review": the delivery gate now carries **90+ re-runnable
+Behaviour is not "looks right in review": the delivery gate now carries **100+ re-runnable
 probes/stages** (`scripts/verify/stages/*`, including PTY terminal behaviour, TUI render projection and
 offline task-engine/ledger scenarios); locally the whole gate takes ~1–1.5 min depending on machine
 load, while CI runs the same gate as two parallel shards under the same 60s budget each. A regression

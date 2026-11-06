@@ -211,7 +211,7 @@ npm run verify   # 交付门：static + build + smoke + examples，目标 ≤60s
 npm run bench    # 能力基准（DeepSeek 基准模型）；bench:swe / bench:deepswe / bench:device
 ```
 
-行为不靠"读代码觉得对"：交付门里现在有 **90+ 个可复跑的探针/阶段**（`scripts/verify/stages/*`，
+行为不靠"读代码觉得对"：交付门里现在有 **100+ 个可复跑的探针/阶段**（`scripts/verify/stages/*`，
 含 PTY 终端行为、TUI 渲染投影、离线任务引擎与账本场景），本地整门约 1–1.5 分钟（随机器负载），
 CI 把同一条门禁拆成两片并行、每片仍是 60s 预算；改坏会在 `npm run verify` 里直接红，本地一次跑完。
 真实模型回归另见 `npm run bench` 与 CI 夜跑矩阵。支持矩阵与验证方式见

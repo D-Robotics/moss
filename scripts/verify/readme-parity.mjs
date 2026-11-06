@@ -185,4 +185,25 @@ ok('CLI copy never cites internal ticket ids');
 }
 ok('the install page carries no internal ticket ids');
 
+// 11. B270: the probe-count claim in the quality section must be true — count
+//     the stage files the sentence points at instead of trusting a number.
+{
+  const stageCount = fs
+    .readdirSync(path.join(root, 'scripts/verify/stages'))
+    .filter((name) => name.endsWith('.mjs')).length;
+  for (const [name, text, pattern] of [
+    ['README.md', zh, /\*\*(\d+)\+ 个可复跑的探针\/阶段\*\*/],
+    ['README.en.md', en, /\*\*(\d+)\+ re-runnable/],
+  ]) {
+    const match = pattern.exec(text);
+    assert.ok(match, `${name} lost its probe-count claim`);
+    const claimed = Number(match[1]);
+    assert.ok(
+      claimed <= stageCount,
+      `${name} claims ${claimed}+ probes but only ${stageCount} stage files exist`
+    );
+  }
+}
+ok('the advertised probe count does not exceed the real stage count');
+
 console.log(`[readme-parity] ${checks}/${checks} checks passed`);

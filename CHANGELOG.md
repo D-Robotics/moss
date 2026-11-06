@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The README's probe count is accurate and guarded (B270)
+
+- The quality section said "90+ re-runnable probes" while the gate now carries 106 stage files; both
+  READMEs say 100+, and `readme-parity` parses the claim and compares it with the real count under
+  `scripts/verify/stages/` so the number cannot drift ahead of the gate.
+
+### README 的探针数量准确且有守卫（B270）
+
+- 质量段落写"90+ 个可复跑的探针"，而门禁现在有 106 个 stage 文件；两版 README 改为 100+，
+  `readme-parity` 会解析这个数字并与 `scripts/verify/stages/` 的真实数量比较，数字不能超前于门禁。
+
 ### The install page's proxy troubleshooting is self-contained (B269)
 
 - The proxy section sent users to internal backlog item `O87` for "CONNECT works but the answer fails" and
