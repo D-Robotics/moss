@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { planWaves, type WorkflowPlan, type WorkflowStep } from './workflow-plan.js';
+import type { RunRecordUsage } from '../run-ledger.js';
 
 export type WorkflowStepStatus = 'pending' | 'running' | 'passed' | 'failed' | 'blocked';
 
@@ -21,6 +22,8 @@ export interface WorkflowStepState {
   /** Last part of the child output; bounded so the state file stays small. */
   outputTail?: string;
   error?: string;
+  /** B164: usage of the child session, aggregated into the workflow run record. */
+  usage?: RunRecordUsage;
 }
 
 export interface WorkflowState {
@@ -43,6 +46,7 @@ export interface WorkflowStepResult {
   sessionKey?: string;
   durationMs?: number;
   error?: string;
+  usage?: RunRecordUsage;
 }
 
 export type WorkflowStepRunner = (step: WorkflowStep) => Promise<WorkflowStepResult>;
@@ -173,6 +177,7 @@ export async function runWorkflow(options: RunWorkflowOptions): Promise<Workflow
             entry.exitCode = result.exitCode;
             entry.outputTail = tail(result.output);
             if (result.sessionKey) entry.sessionKey = result.sessionKey;
+            if (result.usage) entry.usage = result.usage;
             if (result.passed) {
               entry.status = 'passed';
               delete entry.error;

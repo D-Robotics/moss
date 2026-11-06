@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import type { MossAgent, MossAgentEvent } from '../core/index.js';
 import type { ToolFilter } from '../core/index.js';
 import { createCliRunRenderer } from './output.js';
@@ -900,12 +901,15 @@ export async function runOneShot(
   // continuation re-enters this function, so only the outermost run records.
   // MOSS_NO_RUN_LEDGER is internal: workflow steps are recorded by the workflow
   // row itself, so a per-step chat row would duplicate the same run.
-  if (
+  // MOSS_USAGE_FILE (internal, B164): a suppressing parent (workflow) still needs
+  // this run's usage to aggregate; write it as plain JSON at that path.
+  const usageFile = process.env.MOSS_USAGE_FILE;
+  const writeLedger =
     options.headless === true &&
     options.suppressRunLedger !== true &&
     !options.goalVerifyDepth &&
-    process.env.MOSS_NO_RUN_LEDGER !== '1'
-  ) {
+    process.env.MOSS_NO_RUN_LEDGER !== '1';
+  if (options.headless === true && (writeLedger || usageFile)) {
     try {
       const [{ writeRunRecord }, { buildChatRunRecord }, { runUsageFromSlices }] =
         await Promise.all([
@@ -917,6 +921,14 @@ export async function runOneShot(
         ...(pricingOverrides ? { overrides: pricingOverrides } : {}),
         ...(baseUrl ? { baseUrl } : {}),
       });
+      if (usageFile) {
+        try {
+          fs.writeFileSync(usageFile, `${JSON.stringify(usage ?? null)}\n`, 'utf8');
+        } catch (err) {
+          process.stderr.write(`[moss] could not write usage file: ${errorMessage(err)}\n`);
+        }
+      }
+      if (!writeLedger) return stopResult;
       const gates = agent.gateBlocksFor(sessionKey).map((block) => ({ ...block }));
       await writeRunRecord(
         workspaceDir,

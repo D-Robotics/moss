@@ -15,6 +15,7 @@ import {
   type WorkflowPlan,
   type WorkflowStep,
 } from '../core/workflow/workflow-plan.js';
+import type { RunRecordUsage } from '../core/run-ledger.js';
 import {
   createWorkflowState,
   describeWorkflowStep,
@@ -159,6 +160,8 @@ export function createChildSessionRunner(options: {
   state: WorkflowState;
   timeoutMs?: number;
   extraArgs?: string[];
+  /** B164: where child `-p` runs drop their usage JSON for aggregation. */
+  usageDir?: string;
 }): WorkflowStepRunner {
   return async (step) => {
     const sessionKey = `workflow-${options.state.runId}-${step.id}`;
@@ -171,29 +174,52 @@ export function createChildSessionRunner(options: {
       ...(options.extraArgs ?? []),
     ];
     const startedMs = Date.now();
+    const usageFile = options.usageDir
+      ? path.join(options.usageDir, `${step.id}.usage.json`)
+      : undefined;
+    if (usageFile) fs.rmSync(usageFile, { force: true });
+    const readUsage = (): RunRecordUsage | undefined => {
+      if (!usageFile) return undefined;
+      try {
+        const raw = JSON.parse(fs.readFileSync(usageFile, 'utf8')) as unknown;
+        if (raw && typeof raw === 'object') return raw as RunRecordUsage;
+      } catch {
+        // A child that died before writing usage yields no numbers, never a guess.
+      }
+      return undefined;
+    };
     try {
       const result = await runProcess(process.execPath, {
         args,
         cwd: options.workspaceDir,
         // The workflow row covers its steps; a per-step chat row would duplicate it.
-        env: { ...process.env, MOSS_NO_TUI: '1', MOSS_NO_RUN_LEDGER: '1' },
+        env: {
+          ...process.env,
+          MOSS_NO_TUI: '1',
+          MOSS_NO_RUN_LEDGER: '1',
+          ...(usageFile ? { MOSS_USAGE_FILE: usageFile } : {}),
+        },
         timeout: options.timeoutMs ?? WORKFLOW_STEP_TIMEOUT_MS,
       });
+      const usage = readUsage();
       return {
         passed: true,
         output: `${result.stdout}${result.stderr}`.trim(),
         sessionKey,
         durationMs: Date.now() - startedMs,
         exitCode: result.exitCode,
+        ...(usage ? { usage } : {}),
       };
     } catch (err) {
       if (!(err instanceof ProcessError)) throw err;
+      const usage = readUsage();
       return {
         passed: false,
         output: `${err.stdout}${err.stderr}`.trim(),
         sessionKey,
         durationMs: Date.now() - startedMs,
         ...(err.exitCode !== null ? { exitCode: err.exitCode } : {}),
+        ...(usage ? { usage } : {}),
         error: err.timedOut
           ? `step timed out after ${String(err.timeoutMs ?? options.timeoutMs ?? WORKFLOW_STEP_TIMEOUT_MS)}ms`
           : `step exited ${String(err.exitCode ?? err.signal ?? 'unknown')}`,
@@ -265,11 +291,16 @@ async function runPlan(
   state.concurrency = plan.concurrency;
   saveWorkflowState(context.workspaceDir, state);
   console.log(`workflow ${state.runId} (${plan.name}): ${String(plan.steps.length)} step(s)`);
+  // B164: one usage file per step under the workflow's own state dir, then
+  // aggregated into the single workflow run row.
+  const usageDir = path.join(context.workspaceDir, '.moss', 'workflows', state.runId, 'usage');
+  fs.mkdirSync(usageDir, { recursive: true });
   const runner = createChildSessionRunner({
     workspaceDir: context.workspaceDir,
     cliPath: resolveCliPath(context.cliPath),
     plan,
     state,
+    usageDir,
     ...(context.stepTimeoutMs !== undefined ? { timeoutMs: context.stepTimeoutMs } : {}),
     ...(context.mock ? { extraArgs: ['--mock'] } : {}),
   });

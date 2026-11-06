@@ -4,7 +4,7 @@
  * The mapping lives here (pure) so it can be probed without spawning child
  * sessions; the workflow state file stays the source of truth for step details.
  */
-import type { RunRecord, RunRecordStatus } from '../core/run-ledger.js';
+import type { RunRecord, RunRecordStatus, RunRecordUsage } from '../core/run-ledger.js';
 import type { WorkflowState } from '../core/workflow/workflow-runner.js';
 
 export interface WorkflowRunRecordInput {
@@ -20,6 +20,35 @@ export function workflowRunStatus(state: WorkflowState): RunRecordStatus {
   if (statuses.some((status) => status === 'failed')) return 'verify_failed';
   if (statuses.some((status) => status === 'blocked')) return 'blocked';
   return 'incomplete';
+}
+
+/** Sum step usage; steps without numbers contribute nothing (never guessed). */
+export function aggregateWorkflowUsage(state: WorkflowState): RunRecordUsage | undefined {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let costUsd = 0;
+  let withUsage = 0;
+  let priced = 0;
+  for (const step of state.steps) {
+    const usage = step.usage;
+    if (!usage) continue;
+    withUsage += 1;
+    inputTokens += usage.inputTokens;
+    outputTokens += usage.outputTokens;
+    cacheReadTokens += usage.cacheReadTokens ?? 0;
+    if (typeof usage.costUsd === 'number') {
+      costUsd += usage.costUsd;
+      priced += 1;
+    }
+  }
+  if (withUsage === 0) return undefined;
+  return {
+    inputTokens,
+    outputTokens,
+    ...(cacheReadTokens > 0 ? { cacheReadTokens } : {}),
+    ...(priced > 0 ? { costUsd: Number(costUsd.toFixed(6)) } : {}),
+  };
 }
 
 export function buildWorkflowRunRecord(input: WorkflowRunRecordInput): RunRecord {
@@ -41,6 +70,10 @@ export function buildWorkflowRunRecord(input: WorkflowRunRecordInput): RunRecord
     ...(status === 'completed'
       ? {}
       : { reason: `${summary} (${state.planFile})`, next: `moss workflow resume ${state.runId}` }),
+    ...(() => {
+      const usage = aggregateWorkflowUsage(state);
+      return usage ? { usage } : {};
+    })(),
     artifacts: { workflowState: `.moss/workflows/${state.runId}/state.json` },
   };
 }

@@ -15,7 +15,9 @@ import { captureProcess } from './lib/proc.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
-const { buildWorkflowRunRecord, workflowRunStatus } = await load('dist/cli/workflow-run-record.js');
+const { aggregateWorkflowUsage, buildWorkflowRunRecord, workflowRunStatus } = await load(
+  'dist/cli/workflow-run-record.js'
+);
 const { listRunRecords, writeRunRecord, readRunRecord } = await load('dist/core/run-ledger.js');
 
 let checks = 0;
@@ -131,5 +133,33 @@ ok('a failed workflow records per-status counts and `moss workflow resume`');
   }
   ok('workflow records round-trip through the shared ledger');
 }
+
+// 6. B164: step usage (from each child's MOSS_USAGE_FILE) is summed into the
+//    one workflow row; steps without numbers contribute nothing (never guessed).
+{
+  const withUsage = state(['passed', 'passed']);
+  withUsage.steps[0].usage = {
+    inputTokens: 10_000,
+    outputTokens: 500,
+    cacheReadTokens: 2_000,
+    costUsd: 0.01,
+  };
+  withUsage.steps[1].usage = { inputTokens: 4_000, outputTokens: 100 };
+  const totals = aggregateWorkflowUsage(withUsage);
+  assert.deepEqual(totals, {
+    inputTokens: 14_000,
+    outputTokens: 600,
+    cacheReadTokens: 2_000,
+    costUsd: 0.01,
+  });
+  const record = buildWorkflowRunRecord({ state: withUsage, ...base });
+  assert.deepEqual(record.usage, totals);
+  assert.equal(aggregateWorkflowUsage(state(['passed'])), undefined);
+
+  const partial = state(['passed', 'failed']);
+  partial.steps[1].usage = { inputTokens: 7, outputTokens: 3 };
+  assert.deepEqual(aggregateWorkflowUsage(partial), { inputTokens: 7, outputTokens: 3 });
+}
+ok('workflow usage sums across steps and omits steps without numbers');
 
 console.log(`[workflow-run-record] ${checks}/${checks} checks passed`);
