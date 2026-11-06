@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### `moss runs summary --by day|week` shows the trend, not just the total (B166)
+
+- The summary answered "how are my runs doing" per kind but not over time. `--by day` (local
+  calendar day) and `--by week` (ISO week, Monday start) now bucket the same filtered runs,
+  newest first, each with runs/pass/fail/other and token usage; the total row is unchanged and
+  `--json` carries `by` plus a `buckets` array. An unknown granularity is a usage error (exit 2).
+
+### `moss runs summary --by day|week` 看趋势而不只是总量（B166）
+
+- 汇总以前只能按引擎回答"最近运行怎么样"，看不到时间趋势。`--by day`（本地自然日）与
+  `--by week`（ISO 周，周一起）现在把同一批过滤后的运行分桶，最新在前，每桶给出
+  次数/通过/失败/其他与 token 用量；合计行不变，`--json` 增加 `by` 与 `buckets` 数组。
+  未知粒度是用法错误（exit 2）。
+
 ### Super-agent tickets report their work's usage (B165)
 
 - A ticket runs its work in a separate worktree through `moss superagent worker`, which uses the

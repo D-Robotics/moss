@@ -98,7 +98,7 @@ ordinary interactive chat is not recorded.
 moss goal "create hello.txt containing MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"
 moss runs                              # one ledger for every autonomous run (task / loop / -p / workflow): status / reason / next
 moss runs export latest > run.md       # export the run as Markdown for a PR / CI
-moss runs summary --since 7d           # last 7 days: runs/pass-rate/tokens/priced cost per kind
+moss runs summary --since 7d --by day  # last 7 days: per-day runs/pass-rate/tokens/priced cost
 moss task status --json                # the same facts, for scripts and CI
 ```
 
