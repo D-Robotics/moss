@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { formatDuration, runProcess } from '../lib/proc.mjs';
+import { resolveNodeModulesTool } from '../lib/resolve-tool.mjs';
 
 const SRC_EXTENSIONS = ['.ts', '.tsx'];
 
@@ -54,8 +55,10 @@ export const stage = {
     const srcDir = path.join(root, 'src');
     const buildInfoDir = path.join(root, '.cache');
     const buildInfo = path.join(buildInfoDir, 'moss.tsbuildinfo');
-    const tsc = path.join(root, 'node_modules', 'typescript', 'lib', 'tsc.js');
-    if (!fs.existsSync(tsc)) {
+    // Walk up from the checkout: an npm workspace consumer hoists typescript to
+    // its repo root, so `<root>/node_modules/typescript` may not exist.
+    const tsc = resolveNodeModulesTool(root, 'typescript', 'lib', 'tsc.js');
+    if (!tsc) {
       return { ok: false, detail: 'typescript is not installed (run npm ci)' };
     }
 
