@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### The first hint follows the workspace, not a checkout's `.env` (B191)
+
+- A dev checkout's `.env` can name a board (`MOSS_DEVICE_HOST`). Because the CLI also loads the
+  install directory's `.env`, every unrelated folder used to open with `Try "stream the camera at 30
+fps and verify it"` — a board workflow offered as the first move in a plain folder.
+- The empty-composer hint now treats a device host as this workspace's board only when it comes from
+  the project's own `.env`/an ancestor's, or the real process environment; a device configured in a
+  checkout no longer turns unrelated workspaces into board sessions. Code and general hints unchanged.
+
+### 首屏提示跟随工作区，而不是检出目录的 `.env`（B191）
+
+- 开发检出的 `.env` 可以指定开发板（`MOSS_DEVICE_HOST`）；由于 CLI 也会加载安装目录的 `.env`，任何无关目录的首屏都会显示
+  `Try "stream the camera at 30 fps and verify it"`——在普通文件夹里把开发板流程当成第一步。
+- 现在只有设备 host 来自本项目（自身或祖先目录的 `.env`）或真实进程环境时，才把该工作区视为开发板；检出目录里配置的设备
+  不再让无关工作区变成 board 会话。代码/通用提示保持不变。
+
 ### The CI gate runs as two parallel shards, each with the same 60s budget (B190)
 
 - GitHub's runner speed varies; the same gate that passed in 36.8s tripped the 60s budget on a slower
