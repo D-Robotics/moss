@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The status row counts only tasks that still need attention (B225)
+
+- After `/goal` finished, the chrome kept `· 1 task` / `· 2 tasks` forever: it counted every task
+  snapshot in the session, including settled ones, so it read like work still in flight. It now counts
+  only `PLANNING` / `EXECUTING` / `BLOCKED`; a finished goal leaves the row clean.
+
+### 状态行只统计仍需要处理的任务（B225）
+
+- `/goal` 结束后，状态行会一直保留 `· 1 task` / `· 2 tasks`：它统计会话里所有任务快照（含已结束的），
+  看起来像还有任务在跑。现在只统计 `PLANNING` / `EXECUTING` / `BLOCKED`；goal 完成后该计数消失。
+
 ### `moss goal --max-turns N` is no longer swallowed (B224)
 
 - The top-level parser treated `--max-turns` as the chat agent's turn budget for every command except

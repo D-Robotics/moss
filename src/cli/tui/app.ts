@@ -4022,11 +4022,15 @@ export function TuiAppRoot({
     quote.amount !== null && quote.currency
       ? formatCostEstimate(quote.amount, quote.currency, isTuiZh())
       : undefined;
-  const activeTask = runtime
+  // B225: the chrome counts only tasks that still need attention. A settled
+  // task used to keep showing as `· 1 task` forever, which read like an
+  // in-flight task (the same stale-state class the second audit flagged).
+  const activeTasks = runtime
     .taskSummaries()
-    .find(
+    .filter(
       (task) => task.state === 'EXECUTING' || task.state === 'PLANNING' || task.state === 'BLOCKED'
     );
+  const activeTask = activeTasks[0];
   // Kept from #24. A 12-row inline terminal has no spare line. An idle
   // model/cwd row scrolls the pre-Ink fallback notice off the screen; show
   // the fields once there is a run, tokens, a cost, a hot context, or a
@@ -4089,7 +4093,7 @@ export function TuiAppRoot({
     tokens: running ? store.usage.runTokensOut : store.usage.tokensIn + store.usage.tokensOut,
     turnIn: store.usage.runTokensIn,
     turnOut: store.usage.runTokensOut,
-    taskCount: runtime.taskSummaries().length,
+    taskCount: activeTasks.length,
     queueLength: queueRef.current.length,
     contextUsed: store.usage.contextUsed,
     contextTotal: store.usage.contextTotal,
