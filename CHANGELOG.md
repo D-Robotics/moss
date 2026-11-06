@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Workflow runs report their model too (B177)
+
+- B167 recorded the model for chat/task/loop/superagent runs but not workflow: children write their
+  usage to `MOSS_USAGE_FILE`, and the parent only read the numbers, so `--by model` bucketed every
+  workflow as `unknown`.
+- The usage file now carries `{ usage, model }` (B164's bare-usage shape is still read), each step
+  keeps its model, and the workflow record records it **only when every step reports the same one** —
+  a mixed or partial set stays `undefined` instead of mis-attributing cost.
+- Real two-step workflow (deepseek-flash): `runs show latest` prints `model: deepseek-flash@latest`,
+  and `moss runs summary --by model` shows the workflow bucket with its tokens.
+
+### workflow 运行也开始记录模型（B177）
+
+- B167 已为 chat/task/loop/superagent 记录模型，但 workflow 没有：子进程把用量写进 `MOSS_USAGE_FILE`，
+  父进程只读了数字，于是 `--by model` 把所有 workflow 归到 `unknown`。
+- 用量文件现在带 `{ usage, model }`（仍兼容 B164 的裸 usage 形状），每个 step 保留自己的模型，
+  workflow 记录**只有所有 step 一致时才写 model**——混合或缺失一律 `undefined`，不错误归因成本。
+- 真实两步 workflow（deepseek-flash）：`runs show latest` 打印 `model: deepseek-flash@latest`，
+  `moss runs summary --by model` 出现该 workflow 的 bucket 与 token。
+
 ### README: the verifiability story is now concrete (B176)
 
 - The README said "probes exist" but never showed what a recorded run looks like. A new
