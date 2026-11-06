@@ -39,6 +39,12 @@ export interface LoopOptions {
   watchTimeoutMs: number;
   /** Cap on a single `--until` run; a hang stops the loop instead of eating attempts. */
   untilTimeoutMs: number;
+  /**
+   * B247: option-like tokens that are not loop flags. They are kept as prompt
+   * text (a prompt may legitimately contain `--flag`), but the CLI says so —
+   * a typo like `--max-attempts 2` used to silently change the prompt.
+   */
+  unknownOptions?: string[];
 }
 
 /** First line of a run: lets `loop list` tell "still running" from "killed". */
@@ -125,6 +131,7 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
       '  每轮：用 prompt 跑一次全新的 headless 会话 → 执行 --until 命令。',
       '  命令退出 0 即成功（exit 0）；失败会把输出尾部喂回下一轮（最多 N 次，默认 3）。',
       '  --until 不能省略：循环的成败只由你的命令判定，不由模型自述判定。',
+      '  -- 之后全部作为 prompt（prompt 本身含 --flag 时用；未知选项也会被提示）。',
       '  --every 5m：两次尝试之间固定等待（支持 ms/s/m/h，默认 0 = 立即重试）。',
       '  --max-duration 30m：整轮墙钟上限，只在两次尝试之间检查（进行中的一轮不会被切断）。',
       '  --watch <路径|模式>：失败后等它变化再跑下一轮（外部信号唤醒，如 CI 产物落地）。',
@@ -151,6 +158,8 @@ export function renderLoopUsage(zh: boolean = isZhLocale()): string {
     '  --until command. Exit 0 of that command means success (loop exits 0); on',
     '  failure the output tail is fed into the next attempt (default 3 attempts).',
     '  --until is required: only your command decides, never the model prose.',
+    '  -- ends option parsing; everything after is prompt text (use it when the prompt',
+    '  contains --flags; unknown options are reported as prompt text).',
     '  --every 5m waits a fixed delay between failed attempts (ms/s/m/h; default 0 = retry now).',
     '  --max-duration 30m caps the whole loop in wall-clock terms; checked between attempts',
     '  (an attempt already running is not cut off).',
@@ -216,6 +225,7 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
   let watchRecursive = false;
   let watchTimeoutMs = 0;
   let untilTimeoutMs = 0;
+  const unknownOptions: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? '';
     if (arg === '--') {
@@ -282,6 +292,7 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
       }
       continue;
     }
+    if (/^--[a-z][\w-]*$/i.test(arg)) unknownOptions.push(arg);
     rest.push(arg);
   }
   const prompt = rest.join(' ').trim();
@@ -305,6 +316,7 @@ export function parseLoopArgs(argv: readonly string[]): LoopOptions {
     ...(watchRecursive ? { watchRecursive: true } : {}),
     watchTimeoutMs: watchTimeoutMs > 0 ? watchTimeoutMs : DEFAULT_WATCH_TIMEOUT_MS,
     untilTimeoutMs: untilTimeoutMs > 0 ? untilTimeoutMs : DEFAULT_UNTIL_TIMEOUT_MS,
+    ...(unknownOptions.length > 0 ? { unknownOptions } : {}),
   };
 }
 
@@ -688,6 +700,14 @@ export async function runLoopCommand(
     return 2;
   }
 
+  if (options.unknownOptions && options.unknownOptions.length > 0) {
+    const flags = options.unknownOptions.join(', ');
+    console.error(
+      zh
+        ? `[loop] 注意：未知选项 ${flags} 被当作 prompt 文本；loop 选项：--until --max --every --max-duration --watch --watch-recursive --watch-timeout --until-timeout。若 prompt 本身含 --flag，这是预期行为；可用 -- 分隔。`
+        : `[loop] note: unknown option(s) ${flags} treated as prompt text; loop flags: --until --max --every --max-duration --watch --watch-recursive --watch-timeout --until-timeout. If the prompt really contains --flag, this is expected; use -- to separate.`
+    );
+  }
   const runIdBase = `loop-${Date.now().toString(36)}`;
   const ledgerPath = path.join(ctx.workspaceDir, '.moss', 'loops', `${runIdBase}.jsonl`);
   const ledgerLabel = path.relative(ctx.workspaceDir, ledgerPath);

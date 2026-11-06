@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### `moss loop` reports option-like tokens it treats as prompt text (B247)
+
+- Real loop runs validated the engine (pass on attempt 1, a pass after a fed-back failure, and an honest
+  failure with exit 1), but a typo like `--max-attempts 2` was silently folded into the prompt — the run
+  used the default three attempts while the user believed they had capped it. Unknown `--flag` tokens are
+  still prompt text (a prompt may legitimately contain them), but the CLI now prints one note naming them
+  and the real loop flags; `--` remains the way to pass option-like prompt text silently, and the usage
+  text says so.
+
+### `moss loop` 会提示被当作 prompt 的"伪选项"（B247）
+
+- 真实 loop 运行验证了引擎（首轮通过、失败反馈后第二轮通过、诚实失败 exit 1），但像 `--max-attempts 2`
+  这样的拼写会被静默折进 prompt——用户以为限制了次数，实际跑默认 3 轮。未知 `--flag` 仍作为 prompt 文本
+  （prompt 里确实可能有），但 CLI 现在会打印一条提示，列出未知选项与真正的 loop 选项；`--` 仍是静默传入
+  含 `--flag` prompt 的方式，usage 里也写明了。
+
 ### `moss review check` states the verdict once (B246)
 
 - Real `/review` → `moss review check` printed `PASS — verdict: PASS (working tree + staged changes,

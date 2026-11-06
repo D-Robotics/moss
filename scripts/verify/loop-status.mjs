@@ -16,9 +16,8 @@ import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
-const { listLoopRuns, isLoopProcessAlive, renderLoopRunRows, formatLoopRunDetail } = await load(
-  'dist/cli/loop-command.js'
-);
+const { listLoopRuns, isLoopProcessAlive, renderLoopRunRows, formatLoopRunDetail, parseLoopArgs } =
+  await load('dist/cli/loop-command.js');
 
 let checks = 0;
 const ok = (name) => {
@@ -148,6 +147,19 @@ assert.doesNotMatch(
 );
 ok('`loop show` says the dead run is interrupted and shows no stale pid');
 
+// B247: option-like tokens that are not loop flags stay prompt text, but the
+// parser records them so the CLI can say so instead of silently changing the prompt.
+{
+  const parsed = parseLoopArgs(['--until', 'true', '--max-attempts', '2', 'fix it']);
+  assert.deepEqual(parsed.unknownOptions, ['--max-attempts']);
+  assert.match(parsed.prompt, /--max-attempts 2 fix it/);
+  const clean = parseLoopArgs(['--until', 'true', '--max', '2', 'fix it']);
+  assert.equal(clean.unknownOptions, undefined, 'known flags are not reported');
+  const separated = parseLoopArgs(['--until', 'true', '--', 'fix --verbose']);
+  assert.equal(separated.unknownOptions, undefined, 'after -- everything is prompt text');
+}
+ok('unknown loop options are reported, not silently folded into the prompt');
+
 // The JSON view carries the same fields for scripts.
 const parsed = JSON.parse(JSON.stringify(listLoopRuns(ws)));
 assert.equal(parsed.find((run) => run.runId === 'loop-live').status, 'running');
@@ -155,4 +167,4 @@ assert.equal(parsed.find((run) => run.runId === 'loop-live').pid, process.pid);
 ok('`--json` rows carry status + pid');
 
 await fs.rm(tmp, { recursive: true, force: true });
-console.log(`[loop-status] ${checks}/6 checks passed`);
+console.log(`[loop-status] ${checks}/7 checks passed`);
