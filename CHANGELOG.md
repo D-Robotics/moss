@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `/context` labels an unprobed context window (B227)
+
+- The status row has shown `ctx ~N%` for an unprobed window since B198, but `/context` printed
+  `usage ~0 / 1,000,000 tokens` as if 1M were measured. It now adds
+  `window unprobed — conservative 1,000k default (/model probes the real value)` when the provider had
+  no window to report, so the number below it is not mistaken for a fact.
+
+### `/context` 标注未探测的上下文窗口（B227）
+
+- 自 B198 起状态行会用 `ctx ~N%` 表示未探测窗口，但 `/context` 仍打印 `usage ~0 / 1,000,000 tokens`，
+  像是实测的 1M。现在 provider 没有可报告窗口时会加一行
+  `window unprobed — conservative 1,000k default (/model probes the real value)`，避免把下面的数字当成事实。
+
 ### The status row counts only tasks that still need attention (B225)
 
 - After `/goal` finished, the chrome kept `· 1 task` / `· 2 tasks` forever: it counted every task

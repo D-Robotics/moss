@@ -1494,6 +1494,10 @@ export async function runCli(): Promise<void> {
     return true;
   };
 
+  // B227: `/context` labels an unprobed window instead of implying the default
+  // is the real size (the status row already shows `ctx ~N%`).
+  (agent.config as { contextTokensSource?: string }).contextTokensSource =
+    resolvedConfig.contextTokensSource;
   try {
     // Startup context-window probe: if the user didn't explicitly set
     // contextTokens (source is 'unprobed'), ask the provider API.  On success

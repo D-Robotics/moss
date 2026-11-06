@@ -488,6 +488,7 @@ const contextCommand: CommandSpec = {
   name: '/context',
   summary: 'show message count and token usage in this session',
   async run(ctx) {
+    const zh = isZh();
     try {
       const msgs = await ctx.agent.config.sessionStore.loadMessages(ctx.sessionKey);
       const tokens = msgs.reduce((n, m) => {
@@ -524,6 +525,18 @@ const contextCommand: CommandSpec = {
       }
       const reserveTokens = ctx.agent.config.compactionSettings?.reserveTokens ?? 20_000;
       const freeTokens = Math.max(0, usage.total - usage.used);
+      // B227: an unprobed window is the conservative 1M default, not a measured
+      // size; say so here too (the status row shows `ctx ~N%`).
+      const windowSource = (ctx.agent.config as { contextTokensSource?: string })
+        .contextTokensSource;
+      const windowNote =
+        windowSource === 'unprobed'
+          ? [
+              zh
+                ? `  window     未探测，使用保守默认 ${Math.round(usage.total / 1000).toLocaleString()}k（/model 可探测精确值）`
+                : `  window     unprobed — conservative ${Math.round(usage.total / 1000).toLocaleString()}k default (/model probes the real value)`,
+            ]
+          : [];
       const detailLines =
         usage.source === 'provider'
           ? [
@@ -595,6 +608,7 @@ const contextCommand: CommandSpec = {
           `    free           ${fmt(freeTokens)}`,
           `    compact keep   ${fmt(reserveTokens)} (auto-compact reserve)`,
           ...detailLines,
+          ...windowNote,
           ...compactionLines,
           `  tools      ~${fmt(toolTokens)} tokens (${toolDeclarations.length} declared, ${
             leanSurface ? 'lean' : 'full'

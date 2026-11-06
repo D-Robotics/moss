@@ -168,6 +168,11 @@ export const stage = {
 
       console.log('[context-surface] checking a large window reports the full tier');
       const full = await runOnce(undefined);
+      if (!/window\s+unprobed/.test(full.output)) {
+        throw new Error(
+          `a config without agent.contextTokens must label the window unprobed; output:\n${full.output.slice(-1500)}`
+        );
+      }
       if (full.parsed.tier !== 'full') {
         throw new Error(
           `a large context window reported the ${full.parsed.tier} tier, expected full`
