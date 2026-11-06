@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Doctor copy no longer cites internal ticket ids (B268)
+
+- The gateway reachability line told users to "see O87 if CONNECT succeeds" and the no-response line said
+  "(O87 tracks CONNECT-without-answer)" — an internal backlog id in user-facing output. Both now say what
+  to do (check provider logs / gate settings; CONNECT alone is not enough), and `readme-parity` scans
+  `src/cli` for `see O##` / `O## tracks` in code (comments may keep ids) so it cannot come back.
+
+### doctor 文案不再引用内部工单号（B268）
+
+- 网关可达性一行让用户 "see O87 if CONNECT succeeds"，无响应一行写 "(O87 tracks CONNECT-without-answer)"——
+  用户可见输出里出现了内部 backlog 编号。现在改为可执行建议（查 provider 日志/门禁设置；CONNECT 本身不够），
+  并且 `readme-parity` 会扫描 `src/cli` 代码中的 `see O##` / `O## tracks`（注释可保留编号）防止回归。
+
 ### `docs/cli-reference.md` matches the shipped command surface again (B267)
 
 - The page README defers to as the authoritative command reference had drifted: no `loop` / `workflow` /

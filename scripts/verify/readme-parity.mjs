@@ -145,4 +145,35 @@ ok('the language switch links both ways');
 }
 ok('docs/cli-reference.md lists the current commands and its tables are well formed');
 
+// 9. B268: user-facing CLI copy must not cite internal ticket ids
+//    ("see O87 if CONNECT succeeds…"). Comments may, strings may not.
+{
+  const dir = path.join(root, 'src/cli');
+  const offenders = [];
+  const walk = (current) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.name.endsWith('.ts')) continue;
+      const text = fs.readFileSync(full, 'utf8');
+      for (const line of text.split('\n')) {
+        const code = line.replace(/\/\/.*$/, '');
+        if (/\bsee O\d{2,3}\b/.test(code) || /\bO\d{2,3} tracks\b/.test(code)) {
+          offenders.push(`${path.relative(root, full)}: ${line.trim().slice(0, 100)}`);
+        }
+      }
+    }
+  };
+  walk(dir);
+  assert.deepEqual(
+    offenders,
+    [],
+    `internal ticket ids leak into CLI copy:\n${offenders.join('\n')}`
+  );
+}
+ok('CLI copy never cites internal ticket ids');
+
 console.log(`[readme-parity] ${checks}/${checks} checks passed`);
