@@ -46,7 +46,17 @@ const ok = (name) => {
 function run(args, env = {}) {
   return captureProcess(process.execPath, [cli, ...args], {
     cwd: workspace,
-    env: { ...process.env, HOME: home, MOSS_NO_RDK_DOCS: '1', MOSS_NO_TUI: '1', ...env },
+    // CI runners may export XDG_CONFIG_HOME; without pinning MOSS_CONFIG_DIR the
+    // CLI would write/read a different config dir than this probe inspects and
+    // the `config set` assertions fail on Linux only.
+    env: {
+      ...process.env,
+      HOME: home,
+      MOSS_CONFIG_DIR: configDir,
+      MOSS_NO_RDK_DOCS: '1',
+      MOSS_NO_TUI: '1',
+      ...env,
+    },
     timeoutMs: 120_000,
   });
 }
