@@ -346,8 +346,11 @@ export function formatGoalRunRows(
     .sort(
       (left, right) =>
         right.row.endedAt - left.row.endedAt ||
-        right.row.startedAt - left.row.startedAt ||
-        right.index - left.index
+        // Same write millisecond: the later ledger row is the newer record.
+        // `startedAt` must not outrank append order — a long older run that
+        // finished in the same millisecond is still the older row.
+        right.index - left.index ||
+        right.row.startedAt - left.row.startedAt
     )
     .slice(0, limit)
     .map((entry) => entry.row);

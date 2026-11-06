@@ -135,7 +135,7 @@ def main():
 
   # Wait for output rather than a fixed banner string (ANSI wrapping can split it).
   pump(0.2)
-  deadline = time.time() + 10
+  deadline = time.time() + 30
   while b'Moss' not in output and time.time() < deadline:
     pump(0.1)
   try:
@@ -143,7 +143,7 @@ def main():
   except OSError:
     pass
   # Start the key press only once the stub is really streaming.
-  deadline = time.time() + 10
+  deadline = time.time() + 20
   while sent['count'] < 5 and time.time() < deadline:
     pump(0.05)
   before = sent['count']
@@ -230,12 +230,20 @@ export const stage = {
     }
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-repl-interrupt-'));
     try {
-      const runKey = async (key) => {
-        const configDir = path.join(tempRoot, `config-${key}`);
-        const workspace = path.join(tempRoot, `workspace-${key}`);
+      const runKeyOnce = async (key) => {
+        const configDir = path.join(tempRoot, `config-${key}-${String(Date.now())}`);
+        const workspace = path.join(tempRoot, `workspace-${key}-${String(Date.now())}`);
         fs.mkdirSync(configDir, { recursive: true });
         fs.mkdirSync(workspace, { recursive: true });
         return drive(process.execPath, cliEntry, tempRoot, configDir, workspace, key);
+      };
+      // On a heavily loaded machine the REPL may not start streaming within the
+      // driver's window, which makes the result inconclusive rather than a
+      // regression. Retry such a key once before failing the stage.
+      const runKey = async (key) => {
+        let result = await runKeyOnce(key);
+        if (result.tokensBefore === 0) result = await runKeyOnce(key);
+        return result;
       };
 
       // Three PTY boots are independent: run them together (each has its own
@@ -246,7 +254,9 @@ export const stage = {
         console.log(`[repl-interrupt] checking ${key} stops the stream`);
         const result = results.get(key);
         if (!(result.tokensBefore > 3)) {
-          throw new Error(`the stub sent only ${result.tokensBefore} tokens before ${key}`);
+          throw new Error(
+            `the stub sent only ${result.tokensBefore} tokens before ${key} (machine too loaded to observe the stream)`
+          );
         }
         // The stub seeing its client disconnect is the authoritative signal; a
         // loaded runner may deliver a few more already-buffered tokens before

@@ -100,6 +100,31 @@ assert.ok(
 );
 ok('the table is newest first, clips long goals and shows the deciding command');
 
+// Same-millisecond writes: append order (later row = newer) wins over startedAt.
+{
+  const now = Date.now();
+  const row = (taskId, startedAt) => ({
+    taskId,
+    goal: taskId,
+    phase: 'accepted',
+    outcome: 'pass',
+    attempts: 1,
+    repairs: 0,
+    turns: 1,
+    startedAt,
+    endedAt: now,
+    durationMs: now - startedAt,
+  });
+  // alpha started later but was written first; beta is the newer record.
+  const tied = formatGoalRunRows([row('task_alpha', now - 4_000), row('task_beta', now - 20_000)]);
+  assert.ok(
+    tied.findIndex((line) => line.includes('task_beta')) <
+      tied.findIndex((line) => line.includes('task_alpha')),
+    'the later ledger row is newest when endedAt ties'
+  );
+}
+ok('a same-millisecond tie follows ledger append order, not startedAt');
+
 const limited = formatGoalRunRows(rows, { limit: 1 });
 assert.equal(limited.length, 3, 'header + one row + overflow line');
 assert.ok(limited[1].includes('task_beta'));
@@ -118,4 +143,4 @@ assert.equal((await listGoalRuns(emptyDir)).length, 0);
 ok('a workspace without runs reads as empty, not an error');
 
 await fs.rm(tmp, { recursive: true, force: true });
-console.log(`[goal-runs] ${checks}/6 checks passed`);
+console.log(`[goal-runs] ${checks}/${checks} checks passed`);
