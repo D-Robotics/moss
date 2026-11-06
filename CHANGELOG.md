@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### The status row labels every number, and a long wait names what it waits for (B194)
+
+- `9.7k in / 161 out · 1% ctx` read like one value plus an unexplained `ctx`. The row now says
+  `in 9.7k · out 161 · ctx 2%` (`入 9.7k · 出 161 · 上下文 2%` in Chinese).
+- A model that takes minutes used to say `Still reasoning, waited 60s`, which sounds stuck and offers
+  no next step (the separate stall line already carries the Esc hint). The wait verb is now
+  `Waiting on the model, 60s` / `等待模型响应，已 60s`, and its second bucket is not appended twice
+  (a stale `waited`-only check printed `Waiting on the model, 30s… 30s`).
+
+### 状态行给每个数字加标签；长时间等待说明在等什么（B194）
+
+- `9.7k in / 161 out · 1% ctx` 读起来像一个值与一个没解释的 `ctx`。现在显示为
+  `in 9.7k · out 161 · ctx 2%`（中文 `入 9.7k · 出 161 · 上下文 2%`）。
+- 模型跑上几分钟时旧文案是 `Still reasoning, waited 60s`，像卡住且没有下一步（旁边已有 Esc 提示）。
+  等待动词改为 `Waiting on the model, 60s` / `等待模型响应，已 60s`，并修掉第二次追加秒数的问题
+  （旧检测只认 `waited`，曾显示 `Waiting on the model, 30s… 30s`）。
+
 ### A streamed bullet list stays one list (B193)
 
 - The stream commits prose at paragraph boundaries, so a three-bullet answer arrived as three separate
