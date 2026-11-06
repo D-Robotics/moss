@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### `/capabilities` in-session and `--kind` narrowing (B153)
+
+- The capability panel was CLI-only: answering "what is installed here?" mid-session meant
+  leaving it. `/capabilities` now runs the same read-only panel in the REPL and TUI (registry
+  CommandSpec, so both surfaces share one code path, and the catalog makes it appear in help,
+  the palette and completion).
+- `--kind <runtime|tools|skills|commands|agents|hooks|mcp|devices>` narrows the text view to one
+  section, and `--json` still carries every section (`--kind` + `--json` is an explicit exit-2
+  error rather than a silently ignored flag).
+
+### 会话内 `/capabilities` 与 `--kind` 收窄（B153）
+
+- 能力面板以前只在 CLI 里：会话中想知道"这台机器装了什么"必须退出。现在 `/capabilities`
+  在 REPL 与 TUI 内复用同一只读面板（registry CommandSpec，两条交互面共用一条代码路径，
+  命令目录让它出现在帮助、面板与补全里）。
+- `--kind <runtime|tools|skills|commands|agents|hooks|mcp|devices>` 只显示一节文本视图；
+  `--json` 仍包含全部 section（`--kind` 与 `--json` 同用是明确的 exit 2 错误，而不是被静默忽略）。
+
 ### `moss runs list --since` narrows by recency (B152)
 
 - "What failed today" meant reading the whole ledger. `--since` accepts a window

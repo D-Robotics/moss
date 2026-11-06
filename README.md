@@ -107,6 +107,7 @@ Moss 的交互目标是：**敢让它跑、随时能停、停了能续、错了�
 | 撤销这一轮          | `/rewind`                                                      | 文件回到检查点版本，这一轮对话也从上下文撤回（试错成本降到一次按键）               |
 | 看改动 / 审 diff    | `/diff` · `/review`                                            | 工作区差异 · 独立评审给出严重/重要/建议三档                                        |
 | 管上下文            | `/compact` · `/todos` · `/context`                             | 压缩历史、看计划进度、看窗口用量                                                   |
+| 会话内看能力面      | `/capabilities`（REPL / TUI）                                  | 工具 / 技能 / 命令 / 子代理 / hooks / MCP / 设备一屏，`--kind` 只看一节            |
 | 会话内看运行账本    | `/runs`（REPL / TUI）                                          | 与 `moss runs` 同一个账本：list / show / export / prune，可按 `--kind` 过滤        |
 | 空输入框给下一步    | `Shift+Tab` 前先看占位提示                                     | 有未收尾运行时提示 `Resume with moss task resume <id>`；全新目录提示 `Try "/init"` |
 | 长任务结束后        | 直接问                                                         | 下一次聊天自动带上一次运行的 task id、失败原因与续跑命令（只带一次）               |

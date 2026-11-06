@@ -17,7 +17,7 @@
 | `moss resume` · `moss fork` · `moss sessions list\|delete\|search\|export`                                 | 会话恢复 / 分叉 / 管理                                                                                                                                           |
 | `moss task run\|resume\|status\|timeline`                                                                  | 统一任务运行时（目标进 → 已验证结果出）                                                                                                                          |
 | `moss artifacts [contracts\|tasks\|history\|evidence\|deployments\|acceptance\|device\|failures] [--json]` | 只读巡检闭环工件（不需要模型配置）；`moss tasks …` 是等价旧别名                                                                                                  |
-| `moss capabilities [--json]`                                                                               | 一屏总览能力面：工具 / 斜杠命令 / 技能 / 自定义命令 / 子代理 / 钩子 / MCP / 设备（只读）                                                                         |
+| `moss capabilities [--json] [--kind <section>]`                                                            | 一屏总览能力面：工具 / 斜杠命令 / 技能 / 自定义命令 / 子代理 / 钩子 / MCP / 设备（只读）                                                                         |
 | `moss device add\|list\|remove\|test\|fleet`                                                               | 设备清单与多机只读巡检                                                                                                                                           |
 | `moss mcp add\|list\|remove\|test`                                                                         | MCP 服务器管理                                                                                                                                                   |
 | `moss skill create\|list\|validate\|install\|update\|lock`                                                 | 技能管理 / 规范校验 / 带 hash 锁的安装与升级                                                                                                                     |
@@ -25,7 +25,7 @@
 
 > `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback；`plugins` 现在是本地能力包（`moss plugins validate/install/list/remove`）。`moss <command> --help` 仍给出该子命令自己的用法。
 
-日常斜杠命令：`/model` `/compact` `/run` `/plan` `/review` `/runs` `/doctor` `/diff` `/permissions` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/run <条件>` 持续工作直到条件满足，`/run clear` 取消。`/resume` 恢复已保存的会话；`/tasks` 列出后台 shell 与子代理。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/run`）。`/run` 没带 `--accept` 时，从工作区已有的测试入口（`package.json` test、Makefile、pytest、`go.mod`）给出验收命令候选，找不到就直说，不编造。`/stop`（别名 `/abort`）只停本会话启动的后台进程。隐藏的 `/task` 是 Task OS 入口（status / timeline / resume / view / verify），`/task verify` 不调模型，只取一次裁决。PASS 只能来自 verdict provider。
+日常斜杠命令：`/model` `/compact` `/run` `/plan` `/review` `/runs` `/capabilities` `/doctor` `/diff` `/permissions` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/run <条件>` 持续工作直到条件满足，`/run clear` 取消。`/resume` 恢复已保存的会话；`/tasks` 列出后台 shell 与子代理。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/run`）。`/run` 没带 `--accept` 时，从工作区已有的测试入口（`package.json` test、Makefile、pytest、`go.mod`）给出验收命令候选，找不到就直说，不编造。`/stop`（别名 `/abort`）只停本会话启动的后台进程。隐藏的 `/task` 是 Task OS 入口（status / timeline / resume / view / verify），`/task verify` 不调模型，只取一次裁决。PASS 只能来自 verdict provider。
 
 常用 flag：
 
