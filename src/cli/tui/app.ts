@@ -4042,6 +4042,7 @@ export function TuiAppRoot({
     queueLength: queueRef.current.length,
     contextUsed: store.usage.contextUsed,
     contextTotal: store.usage.contextTotal,
+    ...(options.contextInfo?.contextTokensSource === 'unprobed' ? { contextEstimated: true } : {}),
     // A7: the policy layer's live mode is part of the chrome, always.
     mode: interactionMode,
     verbose,

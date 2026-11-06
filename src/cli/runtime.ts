@@ -2002,6 +2002,7 @@ export async function runCli(): Promise<void> {
             return soul.source === 'default' ? undefined : soul.id;
           })(),
           branch: (await getGitBranch(workspace)) ?? undefined,
+          contextTokensSource: resolvedConfig.contextTokensSource,
         }),
         skills: loadedSkills,
         ...(resumeInteractive ? { resumePicker: true } : {}),

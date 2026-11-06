@@ -97,6 +97,8 @@ export interface StatusLineInput {
   tokensOut?: number;
   costLabel?: string;
   contextPct?: number;
+  /** The window size is the conservative unprobed default, so the share is approximate. */
+  contextEstimated?: boolean;
   device?: string;
   task?: string;
   zh?: boolean;
@@ -146,7 +148,8 @@ export function statusLineParts(
     if (field === 'cost' && input.costLabel) push('cost', input.costLabel);
     if (field === 'context' && input.contextPct !== undefined) {
       const pct = Math.min(100, Math.max(0, Math.round(input.contextPct)));
-      contextPart = zh ? `上下文 ${pct}%` : `ctx ${pct}%`;
+      const approx = input.contextEstimated === true ? '~' : '';
+      contextPart = zh ? `上下文 ${approx}${pct}%` : `ctx ${approx}${pct}%`;
       push('context', contextPart);
     }
     if (field === 'device' && input.device) {

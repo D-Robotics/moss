@@ -1452,6 +1452,7 @@ export interface StatusView {
   /** Context-window fill, when the provider reports one. */
   contextUsed?: number;
   contextTotal?: number;
+  contextEstimated?: boolean;
   /**
    * This turn's prompt/completion tokens. When set, the status row shows a
    * compact `in / out` line (including after the run goes idle). Omit both
@@ -1590,6 +1591,7 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
         ...(view.contextUsed !== undefined && view.contextTotal
           ? {
               contextPct: Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100)),
+              ...(view.contextEstimated ? { contextEstimated: true } : {}),
             }
           : {}),
         ...(view.device ? { device: view.device } : {}),

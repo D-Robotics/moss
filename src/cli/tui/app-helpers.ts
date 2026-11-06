@@ -77,6 +77,8 @@ export interface TuiContextInfo {
   soul?: string;
   /** Current git branch of the workspace, when inside a repo. */
   branch?: string;
+  /** Where the context window size came from; `unprobed` makes the bar an estimate. */
+  contextTokensSource?: string;
 }
 
 export interface TuiSkillCommand {

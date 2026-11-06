@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### An unprobed context window is shown as approximate (B198)
+
+- When the provider has no `/models` context-length API (the common gateway case), the window falls
+  back to the conservative 1M default — but the status row still printed `ctx 2%` with the same
+  confidence as a probed window. It now prints `ctx ~2%`; `npm run doctor` and `/context` already say
+  the source is unprobed, so the chrome no longer overstates precision.
+
+### 未探测的上下文窗口显示为近似值（B198）
+
+- 当 provider 没有 `/models` 上下文长度接口（常见网关情况）时，窗口会退回保守的 1M 默认值，
+  但状态行仍以和已探测窗口一样的确定性打印 `ctx 2%`。现在显示 `ctx ~2%`；`moss doctor` 与 `/context`
+  本就说明来源未探测，界面不再夸大精度。
+
 ### The approval footer states every key that works (B197)
 
 - `Esc to deny · ↑↓ then Enter` left Enter's target implicit (the focused option, usually `1. Yes`),

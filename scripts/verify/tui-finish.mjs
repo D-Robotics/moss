@@ -332,6 +332,25 @@ ok('the inline exit hint says what `moss --continue` does');
   });
   assert.match(en, /in 9\.7k · out 161/);
   assert.match(en, /ctx 2%/);
+  const estimated = statusLine.formatStatusLine({
+    model: 'm',
+    cwd: '~/proj',
+    tokensIn: 1_000,
+    tokensOut: 10,
+    contextPct: 2,
+    contextEstimated: true,
+  });
+  assert.match(estimated, /ctx ~2%/, 'an unprobed window is shown as approximate');
+  assert.doesNotMatch(
+    statusLine.formatStatusLine({
+      model: 'm',
+      cwd: '~/proj',
+      tokensIn: 1_000,
+      tokensOut: 10,
+      contextPct: 2,
+    }),
+    /ctx ~/
+  );
   const zh = statusLine.formatStatusLine({
     model: 'm',
     cwd: '~/proj',
