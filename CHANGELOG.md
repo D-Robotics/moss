@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Manual mode stops asking for read-only shell chains (B175)
+
+- Manual mode promises "mutations and device changes confirm one by one", but a read-only chain like
+  `ls -l note.md && cat note.md` opened an approval dialog: the readonly fast path rejected shell
+  operators wholesale, so the whole compound line was classified as a write.
+- The fast path now splits `&&`, `||`, `;` and `|` outside quotes and trusts the line only when every
+  segment is readonly. Redirections, substitutions, absolute paths, backslash escapes and
+  background `&` stay unclassified and still prompt, so the boundary did not move.
+- Real TUI (manual mode, deepseek-flash): `ls -l note.md && cat note.md` runs immediately with no
+  dialog; heredoc writes still show the approval with the full first line as its subject.
+
+### 手动模式不再为只读 shell 链弹审批（B175）
+
+- 手动模式承诺「变更与设备操作逐个确认」，但像 `ls -l note.md && cat note.md` 这样的只读链也会弹审批：
+  只读快路径遇到 shell 操作符就整行放弃，于是把整条命令当成写操作。
+- 现在快路径会在引号外拆分 `&&`、`||`、`;`、`|`，只有每一段都只读时才信任整行；重定向、命令替换、
+  绝对路径、反斜杠转义与后台 `&` 仍不分类、仍会弹审批——安全边界没有移动。
+- 真实 TUI（手动模式，deepseek-flash）：`ls -l note.md && cat note.md` 直接执行、无对话框；
+  heredoc 写文件仍弹审批，且审批目标显示完整首行。
+
 ### CI-only flake fixes: same-millisecond rows and a starved interrupt probe
 
 - `goal-runs` failed `newest first` again on CI: the tie-break ranked `startedAt` before the ledger
