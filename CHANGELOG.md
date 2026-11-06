@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Code blocks lose their full-width rules (B171)
+
+- The fenced-code frame spent most of each line on `────` (`┌ bash ─────…`, `└────…`), which made
+  code the loudest thing on screen and reflowed the block when the closing fence arrived. The
+  frame is now a short label plus the left bar — `┌ bash` / `│ echo hello` / `└` — and the
+  streaming and closed forms share it, so closing only adds the footer row.
+
+### 代码块去掉整行横线（B171）
+
+- 代码围栏的边框把每一行大部分都花在 `────` 上（`┌ bash ─────…`、`└────…`），既抢视觉，又会在围栏
+  闭合时重排整块。现在边框是短标签 + 左侧竖线 —— `┌ bash` / `│ echo hello` / `└`；流式与闭合形态
+  共用同一套边框，闭合只多出一行底边。
+
 ### Streaming answers no longer flash raw fences; file titles are workspace-relative (B170)
 
 - While an answer streamed, an unterminated fenced block was rendered by the plain-tail path, so a
