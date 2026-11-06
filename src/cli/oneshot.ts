@@ -911,6 +911,7 @@ export async function runOneShot(
         ...(pricingOverrides ? { overrides: pricingOverrides } : {}),
         ...(baseUrl ? { baseUrl } : {}),
       });
+      const gates = agent.gateBlocksFor(sessionKey).map((block) => ({ ...block }));
       await writeRunRecord(
         workspaceDir,
         buildChatRunRecord({
@@ -925,6 +926,7 @@ export async function runOneShot(
           startedAt: runStartedAt,
           endedAt: Date.now(),
           ...(usage ? { usage } : {}),
+          ...(gates.length > 0 ? { gates } : {}),
         })
       );
     } catch (err) {

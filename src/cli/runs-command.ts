@@ -262,6 +262,10 @@ function renderShow(record: RunRecord, zh: boolean): string {
   }
   const usageLine = formatRunUsage(record.usage, zh);
   if (usageLine) lines.push(usageLine);
+  for (const gate of record.gates ?? []) {
+    const label = gate.kind ? `${gate.gate}/${gate.kind}` : gate.gate;
+    lines.push(`${uiText('gate', '闸门')}: ${label} — ${gate.reason}`);
+  }
   if (record.reason) lines.push(uiText('reason', '原因') + `: ${record.reason}`);
   if (record.next) lines.push(uiText('next', '下一步') + `: ${record.next}`);
   if (record.artifacts) {
@@ -297,6 +301,10 @@ export function renderRunMarkdown(record: RunRecord): string {
   }
   const usageLine = formatRunUsage(record.usage, false);
   if (usageLine) lines.push(`- ${usageLine}`);
+  for (const gate of record.gates ?? []) {
+    const label = gate.kind ? `${gate.gate}/${gate.kind}` : gate.gate;
+    lines.push(`- gate: ${label} — ${gate.reason}`);
+  }
   if (record.reason) lines.push(`- reason: ${record.reason}`);
   if (record.next) lines.push(`- next: \`${record.next}\``);
   const artifacts = Object.entries(record.artifacts ?? {})

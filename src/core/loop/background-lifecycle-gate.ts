@@ -16,7 +16,14 @@ export interface BackgroundLifecycleSnapshot {
 
 export type BackgroundLifecycleGateDecision =
   | { ok: true }
-  | { ok: false; reason: string; correction: string };
+  | {
+      ok: false;
+      reason: string;
+      correction: string;
+      /** Which gate held the answer (ledger `gates[]`, B155). */
+      gate?: 'background';
+      kind?: 'background-running';
+    };
 
 export function evaluateBackgroundLifecycleGate(
   running: BackgroundLifecycleSnapshot[]
@@ -29,6 +36,8 @@ export function evaluateBackgroundLifecycleGate(
     .join('; ');
   return {
     ok: false,
+    gate: 'background',
+    kind: 'background-running',
     reason: `background processes still running: ${described}`,
     correction:
       `[System] Background process(s) are still running: ${described}. ` +

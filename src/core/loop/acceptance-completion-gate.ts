@@ -75,6 +75,8 @@ export type AcceptanceGateDecision =
       reason: string;
       correction: string;
       retryLimit: 1 | 2;
+      /** Which gate held the answer (ledger `gates[]`, B155). */
+      gate?: 'acceptance';
       kind: 'no-verdict' | 'unrepaired-fail';
     };
 
@@ -181,6 +183,7 @@ export function evaluateAcceptanceCompletionGate(request: {
   if (progress.outcome === 'fail') {
     return {
       ok: false,
+      gate: 'acceptance',
       kind: 'unrepaired-fail',
       reason: 'acceptance failed and the repair loop has not started',
       correction:
@@ -193,6 +196,7 @@ export function evaluateAcceptanceCompletionGate(request: {
   }
   return {
     ok: false,
+    gate: 'acceptance',
     kind: 'no-verdict',
     reason: 'task contract defined but acceptance never evaluated',
     correction:

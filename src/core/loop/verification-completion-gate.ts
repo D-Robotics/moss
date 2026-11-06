@@ -158,6 +158,8 @@ export interface VerificationGateDecision {
   ok: boolean;
   reason: string;
   correction?: string;
+  /** Which gate held the answer (ledger `gates[]`, B155). */
+  gate?: 'verification' | 'review';
   /** Which rule fired; the wrapper bounds the two rules differently. */
   kind?: 'unverified-change' | 'review-fail' | 'missing-review';
 }
@@ -191,6 +193,7 @@ export function evaluateAutoReviewRequirement(
   }
   return {
     ok: false,
+    gate: 'verification',
     kind: 'missing-review',
     reason: 'files were changed but the change was never reviewed',
     correction:
@@ -237,6 +240,7 @@ export function evaluateVerificationCompletionGate(request: {
       const counts = structuredFailure.findings;
       return {
         ok: false,
+        gate: 'verification',
         kind: 'review-fail',
         reason: `the latest review record is FAIL (${String(counts.critical)} critical, ${String(counts.important)} important) and the answer does not address it`,
         correction:
@@ -250,6 +254,7 @@ export function evaluateVerificationCompletionGate(request: {
     }
     return {
       ok: false,
+      gate: 'verification',
       kind: 'review-fail',
       reason: 'an independent review returned FAIL and the answer does not address it',
       correction:
@@ -270,6 +275,7 @@ export function evaluateVerificationCompletionGate(request: {
   }
   return {
     ok: false,
+    gate: 'verification',
     kind: 'unverified-change',
     reason: 'files were changed but the result was never checked',
     correction:
@@ -342,6 +348,8 @@ export function createVerificationCompletionGate(
       reviewBlocks += 1;
       return {
         ok: false as const,
+        ...(decision.gate ? { gate: decision.gate } : {}),
+        ...(decision.kind ? { kind: decision.kind } : {}),
         reason: decision.reason,
         ...(decision.correction ? { correction: decision.correction } : {}),
         retryLimit: GATE_RETRY_CEILING,
@@ -351,6 +359,8 @@ export function createVerificationCompletionGate(
     verificationBlocked = true;
     return {
       ok: false as const,
+      ...(decision.gate ? { gate: decision.gate } : {}),
+      ...(decision.kind ? { kind: decision.kind } : {}),
       reason: decision.reason,
       ...(decision.correction ? { correction: decision.correction } : {}),
       retryLimit: GATE_RETRY_CEILING,

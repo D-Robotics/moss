@@ -145,6 +145,15 @@ export interface PromptCacheConfig {
   debug?: boolean;
 }
 
+/** One completion-gate hold (why an answer was not allowed to end the run). */
+export interface CompletionGateBlock {
+  /** 'acceptance' | 'verification' | 'review' | 'plan' | 'background' | 'host'. */
+  gate: string;
+  kind?: string;
+  reason: string;
+  turn?: number;
+}
+
 export interface MossAgentConfig
   extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
   sessionStore: SessionStore;
@@ -269,6 +278,11 @@ export interface MossAgentConfig
   steeringRules?: SteeringRule[];
 
   completionGate?: AgentLoopExtensions['completionGate'];
+  /**
+   * B155: called once per gate hold, so the host can write a structured
+   * `gates[]` entry into the run ledger instead of a free-text reason.
+   */
+  onCompletionGateBlocked?: (block: CompletionGateBlock) => void;
   onAgentLoopEvent?: AgentLoopExtensions['onAgentLoopEvent'];
   /**
    * Force buffering of assistant text until turn end (disables live

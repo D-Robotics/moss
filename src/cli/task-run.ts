@@ -59,6 +59,7 @@ import { cliLocale, isZhLocale } from './cli-locale.js';
 import { formatTaskProgressLine } from './task-card.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
 import type { MossAgentEvent } from '../core/agent/moss-agent-types.js';
+import type { MossAgent } from '../core/agent/moss-agent.js';
 import { verifyTaskOnce } from './commands/task-verify.js';
 
 export interface TaskCommandContext {
@@ -674,7 +675,8 @@ function runRecordForTask(
   goal: string,
   acceptanceCommand: string | undefined,
   sessionKey: string,
-  usage?: import('../core/run-ledger.js').RunRecordUsage
+  usage?: import('../core/run-ledger.js').RunRecordUsage,
+  gates?: import('../core/run-ledger.js').RunGate[]
 ): RunRecord {
   const endedAt = Date.now();
   const status: RunRecordStatus =
@@ -708,6 +710,7 @@ function runRecordForTask(
     ...(reason && status !== 'completed' ? { reason } : {}),
     ...(status === 'completed' ? {} : { next: `moss task resume ${result.snapshot.taskId}` }),
     ...(usage ? { usage } : {}),
+    ...(gates && gates.length > 0 ? { gates } : {}),
     artifacts: {
       taskEvents: '.moss/task-events.jsonl',
       evidence: '.moss/evidence.jsonl',
@@ -723,7 +726,8 @@ async function recordRun(
   goal: string,
   acceptanceCommand: string | undefined,
   output: (stream: 'stdout' | 'stderr', text: string) => void,
-  usage?: import('../core/run-ledger.js').RunRecordUsage
+  usage?: import('../core/run-ledger.js').RunRecordUsage,
+  gates?: import('../core/run-ledger.js').RunGate[]
 ): Promise<void> {
   try {
     await recordGoalRun(ctx.workspace, {
@@ -745,7 +749,7 @@ async function recordRun(
   try {
     await writeRunRecord(
       ctx.workspace,
-      runRecordForTask(result, startedAt, goal, acceptanceCommand, ctx.sessionKey, usage)
+      runRecordForTask(result, startedAt, goal, acceptanceCommand, ctx.sessionKey, usage, gates)
     );
   } catch (err) {
     output('stderr', `[task] could not write the run ledger: ${errorMessage(err)}\n`);
@@ -816,7 +820,16 @@ export async function runTaskCommand(
     output('stdout', summarizeTaskRun(result, locale) + '\n');
     const usageLine = usageTap.line();
     if (usageLine) output('stdout', `${usageLine}\n`);
-    await recordRun(ctx, result, startedAt, goal, flags.accept, output, usageTap.usage());
+    await recordRun(
+      ctx,
+      result,
+      startedAt,
+      goal,
+      flags.accept,
+      output,
+      usageTap.usage(),
+      (ctx.agent as MossAgent).gateBlocksFor(ctx.sessionKey).map((block) => ({ ...block }))
+    );
     return taskOutcomeExitCode(result.outcome);
   }
 

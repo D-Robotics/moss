@@ -19,6 +19,15 @@ import type { RunOutcomeStatus } from '../cli/run-outcome.js';
 /** Which engine produced the run. New engines add a kind here, not a ledger. */
 export type RunKind = 'task' | 'loop' | 'workflow' | 'superagent' | 'chat';
 
+/** One completion-gate hold recorded for a run (B155). */
+export interface RunGate {
+  /** acceptance / verification / review / plan / background / host. */
+  gate: string;
+  kind?: string;
+  reason: string;
+  turn?: number;
+}
+
 /** Token/cost summary for one run (B155). */
 export interface RunRecordUsage {
   inputTokens: number;
@@ -56,6 +65,8 @@ export interface RunRecord {
   /** The single command that moves it forward (`moss task resume …`). */
   next?: string;
   /** Workspace-relative paths of the engine ledgers that hold the details. */
+  /** Completion-gate holds: which gate stopped the answer, and why (B155). */
+  gates?: RunGate[];
   /** Token/cost summary for the run, when the engine collected one (B155). */
   usage?: RunRecordUsage;
   artifacts?: {

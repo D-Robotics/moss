@@ -245,6 +245,14 @@ try {
     durationMs: 1_000,
     goal: 'usage probe',
     usage: { inputTokens: 12_345, outputTokens: 678, cacheReadTokens: 4_000, costUsd: 0.0123 },
+    gates: [
+      {
+        gate: 'verification',
+        kind: 'unverified-change',
+        reason: 'files were changed but nothing checked the result',
+        turn: 1,
+      },
+    ],
   };
   await writeRunRecord(ws, usageRecord);
   const usageShow = await cli(['runs', 'show', 'usage_run']);
@@ -253,10 +261,13 @@ try {
     usageShow.stdout,
     /usage: 12\.3k in \/ 678 out · cache read 4\.0k · ~\$0\.0123 \(est\.\)/
   );
+  assert.match(usageShow.stdout, /gate: verification\/unverified-change — files were changed/);
   const usageMd = await cli(['runs', 'export', 'usage_run']);
   assert.match(usageMd.stdout, /^- usage: 12\.3k in \/ 678 out/m);
+  assert.match(usageMd.stdout, /^- gate: verification\/unverified-change — /m);
   const usageJson = JSON.parse((await cli(['runs', 'show', 'usage_run', '--json'])).stdout);
   assert.deepEqual(usageJson.usage, usageRecord.usage);
+  assert.deepEqual(usageJson.gates, usageRecord.gates);
 
   const kindTable = await cli(['runs', 'list', '--kind', 'loop']);
   assert.match(kindTable.stdout, /— kind loop \(1\)/);

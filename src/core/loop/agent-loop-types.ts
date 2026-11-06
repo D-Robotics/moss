@@ -154,7 +154,17 @@ export interface AgentLoopExtensions {
     totalToolCalls: number;
     toolCallsByName: Record<string, number>;
   }) => Promise<
-    { ok: true } | { ok: false; reason: string; correction?: string; retryLimit?: number }
+    | { ok: true }
+    | {
+        ok: false;
+        reason: string;
+        correction?: string;
+        retryLimit?: number;
+        /** Which gate held the answer (ledger `gates[]`, B155). */
+        gate?: 'acceptance' | 'verification' | 'review' | 'plan' | 'background' | string;
+        /** Gate-specific rule, e.g. unverified-change / missing-plan. */
+        kind?: string;
+      }
   >;
   /**
    * When true, buffer assistant text_delta until the turn ends (so a

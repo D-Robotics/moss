@@ -76,6 +76,9 @@ export interface PlanEndProtocolDecision {
   ok: boolean;
   reason: string;
   correction?: string;
+  /** Which gate held the answer (ledger `gates[]`, B155). */
+  gate?: 'plan';
+  kind?: 'missing-plan';
 }
 
 /** Contract text shared by the prompt layer and the gate correction. */
@@ -103,6 +106,8 @@ export function evaluatePlanEndProtocol(
   }
   return {
     ok: false,
+    gate: 'plan',
+    kind: 'missing-plan',
     reason: 'plan mode did real work but never submitted the plan',
     correction: PLAN_END_CORRECTION,
   };

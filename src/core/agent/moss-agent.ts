@@ -62,6 +62,7 @@ import { buildTurnWatchNotice, turnWatchEnabled } from '../../context/turn-watch
 import { createAcceptanceCompletionGate } from '../loop/acceptance-completion-gate.js';
 import { createVerificationCompletionGate } from '../loop/verification-completion-gate.js';
 import { createPlanCompletionGate } from '../loop/plan-completion-gate.js';
+import type { CompletionGateBlock } from './moss-agent-types.js';
 import { createBackgroundLifecycleGate } from '../loop/background-lifecycle-gate.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
@@ -216,6 +217,13 @@ export class MossAgent {
   private readonly taskLedgerSessions = new Set<string>();
   /** Model id from the latest gateway response body, when the provider sent one. */
   private gatewayReportedModel: string | undefined;
+  /** B155: gate holds observed in the current run, per session (bounded). */
+  private gateBlocksBySession = new Map<string, CompletionGateBlock[]>();
+
+  /** Gate holds recorded for the current (or latest) run of this session. */
+  gateBlocksFor(sessionKey: string): readonly CompletionGateBlock[] {
+    return [...(this.gateBlocksBySession.get(sessionKey) ?? [])];
+  }
   /** Cost of the last rendered L1 skill catalog, for hosts and run diagnostics. */
   private lastSkillCatalogStats: SkillCatalogStats | undefined;
 
@@ -1828,26 +1836,57 @@ ${result.stderr ?? ''}`.trim();
       planModeActive: () => this.config.planModeActive?.() === true,
     });
     const hostCompletionGate = this.config.completionGate;
+    // B155: record every hold with its gate identity so the run ledger can say
+    // *which* gate stopped the answer, not just that something did.
+    const recordGate = (
+      fallback: string,
+      turn: number,
+      result: { ok: boolean; reason?: string; kind?: string; gate?: string }
+    ): void => {
+      if (result.ok) return;
+      const block: CompletionGateBlock = {
+        gate: result.gate ?? fallback,
+        ...(result.kind ? { kind: result.kind } : {}),
+        reason: result.reason ?? '',
+        turn,
+      };
+      const list = this.gateBlocksBySession.get(sessionKey) ?? [];
+      list.push(block);
+      if (list.length > 50) list.splice(0, list.length - 50);
+      this.gateBlocksBySession.set(sessionKey, list);
+      this.config.onCompletionGateBlocked?.(block);
+    };
     const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
       ? async (request) => {
           const background = await backgroundLifecycleGate(request);
+          recordGate('background', request.turn, background);
           if (!background.ok) return background;
           const plan = await planGate(request);
+          recordGate('plan', request.turn, plan);
           if (!plan.ok) return plan;
           const pre = await acceptanceGate(request);
+          recordGate('acceptance', request.turn, pre);
           if (!pre.ok) return pre;
           const verified = await verificationGate(request);
+          recordGate('verification', request.turn, verified);
           if (!verified.ok) return verified;
-          return hostCompletionGate(request);
+          const host = await hostCompletionGate(request);
+          recordGate('host', request.turn, host);
+          return host;
         }
       : async (request) => {
           const background = await backgroundLifecycleGate(request);
+          recordGate('background', request.turn, background);
           if (!background.ok) return background;
           const plan = await planGate(request);
+          recordGate('plan', request.turn, plan);
           if (!plan.ok) return plan;
           const pre = await acceptanceGate(request);
+          recordGate('acceptance', request.turn, pre);
           if (!pre.ok) return pre;
-          return verificationGate(request);
+          const verified = await verificationGate(request);
+          recordGate('verification', request.turn, verified);
+          return verified;
         };
 
     const params: AgentLoopParams = {
@@ -2106,6 +2145,8 @@ ${result.stderr ?? ''}`.trim();
     userMessage: string,
     options?: ChatOptions
   ): AsyncGenerator<MossAgentEvent> {
+    // A new run starts with no gate history: the ledger row is per run.
+    this.gateBlocksBySession.delete(sessionKey);
     let run: AgentLoopRun | undefined;
     let miniStream: ReturnType<typeof runAgentLoop> | undefined;
     let done: Extract<MossAgentEvent, { type: 'done' }> | undefined;
