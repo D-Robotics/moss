@@ -12,6 +12,8 @@ import type { Dirent } from 'node:fs';
 import path from 'node:path';
 
 import { runOneShotWithCliCancellation } from './run-cancellation.js';
+import { createSessionUsageAccumulator } from './session-usage.js';
+import { runUsageFromSlices } from './run-usage.js';
 import { runProcess } from '../utils/run-process.js';
 import { isZhLocale } from './cli-locale.js';
 import type { MossAgent } from '../core/agent/moss-agent.js';
@@ -722,6 +724,8 @@ export async function runLoopCommand(
     }
   };
   const loopStartedAt = Date.now();
+  // B163: attempts are not separate ledger rows; sum their usage into the loop row.
+  const loopUsage = createSessionUsageAccumulator();
   appendLedger({
     type: 'start',
     runId: runIdBase,
@@ -780,6 +784,11 @@ export async function runLoopCommand(
           until: options.until,
           lastCheckExitCode: lastCheck.exitCode,
           ledgerPath: ledgerLabel,
+          ...(() => {
+            const summary = loopUsage.summary();
+            const usage = summary.calls > 0 ? runUsageFromSlices(summary.slices) : undefined;
+            return usage ? { usage } : {};
+          })(),
         })
       );
     } catch (error) {
@@ -848,6 +857,8 @@ export async function runLoopCommand(
         sessionKey: `${runIdBase}-attempt-${attempt}`,
         headless: true,
         cwd: ctx.workspaceDir,
+        onAgentEvent: (event) => loopUsage.record(event),
+        suppressRunLedger: true,
       });
     } catch (error: unknown) {
       // An agent error is an attempt failure, not a loop abort: the check below

@@ -115,6 +115,33 @@ assert.match(paced.stderr, /waiting 150ms before attempt 2/);
 assert.ok(paced.durationMs >= 150, `expected the loop to wait, ran ${paced.durationMs}ms`);
 ok('--every really waits between failed attempts');
 
+// 8. B163: one loop run writes exactly one ledger row (kind loop), not a chat
+//    row per attempt; usage is summed into the loop row instead.
+{
+  const clean = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-loop-clean-'));
+  await fs.mkdir(path.join(clean, '.git'), { recursive: true });
+  await fs.writeFile(path.join(clean, '.git', 'HEAD'), 'ref: refs/heads/main\n', 'utf8');
+  const once = await captureProcess(
+    process.execPath,
+    [cli, 'loop', '--mock', '--max', '1', '--until', 'exit 0', 'just say hello'],
+    { cwd: clean, env: baseEnv, timeoutMs: 120_000 }
+  );
+  assert.equal(once.status, 0, once.stderr);
+  const { listRunRecords } = await import(
+    pathToFileURL(path.join(root, 'dist/core/run-ledger.js')).href
+  );
+  const records = await listRunRecords(clean);
+  assert.equal(
+    records.length,
+    1,
+    `expected one run row, got ${records.map((record) => record.kind).join(',')}`
+  );
+  assert.equal(records[0].kind, 'loop');
+  assert.equal(records[0].status, 'completed');
+  await fs.rm(clean, { recursive: true, force: true });
+}
+ok('one loop run writes one loop ledger row, not a chat row per attempt');
+
 await fs.rm(workspace, { recursive: true, force: true });
 await fs.rm(home, { recursive: true, force: true });
 console.log(`[loop] PASS (${checks} checks)`);

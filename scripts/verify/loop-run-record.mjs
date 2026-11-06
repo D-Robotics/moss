@@ -121,4 +121,25 @@ for (const reason of ['check_timeout', 'watch_timeout']) {
   ok('loop records round-trip through .moss/runs and list newest first');
 }
 
+// B163: the loop row carries usage summed over all attempts, and no per-attempt
+// chat row is written for those attempts.
+{
+  const withUsage = buildLoopRunRecord({
+    ...base,
+    usage: { inputTokens: 12_000, outputTokens: 900, cacheReadTokens: 5_000, costUsd: 0.0021 },
+  });
+  assert.deepEqual(withUsage.usage, {
+    inputTokens: 12_000,
+    outputTokens: 900,
+    cacheReadTokens: 5_000,
+    costUsd: 0.0021,
+  });
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-loop-usage-'));
+  await writeRunRecord(dir, withUsage);
+  const stored = await readRunRecord(dir, 'loop_abc');
+  assert.deepEqual(stored?.usage, withUsage.usage);
+  await fs.rm(dir, { recursive: true, force: true });
+}
+ok('a loop record carries summed usage');
+
 console.log(`[loop-run-record] ${checks}/${checks} checks passed`);

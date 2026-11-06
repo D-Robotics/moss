@@ -78,6 +78,11 @@ export interface RunOneShotOptions {
   abortSignal?: AbortSignal;
   /** Host tap for agent stream events (REPL usage accumulation, etc.). */
   onAgentEvent?: (event: MossAgentEvent) => void;
+  /**
+   * Internal: the caller writes the one authoritative run-ledger row (loop
+   * attempts, workflow steps), so this attempt must not add a second chat row.
+   */
+  suppressRunLedger?: boolean;
   /** Internal: continuation depth of the headless goal-verify loop. */
   goalVerifyDepth?: number;
   /**
@@ -897,6 +902,7 @@ export async function runOneShot(
   // row itself, so a per-step chat row would duplicate the same run.
   if (
     options.headless === true &&
+    options.suppressRunLedger !== true &&
     !options.goalVerifyDepth &&
     process.env.MOSS_NO_RUN_LEDGER !== '1'
   ) {

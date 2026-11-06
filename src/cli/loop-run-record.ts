@@ -4,7 +4,7 @@
  * lives here (not inside the 1.7k-line loop command) so the mapping can be
  * probed without a model or a PTY.
  */
-import type { RunRecord, RunRecordStatus } from '../core/run-ledger.js';
+import type { RunRecord, RunRecordStatus, RunRecordUsage } from '../core/run-ledger.js';
 
 /** Same union the loop ledger writes into its `summary` line. */
 export type LoopFinishReason =
@@ -26,6 +26,8 @@ export interface LoopRunRecordInput {
   lastCheckExitCode: number;
   /** Workspace-relative ledger path, e.g. `.moss/loops/loop-x.jsonl`. */
   ledgerPath: string;
+  /** B163: token usage summed over every attempt in this loop. */
+  usage?: RunRecordUsage;
 }
 
 function statusFor(input: LoopRunRecordInput): RunRecordStatus {
@@ -67,6 +69,7 @@ export function buildLoopRunRecord(input: LoopRunRecordInput): RunRecord {
     attempts: input.attempts,
     ...(status === 'completed' ? {} : { reason: reasonFor(input) }),
     ...(status === 'completed' ? {} : { next: `moss loop show ${input.runId}` }),
+    ...(input.usage ? { usage: input.usage } : {}),
     artifacts: { loopLedger: input.ledgerPath },
   };
 }
