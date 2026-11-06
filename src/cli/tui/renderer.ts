@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 
 import { runProcessSync } from '../../utils/run-process.js';
+import { isTuiZh } from './copy.js';
 
 /**
  * Which terminal renderer a TTY session uses.
@@ -167,7 +168,11 @@ export function tuiExitSequence(mode: 'inline' | 'fullscreen', frame?: DrawnFram
   if (mode === 'inline') {
     const drawn = frame ?? lastDrawnFrame;
     const erase = drawn ? eraseDrawnFrame(drawn) : '';
-    return `${terminalRestoreSequence('inline')}${erase}moss --continue\n`;
+    // B196: a bare command told you what to type but not why; name the action.
+    const hint = isTuiZh()
+      ? '继续本次会话：moss --continue'
+      : 'Resume this session: moss --continue';
+    return `${terminalRestoreSequence('inline')}${erase}${hint}\n`;
   }
   return terminalRestoreSequence('fullscreen');
 }

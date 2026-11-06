@@ -14,6 +14,7 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const transcript = await load('dist/cli/tui/transcript.js');
+const renderer = await load('dist/cli/tui/renderer.js');
 const statusLine = await load('dist/cli/status-line.js');
 const bridge = await load('dist/cli/tui/render-bridge.js');
 const markdown = await load('dist/cli/tui/markdown.js');
@@ -312,6 +313,13 @@ assert.match(text, /Command failed \(exit 1\):/, 'the exit-code label stays');
 assert.match(text, /todo\.py/, 'real output stays');
 assert.match(text, /failed — ls:/, 'the headline stays');
 ok('a failed exec prints its error once (label + headline, not the same sentence twice)');
+
+// 5b. B196: the exit hint names the action, not just the command.
+{
+  const exit = renderer.tuiExitSequence('inline');
+  assert.match(exit, /(?:Resume this session|继续本次会话)[:：]? ?moss --continue/);
+}
+ok('the inline exit hint says what `moss --continue` does');
 
 // 6. B194: the status row labels each number instead of imploding.
 {

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Leaving the TUI says what the command does (B196)
+
+- The inline exit hint was a bare `moss --continue`. It now says
+  `Resume this session: moss --continue` (`继续本次会话：moss --continue`), so a first-time user knows the
+  command continues _this_ session rather than starting something new.
+- Capability spot-check this round: `npm run bench -- --task single-edit --samples 3` on the real
+  gateway (deepseek-flash) passed **3/3 (100%)**, 5.5 turns / 11.4s / ~60k in / 698 out per sample.
+
+### 退出 TUI 时说明命令的作用（B196）
+
+- inline 退出提示原来只有裸 `moss --continue`；现在为 `Resume this session: moss --continue`
+  （中文 `继续本次会话：moss --continue`），第一次使用的用户也能知道这是续上本次会话，而不是开新会话。
+- 本轮能力抽查：真实网关（deepseek-flash）`npm run bench -- --task single-edit --samples 3` 通过 **3/3（100%）**，
+  每样本约 5.5 回合 / 11.4s / ~60k in / 698 out。
+
 ### README handfeel/capability claims match the shipped behavior again (B195)
 
 - The handfeel table still promised that a fresh folder shows `Try "/init"` in the empty-composer
