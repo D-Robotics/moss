@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### The built-in discipline prompt was dead code; it is installed now, with a communication contract (B187)
+
+- `buildMossDefaultWorkflowPrompt()` was exported but never added to any prompt layer, so a workspace
+  without an `AGENTS.md` ran with **no** built-in engineering contract — the discipline text, including
+  its new communication rules, never reached the model.
+- The CLI prompt setup now installs it as a stable `cli:default-workflow` contract layer (project
+  instructions stack on top and may override specifics). A new final "Communication contract" asks for
+  outcome first, at most two lines of evidence, and no process/self-audit narration, tutorial sections,
+  or restating the request/diff.
+- The spec-audit nudge no longer fires on a bare "docs/文档/说明/需求" mention: it requires citation
+  phrasing ("per the docs", "the spec says", "按文档要求", …), so ordinary tasks stop turning into
+  SPEC-AUDIT detours.
+
+### 内置纪律提示词此前是死代码；现在真正装上，并加入沟通契约（B187）
+
+- `buildMossDefaultWorkflowPrompt()` 只被导出、从未加进任何提示层，因此**没有 AGENTS.md 的工作区完全没有内置工程契约**，
+  其中的沟通规则也从未到达模型。
+- CLI 提示层现在把它作为稳定的 `cli:default-workflow` 契约层安装（项目指令可叠加并覆盖具体规则）。末尾新增
+  "Communication contract"：先给结果、最多两行证据，不叙述过程/自审、不写教程段、不复述请求或屏幕上的 diff。
+- spec-audit nudge 不再因为裸提"docs/文档/说明/需求"就触发：必须出现引用语气（"per the docs"、"the spec says"、
+  "按文档要求" 等），普通任务不再被拉去做 SPEC-AUDIT。
+
 ### `/style` makes the voice visible and switchable mid-session (B186)
 
 - The output style (`default` / `explanatory` / `learning`) could only be changed through config, and
