@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### The verification gate stands down when the user asked for no commands (B239)
+
+- A real run showed the gate's cost: "add a comment at the top of math.js… do not run any commands" was
+  edited, answered, held by the unverified-change gate, answered again, and only then read back — three
+  answer blocks for one comment, and inline scrollback keeps every one. The gate exists to stop silence,
+  not to overrule the person who asked: the latest human instruction is now checked, and
+  `do not run any commands` / `without running tests` / `不要运行` let the honest answer through.
+- Also: an explicit "no commands were run" / `未运行` is accepted as an unverified disclosure instead of
+  demanding a second turn.
+
+### 用户明确要求"不要运行命令"时，验证门放行（B239）
+
+- 真实 run 暴露了验证门的代价："在 math.js 顶部加一行注释……不要运行任何命令" 被编辑、回答、被未验证门拦下、
+  再回答、最后才读回——一行注释换来三个回答块，而内联滚动区全部保留。门的作用是防止沉默，而不是否决提出要求的人：
+  现在会检查最新的人类指令，`do not run any commands` / `without running tests` / `不要运行` 都会让诚实回答通过。
+- 另外，显式声明 "no commands were run" / `未运行` 视为未验证披露，不再要求额外回合。
+
 ### A gate retry asks for the delta instead of a second full answer (B238)
 
 - Real TUI in manual mode showed the same change reported three times in one run: the answer, then

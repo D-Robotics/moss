@@ -181,6 +181,38 @@ check('gate corrections ask for the delta, not a second full answer', () => {
   assert.match(String(decision.correction), /do not restate or re-print the earlier answer/);
 });
 
+check('an explicit "do not run any commands" request is not held by the gate', () => {
+  // B239: real manual TUI - the user said "Do not run any commands", the model
+  // edited and answered; the gate demanded verification anyway, so the run
+  // bought another turn and printed a second answer.
+  const base = {
+    response: 'Added one comment line at the top of math.js.',
+    messages: [
+      ...(() => {
+        const out = [];
+        out.push({
+          role: 'user',
+          content: [{ type: 'text', text: 'Add a comment at the top. Do not run any commands.' }],
+          timestamp: 1,
+        });
+        out.push(writeFile().use, writeFile().result);
+        return out;
+      })(),
+    ],
+  };
+  const decision = evaluateVerificationCompletionGate(base);
+  assert.equal(decision.ok, true);
+  assert.match(String(decision.reason), /asked for no commands/);
+  const held = evaluateVerificationCompletionGate({
+    ...base,
+    messages: [
+      // Same edits, but the instruction never appeared.
+      ...base.messages.slice(1),
+    ],
+  });
+  assert.equal(held.ok, false, 'without the instruction the gate still holds');
+});
+
 check('a review_changes PASS clears an earlier FAIL', () => {
   const decision = evaluateVerificationCompletionGate({
     response: 'Fixed and re-reviewed.',

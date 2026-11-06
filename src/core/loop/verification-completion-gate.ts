@@ -53,7 +53,35 @@ const CHECK_COMMAND_RE =
 
 /** The model admits it did not verify: allowed through (honesty over theatre). */
 const UNVERIFIED_DISCLOSURE_RE =
-  /(未验证|未运行验证|未做验证|没有验证|无法验证|未能验证|unverified|not\s+verified|did\s+not\s+verify|could\s+not\s+verify|cannot\s+verify)/i;
+  /(未验证|未运行验证|未做验证|没有验证|无法验证|未能验证|未运行|没有运行|未执行|unverified|not\s+verified|did\s+not\s+verify|could\s+not\s+verify|cannot\s+verify|no\s+commands?\s+(?:were|was)\s+run|did\s+not\s+run|no\s+tests?\s+(?:were|was)\s+run)/i;
+
+/**
+ * B239: the user may explicitly ask for no verification ("do not run any
+ * commands", "just edit the file"). The gate exists to stop silence, not to
+ * overrule the person who asked; a run held against that instruction burns a
+ * turn and answers a second time (inline scrollback keeps both).
+ */
+const NO_COMMAND_INSTRUCTION_RE =
+  /(?:do\s*n(?:o|')?t|do\s+not|without)\s+(?:run(?:ning)?|execut(?:e|ing))\b[^.\n]{0,40}\b(?:commands?|tests?|checks?|anything|it)\b|no\s+commands?\b|不(?:要|必|需)(?:运行|执行|跑)|别(?:运行|执行|跑)|无需(?:运行|执行)/i;
+
+/** The latest human instruction in the transcript (skips internal turns). */
+function latestUserInstruction(messages: readonly Message[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.role !== 'user') continue;
+    const text =
+      typeof message.content === 'string'
+        ? message.content
+        : message.content
+            .filter((block) => block.type === 'text' && typeof block.text === 'string')
+            .map((block) => (block as { text: string }).text)
+            .join('\n');
+    const cleaned = text.replace(/<turn-context>[\s\S]*?<\/turn-context>/g, '').trim();
+    if (!cleaned || cleaned.startsWith('[System]') || cleaned.startsWith('[Steering]')) continue;
+    return cleaned;
+  }
+  return '';
+}
 
 /**
  * L3 (bounded-repair input): an independent review that returned FAIL must not
@@ -272,6 +300,9 @@ export function evaluateVerificationCompletionGate(request: {
   if (checkedAfter) return { ok: true, reason: 'the change was inspected after the last edit' };
   if (UNVERIFIED_DISCLOSURE_RE.test(request.response)) {
     return { ok: true, reason: 'the answer states it is unverified' };
+  }
+  if (NO_COMMAND_INSTRUCTION_RE.test(latestUserInstruction(request.messages))) {
+    return { ok: true, reason: 'the user asked for no commands, so verification was not possible' };
   }
   return {
     ok: false,
