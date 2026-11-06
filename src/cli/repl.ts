@@ -49,7 +49,7 @@ import {
 } from './interactive-commands.js';
 import { isResumableTaskPhase } from '../contracts/task-runtime.js';
 import { expandMcpResourceMentions, type McpResourceReader } from './mcp-resource-mentions.js';
-import { cliLocale } from './cli-locale.js';
+import { cliLocale, isZhLocale } from './cli-locale.js';
 import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
 import { CliServices } from './cli-services.js';
 import { resolveRealModel } from './model-resolution.js';
@@ -833,7 +833,7 @@ export async function runInteractive(
 
     if (msg === '/diff' || msg.startsWith('/diff ')) {
       try {
-        const result = await runWorkingTreeDiff(workspace);
+        const result = await runWorkingTreeDiff(workspace, { zh: isZhLocale() });
         const output = formatLocalCommandOutput(result.output);
         if (result.exitCode !== 0) {
           const notRepo = /not a git repository/i.test(output);

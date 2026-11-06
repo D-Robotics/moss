@@ -519,7 +519,8 @@ async function captureGit(
  * that exits 0, the full `git diff`. Both go through {@link runGit}.
  */
 export async function runWorkingTreeDiff(
-  cwd: string
+  cwd: string,
+  options: { zh?: boolean } = {}
 ): Promise<{ output: string; exitCode: number }> {
   // B213: `/diff` is "what changed", not "what is unstaged". A staged-only
   // change used to print nothing, so compare against HEAD; before the first
@@ -547,11 +548,16 @@ export async function runWorkingTreeDiff(
       .filter(Boolean);
     if (untracked.length > 0) {
       const shown = untracked.slice(0, 10);
-      output += `\nUntracked files (${untracked.length}):\n${shown
-        .map((file) => `  ?? ${file}`)
-        .join('\n')}${
-        untracked.length > shown.length ? `\n  … and ${untracked.length - shown.length} more` : ''
-      }\n`;
+      const more =
+        untracked.length > shown.length
+          ? options.zh
+            ? `\n  … 还有 ${untracked.length - shown.length} 个`
+            : `\n  … and ${untracked.length - shown.length} more`
+          : '';
+      const header = options.zh
+        ? `\n未跟踪文件（${untracked.length}）：\n`
+        : `\nUntracked files (${untracked.length}):\n`;
+      output += `${header}${shown.map((file) => `  ?? ${file}`).join('\n')}${more}\n`;
     }
   }
   return { output, exitCode };

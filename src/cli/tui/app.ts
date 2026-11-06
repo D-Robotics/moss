@@ -1780,7 +1780,7 @@ export function TuiAppRoot({
    */
   const runDiffCommand = useCallback(async () => {
     try {
-      const result = await runWorkingTreeDiff(options.workspaceDir);
+      const result = await runWorkingTreeDiff(options.workspaceDir, { zh: isTuiZh() });
       const output = formatLocalCommandOutput(result.output);
       if (result.exitCode !== 0) {
         const notRepo = /not a git repository/i.test(output);

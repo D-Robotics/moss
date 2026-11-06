@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The untracked section of `/diff` follows the UI language (B215)
+
+- B214 added `Untracked files (N):` in English even when the rest of `/diff` is Chinese. The collector now
+  takes the locale: `未跟踪文件（N）：` and `… 还有 N 个` in Chinese, unchanged English elsewhere; both the
+  TUI and the REPL pass their locale.
+
+### `/diff` 的未跟踪文件段跟随界面语言（B215）
+
+- B214 的 `Untracked files (N):` 在中文界面里仍是英文。收集器现在接收 locale：中文为 `未跟踪文件（N）：`
+  与 `… 还有 N 个`，英文保持不变；TUI 与 REPL 各自传入当前语言。
+
 ### `/diff` names untracked files too (B214)
 
 - A newly created file is untracked, so `git diff HEAD` was silent: right after the agent wrote new
