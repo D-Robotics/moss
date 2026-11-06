@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Loop and workflow runs are visible while they run (B180)
+
+- B178/B179 gave superagent in-flight rows; `moss loop` (which can run for minutes across attempts) and
+  `moss workflow` still appeared only at the end. Both now publish a `running` row when they start —
+  `writeRunningRecord` carries pid/host, so B179's crash reconciliation applies to them too — and the
+  final write with the same run id overwrites it (one row, never two).
+
+### loop 与 workflow 运行中即可见（B180）
+
+- B178/B179 只为 superagent 做了进行中行；`moss loop`（可能跨多轮跑数分钟）与 `moss workflow` 仍只在结束时出现。
+  现在两者启动即写 `running` 行——`writeRunningRecord` 带 pid/host，因此 B179 的崩溃对账同样适用——
+  结束时用同一 run id 覆盖（始终只有一行，不会出现两条）。
+
 ### A crashed in-flight run no longer looks "in progress" forever (B179)
 
 - B178's `running` row had no reconciliation: a `moss superagent work` killed mid-ticket left the row
