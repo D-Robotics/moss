@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### One Chinese word for full mode, a localised `/goal` row, readable gitignore advice (B221)
+
+- The same mode was `全开` (status bar, `/mode` block) and `完全访问` (help, doctor, config). It is now
+  `完全访问` everywhere; `/mode 全开` and the old value still parse as aliases.
+- The help overlay's `/goal` row was the last untranslated command description; it now reads Chinese in
+  a zh UI (the CLI tokens in the usage column stay as typed).
+- The startup `.gitignore` advice said "建议加入 .gitignore：.moss/ 与 !.moss/skills/", which reads as if
+  the negated line should be searched for rather than written to keep the skills dir; it now says to add
+  `.moss/` and then `!.moss/skills/` to keep the skills directory.
+
+### 全模式统一叫"完全访问"，`/goal` 帮助行本地化，gitignore 建议更好读（B221）
+
+- 同一模式在状态栏/`/mode` 块叫"全开"，在帮助、doctor、config 里叫"完全访问"。现在统一为"完全访问"；
+  `/mode 全开` 与旧值仍作为别名解析。
+- 帮助浮层里 `/goal` 行是最后一个未翻译的命令描述，中文界面现在显示中文（用法列里的 CLI token 保持原样）。
+- 启动的 `.gitignore` 建议原文读起来像"把 !.moss/skills/ 也加进去"（其实是要保留技能目录）；现在明确说
+  先加 `.moss/`，再加 `!.moss/skills/` 以保留技能目录。
+
 ### Pre-tool narration folds, and `exit_plan` stops reprinting the plan (B220)
 
 - The second audit's top issue was "the same thing said four times": an assistant paragraph immediately

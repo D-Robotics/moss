@@ -434,7 +434,7 @@ const modeCommand: CommandSpec = {
               '  /mode manual        正常编码（逐次审批写操作与设备变更）',
               '  /mode accept-edits  自动通过本文件夹内的文件编辑；终端命令仍需确认（-p 下会被拦下）',
               '  /mode plan          只读规划（不执行写操作）',
-              '  /mode full          全开：跳过询问，仅 deny 规则与硬拦截生效（默认）',
+              '  /mode full          完全访问：跳过询问，仅 deny 规则与硬拦截生效（默认）',
               '  快捷键：Shift+Tab（TUI）在四种模式间循环',
               `  ${workspaceWriteLimit(true)}`,
             ].join('\n')

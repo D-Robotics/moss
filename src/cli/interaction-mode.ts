@@ -94,7 +94,7 @@ export function subscribeCliInteractionMode(
 export function formatCliInteractionModeLabel(mode: CliInteractionMode, zh = false): string {
   if (mode === 'plan') return zh ? '计划模式' : 'plan';
   if (mode === 'acceptEdits') return zh ? '自动接受编辑' : 'accept-edits';
-  if (mode === 'full') return zh ? '全开' : 'full';
+  if (mode === 'full') return zh ? '完全访问' : 'full';
   return zh ? '手动' : 'manual';
 }
 
@@ -138,6 +138,7 @@ export function parseCliInteractionMode(raw: string | undefined): CliInteraction
     token === 'bypass' ||
     token === 'bypasspermissions' ||
     token === '自动' ||
+    token === '完全访问' ||
     token === '全开'
   ) {
     return 'full';

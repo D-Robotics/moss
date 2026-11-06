@@ -18,6 +18,7 @@ const renderer = await load('dist/cli/tui/renderer.js');
 const toolSummary = await load('dist/cli/tui/tool-summary.js');
 const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
+const interactionMode = await load('dist/cli/interaction-mode.js');
 const bridge = await load('dist/cli/tui/render-bridge.js');
 const markdown = await load('dist/cli/tui/markdown.js');
 const outcome = await load('dist/cli/run-outcome.js');
@@ -395,6 +396,15 @@ ok('the status row can say "Esc keeps planning" for the plan gate');
   assert.match(plan.summary, /Plan submitted for approval/);
 }
 ok('pre-tool narration folds, and exit_plan does not reprint the plan');
+
+// 5f. B221: one Chinese word for full mode, and its legacy aliases still parse.
+{
+  assert.equal(interactionMode.formatCliInteractionModeLabel('full', true), '完全访问');
+  for (const token of ['full', '全开', '完全访问']) {
+    assert.equal(interactionMode.parseCliInteractionMode(token), 'full', token);
+  }
+}
+ok('full mode is 完全访问 in Chinese, and legacy 全开 still parses');
 
 // 6. B194: the status row labels each number instead of imploding.
 {

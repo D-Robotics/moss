@@ -32,6 +32,6 @@ export function gitignoreNoticeForWorkspace(
   if (gitignoreCoversMoss(text)) return undefined;
   // B192: one dim line, not a 3-line block on every cold start.
   return isZhLocale(locale)
-    ? '[moss] 会话日志在 .moss/（未被 git 忽略）；建议加入 .gitignore：.moss/ 与 !.moss/skills/'
+    ? '[moss] 会话日志在 .moss/（未被 git 忽略）；建议在 .gitignore 里加 .moss/，再加 !.moss/skills/ 以保留技能目录'
     : '[moss] Session logs live in .moss/ (not gitignored); add .moss/ and !.moss/skills/ to .gitignore';
 }
