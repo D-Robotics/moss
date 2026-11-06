@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Undo says when the scrollback above is stale (B257)
+
+- A real `/undo` restored the file and dropped 8 messages, but the rows above stayed on screen (terminal
+  scrollback cannot be retracted), so the dropped turns looked like they were still in context. When a
+  rewind drops conversation turns, the result now adds one dim line:
+  `earlier turns stay as scrollback; they are no longer in the conversation`.
+
+### `/undo` 会说明上方滚动区已不在上下文（B257）
+
+- 真实 `/undo` 恢复了文件并丢弃 8 条消息，但屏幕上方那些行仍在（终端滚动区无法撤回），看起来像它们还在上下文里。
+  现在当 rewind 丢弃对话回合时，结果会多一行 dim：
+  `earlier turns stay as scrollback; they are no longer in the conversation`。
+
 ### The resume picker says it is loading instead of "no matching session" (B256)
 
 - `moss resume` lists sessions asynchronously, so the picker's first frames said `no matching session`

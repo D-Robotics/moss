@@ -140,7 +140,9 @@ export interface TuiAppOptions {
   /** File checkpoint restore for /rewind (host wires the checkpoint store). */
   rewindTo?: (
     seq: number
-  ) => { ok: boolean; detail: string } | Promise<{ ok: boolean; detail: string }>;
+  ) =>
+    | { ok: boolean; detail: string; droppedMessages?: number }
+    | Promise<{ ok: boolean; detail: string; droppedMessages?: number }>;
   listCheckpoints?: () => Array<{ seq: number; label: string; files: number }>;
   /** Injected task runtime (specs); created from workspaceDir when omitted. */
   runtime?: TaskRuntime;
@@ -529,6 +531,17 @@ export function renderSessionPicker(
     line(clip(tui('  ↑/↓ to pick · type to filter · Esc starts fresh'), width), { dim: true })
   );
   return out;
+}
+
+/**
+ * B257: scrolling back cannot retract rows already printed into the terminal
+ * scrollback, so an undo that dropped conversation turns says so explicitly —
+ * otherwise the rows above look like they are still in context.
+ */
+export function rewindScrollbackNote(droppedMessages: number | undefined): string[] {
+  return droppedMessages && droppedMessages > 0
+    ? [tui('  earlier turns stay as scrollback; they are no longer in the conversation')]
+    : [];
 }
 
 /** One `HH:MM:SS role: snippet…` line for a conversation-log JSONL entry. */

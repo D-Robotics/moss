@@ -2075,12 +2075,14 @@ export async function runCli(): Promise<void> {
             if (!result.found) return { ok: false, detail: `no checkpoint ${seq}` };
             const skipped = result.skipped.length > 0 ? `, ${result.skipped.length} skipped` : '';
             let conversation = '';
+            let droppedMessages = 0;
             if (result.messageCount !== undefined) {
               try {
                 const { truncated } = await agent.rewindConversation(
                   session.sessionKey,
                   result.messageCount
                 );
+                droppedMessages = truncated;
                 if (truncated > 0) conversation = `, ${truncated} message(s) dropped`;
               } catch {
                 conversation = ', conversation not rewound';
@@ -2089,6 +2091,7 @@ export async function runCli(): Promise<void> {
             return {
               ok: true,
               detail: `${result.restored.length} file(s) restored${skipped}${conversation}`,
+              ...(droppedMessages > 0 ? { droppedMessages } : {}),
             };
           } catch (err) {
             return { ok: false, detail: errorMessage(err) };

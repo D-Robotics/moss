@@ -534,6 +534,16 @@ ok('a duplicated leading result line is dropped, not repeated under the headline
 }
 ok('the resume picker shows a loading line, then the empty line');
 
+// 5l. B257: an undo that dropped conversation turns says the scrollback above is
+// stale (rows cannot be retracted from the terminal).
+{
+  const note = appHelpers.rewindScrollbackNote(3).join('\n');
+  assert.match(note, /earlier turns stay as scrollback/);
+  assert.deepEqual(appHelpers.rewindScrollbackNote(0), []);
+  assert.deepEqual(appHelpers.rewindScrollbackNote(undefined), []);
+}
+ok('undo after dropping turns notes that the scrollback is no longer in context');
+
 // 6. B194: the status row labels each number instead of imploding.
 {
   const en = statusLine.formatStatusLine({

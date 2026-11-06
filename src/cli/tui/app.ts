@@ -312,6 +312,7 @@ import {
   sliceHelpOverlay,
   relativeAge,
   filterPickerSessions,
+  rewindScrollbackNote,
   renderSessionPicker,
   describeConversationLogEntry,
   shellContextUsage,
@@ -2550,6 +2551,7 @@ export function TuiAppRoot({
                     detail: result.detail,
                   })
                 : (result?.detail ?? tui('undo to {seq} failed', { seq: last.seq })),
+              ...rewindScrollbackNote(result?.droppedMessages),
             ]);
           }
         } else if (!arg) {
@@ -2574,6 +2576,7 @@ export function TuiAppRoot({
             result?.ok
               ? tui('restored checkpoint {seq}: {detail}', { seq, detail: result.detail })
               : (result?.detail ?? tui('rewind to {seq} failed', { seq })),
+            ...rewindScrollbackNote(result?.droppedMessages),
           ]);
         }
         return;
