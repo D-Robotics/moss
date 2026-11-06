@@ -222,7 +222,9 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
   }
 
   if (sub === 'list') {
-    out(await renderSkillsList(ctx.workspaceDir, ctx.configDir, zh));
+    // B275: the human table truncates one description line, not the whole
+    // multiline body; a 300-char description turned one row into a paragraph.
+    out(await renderSkillsList(ctx.workspaceDir, ctx.configDir, zh, undefined, { compact: true }));
     return 0;
   }
 

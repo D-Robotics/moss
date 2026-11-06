@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `moss skill list` keeps each skill on one readable row (B275)
+
+- The human table printed the full description line, so one skill with a 300-char description turned
+  into a paragraph. It now uses the same compact description as the TUI `/skills` panel (72 chars);
+  the catalog-cost/usage numbers are unchanged.
+
+### `moss skill list` 每个技能保持一行可读（B275）
+
+- 人类可读表格会打印完整描述行，一条 300 字符的描述变成一整段。现在与 TUI `/skills` 面板共用
+  compact 描述（72 字符）；目录成本/使用次数等列不变。
+
 ### A successful steer says "steered"; revising an answer prints only the delta (B273/B274)
 
 - Typing during a run showed `queued: 2 — applies at the next step` even when the instruction was
