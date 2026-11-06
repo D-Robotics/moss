@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { resolveNodeModulesTool } from './lib/resolve-tool.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const builtin = await import(pathToFileURL(path.join(root, 'dist/tools/builtin.js')).href);
@@ -32,8 +33,8 @@ async function check(name, fn) {
   }
 }
 
-const tscPath = path.join(root, 'node_modules/typescript/bin/tsc');
-assert.ok(fs.existsSync(tscPath), `expected the repo tsc at ${tscPath}`);
+const tscPath = resolveNodeModulesTool(root, 'typescript', 'bin', 'tsc');
+assert.ok(tscPath, 'expected typescript to be installed (repo or hoisted node_modules)');
 
 const TSCONFIG = JSON.stringify(
   {
@@ -200,7 +201,7 @@ await check('a workspace with no config at all says nothing was executed', async
 
 // ── 7. ESLint JSON is normalized too (best effort: repo eslint) ────────────
 
-const eslintPath = path.join(root, 'node_modules/eslint/bin/eslint.js');
+const eslintPath = resolveNodeModulesTool(root, 'eslint', 'bin', 'eslint.js');
 await check('eslint JSON findings are normalized', async () => {
   if (!fs.existsSync(eslintPath)) {
     console.log(`[diagnostics] skip eslint check: ${eslintPath} not installed`);
