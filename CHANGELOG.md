@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Streaming answers no longer flash raw fences; file titles are workspace-relative (B170)
+
+- While an answer streamed, an unterminated fenced block was rendered by the plain-tail path, so a
+  literal ` ``` ` row appeared before the code frame arrived (visible in a screenshot). An open
+  fence now renders as a code block immediately (`┌ bash`, `│ …`) and the closing bar appears when
+  the fence closes; a partial fence marker (`\`\``) is hidden until complete.
+- File tool titles no longer spend the line on absolute paths: `Read(/private/tmp/ws/a.txt)` becomes
+  `Read(a.txt)` (paths outside the workspace fall back to `~/…` when under home).
+
+### 流式回答不再闪出裸围栏；文件标题改为相对工作区（B170）
+
+- 回答流式输出时，尚未闭合的围栏块会走「普通尾部」渲染，于是先出现一行裸 ``` ````，代码框随后才到
+（截图里可见）。现在未闭合围栏立即按代码块渲染（`┌ bash`、`│ …`），围栏闭合时才补上底边；
+只输入了一半的围栏标记（`\`\``）在完成前不显示。
+- 文件类工具标题不再浪费在绝对路径上：`Read(/private/tmp/ws/a.txt)` 变成 `Read(a.txt)`
+  （工作区之外的路径在 home 下时回退为 `~/…`）。
+
 ### Tool titles and stall hints read like product, not debug output (B169)
 
 - `Exec(cd /private/tmp/ws && ls -l … && wc -c …)` wasted the one-line title on the working
