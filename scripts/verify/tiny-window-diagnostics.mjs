@@ -6,7 +6,11 @@
 import assert from 'node:assert/strict';
 import { bootDoctor } from './lib/tiny-window-boot.mjs';
 
-const tinyDoctor = await bootDoctor(4096);
+const [tinyDoctor, leanDoctor, wideDoctor] = await Promise.all([
+  bootDoctor(4096),
+  bootDoctor(32_000),
+  bootDoctor(100_000),
+]);
 assert.ok(
   tinyDoctor.includes('context profile') && tinyDoctor.includes('5 core tools'),
   `doctor must show the reduced profile at 4096, got: ${tinyDoctor.slice(0, 400)}`
@@ -20,14 +24,12 @@ assert.ok(
   'the tiny profile already says more than the lean row, so it must not double up'
 );
 // B77: 32k windows get lean declarations (terse descriptions + pruned schemas).
-const leanDoctor = await bootDoctor(32_000);
 assert.ok(!leanDoctor.includes('context profile'), 'doctor must not show the tiny profile at 32k');
 assert.ok(
   leanDoctor.includes('lean surface') && leanDoctor.includes('pruned to one-step parameters'),
   `doctor must explain the lean surface at 32k, got: ${leanDoctor.slice(0, 400)}`
 );
 // B77 boundary: above the lean threshold neither profile applies.
-const wideDoctor = await bootDoctor(100_000);
 assert.ok(
   !wideDoctor.includes('context profile') && !wideDoctor.includes('lean surface'),
   'doctor must not show a reduced profile above 64k'

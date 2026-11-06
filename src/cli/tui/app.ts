@@ -3967,12 +3967,13 @@ export function TuiAppRoot({
     ...(pricingBaseUrl ? { baseUrl: pricingBaseUrl } : {}),
     ...(actualModel ? { fallbackModel: actualModel } : {}),
   });
+  // B188: an unpriced gateway is the common case; a permanent "price unknown"
+  // label on the status row is noise, not information. Cost still appears in
+  // `/usage` and the run ledger where the user is asking about money.
   const costLabel =
     quote.amount !== null && quote.currency
       ? formatCostEstimate(quote.amount, quote.currency, isTuiZh())
-      : quote.unknownModel
-        ? tui('price unknown')
-        : undefined;
+      : undefined;
   const activeTask = runtime
     .taskSummaries()
     .find(
