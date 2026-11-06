@@ -87,6 +87,11 @@ function verdictLine(record: ReviewRecord, zh: boolean): string {
   )})`;
 }
 
+/** The same details without repeating the verdict the check line already states. */
+function reviewDetails(record: ReviewRecord): string {
+  return `${record.scope}, ${record.depth} · ${severityCounts(record.findings)}`;
+}
+
 export async function runReviewCommand(
   argv: readonly string[],
   ctx: ReviewCommandContext
@@ -186,7 +191,7 @@ export async function runReviewCommand(
       );
     }
     if (latest.verdict === 'pass') {
-      return emit(0, `${zh ? '通过' : 'PASS'} — ${verdictLine(latest, zh)}`, {
+      return emit(0, `${zh ? '通过' : 'PASS'} — ${reviewDetails(latest)}`, {
         reviewed: true,
         verdict: 'pass',
       });
@@ -197,15 +202,12 @@ export async function runReviewCommand(
         2,
         zh
           ? `verdict 未知（评审没有给出可解析结论）— 不能当作通过。${verdictLine(latest, zh)}`
-          : `Unknown verdict (the reviewer gave no parseable conclusion) — not a pass. ${verdictLine(
-              latest,
-              zh
-            )}`,
+          : `Unknown verdict (the reviewer gave no parseable conclusion) — not a pass. ${reviewDetails(latest)}`,
         { reviewed: true, verdict: 'unknown' }
       );
     }
     if (!json) {
-      out(`${zh ? '失败' : 'FAIL'} — ${verdictLine(latest, zh)}`);
+      out(`${zh ? '失败' : 'FAIL'} — ${reviewDetails(latest)}`);
       printFindings(latest, out);
     }
     // The loop state (attempt / budget / next action) comes from the projection,

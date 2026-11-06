@@ -277,7 +277,12 @@ const passing = await captureLog(() =>
   reviewCommand.runReviewCommand(['check'], { workspaceDir: commandRepo })
 );
 assert.equal(passing.code, 0);
-ok('moss review check: latest PASS -> 0');
+assert.match(
+  passing.lines.join('\n'),
+  /^PASS — working tree \+ staged changes, quick · critical 0, important 0, suggestion 0$/m,
+  'the PASS line states the verdict once, then the details'
+);
+ok('moss review check: latest PASS -> 0 (one verdict word, then details)');
 
 // ── 6. Untracked files are part of the diff ───────────────────────────────
 

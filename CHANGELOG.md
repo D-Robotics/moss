@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### `moss review check` states the verdict once (B246)
+
+- Real `/review` → `moss review check` printed `PASS — verdict: PASS (working tree + staged changes,
+quick, critical 0, important 0, suggestion 0)`: the gate word twice, then the details. The check line
+  now reads `PASS — working tree + staged changes, quick · critical 0, important 0, suggestion 0`
+  (FAIL and unknown get the same treatment); `review list` keeps the verdict label because the verdict is
+  its primary column.
+
+### `moss review check` 只报一次结论（B246）
+
+- 真实 `/review` 后跑 `moss review check`，输出 `PASS — verdict: PASS (…, critical 0, …)`：结论词出现两次，再加细节。
+  现在 check 行是 `PASS — working tree + staged changes, quick · critical 0, important 0, suggestion 0`
+  （FAIL 与 unknown 同理）；`review list` 保留 verdict 标签，因为那是它的主列。
+
 ### The idle status bar does not print `ctx ~0%` (B245)
 
 - Switching model in-session made the status bar show `ctx ~0%` even though the window had not been used;
