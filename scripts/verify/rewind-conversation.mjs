@@ -216,4 +216,18 @@ try {
   ok('session export/search strip the injected <turn-context> preamble');
 }
 
+// 9. B209: `--out` (sessions/runs) is confined to the workspace.
+{
+  const { resolveExportOutPath } = await import(dist('cli/export-path.js'));
+  assert.deepEqual(resolveExportOutPath('/tmp/ws', 'out/session.md'), {
+    absolute: '/tmp/ws/out/session.md',
+  });
+  assert.deepEqual(resolveExportOutPath('/tmp/ws', 'session.md'), {
+    absolute: '/tmp/ws/session.md',
+  });
+  assert.match(resolveExportOutPath('/tmp/ws', '../escape.md').error ?? '', /inside the workspace/);
+  assert.match(resolveExportOutPath('/tmp/ws', '/tmp/abs.md').error ?? '', /inside the workspace/);
+  ok('--out is confined to the workspace for session/run exports');
+}
+
 console.log(`[rewind-conversation] ${checks}/${checks} checks passed`);

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### `moss sessions export --out` stays inside the workspace (B209)
+
+- `--out=../x.md` wrote the exported session outside the workspace (same class as the `runs export`
+  fix); the usage line also advertised `--out <file>` while only `--out=<file>` worked and the spaced
+  form was silently ignored (the export went to stdout instead). `--out` now supports both spellings,
+  is confined to the workspace (escape exits 2 and writes nothing), and `moss runs export` shares the
+  same helper so the two cannot drift.
+
+### `moss sessions export --out` 限定在工作区内（B209）
+
+- `--out=../x.md` 会把导出的会话写到工作区之外（与 `runs export` 同类问题）；帮助里写的是 `--out <file>`，
+  但实际只认 `--out=<file>`，空格形式被静默忽略（导出跑到 stdout）。现在两种写法都支持，`--out` 限定在工作区内
+  （越界 exit 2 且不写文件），`moss runs export` 共用同一 helper，二者不会再漂移。
+
 ### Session export/search show the conversation, not the injected turn context (B208)
 
 - `moss sessions export` wrote the stored `<turn-context>` preamble (environment, skills catalog)

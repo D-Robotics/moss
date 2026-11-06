@@ -5,7 +5,6 @@
  * knowing whether the run was a task, a loop or a workflow. Details stay in the
  * per-engine ledgers; this only indexes them.
  */
-import path from 'node:path';
 import {
   listRunRecords,
   pruneRunRecords,
@@ -17,6 +16,7 @@ import {
 import { isZhLocale, uiText } from './cli-locale.js';
 import { formatRunUsage } from './run-usage.js';
 import { followDiff, formatFollowEvent, parseFollowDuration } from './runs-follow.js';
+import { resolveExportOutPath } from './export-path.js';
 
 const RUN_STATUSES: readonly RunRecordStatus[] = [
   'completed',
@@ -522,20 +522,6 @@ function renderSummary(
     `  ${t('total', '合计').padEnd(10)} ${String(total.runs).padStart(3)} ${t('runs', '次')} · ${total.pass} ${t('pass', '通过')} · ${total.fail} ${t('fail', '失败')} · ${total.other} ${t('other', '其他')} · ${costText(total)}`
   );
   return lines.join('\n');
-}
-
-/** `--out` writes inside the workspace, like every other user-visible artifact. */
-function resolveExportOutPath(
-  workspace: string,
-  out: string
-): { absolute: string } | { error: string } {
-  const root = path.resolve(workspace);
-  const absolute = path.resolve(root, out);
-  const relative = path.relative(root, absolute);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return { error: `--out must stay inside the workspace: ${out}` };
-  }
-  return { absolute };
 }
 
 export async function runRunsCommand(

@@ -3,6 +3,7 @@
 
 import { isZhLocale, uiText } from './cli-locale.js';
 import { stripTurnContext } from '../core/session/internal-transcript.js';
+import { resolveExportOutPath } from './export-path.js';
 import { formatSessionTimestamp } from './session-format.js';
 import type { LLMMessage } from '../core/llm/llm-provider.js';
 import type { SessionStore, SessionMeta } from '../core/session/session.js';
@@ -974,23 +975,36 @@ export const COMMANDS: Record<string, CommandConfig> = {
         });
         if (!messages) return;
         const markdown = renderSessionMarkdown(key, messages);
-        const outFlag = ctx.commandArgs.find((a) => a.startsWith('--out='));
-        const outPath = outFlag ? outFlag.slice(6) : null;
+        // `--out=<file>` and `--out <file>`; `--out=-` writes stdout.
+        let outPath: string | null = null;
+        for (let i = 1; i < ctx.commandArgs.length; i += 1) {
+          const arg = ctx.commandArgs[i]!;
+          if (arg.startsWith('--out=')) {
+            outPath = arg.slice('--out='.length);
+          } else if (arg === '--out') {
+            outPath = ctx.commandArgs[i + 1] ?? null;
+            i += 1;
+          }
+        }
         if (outPath) {
-          const { writeFile } = await import('node:fs/promises');
-          const resolved = outPath === '-' ? null : outPath;
-          if (!resolved) {
-            // --out=- writes to stdout
+          if (outPath === '-') {
             process.stdout.write(markdown + '\n');
             return;
           }
+          const resolved = resolveExportOutPath(ctx.workspace ?? process.cwd(), outPath);
+          if ('error' in resolved) {
+            console.error(`[sessions] ${resolved.error}`);
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+          const { writeFile } = await import('node:fs/promises');
           try {
-            await writeFile(resolved, markdown + '\n', 'utf8');
+            await writeFile(resolved.absolute, markdown + '\n', 'utf8');
             console.log(
-              `[sessions] Exported "${key}" to ${resolved} (${messages.length} message(s)).`
+              `[sessions] Exported "${key}" to ${outPath} (${messages.length} message(s)).`
             );
           } catch (err) {
-            console.error(`[sessions] Failed to write "${resolved}": ${errorMessage(err)}`);
+            console.error(`[sessions] Failed to write "${outPath}": ${errorMessage(err)}`);
             process.exitCode = ExitCode.SESSION;
           }
         } else {
