@@ -16,6 +16,7 @@ import { pathToFileURL } from 'node:url';
 import { captureProcess } from './lib/proc.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
+const dist = (rel) => pathToFileURL(path.join(root, 'dist', rel)).href;
 const review = await import(pathToFileURL(path.join(root, 'dist/tools/review-tools.js')).href);
 
 const tmpRoots = [];
@@ -385,6 +386,28 @@ assert.equal(
 );
 assert.equal(failingRepairAttempts([failRecordFor('a', 'f1')], 'deep'), 0, 'depth-scoped');
 ok('repair attempts cap at 3 and only count distinct failing diffs');
+
+// B213: `/diff` shows staged-only changes too (it compares against HEAD, not just
+// the unstaged working tree).
+{
+  const { runWorkingTreeDiff } = await import(dist('utils/git-spawn.js'));
+  const repo = await tmpDir('moss-diff-staged-');
+  await git(repo, ['init', '-q']);
+  await git(repo, ['config', 'user.email', 't@t']);
+  await git(repo, ['config', 'user.name', 't']);
+  await fs.writeFile(path.join(repo, 'a.txt'), 'one\n');
+  await git(repo, ['add', 'a.txt']);
+  await git(repo, ['commit', '-qm', 'init']);
+  await fs.writeFile(path.join(repo, 'a.txt'), 'one\ntwo\n');
+  await git(repo, ['add', 'a.txt']);
+  const staged = await runWorkingTreeDiff(repo);
+  assert.equal(staged.exitCode, 0, staged.output);
+  assert.match(staged.output, /\+two/, 'a staged-only change must be visible to /diff');
+  await git(repo, ['reset', '-q', 'HEAD', 'a.txt']);
+  const unstaged = await runWorkingTreeDiff(repo);
+  assert.match(unstaged.output, /\+two/, 'an unstaged change stays visible');
+  ok('/diff sees staged and unstaged changes');
+}
 
 // B211: the global `--json` flag must reach `review list` through the real CLI
 // parser (it is stripped from commandArgs), not only when called in-process.

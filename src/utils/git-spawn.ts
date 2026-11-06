@@ -521,8 +521,19 @@ async function captureGit(
 export async function runWorkingTreeDiff(
   cwd: string
 ): Promise<{ output: string; exitCode: number }> {
-  const stat = await captureGit(['--no-pager', 'diff', '--stat'], cwd);
-  if (stat.exitCode !== 0) return stat;
-  const full = await captureGit(['--no-pager', 'diff'], cwd);
-  return { output: stat.output + full.output, exitCode: full.exitCode };
+  // B213: `/diff` is "what changed", not "what is unstaged". A staged-only
+  // change used to print nothing, so compare against HEAD; before the first
+  // commit (no HEAD) show the index plus the working tree.
+  const hasHead = (await captureGit(['rev-parse', '--verify', 'HEAD'], cwd)).exitCode === 0;
+  const ranges = hasHead ? [['HEAD']] : [['--cached'], []];
+  let output = '';
+  let exitCode = 0;
+  for (const range of ranges) {
+    const stat = await captureGit(['--no-pager', 'diff', '--stat', ...range], cwd);
+    if (stat.exitCode !== 0) return stat;
+    const full = await captureGit(['--no-pager', 'diff', ...range], cwd);
+    output += stat.output + full.output;
+    exitCode = full.exitCode;
+  }
+  return { output, exitCode };
 }

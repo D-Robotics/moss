@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `/diff` shows staged changes too (B213)
+
+- `/diff` ran `git diff`, which only covers unstaged edits: after `git add`, the file looked unchanged
+  and a staged-only change produced "(no changes)". It now compares against `HEAD` when the repo has
+  one (staged + unstaged), and before the first commit shows the index plus the working tree.
+
+### `/diff` 也显示已暂存的改动（B213）
+
+- `/diff` 原来只跑 `git diff`（仅未暂存改动）：`git add` 之后文件看起来没变，只有暂存改动时会显示 "(no changes)"。
+  现在仓库有 `HEAD` 时按 `HEAD` 比较（暂存 + 未暂存），首次提交前则显示索引与工作区。
+
 ### `moss artifacts --json` returns JSON for every kind (B212)
 
 - `--json` is advertised for the whole command, but only the delegated kinds honored it; `tasks`,
