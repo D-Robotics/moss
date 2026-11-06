@@ -172,11 +172,10 @@ function renderOpenFence(tail: readonly string[], width: number): MarkdownLine[]
   const code = tail.slice(openerIndex + 1).filter((lineText) => !PARTIAL_FENCE.test(lineText));
   while (code.length > 0 && code[code.length - 1]!.trim() === '') code.pop();
   const out: MarkdownLine[] = before.flatMap((lineText) => renderPlainLine(lineText, width));
-  const head = `┌${lang ? ` ${lang} ` : ' '}`;
-  out.push({
-    text: clip(`${head}${'─'.repeat(Math.max(0, width - displayWidth(head)))}`, width),
-    dim: true,
-  });
+  // A short label + left bar instead of a full-width rule: the old frame spent
+  // most of the line on `────` and made code blocks the loudest thing on screen.
+  const head = `┌${lang ? ` ${lang}` : ''}`;
+  out.push({ text: clip(head, width), dim: true });
   for (const raw of code) {
     const body = raw.replace(/\t/g, '  ');
     const text = clip(`│ ${body}`, width);
@@ -532,11 +531,10 @@ export function renderMarkdown(
 
 /** Dim frame + language tag; the body keeps its own line breaks. */
 function pushCodeBlock(out: MarkdownLine[], lang: string, code: string[], width: number): void {
-  const head = `┌${lang ? ` ${lang} ` : ' '}`;
-  out.push({
-    text: clip(`${head}${'─'.repeat(Math.max(0, width - displayWidth(head)))}`, width),
-    dim: true,
-  });
+  // A short label + left bar instead of a full-width rule: the old frame spent
+  // most of the line on `────` and made code blocks the loudest thing on screen.
+  const head = `┌${lang ? ` ${lang}` : ''}`;
+  out.push({ text: clip(head, width), dim: true });
   // Fenced bodies get the shared tokenizer's colours (A10.77); runs are only
   // kept on lines that fit — a clipped line drops them (runs must concatenate
   // back to the line's text).
@@ -548,7 +546,7 @@ function pushCodeBlock(out: MarkdownLine[], lang: string, code: string[], width:
       text === `│ ${body}` && styledLang ? highlightCodeLine(body, styledLang) : undefined;
     out.push(runs ? { text, runs: [{ text: '│ ' }, ...runs] } : { text });
   }
-  out.push({ text: clip(`└${'─'.repeat(Math.max(0, width - 1))}`, width), dim: true });
+  out.push({ text: clip('└', width), dim: true });
 }
 
 function pushBullet(out: MarkdownLine[], bullet: RegExpExecArray, width: number): void {
