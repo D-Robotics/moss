@@ -412,7 +412,65 @@ function isReadonlyGit(tokens: readonly string[]): boolean {
   ]).has(subcommand);
 }
 
-function isReadonlyExecCommand(command: unknown): boolean {
+/**
+ * Split `a && b`, `a || b`, `a; b`, `a | b` outside quotes. Returns undefined
+ * for anything the readonly fast path must not reason about: absolutes,
+ * redirects, substitutions, backslashes, background `&`, newlines.
+ */
+function splitReadonlyCompound(command: string): string[] | undefined {
+  const parts: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  let index = 0;
+  while (index < command.length) {
+    const char = command[index]!;
+    if (quote) {
+      current += char;
+      if (char === quote) quote = null;
+      index += 1;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      index += 1;
+      continue;
+    }
+    if (char === '$' || char === '`' || char === '<' || char === '>' || char === '\\') {
+      return undefined;
+    }
+    if (char === '&') {
+      if (command[index + 1] === '&') {
+        parts.push(current);
+        current = '';
+        index += 2;
+        continue;
+      }
+      return undefined;
+    }
+    if (char === '|') {
+      parts.push(current);
+      current = '';
+      index += command[index + 1] === '|' ? 2 : 1;
+      continue;
+    }
+    if (char === ';' || char === '\n') {
+      if (char === '\n') return undefined;
+      parts.push(current);
+      current = '';
+      index += 1;
+      continue;
+    }
+    current += char;
+    index += 1;
+  }
+  if (quote) return undefined;
+  parts.push(current);
+  const trimmed = parts.map((part) => part.trim()).filter(Boolean);
+  return trimmed.length > 1 ? trimmed : undefined;
+}
+
+export function isReadonlyExecCommand(command: unknown): boolean {
   if (typeof command !== 'string') return false;
   if (isCommandDangerous(command).blocked) return false;
   // iex / -EncodedCommand / nested pwsh -c hide their writes. Same as python -c:
@@ -422,6 +480,11 @@ function isReadonlyExecCommand(command: unknown): boolean {
   // run a program the model chose. Never treat them as readonly (that would
   // skip the protected-path gate entirely).
   if (commandHasExecCapableRead(command)) return false;
+  // `ls -l x && cat x` / `git status | head` are read-only as a whole. Manual
+  // mode used to prompt for the whole compound line because the tokenizer
+  // rejects operators; parse the pipeline/chain and require every segment.
+  const compound = splitReadonlyCompound(command);
+  if (compound) return compound.every((part) => isReadonlyExecCommand(part));
   const tokens = tokenizeReadonlyShellCommand(command);
   if (!tokens) return false;
   const commandName = tokens[0];
