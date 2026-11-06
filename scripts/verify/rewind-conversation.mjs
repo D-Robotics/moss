@@ -265,7 +265,9 @@ try {
 // 8. B208: session export/search never show the injected turn context.
 {
   const { InMemorySessionStore } = await import(dist('core/session/session.js'));
-  const { renderSessionMarkdown, searchSessions } = await import(dist('cli/command-dispatcher.js'));
+  const { countExportableSessionMessages, renderSessionMarkdown, searchSessions } = await import(
+    dist('cli/command-dispatcher.js')
+  );
   const preamble =
     'power export <turn-context>\n## Environment\n- Working directory: /tmp/x\n</turn-context>';
   const store = new InMemorySessionStore();
@@ -308,6 +310,7 @@ try {
   const internalMarkdown = renderSessionMarkdown('s1', await store.loadMessages('s1'));
   assert.doesNotMatch(internalMarkdown, /\[System\]|\[Steering\]/);
   assert.match(internalMarkdown, /_3 message\(s\) · exported from moss\._/);
+  assert.equal(countExportableSessionMessages(await store.loadMessages('s1')), 3);
   assert.deepEqual(await searchSessions(store, 'Long tool loop'), []);
   ok('session export/search strip internal [System] and [Steering] turns');
 }

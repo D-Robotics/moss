@@ -72,6 +72,11 @@ function isExportableMessage(msg: LLMMessage): boolean {
   return resumeUserText(rawText).trim().length > 0;
 }
 
+/** How many messages the shared markdown actually contains (harness turns excluded). */
+export function countExportableSessionMessages(messages: readonly LLMMessage[]): number {
+  return messages.filter(isExportableMessage).length;
+}
+
 export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]): string {
   const exportable = messages.filter(isExportableMessage);
   const lines: string[] = [
@@ -1053,7 +1058,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
           try {
             await writeFile(resolved.absolute, markdown + '\n', 'utf8');
             console.log(
-              `[sessions] Exported "${key}" to ${outPath} (${messages.length} message(s)).`
+              `[sessions] Exported "${key}" to ${outPath} (${countExportableSessionMessages(messages)} message(s)).`
             );
           } catch (err) {
             console.error(`[sessions] Failed to write "${outPath}": ${errorMessage(err)}`);

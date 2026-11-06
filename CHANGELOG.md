@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Export message counts match what is written (B255)
+
+- After B252 the markdown header counted only exportable messages, but the success line still counted raw
+  stored messages, so `sessions export` said `(15 message(s))` above a file saying `_11 message(s)_`.
+  Both `/export` and `sessions export` now report the same count the file contains
+  (`countExportableSessionMessages`).
+
+### 导出条数与实际写入一致（B255）
+
+- B252 之后 markdown 头部只计可导出消息，但成功提示仍计原始存储消息，于是 `sessions export` 打印
+  `(15 message(s))` 而文件头写 `_11 message(s)_`。现在 `/export` 与 `sessions export` 都用
+  `countExportableSessionMessages`，提示与文件一致。
+
 ### `moss task status|timeline latest` works like the other read paths (B253)
 
 - `moss task status latest` and `moss task timeline latest` answered "No tasks in this workspace" even

@@ -814,7 +814,8 @@ const exportCommand: CommandSpec = {
   name: '/export',
   summary: 'export this session to markdown (/export [path])',
   async run(ctx, args) {
-    const { renderSessionMarkdown } = await import('../command-dispatcher.js');
+    const { countExportableSessionMessages, renderSessionMarkdown } =
+      await import('../command-dispatcher.js');
     const { writeFile } = await import('node:fs/promises');
     const pathArg = args.trim() || '';
     try {
@@ -839,7 +840,7 @@ const exportCommand: CommandSpec = {
       await writeFile(resolved.absolute, markdown + '\n', 'utf8');
       ctx.say(
         'system',
-        `Exported ${messages.length} message(s) to ${target}. (Use /export - to print, or /export <path> to choose a file.)`
+        `Exported ${countExportableSessionMessages(messages)} message(s) to ${target}. (Use /export - to print, or /export <path> to choose a file.)`
       );
     } catch (err) {
       ctx.say('error', `Could not export session: ${errorMessage(err)}`);
