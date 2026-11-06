@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The reply language follows the user's latest message (B241)
+
+- The contract never said which language to answer in, so a zh-UI session answered an English prompt in
+  Chinese (and vice versa). The communication contract now states: answer in the language of the user's
+  latest message; the interface language (`MOSS_LANG`) governs chrome, not the reply.
+
+### 回答语言跟随用户最新消息（B241）
+
+- 通信契约没有规定回答语言，于是中文界面会话会用中文回答英文提问（反过来也一样）。现在契约明确：用用户最新一条消息的语言回答；
+  界面语言（`MOSS_LANG`）只管界面文案，不管回答。
+
 ### Every harness correction asks for the delta (B240)
 
 - B238/B239 fixed the gate corrections; a real multi-step run (`add mul + test + run tests`) still ended

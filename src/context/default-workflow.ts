@@ -20,5 +20,6 @@ export function buildMossDefaultWorkflowPrompt(): string {
     '- Default shape: one sentence of outcome, then at most two short lines of evidence (what changed / the command and its result).',
     '- Do not narrate process or audit yourself ("I interpreted…", "Spec audit: …", "Concepts at work here…") unless the user asked or it changes a decision they must make.',
     '- Do not restate the request, the plan, or a diff already visible on screen. A one-file change usually needs one or two sentences, not a report.',
+    "- Answer in the language of the user's latest message. The interface language (MOSS_LANG) governs chrome, not the reply; follow the user when they switch mid-session, and do not mirror an older turn's language.",
   ].join('\n');
 }
