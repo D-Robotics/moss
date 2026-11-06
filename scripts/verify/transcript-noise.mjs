@@ -16,6 +16,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const { extractShellMutationPaths } = await load('dist/context/stale-read-invalidate.js');
 const transcript = await load('dist/cli/tui/transcript.js');
+const { ToolStateManager } = await load('dist/tools/tool-helpers.js');
 
 let checks = 0;
 const ok = (name) => {
@@ -41,7 +42,28 @@ assert.deepEqual(extractShellMutationPaths('echo hi 2>/dev/null > out.txt'), ['o
 assert.deepEqual(extractShellMutationPaths('sed -i "s/a/b/" src/a.ts'), ['src/a.ts']);
 ok('device redirects are ignored while real file writes are still detected');
 
-// 2. The live thinking line carries the wait bucket exactly once.
+// 2. The notice only fires when a read body actually goes stale (B173).
+{
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const pathModule = await import('node:path');
+  const dir = await fs.mkdtemp(pathModule.join(os.tmpdir(), 'moss-mutation-notice-'));
+  const file = pathModule.join(dir, 'read-me.txt');
+  await fs.writeFile(file, 'body\n');
+  const manager = new ToolStateManager();
+  await manager.recordFileState(file);
+  assert.equal(manager.invalidateFileState(file), true, 'a read file reports cleared credit');
+  assert.equal(
+    manager.invalidateFileState(file),
+    false,
+    'a second invalidation has nothing to clear'
+  );
+  assert.equal(manager.invalidateFileState(pathModule.join(dir, 'never-read.txt')), false);
+  await fs.rm(dir, { recursive: true, force: true });
+}
+ok('the mutation notice only fires for a file whose read body went stale');
+
+// 3. The live thinking line carries the wait bucket exactly once.
 {
   const now = Date.now();
   const lines = transcript.renderLive(

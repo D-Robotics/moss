@@ -365,12 +365,14 @@ export class ToolStateManager {
    * re-read. Used after old_string miss / failed multi_edit so the model
    * cannot thrash the same unread snapshot (Claude FileEdit discipline).
    */
-  invalidateFileState(resolvedPath: string): void {
-    if (this.fileReadState.has(resolvedPath)) this.fileReadInvalidated.add(resolvedPath);
+  invalidateFileState(resolvedPath: string): boolean {
+    const hadReadCredit = this.fileReadState.has(resolvedPath);
+    if (hadReadCredit) this.fileReadInvalidated.add(resolvedPath);
     this.fileReadState.delete(resolvedPath);
     this.fileReadRange.delete(resolvedPath);
     this.fileReadTruncated.delete(resolvedPath);
     this.fileReadHash.delete(resolvedPath);
+    return hadReadCredit;
   }
 
   /**

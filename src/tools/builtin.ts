@@ -473,15 +473,19 @@ export const execTool: Tool = {
       );
       if ((result.exitCode ?? 0) === 0) {
         const paths = extractShellMutationPaths(commandText);
+        // Only announce cleared credit for files this run had actually read:
+        // writing a brand-new file has nothing to re-read, and the notice used
+        // to repeat after every command that touched anything.
+        const cleared: string[] = [];
         for (const rel of paths) {
           const abs = path.isAbsolute(rel) ? rel : path.resolve(ctx.workspaceDir, rel);
-          globalToolStateManager.invalidateFileState(abs);
+          if (globalToolStateManager.invalidateFileState(abs)) cleared.push(rel);
         }
-        if (paths.length > 0) {
+        if (cleared.length > 0) {
           text +=
             '\n\n[moss] Detected shell file mutation — prior read credit cleared for: ' +
-            paths.join(', ') +
-            '. Prefer edit_file/apply_patch; re-read before the next surgical edit.';
+            cleared.join(', ') +
+            '. Re-read before the next surgical edit.';
         }
       }
       streamer?.flush();
