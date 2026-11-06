@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `moss run --resume` probe (offline, B139).
+ * `moss goal --resume` probe (offline, B139).
  *
  * The hero command starts a verified run; `--resume [<id>]` makes the same entry
  * continue one (no id = newest resumable task). This locks the argv shaping, the
@@ -108,7 +108,7 @@ ok('`--resume <id>` removes the id from passthrough flags');
     );
     assert.equal(none.status, 2, none.stderr);
     assert.match(none.stderr, /no resumable task in this workspace/);
-    assert.match(none.stderr, /moss run "<intent>" --accept/);
+    assert.match(none.stderr, /moss goal "<intent>" --accept/);
 
     const help = await captureProcess(
       process.execPath,
@@ -116,7 +116,7 @@ ok('`--resume <id>` removes the id from passthrough flags');
       { cwd: ws, env, timeoutMs: 60_000 }
     );
     assert.equal(help.status, 0, help.stderr);
-    assert.match(help.stdout, /moss run --resume \[<task_id>\]/);
+    assert.match(help.stdout, /moss goal --resume \[<task_id>\]/);
     assert.match(help.stdout, /newest resumable/);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });

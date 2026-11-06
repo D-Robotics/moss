@@ -17,7 +17,7 @@ Not "the model says it is done" — "the acceptance command says it is done". Fo
 ```bash
 npm install -g @rdk-moss/agent@latest
 moss setup
-moss run "create hello.txt containing MOSS_OK, then verify it" --accept "grep -qx MOSS_OK hello.txt"
+moss goal "create hello.txt containing MOSS_OK, then verify it" --accept "grep -qx MOSS_OK hello.txt"
 ```
 
 A real run (deepseek-flash, local machine; 10.7s measured this time):
@@ -78,15 +78,23 @@ moss init        # detect test/build/lint entry points, write a minimal AGENTS.m
 | --------------------------------------- | ---------------------------------------------- |
 | Chat and watch edits stream             | `moss` (full-screen TUI; REPL without a TTY)   |
 | Ask once                                | `moss "summarize this repo's architecture"`    |
-| Need a **verified result**              | `moss run "<intent>" --accept "<cmd>"`         |
-| Hand it to a script / CI                | `moss -p "..."` · `moss run ... --json`        |
+| Need a **verified result**              | `moss goal "<intent>" --accept "<cmd>"`        |
+| Hand it to a script / CI                | `moss -p "..."` · `moss goal ... --json`       |
 | Repeat until an external command passes | `moss loop --until "npm test" "fix the tests"` |
-| Dependent multi-step plan               | `moss run --workflow plan.json`                |
+| Dependent multi-step plan               | `moss goal --workflow plan.json`               |
+
+**Chat vs goal.** Bare natural language (`moss` / `moss "…"` / `moss -p "…"`) is chat: it ends
+when the model stops and is not written to the run ledger. To make a run end only when _your_
+command passes, use `moss goal "<intent>" --accept "<command>"` (in-session: `/goal`): it
+plans → executes → verifies → repairs, writes `moss runs`, can be resumed, and has exit codes.
+`moss run` / `/run` are compatibility aliases; `moss runs` is the noun — every recorded
+autonomous execution (task / loop / workflow / -p chat / superagent) shares one ledger, while
+ordinary interactive chat is not recorded.
 
 **4. Your first verified completion:**
 
 ```bash
-moss run "create hello.txt containing MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"
+moss goal "create hello.txt containing MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"
 moss runs                              # one ledger for every autonomous run (task / loop / -p / workflow): status / reason / next
 moss runs export latest > run.md       # export the run as Markdown for a PR / CI
 moss task status --json                # the same facts, for scripts and CI
@@ -102,7 +110,7 @@ stopped; the state lives on disk and `resume` continues from the breakpoint inst
 | ---------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Change permission mode (TUI) | `Shift+Tab` (status bar shows `manual / acceptEdits / plan / full`) | From ask-everything to ask-less, back to strict at any time                                                            |
 | Stop the current action      | `Esc`                                                               | Completed work is kept; `Ctrl+C` in a task run **pauses, never discards**                                              |
-| Resume a paused task         | `/run resume` · `moss run --resume` · `moss task resume <id>`       | Continues from disk state, no re-run of finished turns; budget optional                                                |
+| Resume a paused task         | `/goal resume` · `moss goal --resume` · `moss task resume <id>`     | Continues from disk state, no re-run of finished turns; budget optional                                                |
 | Undo this turn               | `/rewind`                                                           | Files return to the checkpoint and this turn leaves the context too                                                    |
 | See/review changes           | `/diff` · `/review`                                                 | Working-tree diff · independent review with critical/important/suggestion                                              |
 | Manage context               | `/compact` · `/todos` · `/context`                                  | Compress history, watch the plan, inspect the window                                                                   |
@@ -123,7 +131,7 @@ sessions can be saved / searched / exported / forked. One screen for what this i
 `moss capabilities` (tools / skills / commands / agents / hooks / MCP / devices, read-only, no model config). **13 device tools** bring SSH hardware work
 into the same evidence and acceptance model; `moss device fleet` inspects many boards in one command.
 
-**Long runs.** Each run record carries token usage (plus an estimated cost when the gateway has a known price — never an invented one); After every autonomous run the REPL prints a fresh ledger-derived `Next` line (a resume command / `moss runs` / `moss init`) instead of leaving boot-time guidance stale; `/run` and `moss run` share one task state machine; `moss loop` repeats
+**Long runs.** Each run record carries token usage (plus an estimated cost when the gateway has a known price — never an invented one); After every autonomous run the REPL prints a fresh ledger-derived `Next` line (a resume command / `moss runs` / `moss init`) instead of leaving boot-time guidance stale; `/goal` and `moss goal` share one task state machine; `moss loop` repeats
 "run → check with your command → feed failures back"; `moss task status|timeline|list` are the
 offline read paths (`moss runs --kind task/loop/workflow/chat` narrows by engine, `--since 24h` by window); `moss artifacts` (contracts/evidence/deployments/acceptance/device) needs no model configuration at all; a resumed task verifies the workspace first and only then spends execution
 turns. Write sub-agents can run in isolated git worktrees and merge back as three-way patches.
@@ -144,7 +152,7 @@ moss device test rdk-01
 moss device fleet info --devices rdk-01,rdk-02 --concurrency 4
 
 # swap `--accept` for your own checker: exit 0 passes, anything else is incomplete
-moss run "hold the camera pipeline at 30 FPS for 60s: deploy, run, record evidence, verify" \
+moss goal "hold the camera pipeline at 30 FPS for 60s: deploy, run, record evidence, verify" \
   --accept "python3 bench/check_fps.py --min 30"
 ```
 

@@ -152,7 +152,7 @@ const exitPromise = new Promise((resolve) => {
   );
   assert.ok(Date.now() - abortedAt < 15_000, 'abort settles promptly');
   assert.match(stdout, /ABORTED/, stdout);
-  assert.match(stdout, /^\/run resume$/m, stdout);
+  assert.match(stdout, /^\/goal resume$/m, stdout);
   assert.match(stdout, /next: moss task resume task_/, stdout);
   ok('Ctrl+C exits 130 and prints the pause/resume hint');
 }

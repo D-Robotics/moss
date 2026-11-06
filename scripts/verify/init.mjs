@@ -102,7 +102,7 @@ try {
   assert.equal(dry.status, 0, dry.stderr);
   assert.match(dry.stdout, /--dry-run: nothing written/);
   assert.match(dry.stdout, /- test: `make test`/);
-  assert.match(dry.stdout, /moss run "<intent>" --accept "make test"/);
+  assert.match(dry.stdout, /moss goal "<intent>" --accept "make test"/);
   await assert.rejects(fs.readFile(path.join(dryWs, 'AGENTS.md')), /ENOENT/);
   ok('--dry-run prints the file and the next command without writing');
 

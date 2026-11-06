@@ -105,7 +105,7 @@ assert.deepEqual(plan('resume task_abc'), { kind: 'resume', taskId: 'task_abc' }
 ok('malformed flags/values/repeats are a usage error, not a silent run');
 
 assert.equal(plan('fix the flaky test --accept "npm test"').kind, 'run');
-assert.match(GOAL_USAGE, /\/run resume \[task_id\]/);
+assert.match(GOAL_USAGE, /\/goal resume \[task_id\]/);
 assert.match(GOAL_USAGE, /--max-repairs N/);
 assert.match(GOAL_USAGE, /--max-turns N/);
 ok('the original `/goal <condition> --accept` path is intact and usage names both flags');
@@ -192,7 +192,7 @@ assert.equal(resumeEchoLine('task_latest', { maxTurns: 2 }, true), '继续 task_
 ok('the REPL echoes the resolved task and the retry budget before it runs');
 
 await fs.rm(tmp, { recursive: true, force: true });
-// B146: `/run` flag parsing keeps quotes out of the acceptance command and
+// B146: `/goal` flag parsing keeps quotes out of the acceptance command and
 // survives flags that come after `--accept`.
 {
   const ws = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-parse-'));

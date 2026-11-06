@@ -124,7 +124,7 @@ try {
   const frame = frameLine.slice('FRAME='.length);
   assert.match(frame, /last run: verify_failed/, frame.slice(0, 600));
   assert.match(frame, /ship the demo feature/, 'the goal should appear on the first frame');
-  assert.match(frame, /Next: \/run resume task_failed_demo/, frame.slice(0, 600));
+  assert.match(frame, /Next: \/goal resume task_failed_demo/, frame.slice(0, 600));
   assert.match(
     frame,
     /Resume with moss task resume task_failed_demo/,

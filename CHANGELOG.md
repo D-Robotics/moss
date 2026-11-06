@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### The verified-run verb is `goal` again; `run` is the alias (B160)
+
+- "Every invocation is a run": `moss "…"` already runs the agent, so `moss run` did not say what
+  made it different. The difference is **completion authority** — chat ends when the model stops;
+  a goal ends when _your_ acceptance command passes (or the contract verdict is reached). Both
+  Cursor and Claude Code name that concept _goal_, and Claude Code's automation docs list `goal`
+  explicitly; `run` was our own invention from the N1 experiment.
+- `moss goal "<intent>" [--accept] [--resume] [--until] [--workflow]` is now the canonical verb;
+  `moss run` resolves to it as a compatibility alias. In-session `/goal <condition>` is canonical
+  again (`/goal resume`, `/goal clear`), `/run` stays as an alias, and the catalog row now shows
+  the real syntax (`resume`/`--accept`) instead of `<condition> | clear`.
+- The first-screen `Next:` hints name `/goal resume` and `moss goal …`, so the interactive surface
+  and the CLI tell the same story; the ledger noun stays `moss runs` (one row per recorded
+  autonomous execution: task / loop / workflow / -p chat / superagent — interactive chat is not
+  recorded).
+
+### 验证式运行改回 `goal`；`run` 作为别名（B160）
+
+- "每次调用都是 run"：`moss "…"` 本身就在跑 agent，所以 `moss run` 没说出区别。真正的区别是
+  **完成由谁裁决**——chat 在模型停下时结束；goal 在你指定的验收命令通过（或契约裁决达成）时结束。
+  Cursor 与 Claude Code 都把这个概念叫 goal（Claude Code 的 Automation 文档里就有 `goal`），
+  `run` 只是我们在 N1 实验里自造的名字。
+- `moss goal "<意图>" [--accept] [--resume] [--until] [--workflow]` 成为规范动词；`moss run`
+  解析为它的兼容别名。会话内 `/goal <条件>` 恢复规范名（`/goal resume`、`/goal clear`），`/run`
+  保留为别名；命令目录里的参数提示改成真实语法（含 `resume`、`--accept`），不再是 `<condition> | clear`。
+- 首屏 `Next:` 提示改为 `/goal resume`、`moss goal …`，交互面与 CLI 说同一套话；账本名词仍是
+  `moss runs`（每一次被记录的自主执行一条：task / loop / workflow / -p chat / superagent；
+  交互式 chat 不记账）。
+
 ### Run records carry token usage (B159)
 
 - `moss runs show`/`export --json` answered "what did this run cost?" with nothing: the ledger had

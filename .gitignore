@@ -32,6 +32,8 @@ bench/results/
 .rsi/runs/
 jobs/
 bench/.cache/
+# per-session scratch dirs (research renders, probes)
+.tmp-*/
 __pycache__/
 *.pyc
 

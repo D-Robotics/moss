@@ -52,7 +52,7 @@ try {
   {
     const { lines, next } = renderWelcomeContextLines(ws, false);
     assert.deepEqual(lines, []);
-    assert.match(next, /moss run "<intent>" --accept "<cmd>"/);
+    assert.match(next, /moss goal "<intent>" --accept "<cmd>"/);
   }
   ok('a project with AGENTS.md points at the verified run');
 
@@ -164,7 +164,7 @@ try {
     });
     assert.match(renderNextHint(ws, false, 'cli'), /^Next moss task resume task_pending/);
     assert.match(renderNextHint(ws, true, 'cli'), /^下一步/);
-    assert.match(renderNextHint(ws, false, 'interactive'), /^Next \/run resume task_pending/);
+    assert.match(renderNextHint(ws, false, 'interactive'), /^Next \/goal resume task_pending/);
     await writeRun({
       runId: 'done_run2',
       kind: 'task',
@@ -191,11 +191,11 @@ try {
     await fs.writeFile(path.join(surface, 'AGENTS.md'), '# AGENTS\\n', 'utf8');
     assert.equal(
       renderWelcomeContextLines(surface, false, 'interactive').next,
-      '/run "<intent>" --accept "<cmd>"'
+      '/goal "<intent>" --accept "<cmd>"'
     );
     assert.equal(
       renderWelcomeContextLines(surface, false, 'cli').next,
-      'moss run "<intent>" --accept "<cmd>"'
+      'moss goal "<intent>" --accept "<cmd>"'
     );
     await writeRun(
       {
@@ -223,7 +223,7 @@ try {
     );
     assert.equal(
       renderWelcomeContextLines(surface, false, 'interactive').next,
-      '/run resume task_surface'
+      '/goal resume task_surface'
     );
     assert.equal(
       renderWelcomeContextLines(surface, false, 'cli').next,

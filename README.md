@@ -17,10 +17,10 @@
 ```bash
 npm install -g @rdk-moss/agent@latest
 moss setup
-moss run "创建 hello.txt 内容为 MOSS_OK，然后自测" --accept "grep -qx MOSS_OK hello.txt"
+moss goal "创建 hello.txt 内容为 MOSS_OK，然后自测" --accept "grep -qx MOSS_OK hello.txt"
 ```
 
-<img src="docs/assets/demo-run.svg" alt="moss run：意图进，验收过的 PASS 出" width="920">
+<img src="docs/assets/demo-run.svg" alt="moss goal：意图进，验收过的 PASS 出" width="920">
 
 一次真实运行（deepseek-flash，本机；本次实测 10.7 秒）：
 
@@ -79,15 +79,21 @@ moss init        # 检测 test/build/lint 入口，写一份最小 AGENTS.md，�
 | ---------------------- | --------------------------------------------- |
 | 想边聊边改、看流式输出 | `moss`（全屏 TUI；无 TTY 自动回退 REPL）      |
 | 只想问一次             | `moss "总结这个仓库的架构"`                   |
-| 要一个**被验证的结果** | `moss run "<意图>" --accept "<验收命令>"`     |
-| 交给脚本 / CI          | `moss -p "..."` · `moss run ... --json`       |
+| 要一个**被验证的结果** | `moss goal "<意图>" --accept "<验收命令>"`    |
+| 交给脚本 / CI          | `moss -p "..."` · `moss goal ... --json`      |
 | 反复跑到外部命令通过   | `moss loop --until "npm test" "修到测试全绿"` |
-| 多步依赖（JSON 计划）  | `moss run --workflow plan.json`               |
+| 多步依赖（JSON 计划）  | `moss goal --workflow plan.json`              |
+
+**chat 与 goal 的区别。** 裸自然语言（`moss` / `moss "…"` / `moss -p "…"`）就是普通对话：
+模型停下即结束，不写运行账本。要让"你指定的命令通过才算完"，用 `moss goal "<意图>" --accept "<命令>"`
+（会话里 `/goal`）：它会计划→执行→验收→修复，写进 `moss runs` 账本、可 resume、有退出码。
+`moss run` / `/run` 是同一命令的兼容别名；`moss runs` 是名词——所有被记录的自主执行（task / loop /
+workflow / -p chat / superagent）共用一本账，普通交互式聊天不在内。
 
 **4. 第一个"被验证的完成"：**
 
 ```bash
-moss run "创建 hello.txt 内容为 MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"
+moss goal "创建 hello.txt 内容为 MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"
 moss runs                              # 所有自主运行（task / loop / -p / workflow）共用一本账：状态 / 原因 / 下一步
 moss runs export latest > run.md       # 把这次运行导成 PR/CI 可贴的 Markdown
 moss task status --json                # 同一份事实，给脚本/CI 用
@@ -99,18 +105,18 @@ Moss 的交互目标是：**敢让它跑、随时能停、停了能续、错了�
 一次 run 的生命周期是可预期的五段：`理解 → 计划 → 执行 → 验收 → 修复`；任何一段都能停，
 停下后状态在磁盘上，`resume` 从断点继续而不是重跑。
 
-| 你会做的            | 怎么按 / 怎么输                                                | 得到什么                                                                           |
-| ------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| 切换权限模式（TUI） | `Shift+Tab`（状态栏常驻 `manual / acceptEdits / plan / full`） | 从"每步都问"到"默认少问"，随时可回到最严格                                         |
-| 停下当前动作        | `Esc`                                                          | 保留已完成的成果；任务运行里 `Ctrl+C` = **暂停而不是丢弃**                         |
-| 续跑暂停的任务      | `/run resume` · `moss run --resume` · `moss task resume <id>`  | 从磁盘状态继续，不重跑已完成的回合；预算可单独指定                                 |
-| 撤销这一轮          | `/rewind`                                                      | 文件回到检查点版本，这一轮对话也从上下文撤回（试错成本降到一次按键）               |
-| 看改动 / 审 diff    | `/diff` · `/review`                                            | 工作区差异 · 独立评审给出严重/重要/建议三档                                        |
-| 管上下文            | `/compact` · `/todos` · `/context`                             | 压缩历史、看计划进度、看窗口用量                                                   |
-| 会话内看能力面      | `/capabilities`（REPL / TUI）                                  | 工具 / 技能 / 命令 / 子代理 / hooks / MCP / 设备一屏，`--kind` 只看一节            |
-| 会话内看运行账本    | `/runs`（REPL / TUI）                                          | 与 `moss runs` 同一个账本：list / show / export / prune，可按 `--kind` 过滤        |
-| 空输入框给下一步    | `Shift+Tab` 前先看占位提示                                     | 有未收尾运行时提示 `Resume with moss task resume <id>`；全新目录提示 `Try "/init"` |
-| 长任务结束后        | 直接问                                                         | 下一次聊天自动带上一次运行的 task id、失败原因与续跑命令（只带一次）               |
+| 你会做的            | 怎么按 / 怎么输                                                 | 得到什么                                                                           |
+| ------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| 切换权限模式（TUI） | `Shift+Tab`（状态栏常驻 `manual / acceptEdits / plan / full`）  | 从"每步都问"到"默认少问"，随时可回到最严格                                         |
+| 停下当前动作        | `Esc`                                                           | 保留已完成的成果；任务运行里 `Ctrl+C` = **暂停而不是丢弃**                         |
+| 续跑暂停的任务      | `/goal resume` · `moss goal --resume` · `moss task resume <id>` | 从磁盘状态继续，不重跑已完成的回合；预算可单独指定                                 |
+| 撤销这一轮          | `/rewind`                                                       | 文件回到检查点版本，这一轮对话也从上下文撤回（试错成本降到一次按键）               |
+| 看改动 / 审 diff    | `/diff` · `/review`                                             | 工作区差异 · 独立评审给出严重/重要/建议三档                                        |
+| 管上下文            | `/compact` · `/todos` · `/context`                              | 压缩历史、看计划进度、看窗口用量                                                   |
+| 会话内看能力面      | `/capabilities`（REPL / TUI）                                   | 工具 / 技能 / 命令 / 子代理 / hooks / MCP / 设备一屏，`--kind` 只看一节            |
+| 会话内看运行账本    | `/runs`（REPL / TUI）                                           | 与 `moss runs` 同一个账本：list / show / export / prune，可按 `--kind` 过滤        |
+| 空输入框给下一步    | `Shift+Tab` 前先看占位提示                                      | 有未收尾运行时提示 `Resume with moss task resume <id>`；全新目录提示 `Try "/init"` |
+| 长任务结束后        | 直接问                                                          | 下一次聊天自动带上一次运行的 task id、失败原因与续跑命令（只带一次）               |
 
 首屏会显示上一次运行（状态 / 多久前 / 目标）与下一步——失败运行直接给出 `moss task resume <id>`，不用自己翻账本。失败时只给"原因 + 下一步命令"，不要求你回头查文档；`moss doctor` 体检、
 `MOSS_STARTUP_TIMING=1` 定位启动慢在哪一阶段。
@@ -122,7 +128,7 @@ Moss 的交互目标是：**敢让它跑、随时能停、停了能续、错了�
 写类工具走审批；会话可保存 / 搜索 / 导出 / fork。一屏总览当前安装能用什么：`moss capabilities`（工具 / 技能 / 命令 / 子代理 / 钩子 / MCP / 设备，只读且不需要模型配置）。**13 个设备工具**把 SSH 真机操作
 纳入同一套证据与验收；`moss device fleet` 一条命令做多机只读巡检。
 
-**长任务。** 每次运行在账本里带 token 用量（网关有公开价时还带估算费用，无价就不编造）； 每次自主运行结束后，REPL 会按统一账本重新打印一行 `Next`（续跑命令 / `moss runs` / `moss init`），不会把启动时的建议留成过期信息；`/run` 与 `moss run` 用同一套任务状态机；`moss loop` 做"跑一轮→用你的命令验收→
+**长任务。** 每次运行在账本里带 token 用量（网关有公开价时还带估算费用，无价就不编造）； 每次自主运行结束后，REPL 会按统一账本重新打印一行 `Next`（续跑命令 / `moss runs` / `moss init`），不会把启动时的建议留成过期信息；`/goal` 与 `moss goal` 用同一套任务状态机；`moss loop` 做"跑一轮→用你的命令验收→
 失败把输出喂回下一轮"的本地闭环；`moss task status|timeline|list` 是离线读路径（`moss runs --kind task/loop/workflow/chat` 按引擎过滤、`--since 24h` 按时间窗过滤）；只读巡检 `moss artifacts`（契约/证据/部署/验收/设备）连模型配置都不需要；中断的任务
 `resume` 时先按当前工作区验收再决定要不要花执行回合。写类子代理可跑在独立 worktree 里，产物以
 三方补丁合并回父工作区。
@@ -143,7 +149,7 @@ moss device test rdk-01
 moss device fleet info --devices rdk-01,rdk-02 --concurrency 4
 
 # `--accept` 换成你自己的验收脚本：退出码 0 即通过，其余都算没完成
-moss run "相机管线保持 30 FPS 持续 60 秒：部署、运行、记录证据、验收" \
+moss goal "相机管线保持 30 FPS 持续 60 秒：部署、运行、记录证据、验收" \
   --accept "python3 bench/check_fps.py --min 30"
 ```
 

@@ -122,7 +122,7 @@ const base = {
   );
   assert.ok(note.includes('phase failed'), note);
   assert.ok(note.includes('engine record: aborted'), note);
-  assert.ok(note.includes('/run resume'), note);
+  assert.ok(note.includes('/goal resume'), note);
   ok('an interrupted run points at the interactive resume');
 }
 

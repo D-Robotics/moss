@@ -1,5 +1,5 @@
 /**
- * `moss run` mode stage (offline, B140).
+ * `moss goal` mode stage (offline, B140).
  *
  * One verb, three modifiers: --accept / --until / --workflow (+ --resume).
  * Locks classification, conflicts, help, and one real routing into the workflow
@@ -11,7 +11,7 @@ import { captureProcess, formatDuration } from '../lib/proc.mjs';
 export const stage = {
   name: 'run-modes',
   requires: ['build'],
-  description: 'moss run routes --accept / --until / --workflow / --resume as documented',
+  description: 'moss goal routes --accept / --until / --workflow / --resume as documented',
   async run(context) {
     const result = await captureProcess(
       process.execPath,

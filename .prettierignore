@@ -17,6 +17,7 @@ package-lock.json
 sessions/
 tmp/
 .tmp/
+.tmp-*/
 
 # Qoder IDE session artifacts
 .qoder/

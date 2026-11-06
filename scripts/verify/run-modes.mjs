@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `moss run` mode probe (offline, B140).
+ * `moss goal` mode probe (offline, B140).
  *
  * One verb + three modifiers: an intent with `--accept` (task run), `--until`
  * (closed loop) and `--workflow` (declarative plan), plus `--resume`. This locks
@@ -104,17 +104,17 @@ ok('conflicting modifiers and missing values are explicit usage errors');
       timeoutMs: 120_000,
     });
   try {
-    const help = await cli(['run', '--help']);
+    const help = await cli(['goal', '--help']);
     assert.equal(help.status, 0, help.stderr);
     assert.match(help.stdout, /--until "<command>"/);
     assert.match(help.stdout, /--workflow <plan.json>/);
-    assert.match(help.stdout, /one run verb plus three modifiers/i);
+    assert.match(help.stdout, /one goal verb plus three modifiers/i);
 
-    const conflict = await cli(['run', 'x', '--until', 'true', '--accept', 'true']);
+    const conflict = await cli(['goal', 'x', '--until', 'true', '--accept', 'true']);
     assert.equal(conflict.status, 2, conflict.stderr);
     assert.match(conflict.stderr, /--accept does not apply/);
 
-    const missing = await cli(['run', '--workflow']);
+    const missing = await cli(['goal', '--workflow']);
     assert.equal(missing.status, 2, missing.stderr);
     assert.match(missing.stderr, /needs a value/);
 
@@ -124,8 +124,12 @@ ok('conflicting modifiers and missing values are explicit usage errors');
       `${JSON.stringify({ name: 'modes', concurrency: 1, steps: [{ id: 's1', task: 'say ok' }] })}\n`,
       'utf8'
     );
-    const workflow = await cli(['run', '--workflow', 'plan.json', '--mock']);
+    const workflow = await cli(['goal', '--workflow', 'plan.json', '--mock']);
     assert.equal(workflow.status, 0, `${workflow.stdout}\n${workflow.stderr}`);
+    // B160: `moss run` remains a compatibility alias for `moss goal`.
+    const aliasHelp = await cli(['run', '--help']);
+    assert.equal(aliasHelp.status, 0, aliasHelp.stderr);
+    assert.match(aliasHelp.stdout, /moss goal "<intent>"/);
     const records = await listRunRecords(ws);
     assert.equal(records.length, 1, `expected one record, got ${records.length}`);
     assert.equal(records[0].kind, 'workflow');

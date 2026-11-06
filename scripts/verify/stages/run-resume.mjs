@@ -1,5 +1,5 @@
 /**
- * `moss run --resume` stage (offline, B139).
+ * `moss goal --resume` stage (offline, B139).
  *
  * Locks the argv shaping of the resume path, the empty-workspace usage error and
  * the documented help surface.
@@ -10,7 +10,7 @@ import { captureProcess, formatDuration } from '../lib/proc.mjs';
 export const stage = {
   name: 'run-resume',
   requires: ['build'],
-  description: 'moss run --resume [<id>] shapes argv, errors clearly when nothing is resumable',
+  description: 'moss goal --resume [<id>] shapes argv, errors clearly when nothing is resumable',
   async run(context) {
     const result = await captureProcess(
       process.execPath,
