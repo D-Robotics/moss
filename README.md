@@ -98,6 +98,7 @@ moss goal "创建 hello.txt 内容为 MOSS_OK" --accept "grep -qx MOSS_OK hello.
 moss runs                              # 所有自主运行（task / loop / -p / workflow）共用一本账：状态 / 原因 / 下一步
 moss runs export latest > run.md       # 把这次运行导成 PR/CI 可贴的 Markdown
 moss runs summary --since 7d --by day  # 近 7 天：逐日次数/通过率/token/可算的费用
+moss runs summary --by model           # 按模型归因 token/费用（没记录模型的算 unknown）
 moss task status --json                # 同一份事实，给脚本/CI 用
 ```
 

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Runs record the model they used, and `summary --by model` attributes the cost (B167)
+
+- Cost per model was unknowable: run records had no model field, so a workspace using two
+  providers could only see a single blended number.
+- `RunRecord.model` is now written by chat (`-p`), task, loop and superagent runs (workflow
+  steps report through the same config but the parent does not yet record a name); `runs
+show`/`export` print a `model:` line, and `moss runs summary --by model` groups the same
+  filtered runs by model (runs with no recorded model are an honest `unknown` bucket, ordered
+  by run count). Unknown granularity stays a usage error.
+
+### 账本记录所用模型，`summary --by model` 按模型归因成本（B167）
+
+- 之前每条运行记录没有模型字段，用多个 provider 的工作区只能看到一个混合的总数，无法按模型归因。
+- 现在 chat（`-p`）、task、loop 与 superagent 运行都会写 `RunRecord.model`
+  （workflow 各步骤共用配置，但父行暂不记录名字）；`runs show/export` 打印 `model:` 行，
+  `moss runs summary --by model` 把同一批过滤结果按模型分组（没记录模型的运行进入诚实的
+  `unknown` 桶，按次数排序）。未知粒度仍是用法错误。
+
 ### `moss runs summary --by day|week` shows the trend, not just the total (B166)
 
 - The summary answered "how are my runs doing" per kind but not over time. `--by day` (local
