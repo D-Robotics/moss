@@ -120,6 +120,13 @@ const failedExport = await cli(['runs', 'export', 'task_fail']);
 assert.match(failedExport.stdout, /^- reason: acceptance command failed \(exit 1\)$/m);
 assert.match(failedExport.stdout, /^- next: `moss task resume task_fail`$/m);
 assert.match(failedExport.stdout, /^- artifacts: taskEvents=\.moss\/task-events\.jsonl$/m);
+const stdoutOut = await cli(['runs', 'export', 'latest', '--out=-']);
+assert.equal(stdoutOut.status, 0, stdoutOut.stderr);
+assert.match(stdoutOut.stdout, /^## Run /);
+await assert.rejects(
+  () => fs.stat(path.join(ws, '-')),
+  '`--out=-` must not create a file named "-"'
+);
 const exportedJson = await cli(['runs', 'export', 'latest', '--format', 'json']);
 assert.equal(JSON.parse(exportedJson.stdout).runId, 'task_ok');
 const exportedFile = await cli(['runs', 'export', 'task_fail', '--out', 'out/run.md']);
@@ -163,6 +170,9 @@ assert.equal(emptyBulk.status, 0);
 assert.match(emptyBulk.stdout, /_no runs match_/);
 assert.equal(badKindRes.status, 2);
 assert.equal(conflictRun.status, 2);
+const bulkStdout = await cli(['runs', 'export', '--since', '24h', '--out=-']);
+assert.equal(bulkStdout.status, 0, bulkStdout.stderr);
+assert.match(bulkStdout.stdout, /^# Moss runs/);
 const bulkEscape = await cli(['runs', 'export', '--since', '24h', '--out', '../bulk-escape.md']);
 assert.equal(bulkEscape.status, 2);
 assert.match(bulkEscape.stderr, /must stay inside the workspace/);

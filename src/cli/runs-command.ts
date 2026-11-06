@@ -814,6 +814,10 @@ export async function runRunsCommand(
                   .flatMap((section, index) => (index === 0 ? [section] : ['---', '', section]))),
             '',
           ].join('\n');
+      if (out === '-') {
+        output('stdout', text);
+        return 0;
+      }
       if (out) {
         const { mkdir, writeFile } = await import('node:fs/promises');
         const { dirname } = await import('node:path');
@@ -851,6 +855,11 @@ export async function runRunsCommand(
       return 2;
     }
     const text = json ? `${JSON.stringify(record, null, 2)}\n` : `${renderRunMarkdown(record)}\n`;
+    // B216: `--out=-` means stdout (as sessions/`/export` already do).
+    if (out === '-') {
+      output('stdout', text);
+      return 0;
+    }
     if (out) {
       const { mkdir, writeFile } = await import('node:fs/promises');
       const { dirname } = await import('node:path');

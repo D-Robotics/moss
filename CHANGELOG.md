@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `moss runs export --out=-` writes stdout, not a file named `-` (B216)
+
+- `moss sessions export --out=-` and `/export -` already mean stdout; `moss runs export` did not, so
+  `--out=-` created a literal `./-` file. Both the single-run and filtered export paths now print to
+  stdout for `--out=-` and create no file; probe covers both.
+
+### `moss runs export --out=-` 输出到 stdout，而不是创建名为 `-` 的文件（B216）
+
+- `moss sessions export --out=-` 与 `/export -` 一直表示 stdout，但 `moss runs export` 没有处理，
+  于是 `--out=-` 会生成一个名为 `-` 的文件。单条与过滤合并两条导出路径现在都对 `--out=-` 输出到 stdout 且不落盘；探针覆盖两者。
+
 ### The untracked section of `/diff` follows the UI language (B215)
 
 - B214 added `Untracked files (N):` in English even when the rest of `/diff` is Chinese. The collector now
