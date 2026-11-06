@@ -496,6 +496,26 @@ ok('prompt history is per workspace (no shared config-dir merge)');
 }
 ok('two fresh answer blocks: the earlier one folds, the latest stays full');
 
+// 5j. B249: a tool that repeats its headline as the body's first line drops it.
+{
+  assert.equal(
+    renderBridge.dropDuplicatedLeadingLine(
+      '[Sub-agent a] SUCCESS\nscope: read-only',
+      '[Sub-agent a] SUCCESS'
+    ),
+    'scope: read-only'
+  );
+  assert.equal(
+    renderBridge.dropDuplicatedLeadingLine('scope: read-only', '[Sub-agent a] SUCCESS'),
+    'scope: read-only'
+  );
+  assert.equal(
+    renderBridge.dropDuplicatedLeadingLine('[Sub-agent a] SUCCESSX\nrest', '[Sub-agent a] SUCCESS'),
+    '[Sub-agent a] SUCCESSX\nrest'
+  );
+}
+ok('a duplicated leading result line is dropped, not repeated under the headline');
+
 // 6. B194: the status row labels each number instead of imploding.
 {
   const en = statusLine.formatStatusLine({

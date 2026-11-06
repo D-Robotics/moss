@@ -43,6 +43,20 @@ function resultBody(result: string, toolName?: string): string {
   return text.length > RESULT_ROW_MAX_CHARS ? `${text.slice(0, RESULT_ROW_MAX_CHARS - 1)}…` : text;
 }
 
+/**
+ * B249: some tools repeat their headline as the first body line (sub-agent
+ * results start with `[Sub-agent …] SUCCESS` again). Drop that exact line; the
+ * headline already carries it.
+ */
+export function dropDuplicatedLeadingLine(body: string, summary: string | undefined): string {
+  const head = summary?.trim();
+  if (!head || !body) return body;
+  if (!body.startsWith(head)) return body;
+  const rest = body.slice(head.length);
+  if (!rest.startsWith('\n')) return body;
+  return rest.replace(/^\n+/, '');
+}
+
 export type TranscriptRowKind =
   | 'user'
   | 'assistant'
@@ -662,7 +676,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         event.toolName === 'exec' &&
         (/^exit_code:\s*[1-9]/m.test(peeled.body) ||
           /^Command failed \(exit [1-9]/m.test(peeled.body));
-      const body =
+      const rawBody =
         abortNotice || completion.dropBody
           ? ''
           : (completion.diff ??
@@ -670,6 +684,10 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
               event.toolName === 'exec' ? liftExecFailureLine(peeled.body) : peeled.body,
               event.toolName
             ));
+      const body =
+        completion.diff || abortNotice
+          ? rawBody
+          : dropDuplicatedLeadingLine(rawBody, attributedSummary ?? completion.summary);
       appendRow(store, 'result', body, {
         tool: {
           name: event.toolName,

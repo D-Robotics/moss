@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### A tool result no longer repeats its own headline (B249)
+
+- A real sub-agent run printed `⎿ [Sub-agent aadde5f2] SUCCESS · 4s` and then `[Sub-agent aadde5f2]
+SUCCESS` again as the first body line. When a result body begins with the exact summary line, that
+  leading line is dropped (`dropDuplicatedLeadingLine`); the headline already carries it. Real: the row
+  now starts with `scope: explore | runId: … | turns: 3 | toolCalls: 2 | elapsed: …`.
+
+### 工具结果不再重复自己的标题行（B249）
+
+- 真实 sub-agent 运行里先打印 `⎿ [Sub-agent aadde5f2] SUCCESS · 4s`，结果体第一行又是
+  `[Sub-agent aadde5f2] SUCCESS`。现在当结果体以与摘要完全相同的行开头时会去掉该行
+  （`dropDuplicatedLeadingLine`）；真实复核后首行直接是
+  `scope: explore | runId: … | turns: 3 | toolCalls: 2 | elapsed: …`。
+
 ### `moss workflow status|resume latest` works like the other read paths (B248)
 
 - A real two-step workflow (`moss goal --workflow plan.json`) passed both steps and landed one workflow
