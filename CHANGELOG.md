@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### `moss runs export` can report many runs at once (B182)
+
+- Exporting one run was fine for a single PR, but a week of autonomous work (or a CI job's last day)
+  needed `--since`/`--kind`/`--limit`: `moss runs export --since 7d --kind task --format md` now emits
+  one Markdown report with a `# Moss runs — since 7d (N)` header and one `## Run …` section per record;
+  `--json` returns `{ total, ledgerRuns, runs[] }`; `--out` writes the combined file. Passing a run id
+  together with a filter is a usage error.
+
+### `moss runs export` 可以一次导出一批运行（B182）
+
+- 单条导出适合一次 PR，但"一周的自主运行"或"CI 当天的运行"需要 `--since`/`--kind`/`--limit`：
+  `moss runs export --since 7d --kind task --format md` 现在输出一份 Markdown 报告——`# Moss runs — since 7d (N)`
+  标题 + 每条运行一个 `## Run …` 段；`--json` 返回 `{ total, ledgerRuns, runs[] }`；`--out` 写整份文件。
+  同时给 run id 和过滤条件属于用法错误。
+
 ### A goal/task run is visible from its first planned turn (B181)
 
 - B178–B180 covered superagent/loop/workflow; a `moss goal` run (which can take minutes) still appeared
