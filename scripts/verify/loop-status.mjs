@@ -124,7 +124,7 @@ const detail = formatLoopRunDetail(live, {
 });
 assert.match(detail.join('\n'), new RegExp(`PID\\s+${String(process.pid)}`));
 assert.match(detail.join('\n'), /RESULT\s+running \(no summary yet\)/);
-ok('`loop show` prints the pid and says the run is still in progress');
+ok('`loop show` prints the pid only while the run is in progress');
 
 const dead = byId.get('loop-dead');
 const deadDetail = formatLoopRunDetail(dead, {
@@ -141,7 +141,12 @@ const deadDetail = formatLoopRunDetail(dead, {
   torn: 0,
 });
 assert.match(deadDetail.join('\n'), /RESULT\s+interrupted \(no summary and the process is gone\)/);
-ok('`loop show` says the dead run is interrupted, not merely unfinished');
+assert.doesNotMatch(
+  deadDetail.join('\n'),
+  /^PID\s/m,
+  'an interrupted run must not show a stale pid'
+);
+ok('`loop show` says the dead run is interrupted and shows no stale pid');
 
 // The JSON view carries the same fields for scripts.
 const parsed = JSON.parse(JSON.stringify(listLoopRuns(ws)));

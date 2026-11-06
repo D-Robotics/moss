@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `loop show` no longer prints a dead PID as if the run were alive (B217)
+
+- The detail view printed `PID` whenever the ledger had one, including finished and interrupted runs
+  (`RESULT passed` next to `PID 54655`). The pid is only meaningful while the process is alive, so it
+  now appears only for `running`; interrupted runs still say the process is gone.
+
+### `loop show` 不再把已死进程的 PID 当成运行中（B217）
+
+- 详情视图只要账本里有 PID 就打印，已结束/被中断的运行也会出现 `RESULT passed` 旁边的 `PID 54655`。
+  PID 只在进程存活时有意义，所以现在仅 `running` 显示；被中断的运行仍会说明进程已消失。
+
 ### `moss runs export --out=-` writes stdout, not a file named `-` (B216)
 
 - `moss sessions export --out=-` and `/export -` already mean stdout; `moss runs export` did not, so

@@ -1414,7 +1414,10 @@ export function formatLoopRunDetail(
     `${label('LEDGER', '账本')}${run.ledger}`,
     `${label('UNTIL', '验收')}${run.until ?? '—'}`,
     ...(run.watch ? [`${label('WATCH', '外部信号')}${run.watch}`] : []),
-    ...(run.pid !== undefined ? [`${label('PID', '进程')}${String(run.pid)}`] : []),
+    // B217: a stale pid on a finished run reads as if it were still alive.
+    ...(run.status === 'running' && run.pid !== undefined
+      ? [`${label('PID', '进程')}${String(run.pid)}`]
+      : []),
     `${label('RESULT', '结果')}${
       run.status === 'passed'
         ? 'passed'
