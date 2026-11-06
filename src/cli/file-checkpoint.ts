@@ -247,6 +247,21 @@ export function checkpointTargetPaths(
     const p = resolve(input.path ?? input.file_path);
     return p ? [p] : [];
   }
+  // B202: surgical edits are file mutations too. Without this `/rewind` listed
+  // zero checkpoints after an edit_file/multi_edit turn (the turn opened a
+  // checkpoint, but no file was tracked, so it was filtered out as empty).
+  if (toolName === 'edit_file' || toolName === 'multi_edit') {
+    const out: string[] = [];
+    const push = (candidate: unknown): void => {
+      const resolved = resolve(candidate);
+      if (resolved && !out.includes(resolved)) out.push(resolved);
+    };
+    for (const entry of Array.isArray(input.edits) ? input.edits : []) {
+      if (entry && typeof entry === 'object') push((entry as Record<string, unknown>).path);
+    }
+    push(input.path ?? input.file_path);
+    return out;
+  }
   if (toolName === 'move_file') {
     const out: string[] = [];
     const from = resolve(input.source ?? input.from);

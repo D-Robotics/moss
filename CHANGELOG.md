@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### `/rewind` now sees surgical edits, and says how to restore (B202)
+
+- Checkpoints only tracked `write_file` / `move_file` / `apply_patch`. A turn that used `edit_file` or
+  `multi_edit` opened a checkpoint but tracked no file, so it was filtered out as empty and `/rewind`
+  reported `Checkpoints (0)` even though the edit had happened. Both tools now register their paths
+  (`multi_edit` dedupes the batch plus fallback path).
+- A bare `/rewind` listed checkpoints without saying how to restore one, so typing a number was sent
+  to the model as a chat message. The list now ends with `restore one with /rewind <seq>`; an empty
+  list says when checkpoints appear.
+
+### `/rewind` 现在能看到外科手术式编辑，并说明如何恢复（B202）
+
+- 检查点原先只跟踪 `write_file` / `move_file` / `apply_patch`。使用 `edit_file` 或 `multi_edit` 的回合会打开检查点但不记录文件，
+  因此被当作空检查点过滤，`/rewind` 明明编辑过也显示 `Checkpoints (0)`。现在两种工具都会登记路径
+  （`multi_edit` 对批次路径去重并包含 fallback path）。
+- 裸 `/rewind` 列出检查点却没说明如何恢复，用户输入数字会被当成聊天消息发给模型。现在列表末尾提示
+  `restore one with /rewind <seq>`；空列表也会说明何时出现检查点。
+
 ### Maintenance: drop the unused `ink-testing-library` dev dependency (B201)
 
 - No file imports it (the TUI probes render through the real transcript functions), so it leaves

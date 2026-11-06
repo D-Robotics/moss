@@ -2489,9 +2489,19 @@ export function TuiAppRoot({
         const arg = text.split(' ')[1];
         const checkpoints = options.listCheckpoints?.() ?? [];
         if (!arg) {
+          // B202: a bare list used to leave the restore syntax implicit; a
+          // follow-up "1" went to the model as a chat message instead of a rewind.
           printBlock(
             `Checkpoints (${checkpoints.length})`,
-            checkpoints.map((c) => `${c.seq}. ${c.label} (${c.files} files)`)
+            checkpoints.length === 0
+              ? [tui('none yet — file edits from a turn appear here')]
+              : [
+                  ...checkpoints.map(
+                    (c) => `${c.seq}. ${c.label} (${c.files} ${c.files === 1 ? 'file' : 'files'})`
+                  ),
+                  '',
+                  tui('restore one with /rewind <seq>'),
+                ]
           );
         } else {
           const seq = Number(arg);

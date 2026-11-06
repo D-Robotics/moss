@@ -14,7 +14,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const { FileCheckpointStore } = await import(
+const { FileCheckpointStore, checkpointTargetPaths } = await import(
   pathToFileURL(path.join(root, 'dist/cli/file-checkpoint.js')).href
 );
 
@@ -71,6 +71,32 @@ const ok = (name) => {
   const afterRewind = new FileCheckpointStore({ runtimeDir, sessionKey });
   assert.deepEqual(afterRewind.list(), []);
   ok('checkpoints and files are restored from a fresh store instance');
+
+  // 1b. B202: surgical edits are checkpoint targets (write/move/patch already were).
+  {
+    const parsePatch = (patch) =>
+      [...patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm)].map((m) => m[1].trim());
+    assert.deepEqual(
+      checkpointTargetPaths('edit_file', { path: 'sum.js' }, workspace, parsePatch),
+      [path.join(workspace, 'sum.js')]
+    );
+    const multi = checkpointTargetPaths(
+      'multi_edit',
+      { path: 'fallback.js', edits: [{ path: 'a.js' }, { path: 'b.js' }, { path: 'a.js' }] },
+      workspace,
+      parsePatch
+    );
+    assert.deepEqual(multi, [
+      path.join(workspace, 'a.js'),
+      path.join(workspace, 'b.js'),
+      path.join(workspace, 'fallback.js'),
+    ]);
+    assert.deepEqual(
+      checkpointTargetPaths('write_file', { file_path: 'new.txt' }, workspace, parsePatch),
+      [path.join(workspace, 'new.txt')]
+    );
+  }
+  ok('edit_file/multi_edit are checkpoint targets alongside write/move/patch');
 }
 
 // 3. Retention is 100 like Claude, and pruning deletes the backups of dropped
@@ -118,4 +144,4 @@ const ok = (name) => {
 }
 
 fs.rmSync(runtimeDir, { recursive: true, force: true });
-console.log(`[checkpoint-persist] ${checks}/3 checks passed`);
+console.log(`[checkpoint-persist] ${checks}/${checks} checks passed`);
