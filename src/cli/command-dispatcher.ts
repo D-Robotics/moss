@@ -2,6 +2,7 @@
 // Replaces 22 if-else branches in main() with a declarative routing table.
 
 import { isZhLocale, uiText } from './cli-locale.js';
+import { stripTurnContext } from '../core/session/internal-transcript.js';
 import { formatSessionTimestamp } from './session-format.js';
 import type { LLMMessage } from '../core/llm/llm-provider.js';
 import type { SessionStore, SessionMeta } from '../core/session/session.js';
@@ -56,13 +57,22 @@ export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]
   ];
   for (const msg of messages) {
     lines.push(`## ${msg.role}`, '');
+    // A stored user turn also carries the harness <turn-context> preamble;
+    // export is for sharing the conversation, not the dumped environment.
+    const userVisible = (text: string): string =>
+      msg.role === 'user' ? stripTurnContext(text) : text;
     const content = msg.content;
     if (typeof content === 'string') {
-      if (content.trim()) lines.push(content, '');
+      const text = userVisible(content);
+      if (text.trim()) lines.push(text, '');
     } else if (Array.isArray(content)) {
       for (const block of content) {
-        if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
-          lines.push(block.text, '');
+        if (
+          block.type === 'text' &&
+          typeof block.text === 'string' &&
+          userVisible(block.text).trim()
+        ) {
+          lines.push(userVisible(block.text), '');
         } else if (block.type === 'tool_use') {
           lines.push('```json', `// tool_use ${block.name}`, safeStringify(block.input), '```', '');
         } else if (block.type === 'tool_result') {
@@ -104,11 +114,11 @@ function messageSearchableText(message: LLMMessage): string {
   let text = '';
   const content = message.content;
   if (typeof content === 'string') {
-    text += content;
+    text += message.role === 'user' ? stripTurnContext(content) : content;
   } else if (Array.isArray(content)) {
     for (const block of content) {
       if (block.type === 'text' && typeof block.text === 'string') {
-        text += '\n' + block.text;
+        text += '\n' + (message.role === 'user' ? stripTurnContext(block.text) : block.text);
       } else if (block.type === 'tool_use') {
         text += `\n[tool_use ${block.name}] ${safeStringify(block.input)}`;
       } else if (block.type === 'tool_result' && typeof block.content === 'string') {

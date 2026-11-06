@@ -187,4 +187,33 @@ try {
   ok('resume --last/--continue skips all-empty sessions');
 }
 
+// 8. B208: session export/search never show the injected turn context.
+{
+  const { InMemorySessionStore } = await import(dist('core/session/session.js'));
+  const { renderSessionMarkdown, searchSessions } = await import(dist('cli/command-dispatcher.js'));
+  const preamble =
+    'power export <turn-context>\n## Environment\n- Working directory: /tmp/x\n</turn-context>';
+  const store = new InMemorySessionStore();
+  await store.appendMessage('s1', {
+    role: 'user',
+    content: [{ type: 'text', text: preamble }],
+    timestamp: Date.now(),
+  });
+  await store.appendMessage('s1', {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Added power().' }],
+    timestamp: Date.now(),
+  });
+
+  const markdown = renderSessionMarkdown('s1', await store.loadMessages('s1'));
+  assert.match(markdown, /power export/);
+  assert.doesNotMatch(markdown, /turn-context|## Environment/);
+
+  const hit = (await searchSessions(store, 'power'))[0];
+  assert.ok(hit, 'the user prompt is searchable');
+  assert.doesNotMatch(hit.snippet, /<turn-context>|Environment/);
+  assert.deepEqual(await searchSessions(store, 'Environment'), []);
+  ok('session export/search strip the injected <turn-context> preamble');
+}
+
 console.log(`[rewind-conversation] ${checks}/${checks} checks passed`);

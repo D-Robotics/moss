@@ -73,14 +73,22 @@ export function sessionTitleFromTexts(texts: readonly string[]): string | undefi
  * User row for `/resume`. Planning prompts collapse to the goal line; later
  * phase prompts and system nudges are dropped.
  */
-export function resumeUserText(text: string): string {
-  // B204: a stored user turn carries the injected <turn-context> preamble. The
-  // replay used to print it as if the user had typed the environment + skills.
-  const stripped = text
+/**
+ * Drop the injected `<turn-context>` preamble from a stored user turn, keeping
+ * the user's own text (and its line breaks). Used by resume replay, session
+ * search/export, so none of them show the environment/skills as user words.
+ */
+export function stripTurnContext(text: string): string {
+  return text
     .replace(/<turn-context>[\s\S]*?<\/turn-context>/g, '')
     .replace(/<turn-context>[\s\S]*$/, '')
     .trim();
-  const trimmed = stripped;
+}
+
+export function resumeUserText(text: string): string {
+  // B204: a stored user turn carries the injected <turn-context> preamble. The
+  // replay used to print it as if the user had typed the environment + skills.
+  const trimmed = stripTurnContext(text);
   if (!trimmed || trimmed.includes('<moss_working_context_checkpoint')) return '';
   if (trimmed.startsWith('[System]')) return '';
   if (trimmed.startsWith('[task-phase:planning]')) return goalFromPhasePrompt(text) ?? '';

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Session export/search show the conversation, not the injected turn context (B208)
+
+- `moss sessions export` wrote the stored `<turn-context>` preamble (environment, skills catalog)
+  into the shared Markdown, and `moss sessions search` matched/echoed it — searching "Environment"
+  matched every session. Both now strip the preamble from user turns (the same helper behind `/resume`
+  replay); the prompt, assistant turns and tool blocks are unchanged.
+
+### 会话导出/搜索不显示注入的 turn context（B208）
+
+- `moss sessions export` 会把存储的 `<turn-context>` 前缀（环境、技能目录）写进对外分享的 Markdown；
+  `moss sessions search` 也会匹配并回显它——搜索 "Environment" 会命中所有会话。现在两者都会从用户回合剥离该前缀
+  （与 `/resume` 回放共用同一 helper）；用户提问、助手回合与工具块保持不变。
+
 ### The plan gate advertises its number keys (B207)
 
 - The "Ready to code?" gate only showed `↑↓ then Enter · or type feedback below · Esc keeps planning`,
