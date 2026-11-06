@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Deep-gate probes speak the platform shell on Windows (B286)
+
+- `loop-command` used POSIX `[ -f flag ]` / `>&2` check commands, which can never pass through `cmd.exe`,
+  so the nightly Windows leg reported exit 1 where 0 was expected. The probe now builds cmd-compatible
+  check commands on win32 (`if exist … (exit /b …)`, `echo boom 1>&2 & exit /b 7`).
+
+### 深门禁探针在 Windows 上说平台 shell（B286）
+
+- `loop-command` 使用 POSIX 的 `[ -f flag ]` / `>&2` 检查命令，经 `cmd.exe` 永远无法通过，夜间 Windows leg
+  因此报"期望 0 实际 1"。探针现在在 win32 构造 cmd 兼容命令（`if exist … (exit /b …)`、`echo boom 1>&2 & exit /b 7`）。
+
 ### Transcript tool labels use `/` on every platform (B285)
 
 - On Windows a file tool row read `Read(src\a.ts)` while every doc, path argument and shortcut around it
