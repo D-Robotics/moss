@@ -15,6 +15,8 @@ import {
 } from '../core/task/task-store.js';
 import { persistedAcceptanceCommand } from '../core/task/acceptance-authority.js';
 import { verifyTaskOnce } from './commands/task-verify.js';
+import { createSessionUsageAccumulator } from './session-usage.js';
+import { runUsageFromSlices } from './run-usage.js';
 import { ErrorCode, MossError } from '../errors.js';
 
 function send(value: unknown): void {
@@ -108,9 +110,19 @@ export async function runSuperagentWorker(ctx: CommandContext): Promise<void> {
       if (existing.length > 1) throw new Error('Ambiguous native task recovery');
       taskId = existing[0]?.taskId;
     }
+    // B165: the ticket's usage comes from this dispatch's turns; the parent
+    // writes it on the one superagent row (the worktree has no task row).
+    const usage = createSessionUsageAccumulator();
+    const usageOf = () => {
+      const summary = usage.summary();
+      return summary.calls > 0 ? runUsageFromSlices(summary.slices) : undefined;
+    };
     const deps = {
       workspaceDir: ctx.workspace!,
-      runTurn: createAgentTurnRunner(agent, session, { abortSignal: signal.signal }),
+      runTurn: createAgentTurnRunner(agent, session, {
+        abortSignal: signal.signal,
+        onEvent: (event) => usage.record(event),
+      }),
       signal: signal.signal,
       onProgress: (progress: { taskId: string }) => send({ type: 'task', taskId: progress.taskId }),
     };
@@ -143,6 +155,10 @@ export async function runSuperagentWorker(ctx: CommandContext): Promise<void> {
             summary: verdict.summary,
             taskId,
             readInputIds: [...inputIds].filter((id) => !pending.has(id)),
+            ...(() => {
+              const value = usageOf();
+              return value ? { usage: value } : {};
+            })(),
           };
         }
       }
@@ -162,6 +178,10 @@ export async function runSuperagentWorker(ctx: CommandContext): Promise<void> {
         : (result.verdictDetail ?? `Moss task ${result.snapshot.phase}`),
       taskId: result.snapshot.taskId,
       readInputIds: [...inputIds].filter((id) => !pending.has(id)),
+      ...(() => {
+        const value = usageOf();
+        return value ? { usage: value } : {};
+      })(),
     };
   };
   await new Promise<void>((resolve, reject) => {

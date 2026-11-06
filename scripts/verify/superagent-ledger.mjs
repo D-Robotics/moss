@@ -23,7 +23,8 @@ const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const { createMossSuperagent } = await load('dist/core/superagent/runtime.js');
 const { appendTaskEvent, createDraftTask } = await load('dist/core/task/task-store.js');
-const { listRunRecords } = await load('dist/core/run-ledger.js');
+const { listRunRecords, writeRunRecord } = await load('dist/core/run-ledger.js');
+const { usageFromTaskRun } = await load('dist/core/superagent/ledger-usage.js');
 
 let checks = 0;
 const ok = (name) => {
@@ -74,6 +75,22 @@ try {
       await appendTaskEvent(request.workspaceDir, taskId, 'plan_ready', { steps: [] });
       await appendTaskEvent(request.workspaceDir, taskId, 'execution_started', {});
       await appendTaskEvent(request.workspaceDir, taskId, 'verification_started', {});
+      // B165: the worker also leaves a task row behind (the fallback path when a
+      // worker does not report usage); the reported usage wins when present.
+      await writeRunRecord(request.workspaceDir, {
+        version: 1,
+        runId: `task-${taskId}`,
+        kind: 'task',
+        status: 'completed',
+        exitCode: 0,
+        startedAt: Date.now() - 2_000,
+        endedAt: Date.now(),
+        durationMs: 2_000,
+        goal: 'probe goal',
+        taskId,
+        usage: { inputTokens: 321, outputTokens: 45, cacheReadTokens: 100 },
+        artifacts: {},
+      });
       if (outcome === 'ready') {
         await appendTaskEvent(request.workspaceDir, taskId, 'acceptance_pass', {
           detail: 'probe pass',
@@ -84,6 +101,7 @@ try {
         summary: 'probe summary',
         readInputIds: request.inputs.map((input) => input.id),
         taskId,
+        usage: { inputTokens: 321, outputTokens: 45, cacheReadTokens: 100 },
       };
     },
     async deliver() {
@@ -143,6 +161,7 @@ try {
   assert.equal(done.artifacts?.superagentState, '.moss/superagent/state.sqlite');
   assert.match(done.artifacts?.workspace ?? '', /\.moss[\\/]worktrees[\\/]superagent-/);
   assert.ok(done.durationMs >= 0);
+  assert.deepEqual(done.usage, { inputTokens: 321, outputTokens: 45, cacheReadTokens: 100 });
 
   const blockedRecord = byId.get(blocked.id);
   assert.equal(blockedRecord?.status, 'blocked');
@@ -176,6 +195,66 @@ try {
   assert.equal(parsed.total, 2);
   assert.deepEqual(parsed.runs.map((run) => run.status).sort(), ['blocked', 'completed']);
   ok('moss runs --kind superagent lists both tickets');
+
+  // 3. The usage lookup never borrows a previous dispatch or another task's row.
+  {
+    const now = Date.now();
+    const rows = [
+      {
+        version: 1,
+        runId: 'old',
+        kind: 'task',
+        status: 'completed',
+        exitCode: 0,
+        startedAt: now - 90_000,
+        endedAt: now - 84_000,
+        durationMs: 6_000,
+        goal: 'old dispatch',
+        taskId: 'task_prev',
+        usage: { inputTokens: 1, outputTokens: 1 },
+        artifacts: {},
+      },
+      {
+        version: 1,
+        runId: 'other',
+        kind: 'task',
+        status: 'completed',
+        exitCode: 0,
+        startedAt: now - 5_000,
+        endedAt: now - 4_000,
+        durationMs: 1_000,
+        goal: 'other task',
+        taskId: 'task_other',
+        usage: { inputTokens: 2, outputTokens: 2 },
+        artifacts: {},
+      },
+      {
+        version: 1,
+        runId: 'mine',
+        kind: 'task',
+        status: 'completed',
+        exitCode: 0,
+        startedAt: now - 3_000,
+        endedAt: now - 2_000,
+        durationMs: 1_000,
+        goal: 'my task',
+        taskId: 'task_mine',
+        usage: { inputTokens: 3, outputTokens: 3 },
+        artifacts: {},
+      },
+    ];
+    assert.deepEqual(usageFromTaskRun(rows, { taskId: 'task_mine', since: now - 10_000 }), {
+      inputTokens: 3,
+      outputTokens: 3,
+    });
+    assert.deepEqual(usageFromTaskRun(rows, { since: now - 10_000 }), {
+      inputTokens: 3,
+      outputTokens: 3,
+    });
+    assert.equal(usageFromTaskRun(rows, { since: now }), undefined);
+    assert.equal(usageFromTaskRun([], { since: now }), undefined);
+  }
+  ok('usage lookup ignores older dispatches and other tasks');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

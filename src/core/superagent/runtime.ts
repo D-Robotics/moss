@@ -25,6 +25,8 @@ import {
   type SuperagentAssessorRequest,
 } from './worker.js';
 import { policyFor, checkedConfig, invalid } from './policy.js';
+import { usageFromTaskRun } from './ledger-usage.js';
+import type { RunRecordUsage } from '../run-ledger.js';
 import { MossError, ErrorCode, wrapAsMoss } from '../../errors.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 import { createWorktree } from '../subagent/worktree-isolation.js';
@@ -33,6 +35,30 @@ import { acquireSessionWriteLock } from '../session/session-write-lock.js';
 import { runAcceptanceCommandInWorkspace } from '../task/acceptance-command.js';
 import { getTaskStateSnapshot } from '../task/task-store.js';
 import { persistedAcceptanceCommand } from '../task/acceptance-authority.js';
+
+function sanitizeWorkerUsage(
+  raw:
+    | {
+        inputTokens?: unknown;
+        outputTokens?: unknown;
+        cacheReadTokens?: unknown;
+        cacheCreationTokens?: unknown;
+        costUsd?: unknown;
+      }
+    | undefined
+): RunRecordUsage | undefined {
+  if (!raw || typeof raw.inputTokens !== 'number' || typeof raw.outputTokens !== 'number')
+    return undefined;
+  const usage: RunRecordUsage = {
+    inputTokens: raw.inputTokens,
+    outputTokens: raw.outputTokens,
+  };
+  if (typeof raw.cacheReadTokens === 'number') usage.cacheReadTokens = raw.cacheReadTokens;
+  if (typeof raw.cacheCreationTokens === 'number')
+    usage.cacheCreationTokens = raw.cacheCreationTokens;
+  if (typeof raw.costUsd === 'number') usage.costUsd = raw.costUsd;
+  return usage;
+}
 
 interface Effect {
   kind: 'start' | 'deliver' | 'stop' | 'assess';
@@ -352,6 +378,7 @@ export class MossSuperagent {
     workspace?: string;
     acceptanceCommand?: string;
     summary?: string;
+    usage?: RunRecordUsage;
   }): Promise<void> {
     try {
       const { writeRunRecord } = await import('../run-ledger.js');
@@ -370,6 +397,7 @@ export class MossSuperagent {
         ...(input.taskId ? { taskId: input.taskId } : {}),
         ...(input.acceptanceCommand ? { acceptanceCommand: input.acceptanceCommand } : {}),
         ...(input.summary ? { reason: input.summary } : {}),
+        ...(input.usage ? { usage: input.usage } : {}),
         next: completed ? 'moss superagent status' : `moss superagent retry ${input.ticketId}`,
         artifacts: {
           superagentState: '.moss/superagent/state.sqlite',
@@ -460,6 +488,20 @@ export class MossSuperagent {
         binding = { ...binding!, taskId };
         this.store.set('binding', request.ticketId, binding);
       });
+      // B165: the worker reports the usage of its own task turns; when it does
+      // not (older worker), fall back to the worktree's task row if any.
+      let taskUsage: RunRecordUsage | undefined = sanitizeWorkerUsage(result.usage);
+      if (!taskUsage) {
+        try {
+          const { listRunRecords } = await import('../run-ledger.js');
+          taskUsage = usageFromTaskRun(await listRunRecords(binding.workspace), {
+            ...(binding.taskId ? { taskId: binding.taskId } : {}),
+            since: ledgerStartedAt,
+          });
+        } catch {
+          /* usage is a read path; the ticket row still records the outcome */
+        }
+      }
       ticket = this.current(effect);
       if (!ticket) return;
       if (
@@ -524,6 +566,7 @@ export class MossSuperagent {
         ...(binding.taskId ? { taskId: binding.taskId } : {}),
         workspace: binding.workspace,
         acceptanceCommand: request.acceptanceCommand,
+        ...(taskUsage ? { usage: taskUsage } : {}),
         ...(state === 'ready'
           ? {}
           : {

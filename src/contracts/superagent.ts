@@ -58,6 +58,14 @@ export interface SuperagentWorkerResult {
   summary: string;
   taskId?: string;
   readInputIds: string[];
+  /** B165: usage accumulated by the native task turns of this dispatch. */
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
+    costUsd?: number;
+  };
 }
 
 export interface SuperagentAssessment {
