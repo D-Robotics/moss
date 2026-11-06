@@ -464,8 +464,14 @@ export async function runCli(): Promise<void> {
   // It is additive (voice only) and `default` installs no layer.
   setOutputStyle(resolvedConfig.outputStyle);
   // O72: the resolved mode is printed on every start (stderr), including -p
-  // and --quiet, so a user can always tell whether Moss will ask first.
-  console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
+  // and --quiet, so a user can always tell whether Moss will ask first. The
+  // interactive TUI already shows the mode in its persistent status row, so it
+  // skips the duplicate line (B192) — the disclosure is not lost.
+  const interactiveTui =
+    Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
+  if (!interactiveTui) {
+    console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
+  }
   // O153: a cmd.exe fallback for exec is never silent (`;` is not a separator there).
   if (process.platform === 'win32') {
     const shellNotice = formatHostShellFallbackNotice(resolveHostShell().kind);

@@ -113,14 +113,29 @@ export function protectedPathHeadline(hit: ProtectedPathHit, zh: boolean): strin
 export function protectedPathView(
   toolName: string,
   hits: readonly ProtectedPathHit[],
-  zh: boolean
+  zh: boolean,
+  input?: Record<string, unknown>
 ): CliApprovalView {
-  const first = hits[0]!;
+  const command = typeof input?.command === 'string' ? input.command : undefined;
+  const firstHit = hits[0]!;
+  // B192: when the scanner could only say "non-literal command name", show the
+  // real command (wrapped below) so the dialog is actionable.
+  const first =
+    command && /non-literal command name/i.test(firstHit.raw)
+      ? { ...firstHit, raw: command }
+      : firstHit;
   const extra = hits.slice(1).map((h) => protectedPathHeadline(h, zh));
+  const commandLines = command
+    ? [
+        zh ? '将执行的命令：' : 'Command to run:',
+        ...command.split('\n').map((line) => `  ${sanitizeSecrets(line)}`),
+      ]
+    : [];
   return {
     title: protectedPathHeadline(first, zh),
     subject: shown(first),
     preview: [
+      ...commandLines,
       zh
         ? `工具：${toolName}。受保护路径即使在 full 模式下也要确认一次。`
         : `Tool: ${toolName}. Protected paths need one confirmation even in full mode.`,

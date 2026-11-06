@@ -130,12 +130,16 @@ try {
 
     const fresh = path.join(tmp, 'fresh-composer');
     await fs.mkdir(fresh, { recursive: true });
-    assert.match(renderWelcomeContextLines(fresh, false).suggestion ?? '', /^Try "\/init"/);
+    // B192: `/init` lives in the Next row; the composer uses the workspace-kind
+    // hint instead of repeating the same sentence on the first screen.
+    assert.equal(renderWelcomeContextLines(fresh, false).suggestion, undefined);
+    assert.match(renderWelcomeContextLines(fresh, false, 'interactive').next, /\/init/);
     await fs.writeFile(path.join(fresh, 'AGENTS.md'), '# AGENTS\n', 'utf8');
-    assert.equal(
-      renderWelcomeContextLines(fresh, false).suggestion,
-      undefined,
-      'a workspace with AGENTS.md and no runs falls back to the kind default'
+    assert.equal(renderWelcomeContextLines(fresh, false).suggestion, undefined);
+    assert.doesNotMatch(
+      renderWelcomeContextLines(fresh, false).next,
+      /\/init/,
+      'the Next row retires'
     );
 
     // A completed newest run needs no resume hint.
@@ -265,6 +269,19 @@ try {
     assert.match(bare, /^上次会话：sess_bare — 用 moss --continue 续上/);
   }
   ok('the previous-session hint is one localized line for either session shape');
+
+  // 12. B192: `/init` is the Next row only; the composer hint does not repeat it.
+  {
+    const empty = await fs.mkdtemp(path.join(tmp, 'empty-'));
+    const view = renderWelcomeContextLines(empty, false, 'interactive');
+    assert.match(view.next, /\/init/);
+    assert.equal(
+      view.suggestion,
+      undefined,
+      `the composer must not repeat the Next row, got ${String(view.suggestion)}`
+    );
+  }
+  ok('/init appears in the Next row once, not also as the composer suggestion');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

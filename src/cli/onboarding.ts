@@ -285,7 +285,6 @@ function truncateOneLine(text: string, limit: number): string {
  */
 export function welcomeComposerSuggestion(
   latest: { status: string; next?: string } | null,
-  hasAgents: boolean,
   zh = isZhLocale()
 ): string | undefined {
   const t = (en: string, cn: string): string => (zh ? cn : en);
@@ -295,12 +294,9 @@ export function welcomeComposerSuggestion(
   if (latest && latest.status !== 'completed' && latest.next) {
     return t(`Resume with ${latest.next}`, `继续：${latest.next}`);
   }
-  if (!latest && !hasAgents) {
-    return t(
-      'Try "/init" (detect this project, write AGENTS.md)',
-      '试试 “/init”（检测项目、写 AGENTS.md）'
-    );
-  }
+  // B192: `/init` is already the `Next:` row; repeating it as the composer
+  // placeholder made the first screen say the same thing twice. The placeholder
+  // falls back to the workspace-kind hint instead.
   return undefined;
 }
 
@@ -399,7 +395,6 @@ export function renderWelcomeContextLines(
   }
   const suggestion = welcomeComposerSuggestion(
     latest ? { status: latest.status, ...(latest.next ? { next: latest.next } : {}) } : null,
-    hasAgents,
     zh
   );
   return { lines, next, ...(suggestion ? { suggestion } : {}) };

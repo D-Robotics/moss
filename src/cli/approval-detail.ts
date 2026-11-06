@@ -252,6 +252,12 @@ export function buildApprovalDetailLines(
     lines = writeFileDetail(input, ctx);
   } else if (toolName === 'apply_patch') {
     lines = applyPatchDetail(input);
+  } else if (toolName === 'exec') {
+    // B192: a command that needs approval is shown in full (wrapped by the
+    // dialog), not clipped to the 80-char subject. Long `&&` chains used to
+    // read "… && dif…" with no way to see what would run.
+    const command = typeof input.command === 'string' ? input.command : '';
+    if (command.trim()) lines = command.split('\n').map((line) => `$ ${line}`);
   }
 
   if (!lines || lines.length === 0) return [];

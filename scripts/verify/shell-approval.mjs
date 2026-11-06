@@ -16,6 +16,7 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const { describeApprovalDialog, isReadonlyExecCommand } = await load('dist/cli/approval.js');
+const { protectedPathView } = await load('dist/cli/protected-path-prompt.js');
 
 let checks = 0;
 const ok = (name) => {
@@ -65,5 +66,44 @@ ok('readonly chains are trusted; writes, substitutions and absolute paths still 
   assert.equal(dialog.title, 'Bash command');
 }
 ok('a multiline exec keeps its first line as the approval subject');
+
+// 4. B192: the dialog body shows the full command; the 80-char subject clip is
+//    no longer the only place a long chain appears, and the redundant
+//    "(try to save in user config)" suffix is gone.
+{
+  const long = 'ls -l note.md && diff note.md copy.md && echo finished-with-a-long-tail';
+  const dialog = describeApprovalDialog(
+    { toolName: 'exec', sideEffect: 'local_write' },
+    { command: long }
+  );
+  const detail = dialog.detail.join('\n');
+  assert.match(
+    detail,
+    /^\$ ls -l note\.md && diff note\.md copy\.md && echo finished-with-a-long-tail$/m
+  );
+  assert.doesNotMatch(dialog.trustOptionLabel ?? '', /try to save in user config/);
+  const multiline = describeApprovalDialog(
+    { toolName: 'exec', sideEffect: 'local_write' },
+    { command: 'cat <<EOF > n.txt\nhi\nEOF' }
+  );
+  assert.match(multiline.detail.join('\n'), /\$ cat <<EOF > n\.txt/);
+  assert.match(multiline.detail.join('\n'), /\$ EOF/);
+
+  const hit = {
+    kind: 'exec-capable',
+    operation: 'shell',
+    category: 'unresolved',
+    raw: 'non-literal command name',
+    resolved: '/tmp/secret',
+    reason: 'x',
+  };
+  const view = protectedPathView('exec', [hit], false, {
+    command: 'echo x && curl http://example.test/secret',
+  });
+  assert.doesNotMatch(view.title, /non-literal command name/);
+  assert.match(view.subject ?? '', /echo x && curl/);
+  assert.match(view.preview.join('\n'), /echo x && curl http:\/\/example\.test\/secret/);
+}
+ok('approval dialog shows the full command (subject clip is not the only view)');
 
 console.log(`[shell-approval] ${checks}/${checks} checks passed`);

@@ -30,8 +30,8 @@ export function gitignoreNoticeForWorkspace(
     text = '';
   }
   if (gitignoreCoversMoss(text)) return undefined;
-  const lead = isZhLocale(locale)
-    ? '[moss] 会话日志在 .moss/。建议写入 .gitignore，避免被提交：'
-    : '[moss] Session logs live in .moss/. Add this to .gitignore so they are not committed:';
-  return `${lead}\n${GITIGNORE_SUGGESTION}`;
+  // B192: one dim line, not a 3-line block on every cold start.
+  return isZhLocale(locale)
+    ? '[moss] 会话日志在 .moss/（未被 git 忽略）；建议加入 .gitignore：.moss/ 与 !.moss/skills/'
+    : '[moss] Session logs live in .moss/ (not gitignored); add .moss/ and !.moss/skills/ to .gitignore';
 }

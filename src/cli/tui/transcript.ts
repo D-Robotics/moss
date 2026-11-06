@@ -773,16 +773,17 @@ export function renderTranscriptRow(
         READONLY_PREVIEW_TOOLS.has(row.tool.name);
       // One or two lines are cheaper to show than a `… 1 lines · ctrl+o` pointer.
       if (foldsQuiet && source.length > 2) {
-        out.push(
-          ...headline,
-          line(
-            clip(
-              `${RESULT_INDENT}${tui('… {count} lines · ctrl+o', { count: source.length })}`,
-              width
-            ),
-            { dim: true }
-          )
-        );
+        // B192: the headline already says what came back ("Read 7 lines"), so a
+        // second line repeating the count was pure scrollback. Put the ctrl+o
+        // affordance on the headline itself: one row per observation.
+        const last = headline[headline.length - 1];
+        const summaryHasCount = /\d+\s+(?:lines?|entries|matches|files?)/.test(last.text);
+        const suffix = summaryHasCount
+          ? ` · ${tui('ctrl+o')}`
+          : ` · ${tui('{count} lines · ctrl+o', { count: source.length })}`;
+        const merged = { ...last, text: clip(`${last.text}${suffix}`, width) };
+        const withRuns = last.runs ? { ...merged, runs: [...last.runs, { text: suffix }] } : merged;
+        out.push(...headline.slice(0, -1), withRuns);
         return out;
       }
       const codeLike = source.some((raw) =>
@@ -812,6 +813,20 @@ export function renderTranscriptRow(
           // Keep the exit-code label, drop the message the headline already says.
           deduped = [source[0]!, ...source.slice(2)];
         }
+      }
+      if (!verbose && !row.tool?.isError && row.tool?.name === 'todo_write') {
+        const progress = /Progress:\s*(\d+)\/(\d+) complete/.exec(source.join('\n'));
+        const cleared = /Todo list cleared/.test(source.join('\n'));
+        const suffix = progress
+          ? ` · ${tui('{done}/{total} done', { done: progress[1], total: progress[2] })}`
+          : cleared
+            ? ` · ${tui('cleared')}`
+            : '';
+        const last = headline[headline.length - 1];
+        const merged = { ...last, text: clip(`${last.text}${suffix}`, width) };
+        const withRuns = last.runs ? { ...merged, runs: [...last.runs, { text: suffix }] } : merged;
+        out.push(...headline.slice(0, -1), withRuns);
+        return out;
       }
       const preview = compactPreview(
         deduped,

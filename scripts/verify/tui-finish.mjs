@@ -208,6 +208,46 @@ ok('a successful exec folds to one preview line; the rest stays behind ctrl+o');
 }
 ok('a self-audit aside folds to one dim line; verbose and normal answers keep their shape');
 
+// 2h. B192: a read-only result is one row (count + ctrl+o on the headline), and a
+//     todo_write result folds to its progress instead of reprinting the checklist.
+{
+  const readRow = transcript.renderTranscriptRow(
+    {
+      id: 20,
+      kind: 'result',
+      text: ['line 1', 'line 2', 'line 3', 'line 4', 'line 5', 'line 6', 'line 7'].join('\n'),
+      tool: { name: 'read_file', summary: 'Read 7 lines', durationMs: 42, isError: false },
+    },
+    120
+  );
+  const readBody = readRow.filter((entry) => entry.text.trim() !== '');
+  assert.equal(readBody.length, 1, `a 7-line read must be one row, got ${readBody.length}`);
+  assert.match(readBody[0].text, /Read 7 lines/);
+  assert.match(readBody[0].text, /ctrl\+o/);
+  assert.doesNotMatch(readBody[0].text, /7 lines · 7 lines/);
+
+  const todoRow = transcript.renderTranscriptRow(
+    {
+      id: 21,
+      kind: 'result',
+      text: [
+        '1. ✓ first [completed]',
+        '2. ◐ second [in_progress]',
+        '3. ○ third [pending]',
+        '',
+        'Progress: 1/3 complete.',
+      ].join('\n'),
+      tool: { name: 'todo_write', summary: 'Todo list updated', durationMs: 3, isError: false },
+    },
+    120
+  );
+  const todoBody = todoRow.filter((entry) => entry.text.trim() !== '');
+  assert.equal(todoBody.length, 1, `todo_write folds to one row, got ${todoBody.length}`);
+  assert.match(todoBody[0].text, /1\/3 done/);
+  assert.doesNotMatch(todoBody[0].text, /first \[completed\]/);
+}
+ok('read results are one row and todo_write folds to progress (B192)');
+
 // 3. A failed exec states its error once, not twice.
 const failed = transcript.renderTranscriptRow(
   {

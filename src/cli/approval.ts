@@ -979,14 +979,13 @@ function approvalDialogQuestion(title: string, subject: string | undefined): str
 export function describeApprovalDialog(
   preview: CliToolApprovalPreview,
   input: Record<string, unknown>,
-  detailCtx: ApprovalDetailContext = {},
-  options: { persistTrust?: boolean } = {}
+  detailCtx: ApprovalDetailContext = {}
 ): ApprovalDialog {
   const title = approvalDialogTitle(preview.toolName);
   const subject = approvalTargetSummary(preview.toolName, input) || undefined;
   // Device mutations do not get a blanket grant from an ordinary approval.
   // Destructive or sensitive calls may instead offer their explicit scope.
-  const grantScope = options.persistTrust ? ' (try to save in user config)' : ' this session';
+  const grantScope = ' this session';
   const trustOptionLabel = isWorkspaceTrustEligible(preview)
     ? `Yes, and don\u2019t ask again for file edits${grantScope}`
     : `Yes, and always allow ${preview.toolName}${grantScope}`;
@@ -1400,7 +1399,7 @@ export function createCliToolApprovalHook(
             denialClass: 'headless',
           });
         }
-        const view = protectedPathView(tool.name, protectedHits, zh);
+        const view = protectedPathView(tool.name, protectedHits, zh, request.input);
         let protectedAnswer: string;
         if (protectedViewAsker) {
           protectedAnswer = await protectedViewAsker(view, request.abortSignal);
@@ -1566,12 +1565,10 @@ export function createCliToolApprovalHook(
       );
     const hookLines = hookAsks ? hookAskPromptLines(hookAsks) : [];
     const prompt = hookLines.length > 0 ? `${hookLines.join('\n')}\n${basePrompt}` : basePrompt;
-    const baseDialog = describeApprovalDialog(
-      preview,
-      request.input,
-      { workspaceDir: options.workspaceDir, device: options.device },
-      { persistTrust: options.persistTrust }
-    );
+    const baseDialog = describeApprovalDialog(preview, request.input, {
+      workspaceDir: options.workspaceDir,
+      device: options.device,
+    });
     const policyDialog = destructiveCopy
       ? {
           ...baseDialog,
