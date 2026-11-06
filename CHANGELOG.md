@@ -11,9 +11,10 @@ finished` — the same fact twice. The TUI now drops that line when it carries n
   (`run finished` / `运行结束`); informative conclusions (verification passed, unverified,
   failed, blocked) and the mandatory headless line are unchanged.
 - The live todo checklist stayed expanded above the composer forever, with a stale `4/5 done`
-  and the unfinished item still listed. Once the run ends it collapses to one line —
-  `2/2 done`, or `4/5 done · 1 left open when the run ended` — and the items come back while
-  a new run is active.
+  and the unfinished item still listed — even after the user typed a new prompt. A new run now
+  starts with no inherited checklist (`beginRun` clears it), a fully finished list disappears
+  when the run ends (the `✻ worked for` stamp already says it is done), and an unfinished one
+  collapses to `4/5 done · 1 left open when the run ended`.
 - A failed exec printed its error twice: the headline `failed — ls: … No such file or
 directory` and then the structured result's `Command failed (exit 1):` + the same sentence.
   The duplicate message is dropped; the exit-code label and real output stay.
@@ -25,8 +26,9 @@ directory` and then the structured result's `Command failed (exit 1):` + the sam
 - 普通完成的运行会先打印 `✻ worked for 85s · done 14:41`，紧接着再打印 `Completed: run
 finished`——同一件事说两遍。现在当这行不携带信息（`run finished` / `运行结束`）时 TUI 不再打印；
   有信息量的结论（验证通过、未验证、失败、被拦）与 headless 的强制末行保持不变。
-- 实时 todo 清单在运行结束后仍常驻展开，显示过期的 `4/5 done` 和未完成项。现在运行结束会折叠成一行——
-  `2/2 done`，或 `4/5 done · 运行结束时还有 1 项未完成`；新一轮运行时条目再展开。
+- 实时 todo 清单在运行结束后仍常驻展开，显示过期的 `4/5 done` 和未完成项——用户输入新内容后它还在。
+  现在新运行开始时不再继承上一轮的清单（`beginRun` 清空）；全部完成时运行结束清单直接消失
+  （`✻ worked for` 已经说明完成），未完成时折叠成一行 `4/5 done · 运行结束时还有 1 项未完成`。
 - 失败的 exec 会把错误说两遍：标题 `failed — ls: … No such file or directory`，以及结构化结果里的
   `Command failed (exit 1):` + 同一句话。现在去掉重复的消息，保留退出码标签与真实输出。
 
