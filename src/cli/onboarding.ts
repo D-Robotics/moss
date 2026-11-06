@@ -404,7 +404,9 @@ export function renderWelcomeContextLines(
       ? `/diff    ${t('(review what changed / ship it)', '（看改了什么 / 收尾）')}`
       : `moss runs    ${allRuns}`;
   } else if (!hasAgents) {
-    next = interactive ? `/init    ${initNote}` : `moss init    ${initNote}`;
+    // B264: one space — the zh note starts with a full-width paren, so padded
+    // alignment read as a stray gap (`/init （…）`).
+    next = interactive ? `/init ${initNote}` : `moss init ${initNote}`;
   } else {
     next = interactive
       ? '/goal "<intent>" --accept "<cmd>"'

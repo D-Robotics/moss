@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### A resumed boot confirms the replay, and `/init` stops looking padded (B264)
+
+- `moss --continue` replayed rows but the `[session] Resuming session:` line scrolled away; the replay now
+  ends with one dim line (`resumed <key> — replayed N row(s)`), matching the picker's confirmation.
+- The zh `/init` next-step read `/init （检测项目…）` with a padded gap before a full-width paren; it is now
+  one space in both locales.
+
+### 恢复启动会确认回放，`/init` 不再显得有多余空格（B264）
+
+- `moss --continue` 回放了历史行，但顶部的 `[session] Resuming session:` 早已滚走；现在回放末尾有一行
+  `resumed <key> — replayed N row(s)` 确认（与 picker 恢复的提示一致）。
+- 中文 `/init` 下一步原本是 `/init （检测项目…）`，全角括号前有多余间隔；现在中英都用一个空格。
+
 ### The first screen has one next step, not two (B263)
 
 - A fresh boot with an earlier session showed both `Next: /init …` and `previous session: … restart

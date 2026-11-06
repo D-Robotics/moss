@@ -637,9 +637,9 @@ ok('a network error row names the base URL and marks the run failed');
   assert.match(wide, /\/tmp\/very\/long\/path\/ux4-ws/);
 
   const copy = await load('dist/cli/tui/copy.js');
-  copy.setTuiLocale('zh');
+  copy.setTuiLocale(true);
   assert.equal(copy.tui('⏵⏵ {label} mode on', { label: '完全访问' }), '⏵⏵ 完全访问');
-  copy.setTuiLocale('en');
+  copy.setTuiLocale(false);
 }
 ok('narrow status uses the directory name and the zh mode label is not doubled');
 
@@ -666,6 +666,13 @@ ok('narrow status uses the directory name and the zh mode label is not doubled')
   assert.equal(narrowFailed.filter((line) => /^ {5}[a-e]$/.test(line.text)).length, 2);
 }
 ok('a narrow terminal shortens result previews to 1/2 lines');
+
+// 5q. B264: a resumed boot ends its replay with one confirmation line.
+{
+  const notice = appHelpers.resumeReplayNotice('cli-abc', 15);
+  assert.match(notice, /resumed cli-abc — replayed 15 row\(s\)/);
+}
+ok('a resumed replay ends with a resume confirmation');
 
 // 6. B194: the status row labels each number instead of imploding.
 {

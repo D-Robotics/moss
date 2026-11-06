@@ -339,6 +339,7 @@ export const ZH: Readonly<Record<string, string>> = {
   '  loading sessions…': '  正在加载会话…',
   '  earlier turns stay as scrollback; they are no longer in the conversation':
     '  上方回合只留在滚动区；已不在对话上下文里',
+  'resumed {key} — replayed {count} row(s)': '已恢复 {key} — 回放 {count} 行',
   'work until a condition (or acceptance command) passes; /goal resume continues, /goal clear cancels':
     '持续工作直到条件（或验收命令）通过；`/goal resume` 继续，`/goal clear` 取消',
   'enter plan mode; with a description, start planning immediately':

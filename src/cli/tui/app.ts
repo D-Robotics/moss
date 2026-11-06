@@ -314,6 +314,7 @@ import {
   filterPickerSessions,
   rewindScrollbackNote,
   renderSessionPicker,
+  resumeReplayNotice,
   describeConversationLogEntry,
   shellContextUsage,
   resolveShellCliConfig,
@@ -1173,6 +1174,9 @@ export function TuiAppRoot({
       })();
     }
     for (const row of options.replayRows ?? []) appendRow(store, row.kind, row.text);
+    if ((options.replayRows?.length ?? 0) > 0) {
+      appendRow(store, 'system', resumeReplayNotice(sessionKey, options.replayRows!.length));
+    }
     void runtime.refresh().then(() => handle.notify(), reportRuntimeError);
     handle.notify();
   }, []);

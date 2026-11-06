@@ -544,6 +544,15 @@ export function rewindScrollbackNote(droppedMessages: number | undefined): strin
     : [];
 }
 
+/**
+ * B264: a resumed boot replays rows without saying so at the bottom; the
+ * `[session] Resuming session:` line scrolls away, so the replay ends with one
+ * short confirmation (the picker flow already prints the same shape).
+ */
+export function resumeReplayNotice(sessionKey: string, replayRows: number): string {
+  return tui('resumed {key} — replayed {count} row(s)', { key: sessionKey, count: replayRows });
+}
+
 /** One `HH:MM:SS role: snippet…` line for a conversation-log JSONL entry. */
 export function describeConversationLogEntry(raw: string): string | undefined {
   let entry: {
