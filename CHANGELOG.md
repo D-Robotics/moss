@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Every harness correction asks for the delta (B240)
+
+- B238/B239 fixed the gate corrections; a real multi-step run (`add mul + test + run tests`) still ended
+  with a second answer block re-summarizing the task. The rule now lives in ONE place —
+  `buildCorrectionMessage` appends "Add only what is new in your next message — do not restate or re-print
+  your earlier answer" to every correction, so no nudge can buy a turn that re-tells everything. It is
+  not appended twice when a caller already carries its own copy.
+
+### 所有 harness correction 都要求"只给增量"（B240）
+
+- B238/B239 只修了 gate correction；真实多步 run（`add mul + test + run tests`）结尾仍会多一个总结块。
+  现在规则集中在 `buildCorrectionMessage`：每条 correction 都追加"下一条消息只写新增内容——不要重述或重贴先前的回答"，
+  因此任何 nudge 都不会再买到"重讲一遍"的回合；调用方自带同类规则时不会重复追加。
+
 ### The verification gate stands down when the user asked for no commands (B239)
 
 - A real run showed the gate's cost: "add a comment at the top of math.js… do not run any commands" was

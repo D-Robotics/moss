@@ -100,12 +100,25 @@ export function lastMessageNeedsToolFollowUpLlm(messages: Message[]): boolean {
   );
 }
 
+/**
+ * B240: every harness correction buys another model turn. Without a rule, that
+ * turn re-summarizes the whole task in a second answer block (a real run printed
+ * three near-identical summaries for one edit) and inline scrollback cannot
+ * retract the earlier ones. One short rule, applied centrally, keeps the retried
+ * answer to the delta — gate corrections (B238) carried their own copy already.
+ */
+export const CORRECTION_ANSWER_RULE =
+  'Add only what is new in your next message — do not restate or re-print your earlier answer.';
+
 export function buildCorrectionMessage(systemText: string): Message {
   // B203: every harness correction is marked `[System]` so transcript replay and
   // the internal-text filter can tell it apart from something the user typed.
   // Some gates (e.g. verification) shipped bare text, which resurfaced as a
   // fake user turn after `--continue`.
-  const text = /^\s*\[System\]/.test(systemText) ? systemText : `[System] ${systemText}`;
+  const prefixed = /^\s*\[System\]/.test(systemText) ? systemText : `[System] ${systemText}`;
+  const text = /do not restate|不要重述/i.test(prefixed)
+    ? prefixed
+    : `${prefixed} ${CORRECTION_ANSWER_RULE}`;
   return {
     role: 'user',
     content: [{ type: 'text', text }],

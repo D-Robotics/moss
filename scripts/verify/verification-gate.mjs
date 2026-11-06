@@ -398,7 +398,16 @@ console.log('[verification-gate] no-change directive ok');
   assert.match(bareText, /^\[System\] You changed files/);
   assert.equal(resumeUserText(bareText), '');
   const already = buildCorrectionMessage('[System] Completion rejected: prove it.');
-  assert.equal(already.content[0].text, '[System] Completion rejected: prove it.');
+  // B240: one shared delta rule is appended to every correction (no double
+  // [System] prefix, no duplicate rule when the caller already asked for it).
+  assert.match(already.content[0].text, /^\[System\] Completion rejected: prove it\./);
+  assert.match(already.content[0].text, /do not restate or re-print your earlier answer/);
+  const twice = buildCorrectionMessage('do not restate your earlier answer: just the delta.');
+  assert.equal(
+    (twice.content[0].text.match(/do not restate/gi) ?? []).length,
+    1,
+    'the rule is not appended twice'
+  );
   assert.equal(resumeUserText('what the user actually typed'), 'what the user actually typed');
   console.log('[verification-gate] corrections are marked and replay-hidden');
 }
