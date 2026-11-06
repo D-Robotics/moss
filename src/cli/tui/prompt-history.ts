@@ -4,11 +4,22 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
 
 const MAX_ENTRIES = 500;
 
 export function promptHistoryFile(runtimeDir: string): string {
   return path.join(runtimeDir, 'prompt-history.jsonl');
+}
+
+/**
+ * B234: recall is per workspace. The TUI/REPL used to merge the user config
+ * dir's `prompt-history.jsonl` into every project's history, so ctrl+r in a
+ * fresh project offered prompts typed in other projects (third audit #4) — one
+ * Enter away from sending them here.
+ */
+export function promptHistorySources(workspaceDir: string): string[] {
+  return [promptHistoryFile(getMossWorkspacePaths(workspaceDir).runtimeDir)];
 }
 
 export function loadPromptHistory(file: string): string[] {

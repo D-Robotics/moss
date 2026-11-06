@@ -284,7 +284,7 @@ import {
 } from './mentions.js';
 import {
   loadMergedPromptHistory,
-  promptHistoryFile,
+  promptHistorySources,
   savePromptHistory,
   walkPromptHistory,
   type HistoryCursor,
@@ -829,11 +829,10 @@ export function TuiAppRoot({
   // The policy layer is authoritative: any mode change (shift+tab, `/mode`, a
   // flag, an embedded host) re-renders the hint row immediately.
   useEffect(() => subscribeCliInteractionMode(setInteractionModeState), []);
-  const historyFiles = useCallback(() => {
-    const workspace = promptHistoryFile(getMossWorkspacePaths(options.workspaceDir).runtimeDir);
-    const configDir = options.cliRuntime?.configDir;
-    return configDir ? [promptHistoryFile(configDir), workspace] : [workspace];
-  }, [options.cliRuntime?.configDir, options.workspaceDir]);
+  const historyFiles = useCallback(
+    () => promptHistorySources(options.workspaceDir),
+    [options.workspaceDir]
+  );
   useEffect(() => {
     historyReadyRef.current = false;
     setHistory(loadMergedPromptHistory(historyFiles()));

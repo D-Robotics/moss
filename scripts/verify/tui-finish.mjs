@@ -16,6 +16,7 @@ const load = (relative) => import(pathToFileURL(path.join(root, relative)).href)
 const transcript = await load('dist/cli/tui/transcript.js');
 const renderer = await load('dist/cli/tui/renderer.js');
 const toolSummary = await load('dist/cli/tui/tool-summary.js');
+const promptHistory = await load('dist/cli/tui/prompt-history.js');
 const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
 const interactionMode = await load('dist/cli/interaction-mode.js');
@@ -456,6 +457,14 @@ ok('full mode is 完全访问 in Chinese, and legacy 全开 still parses');
   assert.match(liftedError[1], /^Error: Cannot find module/);
 }
 ok('a non-zero exec exit reads as failed and lifts the error line');
+
+// 5h. B234: recall is per workspace; the config-dir history is not merged.
+{
+  const sources = promptHistory.promptHistorySources('/tmp/project-a');
+  assert.equal(sources.length, 1);
+  assert.match(sources[0], /project-a[\\/]\.moss[\\/]prompt-history\.jsonl$/);
+}
+ok('prompt history is per workspace (no shared config-dir merge)');
 
 // 6. B194: the status row labels each number instead of imploding.
 {

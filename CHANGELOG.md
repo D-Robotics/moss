@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Prompt recall is per workspace (B234)
+
+- The TUI and REPL merged the user config dir's `prompt-history.jsonl` into every project's history,
+  so ctrl+r in a fresh project offered prompts typed in other projects (third audit #4) — one Enter away
+  from sending them here. Recall now reads and writes only the workspace's
+  `.moss/prompt-history.jsonl`; existing global files are left untouched but no longer merged.
+
+### prompt 历史按工作区隔离（B234）
+
+- TUI/REPL 原先把用户 config 目录的 `prompt-history.jsonl` 合并进每个项目的历史，于是新项目的 ctrl+r
+  会列出其它项目输入过的 prompt（第三轮审计 #4）—— 一次 Enter 就可能误发到当前项目。现在只读写工作区的
+  `.moss/prompt-history.jsonl`；旧的全局文件保留但不再合并。
+
 ### A failing `exec` reads as failed, with the message instead of a stack frame (B233)
 
 - Third-audit finding #2: a command that exited 1 was summarized as `10 lines` (success path) or, as an

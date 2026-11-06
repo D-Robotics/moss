@@ -1,10 +1,9 @@
 import path from 'node:path';
 import * as readline from 'node:readline';
 import { PassThrough } from 'node:stream';
-import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
 import {
   loadMergedPromptHistory,
-  promptHistoryFile,
+  promptHistorySources,
   savePromptHistory,
 } from './tui/prompt-history.js';
 import type { MossAgent, MossAgentEvent } from '../core/index.js';
@@ -414,11 +413,7 @@ export async function runInteractive(
   // The TUI recalls prompts across sessions; the REPL used to start every
   // session with an empty history, so Up only reached this run. Seed readline's
   // history (newest first) from the same workspace/config files.
-  const promptHistoryFiles = (() => {
-    const workspaceFile = promptHistoryFile(getMossWorkspacePaths(workspace).runtimeDir);
-    const configDir = runtime?.configDir;
-    return configDir ? [promptHistoryFile(configDir), workspaceFile] : [workspaceFile];
-  })();
+  const promptHistoryFiles = promptHistorySources(workspace);
   const seededHistory = loadMergedPromptHistory(promptHistoryFiles);
   if (seededHistory.length > 0) {
     // `history` is a documented readline.Interface field that @types/node does
