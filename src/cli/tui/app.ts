@@ -2437,7 +2437,11 @@ export function TuiAppRoot({
       }
       if (text === '/resume' || text.startsWith('/resume ')) {
         const query = text.slice('/resume'.length).trim();
-        const sessions = (await options.listSessions?.()) ?? [];
+        // An all-empty session (e.g. after /undo dropped its turns) is not worth
+        // offering: resuming it changes nothing (B205).
+        const sessions = ((await options.listSessions?.()) ?? []).filter(
+          (session) => (session.messageCount ?? 0) > 0
+        );
         setPickerSessions(sessions);
         if (sessions.length === 0) {
           printBlock(tui('Resume'), [tui('no saved sessions')]);
@@ -2476,8 +2480,9 @@ export function TuiAppRoot({
           }
           return;
         }
+        // The overlay already lists the sessions; printing the same list into
+        // the transcript duplicated ten lines behind the picker (B205).
         setSessionPicker({ query, cursor: 0 });
-        printBlock(tui('Resume'), await sessionInfo('sessions'));
         return;
       }
       if (

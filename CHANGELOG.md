@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The `/resume` picker lists each session once (B205)
+
+- Opening `/resume` drew the overlay **and** printed the same ten-session list into the transcript
+  behind it, and offered an all-empty session (0 messages, left over after `/undo`) that resumes to
+  nothing. The picker now filters sessions with no messages and no longer duplicates the list in the
+  transcript; the overlay is the list.
+
+### `/resume` 选择器只列一次会话（B205）
+
+- 打开 `/resume` 时既画了选择器，又在背后往转录里打印同一份十行会话列表；还列出 0 条消息的空会话
+  （`/undo` 清空后遗留），恢复它没有任何变化。现在选择器过滤掉无消息会话，且不再把同一份列表打进转录；
+  选择器本身就是列表。
+
 ### Resuming a session shows your prompt, not the injected turn context (B204)
 
 - A stored user turn carries the `<turn-context>` preamble (skills catalog, environment, context
