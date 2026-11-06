@@ -503,6 +503,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
       const code = await runSkillCommand(ctx.commandArgs, {
         workspaceDir: workspace,
         configDir: resolveConfigDir(),
+        json: ctx.argv.includes('--json'),
       });
       if (code !== 0) process.exitCode = code;
     },

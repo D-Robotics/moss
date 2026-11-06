@@ -120,6 +120,16 @@ const compact = await commands.renderSkillsList(workspace, configDir, false, und
 for (const row of compact.split('\n')) {
   assert.ok(row.length < 260, `compact /skills row is bounded: ${row.slice(0, 120)}…`);
 }
+// B276: `moss skill list --json` reads the same rows; user-only entries carry
+// null catalogChars and the full description (not the compact 72-char form).
+const listData = await commands.loadSkillListData(workspace, configDir);
+assert.ok(listData, 'skill list data exists for the fixture workspace');
+const userOnly = listData.rows.find((row) => row.modelInvocable === false);
+assert.ok(userOnly, 'the user-only fixture is listed');
+assert.equal(userOnly.catalogChars, null);
+assert.match(userOnly.description, /^probe skill /);
+assert.ok(listData.rows.every((row) => row.name && row.scope));
+assert.equal(listData.summary.count, listData.rows.length);
 assert.equal(
   commands.compactSkillDescription('x'.repeat(200)).length,
   72,

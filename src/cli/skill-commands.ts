@@ -38,7 +38,7 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
   return [
     'Usage:',
     '  moss skill create <name>          scaffold .moss/skills/<name>/SKILL.md',
-    '  moss skill list                   list discovered skills (workspace + user)',
+    '  moss skill list [--json]          list discovered skills (workspace + user)',
     '  moss skill validate <name|path>   validate a skill (a bare name is resolved via discovery scopes)',
     '  moss skill install <source> [--workspace] [--name n] [--yes]',
     '                                    install from a directory / git URL / npm package, write the lockfile',
@@ -51,7 +51,7 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
     'enter the prompt; the body loads via the skill tool with {args}).',
     '',
     'Options:',
-    '  (none)  create <name> and list take no other flags',
+    '  --json  machine-readable rows + catalog summary (skill list only)',
     '',
     'Examples:',
     '  moss skill create deploy-check',
@@ -77,6 +77,8 @@ optional {args} value, e.g. "Target: $ARGUMENTS".
 export interface SkillCommandContext {
   workspaceDir: string;
   configDir: string;
+  /** Global `--json` is stripped by the arg parser; the dispatcher forwards it. */
+  json?: boolean;
 }
 
 /**
@@ -96,14 +98,41 @@ export function compactSkillDescription(text: string, limit = 72): string {
   return `${one.slice(0, limit - 1).trimEnd()}…`;
 }
 
-export async function renderSkillsList(
+/** One row of `moss skill list`, shared by the table renderer and `--json`. */
+export interface SkillListRow {
+  name: string;
+  scope: string;
+  used: number;
+  /** Catalog characters this skill costs; null when it is user-only. */
+  catalogChars: number | null;
+  modelInvocable: boolean;
+  evals: boolean;
+  description: string;
+  issues: string[];
+}
+
+export interface SkillListSummary {
+  count: number;
+  catalogChars: number;
+  budgetChars: number;
+  strategy: string;
+  uncappedChars: number;
+}
+
+export interface SkillListData {
+  rows: SkillListRow[];
+  summary: SkillListSummary;
+}
+
+/**
+ * B276: the data behind `moss skill list`. The table and `--json` read the same
+ * rows so scripts and humans cannot disagree about counts or catalog cost.
+ */
+export async function loadSkillListData(
   workspaceDir: string,
   configDir: string,
-  zh: boolean = isZhLocale(),
-  /** Model context window; the in-session budget is ~1% of it (8k fallback). */
-  contextTokens?: number,
-  options: { compact?: boolean } = {}
-): Promise<string> {
+  contextTokens?: number
+): Promise<SkillListData | null> {
   const { loadSkillCatalog } = await import('../core/skills/skill-registry.js');
   const {
     rankSkillsForCatalog,
@@ -119,11 +148,7 @@ export async function renderSkillsList(
     { dir: path.join(configDir, 'skills'), scope: 'user' },
     { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
   ]);
-  if (skills.length === 0) {
-    return zh
-      ? '未发现技能。创建一个：moss skill create <名称>'
-      : 'No skills found. Create one: moss skill create <name>';
-  }
+  if (skills.length === 0) return null;
   const usage = loadSkillUsage(workspaceDir);
   // Same order the catalog budget uses, so the table shows which entries
   // survive a cut: scope precedence, then recently used first.
@@ -136,33 +161,67 @@ export async function renderSkillsList(
       ? SKILL_CATALOG_DEFAULT_BUDGET_CHARS
       : skillCatalogBudgetForWindow(contextTokens);
   const total = renderSkillCatalog(modelSkills, { usage, budgetChars: budget });
+  const rows: SkillListRow[] = ranked.map((skill) => ({
+    name: skill.name,
+    scope: skill.scope,
+    used: usage[skill.name]?.count ?? 0,
+    // Per-skill catalog cost: what the full catalog entry costs for this one
+    // skill (the same renderer the prompt uses, so the number is not an estimate).
+    catalogChars:
+      skill.modelInvocable !== false ? renderSkillCatalog([skill]).stats.renderedChars : null,
+    modelInvocable: skill.modelInvocable !== false,
+    evals: Boolean(skill.resources.evals),
+    description: skill.description,
+    issues: skill.issues.map((issue) => String(issue)),
+  }));
+  return {
+    rows,
+    summary: {
+      count: skills.length,
+      catalogChars: total.stats.renderedChars,
+      budgetChars: budget,
+      strategy: total.stats.strategy,
+      uncappedChars: total.stats.uncappedChars,
+    },
+  };
+}
+
+export async function renderSkillsList(
+  workspaceDir: string,
+  configDir: string,
+  zh: boolean = isZhLocale(),
+  /** Model context window; the in-session budget is ~1% of it (8k fallback). */
+  contextTokens?: number,
+  options: { compact?: boolean } = {}
+): Promise<string> {
+  const data = await loadSkillListData(workspaceDir, configDir, contextTokens);
+  if (!data) {
+    return zh
+      ? '未发现技能。创建一个：moss skill create <名称>'
+      : 'No skills found. Create one: moss skill create <name>';
+  }
+  const { rows, summary } = data;
   const lines: string[] = [
     zh
       ? '  名称                来源      使用  目录成本  评测  描述'
       : '  name                scope     used  catalog   evals description',
   ];
-  for (const skill of ranked) {
-    // Per-skill catalog cost: what the full catalog entry costs for this one
-    // skill (the same renderer the prompt uses, so the number is not an estimate).
-    const cost =
-      skill.modelInvocable !== false
-        ? String(renderSkillCatalog([skill]).stats.renderedChars)
-        : 'user-only';
-    const uses = usage[skill.name]?.count ?? 0;
-    const evals = skill.resources.evals ? 'yes' : '-';
-    const problems = skill.issues.length > 0 ? `  (${skill.issues.length} issue(s))` : '';
+  for (const row of rows) {
+    const cost = row.modelInvocable ? String(row.catalogChars ?? 0) : 'user-only';
+    const evals = row.evals ? 'yes' : '-';
+    const problems = row.issues.length > 0 ? `  (${row.issues.length} issue(s))` : '';
     const description =
       options.compact === true
-        ? compactSkillDescription(skill.description)
-        : (skill.description.split('\n')[0] ?? '');
+        ? compactSkillDescription(row.description)
+        : (row.description.split('\n')[0] ?? '');
     lines.push(
-      `  ${skill.name.padEnd(18)} ${skill.scope.padEnd(9)} ${String(uses).padEnd(5)} ${cost.padEnd(8)} ${evals.padEnd(5)} ${description}${problems}`
+      `  ${row.name.padEnd(18)} ${row.scope.padEnd(9)} ${String(row.used).padEnd(5)} ${cost.padEnd(8)} ${evals.padEnd(5)} ${description}${problems}`
     );
   }
   lines.push(
     zh
-      ? `\n共 ${skills.length} 个技能；目录 ${total.stats.renderedChars}/${budget} 字符（策略 ${total.stats.strategy}，无预算上限时 ${total.stats.uncappedChars} 字符）。会话内用技能工具加载；\`user-only\` 技能仅用户可用（disable-model-invocation），不占目录字符。`
-      : `\n${skills.length} skill(s); catalog ${total.stats.renderedChars}/${budget} chars (strategy ${total.stats.strategy}, ${total.stats.uncappedChars} without a budget). Load one in-session with the skill tool. \`user-only\` skills are user-invocable only (disable-model-invocation) and never cost catalog chars.`
+      ? `\n共 ${summary.count} 个技能；目录 ${summary.catalogChars}/${summary.budgetChars} 字符（策略 ${summary.strategy}，无预算上限时 ${summary.uncappedChars} 字符）。会话内用技能工具加载；\`user-only\` 技能仅用户可用（disable-model-invocation），不占目录字符。`
+      : `\n${summary.count} skill(s); catalog ${summary.catalogChars}/${summary.budgetChars} chars (strategy ${summary.strategy}, ${summary.uncappedChars} without a budget). Load one in-session with the skill tool. \`user-only\` skills are user-invocable only (disable-model-invocation) and never cost catalog chars.`
   );
   return lines.join('\n');
 }
@@ -222,6 +281,14 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
   }
 
   if (sub === 'list') {
+    const json = ctx.json === true || argv.includes('--json');
+    if (json) {
+      const data = await loadSkillListData(ctx.workspaceDir, ctx.configDir);
+      out(
+        JSON.stringify({ schema: 'moss_skill_list.v1', ...(data ?? { rows: [], summary: null }) })
+      );
+      return 0;
+    }
     // B275: the human table truncates one description line, not the whole
     // multiline body; a 300-char description turned one row into a paragraph.
     out(await renderSkillsList(ctx.workspaceDir, ctx.configDir, zh, undefined, { compact: true }));

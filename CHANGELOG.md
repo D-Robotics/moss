@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### `moss skill list --json` (B276)
+
+- Scripts had no machine-readable skill list; the table was the only output. `moss skill list --json`
+  now emits `{schema:"moss_skill_list.v1", rows:[{name,scope,used,catalogChars,modelInvocable,evals,
+description,issues}], summary:{count,catalogChars,budgetChars,strategy,uncappedChars}}` from the same
+  `loadSkillListData` the table renders (so row counts and catalog cost cannot disagree). The global
+  `--json` is stripped by the arg parser, so the dispatcher forwards it explicitly.
+
+### `moss skill list --json`（B276）
+
+- 脚本没有机器可读的技能列表，只有表格。`moss skill list --json` 现在输出
+  `{schema:"moss_skill_list.v1", rows:[...], summary:{...}}`，与表格共用 `loadSkillListData`
+  （行数与目录成本不会互相矛盾）。全局 `--json` 会被参数解析器提前剥离，因此 dispatcher 显式转发。
+
 ### `moss skill list` keeps each skill on one readable row (B275)
 
 - The human table printed the full description line, so one skill with a 300-char description turned
