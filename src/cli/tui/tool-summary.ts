@@ -88,6 +88,45 @@ function writeDiff(content: string): string {
   return shown.join('\n');
 }
 
+/**
+ * B233: `exec` reports a non-zero exit inside a *successful* tool result
+ * (`exit_code: N` then stdout, then `--- stderr ---`). The compact preview is
+ * head-first, so the error line lived below the fold. Lift the exit label and
+ * the first error-ish line to the top, keeping every other line in order.
+ */
+const EXEC_FAILURE_LABEL = /^(?:exit_code:\s*\d+|Command failed \(exit \d+\):?)$/i;
+const EXEC_FAILURE_LINE = /error|cannot find|failed|not found|exception|fatal|denied/i;
+
+/** The line a user needs from a failed command: the message, not a stack frame. */
+export function execFailureDetail(body: string): string | undefined {
+  for (const raw of body.split('\n')) {
+    const line = raw.trim();
+    if (!line || EXEC_FAILURE_LABEL.test(line)) continue;
+    if (/^at\s/.test(line) || /^node:internal\//.test(line)) continue;
+    if (EXEC_FAILURE_LINE.test(line)) return line.length > 120 ? `${line.slice(0, 119)}…` : line;
+  }
+  return undefined;
+}
+
+export function liftExecFailureLine(body: string): string {
+  const lines = body.split('\n');
+  const exitIndex = lines.findIndex((line) => EXEC_FAILURE_LABEL.test(line.trim()));
+  if (exitIndex < 0) return body;
+  const exitLine = lines.splice(exitIndex, 1)[0] ?? '';
+  const errorIndex = lines.findIndex((line) => {
+    const trimmed = line.trim();
+    return (
+      trimmed.length > 0 &&
+      EXEC_FAILURE_LINE.test(trimmed) &&
+      !/^at\s/.test(trimmed) &&
+      !/^node:internal\//.test(trimmed)
+    );
+  });
+  if (errorIndex < 0) return [exitLine, ...lines].join('\n');
+  const errorLine = (lines.splice(errorIndex, 1)[0] ?? '').trim();
+  return [exitLine, errorLine, ...lines].filter(Boolean).join('\n');
+}
+
 export function summarizeToolCompletion(
   toolName: string,
   input: Record<string, unknown>,
@@ -97,8 +136,14 @@ export function summarizeToolCompletion(
   const body = String(result ?? '');
 
   if (isError) {
-    const lines = EXEC_TOOLS.has(toolName) ? extractCommandFailurePreview(body, 1) : [];
-    const detail = lines[0] ?? firstLine(body.replace(/^Execution error:\s*/i, ''));
+    // B233: prefer the message line over a stack frame (`at Module._load …`).
+    const execDetail = EXEC_TOOLS.has(toolName) ? execFailureDetail(body) : undefined;
+    const lines = execDetail
+      ? []
+      : EXEC_TOOLS.has(toolName)
+        ? extractCommandFailurePreview(body, 1)
+        : [];
+    const detail = execDetail ?? lines[0] ?? firstLine(body.replace(/^Execution error:\s*/i, ''));
     return { summary: detail ? tui('failed — {detail}', { detail }) : tui('failed') };
   }
 
@@ -178,6 +223,12 @@ export function summarizeToolCompletion(
   }
 
   if (EXEC_TOOLS.has(toolName)) {
+    // A non-zero exit arrives as a successful tool call whose body begins
+    // `exit_code: N`; the compact view must say failed, not "10 lines".
+    const failedExit = /^exit_code:\s*(\d+)/m.exec(body);
+    if (failedExit && failedExit[1] !== '0') {
+      return { summary: tui('failed — exit {code}', { code: failedExit[1] }) };
+    }
     // Success: the tail carries the conclusion (build OK, N passed) — but only
     // when the output is long enough that the compact preview hides it. A bare
     // `exit=0` line the COMMAND printed (`; echo exit=$?` idioms) is noise, so

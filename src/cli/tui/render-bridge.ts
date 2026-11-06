@@ -24,7 +24,7 @@ import {
 } from './copy.js';
 import { nextStreamCommit } from './stream-commit.js';
 import { splitTrailingMossNotices, toolLabel } from './transcript.js';
-import { summarizeToolCompletion } from './tool-summary.js';
+import { liftExecFailureLine, summarizeToolCompletion } from './tool-summary.js';
 import { userFacingAssistantText, userFacingToolResult } from '../user-facing-text.js';
 
 /**
@@ -639,17 +639,27 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       // raw result (the projection decides how much of it to show). A dialog
       // that already showed its answer gets its synthetic wrapper dropped.
       // An empty success body stays empty — the headline alone is the result.
+      // B233: a non-zero exit is a failure even though the tool call succeeded;
+      // render it like one and lift the error line above the preview fold.
+      const failedExec =
+        event.toolName === 'exec' &&
+        (/^exit_code:\s*[1-9]/m.test(peeled.body) ||
+          /^Command failed \(exit [1-9]/m.test(peeled.body));
       const body =
         abortNotice || completion.dropBody
           ? ''
-          : (completion.diff ?? resultBody(peeled.body, event.toolName));
+          : (completion.diff ??
+            resultBody(
+              event.toolName === 'exec' ? liftExecFailureLine(peeled.body) : peeled.body,
+              event.toolName
+            ));
       appendRow(store, 'result', body, {
         tool: {
           name: event.toolName,
           callId: event.toolCallId,
           ...(attributedSummary ? { summary: attributedSummary } : {}),
           ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
-          ...(event.isError ? { isError: true } : {}),
+          ...(event.isError || failedExec ? { isError: true } : {}),
           ...(abortedBy ? { abortedBy } : {}),
         },
       });

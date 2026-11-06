@@ -406,6 +406,57 @@ ok('pre-tool narration folds, and exit_plan does not reprint the plan');
 }
 ok('full mode is 完全访问 in Chinese, and legacy 全开 still parses');
 
+// 5g. B233: a non-zero exec exit reads as a failure and shows the error line.
+{
+  const failedBody = [
+    'exit_code: 1',
+    '',
+    'node:internal/modules/cjs/loader:1478',
+    '    throw err;',
+    '    ^',
+    '',
+    "Error: Cannot find module '/tmp/x/missing-file.js'",
+    '    at Module._resolveFilename (node:internal/modules/cjs/loader:1475:15)',
+    '',
+    '--- stderr ---',
+    'same text again',
+  ].join('\n');
+  const failed = toolSummary.summarizeToolCompletion(
+    'exec',
+    { command: 'node missing-file.js' },
+    failedBody,
+    false
+  );
+  assert.equal(failed.summary, 'failed — exit 1');
+  const lifted = toolSummary.liftExecFailureLine(failedBody).split('\n');
+  assert.equal(lifted[0], 'exit_code: 1');
+  assert.match(lifted[1], /^Error: Cannot find module/);
+  assert.equal(
+    lifted.filter((line) => line.startsWith('Error: Cannot find module')).length,
+    1,
+    'the error line is lifted, not duplicated'
+  );
+  const errorBody = [
+    'Command failed (exit 1):',
+    'node:internal/modules/cjs/loader:1478',
+    '    throw err;',
+    '',
+    "Error: Cannot find module '/tmp/x/missing.js'",
+    '    at Module._load (node:internal/modules/cjs/loader:1234:12)',
+  ].join('\n');
+  const errorSummary = toolSummary.summarizeToolCompletion(
+    'exec',
+    { command: 'node missing.js' },
+    errorBody,
+    true
+  );
+  assert.match(String(errorSummary.summary), /^failed — Error: Cannot find module/);
+  const liftedError = toolSummary.liftExecFailureLine(errorBody).split('\n');
+  assert.equal(liftedError[0], 'Command failed (exit 1):');
+  assert.match(liftedError[1], /^Error: Cannot find module/);
+}
+ok('a non-zero exec exit reads as failed and lifts the error line');
+
 // 6. B194: the status row labels each number instead of imploding.
 {
   const en = statusLine.formatStatusLine({

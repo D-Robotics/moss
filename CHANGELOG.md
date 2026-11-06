@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### A failing `exec` reads as failed, with the message instead of a stack frame (B233)
+
+- Third-audit finding #2: a command that exited 1 was summarized as `10 lines` (success path) or, as an
+  error, `failed — at Module._load (node:internal/…)` — the error line was below the preview fold.
+  Non-zero `exec` exits now summarize as `failed — Error: Cannot find module '…'` (the message line, not
+  a stack frame), and the result body lifts the exit label + first message line above the fold.
+- `exit_code: N` inside a successful tool result (the non-error path) is treated as a failure too.
+
+### 失败的 `exec` 显示为失败，并给出消息行而不是栈帧（B233）
+
+- 第三轮审计 #2：退出码 1 的命令原本被摘要成 `10 lines`（成功路径），或作为错误时摘要成
+  `failed — at Module._load (node:internal/…)`——真正的错误行被折在预览下方。现在非零 `exec` 摘要为
+  `failed — Error: Cannot find module '…'`（消息行，不是栈帧），结果体把退出标签 + 首条消息行提到折叠线以上。
+- 成功工具结果里出现 `exit_code: N`（非错误路径）同样按失败处理。
+
 ### Resume replay uses live tool labels and compresses across turns (B232)
 
 - A third real-TUI audit found the replay was "another interface": raw `read_file`/`run_tests` names
