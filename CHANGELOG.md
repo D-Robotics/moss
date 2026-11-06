@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### The REPL tells the truth about modes, stopping and help (B156)
+
+- `/help` said only `Ctrl+C exit`, while Ctrl+C pauses a goal run (resumable with
+  `/goal resume`) and Esc interrupts a turn. The shortcuts block now names idle exit,
+  run pause + resume, Esc interrupt and prompt history, in both locales.
+- A goal run now prints `Ctrl+C pauses (/goal resume to continue) · Esc interrupts` before
+  work starts, and a lone Esc byte aborts the run like chat turns do (arrow-key escape
+  sequences are ignored). Verified in a real PTY: the hint appears, Esc produces
+  `[goal] paused by user … /goal resume`.
+- The REPL prompt is mode-aware (`plan›`, `manual›`, `accept-edits›`) and recomputed on
+  every prompt, so a mode change can no longer scroll out of sight; `›` alone means full.
+
+### REPL 如实说明模式、停止方式与帮助（B156）
+
+- `/help` 以前只写 `Ctrl+C exit`，但运行中 Ctrl+C 是暂停（可用 `/goal resume` 续跑）、Esc 可中断。
+  快捷键块现在按中英双语列出：空闲退出、运行中暂停+续跑、Esc 中断、历史输入。
+- goal 运行开始前打印 `Ctrl+C 暂停（/goal resume 续跑）· Esc 中断`；单独的 Esc 字节会像聊天回合一样
+  中断运行（方向键的转义序列被忽略）。真实 PTY 验证：提示出现、按 Esc 后打印
+  `[goal] paused by user … /goal resume`。
+- REPL 提示符带模式（`plan›`、`manual›`、`accept-edits›`），每次 prompt 重新计算，模式变化不会再
+  滚出视野；只有 `›` 表示 full。
+
 ### The CI Fast gate is green again (B161)
 
 - Every push had failed the Fast gate, and the cause was CI-only:
