@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Run records say which gate stopped the answer (B155)
+
+- `RunRecord.reason` was a free-text summary, so `moss runs show` could not tell a verification
+  hold from an acceptance hold or a plan-mode hold. The completion-gate contract now carries
+  `gate` (`acceptance` / `verification` / `review` / `plan` / `background` / `host`) and `kind`
+  (`unverified-change`, `review-fail`, `missing-review`, `no-verdict`, `unrepaired-fail`,
+  `missing-plan`, `background-running`); `MossAgent` records every hold per run (also exposed via
+  `gateBlocksFor(sessionKey)` and the `onCompletionGateBlocked` hook), and the headless `-p` chat
+  and task ledgers write `gates[] {gate, kind?, reason, turn?}`.
+- `moss runs show` prints `gate: verification/unverified-change — <reason>`; `export` writes the
+  same as a Markdown bullet; `--json` carries the array. Loop/workflow/superagent rows still only
+  carry their own ledgers' reasons (honest gap).
+
+### 运行账本记录「哪道闸门拦下了答案」（B155）
+
+- `RunRecord.reason` 只是自由文本，`moss runs show` 分不清是验收门、验证门还是 plan 门拦的。
+  完成门契约现在带 `gate`（`acceptance` / `verification` / `review` / `plan` / `background` /
+  `host`）与 `kind`（`unverified-change`、`review-fail`、`missing-review`、`no-verdict`、
+  `unrepaired-fail`、`missing-plan`、`background-running`）；`MossAgent` 按 run 记录每次拦截
+  （也暴露 `gateBlocksFor(sessionKey)` 与 `onCompletionGateBlocked` 钩子），headless `-p` chat
+  与 task 账本写入 `gates[] {gate, kind?, reason, turn?}`。
+- `moss runs show` 打印 `gate: verification/unverified-change — <原因>`；`export` 在 Markdown 里
+  写同一行；`--json` 带数组。loop/workflow/superagent 仍只带各自账本的原因（诚实缺口）。
+
 ### The verified-run verb is `goal` again; `run` is the alias (B160)
 
 - "Every invocation is a run": `moss "…"` already runs the agent, so `moss run` did not say what
