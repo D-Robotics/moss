@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Tool titles and stall hints read like product, not debug output (B169)
+
+- `Exec(cd /private/tmp/ws && ls -l … && wc -c …)` wasted the one-line title on the working
+  directory and let terminal clipping eat the command. Tool titles now strip a leading `cd <path>
+&&` / `cd <path>;` prefix (quoted paths included) and keep the command itself: the real run
+  shows `Exec(ls -l /tmp/b169-ws)`.
+- The quiet-stream hint (`stream quiet for 20s — the gateway may be stuck`) read like an internal
+  log. It now says what the user can do: `… no output for 20s — Esc to interrupt, or wait if the
+gateway is slow` (zh: `… 已 20 秒没有输出 · Esc 中断，或等待网关恢复`).
+- `⏺ Model` confirmation dropped its third line (`context usage will appear after the first
+response…`); switching now prints the model and the save/session note only.
+
+### 工具标题与静默提示更像产品、不像调试输出（B169）
+
+- 以前 `Exec(cd /private/tmp/ws && ls -l … && wc -c …)` 把一行标题浪费在工作目录上，命令本身反而被裁掉。
+  现在标题会去掉开头的 `cd <路径> &&` / `cd <路径>;`（含引号路径），保留命令本身：真实运行显示
+  `Exec(ls -l /tmp/b169-ws)`。
+- 静默提示 `stream quiet for 20s — the gateway may be stuck` 像内部日志；现在告诉用户能做什么：
+  `… no output for 20s — Esc to interrupt, or wait if the gateway is slow`
+  （中文：`… 已 20 秒没有输出 · Esc 中断，或等待网关恢复`）。
+- `⏺ Model` 确认去掉了第三行（`context usage will appear after the first response…`），
+  切换后只打印模型与保存/仅本会话的说明。
+
 ### The end of a TUI run is quiet: one stamp, a collapsed checklist, one error (B168)
 
 A screenshot-driven review of a real 85s TUI run found three pieces of end-of-run noise:
