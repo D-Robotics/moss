@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Run records carry token usage (B159)
+
+- `moss runs show`/`export --json` answered "what did this run cost?" with nothing: the ledger had
+  status, reason and next, but no usage. `RunRecord.usage {inputTokens, outputTokens,
+cacheReadTokens?, cacheCreationTokens?, costUsd?}` is now written by task runs (from the
+  `llm_usage` tap) and headless `-p` chat runs (from the headless print state's usage slices).
+- `moss runs show` prints `usage: 1.4k in / 2 out · cache read 1.3k`; `export` puts the same line
+  in the Markdown; `--json` carries the object. `costUsd` is filled only when every model call has
+  a known price — a gateway without public pricing stays unpriced instead of inventing a number.
+- Loop/workflow/superagent records do not carry usage yet (their ledgers are the source); this is
+  an honest gap, not a display omission.
+
+### 运行账本记录 token 用量（B159）
+
+- `moss runs show`/`export --json` 此前回答不了"这次运行花了多少"：账本只有状态、原因、下一步，没有用量。
+  现在 task 运行（来自 `llm_usage` tap）与 headless `-p` chat（来自 print state 的 usage slices）都会写
+  `RunRecord.usage {inputTokens, outputTokens, cacheReadTokens?, cacheCreationTokens?, costUsd?}`。
+- `moss runs show` 打印 `usage: 1.4k in / 2 out · cache read 1.3k`；`export` 在 Markdown 里给同一行；
+  `--json` 带对象。`costUsd` 只在每个模型调用都有已知价格时填写——没有公开定价的网关保持无价，不编造数字。
+- loop/workflow/superagent 记录暂不带 usage（各自账本是来源）；这是诚实的缺口，不是显示遗漏。
+
 ### Interactive surfaces name the command they can run (B154)
 
 - The first-screen `Next:` line and the post-run hint named shell verbs even inside the REPL and
