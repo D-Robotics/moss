@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### The mutation notice only fires when a read body actually went stale (B173)
+
+- After B172, `2>/dev/null` no longer produced the notice, but it still printed for every real
+  shell write — including files this run had never read, where there is no read credit to clear
+  and therefore nothing to re-read. In the long screenshot run that meant a notice after almost
+  every command.
+- `invalidateFileState` now reports whether it actually cleared a recorded read; the exec result
+  only prints the notice for those paths (and the wording is shorter: "Re-read before the next
+  surgical edit"). Writing a fresh file is silent.
+
+### 文件变更提示只在读取内容真的过期时出现（B173）
+
+- B172 之后 `2>/dev/null` 不再触发提示，但**真实** shell 写入仍会打印——包括本次运行从未读过的文件，
+  那里没有读取信用可清、也没有东西需要重读。长截图那次运行因此几乎每条命令后都有一行提示。
+- `invalidateFileState` 现在返回"是否真的清掉了已记录的读取"；exec 结果只对这类路径打印提示，
+  并把文案缩短为「Re-read before the next surgical edit」。写入全新文件保持安静。
+
 ### No more `/dev/null` mutation notice; the wait line stops repeating itself (B172)
 
 A long real TUI run showed two wrong lines after every noisy command:
