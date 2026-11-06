@@ -2041,17 +2041,16 @@ function hasUserModelConfig(cfg: ConfigFile): boolean {
 }
 
 /**
- * Conservative fallback context-window size used when the provider's actual
- * window could not be probed. 32k is small enough not to overrun most models
- * yet large enough for functional conversations; the user is prompted to set
- * `agent.contextTokens` explicitly or run `/model` once the value matters.
- *
- * This constant is intentionally NOT a guess at any specific model's window —
- * it means "we don't know, proceed carefully."
+ * Fallback context-window size used when the provider's actual window could not
+ * be probed. It is a deliberate over-estimate (modern models are often 1M+), so
+ * it can exceed a small model's real window: the user is told the value is an
+ * assumption and prompted to run `/model` (probes) or set `agent.contextTokens`.
+ * Compaction still protects long conversations; this constant only decides how
+ * late it starts when nothing better is known.
  *
  * @public
  */
-export const CONSERVATIVE_DEFAULT_UNPROBED = 1_000_000; // changed from 32k — modern models are typically 1M+
+export const CONSERVATIVE_DEFAULT_UNPROBED = 1_000_000;
 
 function projectDeclaresEndpoint(project: ConfigFile | undefined): boolean {
   return project?.provider !== undefined || project?.baseUrl !== undefined;

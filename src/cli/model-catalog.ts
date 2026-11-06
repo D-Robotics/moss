@@ -599,7 +599,7 @@ export async function resolveContextTokensForModel(params: {
 
   // Do NOT fall back to the static name-matching table. It goes stale as
   // provider models change (e.g. deepseek-v4-flash is 1M, not 64k). Be
-  // honest: we couldn't probe, so return the conservative unprobed default.
+  // honest: we couldn't probe, so return the unprobed default (an assumption).
   // The caller (doctor, TUI /model switch) will surface this to the user.
   return { contextTokens: CONSERVATIVE_DEFAULT_UNPROBED, source: 'unprobed' };
 }

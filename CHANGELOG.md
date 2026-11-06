@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### "Unprobed window" copy stops calling an over-estimate conservative (B283)
+
+- `doctor` said "using conservative default of 1M tokens" and `/context` said "conservative 1,000k default" while
+  the constant is deliberately an over-estimate (real windows may be smaller). Both now say
+  `assuming 1M tokens (the real window may be smaller)` / `assuming 1M default (may be smaller; /model probes
+the real value)`, and the `/context` note formats 1000k as `1M`. The constant's docstring and neighbouring
+  comments were rewritten to match what the code actually does.
+
+### "未探测窗口"文案不再把高估值说成保守值（B283）
+
+- `doctor` 写"using conservative default of 1M tokens"，`/context` 写"conservative 1,000k default"，但这个常量
+  是有意的高估（真实窗口可能更小）。现在改成 `assuming 1M tokens (the real window may be smaller)` /
+  `assuming 1M default (may be smaller; /model probes the real value)`，`/context` 把 1000k 格式化为 `1M`；
+  常量的 docstring 与相邻注释也改成与实现一致。
+
 ### `runs follow` says what it is waiting for (B282)
 
 - With no run in flight, `moss runs follow` sat silent for the whole timeout (10m by default) and then

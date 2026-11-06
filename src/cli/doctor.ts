@@ -818,7 +818,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
           warn(
             uiText('context window', '上下文窗口'),
             uiText(
-              `not yet probed — using conservative default of ${humanTokens(tokens)} tokens. Run /model to auto-probe, or set agent.contextTokens in moss config`,
+              `not yet probed — assuming ${humanTokens(tokens)} tokens (the real window may be smaller). Run /model to auto-probe, or set agent.contextTokens in moss config`,
               `尚未探测 — 正在使用保守默认值 ${humanTokens(tokens)} 词元。运行 /model 自动探测，或在 moss 配置里设置 \`agent.contextTokens\``
             )
           )
