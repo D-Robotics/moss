@@ -111,4 +111,38 @@ assert.ok(zh.includes('README.en.md'), 'zh README does not link English');
 assert.ok(en.includes('README.md'), 'en README does not link Chinese');
 ok('the language switch links both ways');
 
+// 8. B267: docs/cli-reference.md is the authoritative command page README
+//    defers to; it drifted for months (missing loop/workflow/review/remember,
+//    plus a broken table row from an unescaped pipe).
+{
+  const ref = read('docs/cli-reference.md');
+  for (const required of [
+    'moss review check',
+    'moss workflow',
+    'moss loop',
+    'moss remember',
+    'moss plugins',
+    'follow` 实时跟随',
+    'moss runs summary',
+    '--out <file\\|->',
+    '--add-dir',
+    '--allowed-tools',
+    '`/remember`',
+    '`/rules`',
+  ]) {
+    assert.ok(ref.includes(required), `docs/cli-reference.md lost \`${required}\``);
+  }
+  const pipeCount = (line) => (line.replace(/\\\|/g, '').match(/\|/g) ?? []).length;
+  const tableRows = ref.split('\n').filter((line) => line.startsWith('| '));
+  assert.ok(tableRows.length >= 20, 'the command/flags tables are present');
+  for (const row of tableRows) {
+    const count = pipeCount(row);
+    assert.ok(
+      count === 3 || count === 4,
+      `broken table row (${count} cells) in docs/cli-reference.md: ${row.slice(0, 80)}`
+    );
+  }
+}
+ok('docs/cli-reference.md lists the current commands and its tables are well formed');
+
 console.log(`[readme-parity] ${checks}/${checks} checks passed`);

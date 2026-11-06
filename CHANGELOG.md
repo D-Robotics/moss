@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### `docs/cli-reference.md` matches the shipped command surface again (B267)
+
+- The page README defers to as the authoritative command reference had drifted: no `loop` / `workflow` /
+  `review` / `remember` / `plugins` / `superagent` rows, a `runs` cell broken by an unescaped `|`, and a
+  flags table missing `--plan`, `--session/--last`, `--add-dir`, `--allowed-tools` and `--mock`.
+- The command table is rewritten from `moss --help --all` (grouped rows, `latest` read paths, `--out=-`),
+  the slash-command paragraph names the current set, and `readme-parity` now guards the page: required
+  commands must stay listed and every table row must have 2–3 cells.
+
+### `docs/cli-reference.md` 重新与实现对齐（B267）
+
+- README 指定的权威命令参考页已过时：缺少 `loop` / `workflow` / `review` / `remember` / `plugins` /
+  `superagent`，`runs` 单元格被未转义的 `|` 截断，flags 表缺少 `--plan`、`--session/--last`、`--add-dir`、
+  `--allowed-tools`、`--mock`。
+- 命令表按 `moss --help --all` 重写（分组行、`latest` 读路径、`--out=-`），斜杠命令段落更新，
+  `readme-parity` 新增守卫：必需命令必须在列、每个表格行 2–3 个单元格。
+
 ### `moss artifacts failures` names its columns (B265)
 
 - Failures printed as three anonymous columns (`task_id  stage  symptom`) while evidence/acceptance had
