@@ -736,6 +736,25 @@ export async function runLoopCommand(
     prompt: options.prompt.slice(0, 500),
     untilTimeoutMs: options.untilTimeoutMs,
   });
+  // B180: a loop is visible as `running` for its whole duration, not only at the end.
+  try {
+    const { writeRunningRecord } = await import('../core/run-ledger.js');
+    await writeRunningRecord(ctx.workspaceDir, {
+      runId: runIdBase,
+      kind: 'loop',
+      goal: options.prompt,
+      startedAt: loopStartedAt,
+      next: `moss loop show ${runIdBase}`,
+      acceptanceCommand: options.until,
+      ...(() => {
+        const agent = ctx.agent as { config?: { model?: unknown } };
+        const model = agent.config?.model;
+        return typeof model === 'string' && model.trim() ? { model } : {};
+      })(),
+    });
+  } catch {
+    /* the loop ledger is the source of truth; the unified row is a read path */
+  }
   let attempts = 0;
   let pendingWaitMs = 0;
   let lastCheck: CheckResult = { exitCode: 1, stdout: '', stderr: '' };

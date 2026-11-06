@@ -225,6 +225,44 @@ export async function listRunRecords(workspaceDir: string): Promise<RunRecord[]>
   return records;
 }
 
+/**
+ * Write the `running` row for an engine whose run id is known up front (loop,
+ * workflow). The final write with the same id overwrites it. `pid`/`host` let a
+ * later read reconcile a crashed owner (B179).
+ */
+export async function writeRunningRecord(
+  workspaceDir: string,
+  input: {
+    runId: string;
+    kind: RunKind;
+    goal: string;
+    startedAt?: number;
+    next?: string;
+    acceptanceCommand?: string;
+    taskId?: string;
+    model?: string;
+  }
+): Promise<void> {
+  const startedAt = input.startedAt ?? Date.now();
+  await writeRunRecord(workspaceDir, {
+    version: 1,
+    runId: input.runId,
+    kind: input.kind,
+    status: 'running',
+    exitCode: 0,
+    startedAt,
+    endedAt: startedAt,
+    durationMs: 0,
+    goal: input.goal,
+    ...(input.taskId ? { taskId: input.taskId } : {}),
+    ...(input.acceptanceCommand ? { acceptanceCommand: input.acceptanceCommand } : {}),
+    ...(input.next ? { next: input.next } : {}),
+    ...(input.model ? { model: input.model } : {}),
+    pid: process.pid,
+    host: os.hostname(),
+  });
+}
+
 /** Read one record by id, or the newest one for `latest` / an empty id. */
 export async function readRunRecord(
   workspaceDir: string,

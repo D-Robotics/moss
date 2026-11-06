@@ -16,8 +16,14 @@ import { pathToFileURL } from 'node:url';
 import { captureProcess } from './lib/proc.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const { listRunRecords, pruneRunRecords, readRunRecord, runRecordPath, writeRunRecord } =
-  await import(pathToFileURL(path.join(root, 'dist/core/run-ledger.js')).href);
+const {
+  listRunRecords,
+  pruneRunRecords,
+  readRunRecord,
+  runRecordPath,
+  writeRunRecord,
+  writeRunningRecord,
+} = await import(pathToFileURL(path.join(root, 'dist/core/run-ledger.js')).href);
 
 let checks = 0;
 const ok = (name) => {
@@ -528,6 +534,48 @@ try {
     false
   );
   ok('a dead owner reconciles a running row to paused; live/foreign/unknown stay running');
+
+  // 14. B180: engines with a known run id publish a running row that the final
+  // write overwrites (one row, not two).
+  await writeRunningRecord(ws, {
+    runId: 'loop_inflight',
+    kind: 'loop',
+    goal: 'inflight loop',
+    next: 'moss loop show loop_inflight',
+    acceptanceCommand: 'test -f x',
+    model: 'deepseek-flash@latest',
+  });
+  const inflight = JSON.parse((await cli(['runs', '--status', 'running', '--json'])).stdout);
+  const inflightRow = inflight.runs.find((row) => row.runId === 'loop_inflight');
+  assert.ok(inflightRow, 'the running row is visible');
+  assert.equal(inflightRow.status, 'running');
+  assert.equal(typeof inflightRow.pid, 'number');
+  await writeRunRecord(ws, {
+    version: 1,
+    runId: 'loop_inflight',
+    kind: 'loop',
+    status: 'completed',
+    exitCode: 0,
+    startedAt: Date.now() - 5_000,
+    endedAt: Date.now(),
+    durationMs: 5_000,
+    goal: 'inflight loop',
+    acceptanceCommand: 'test -f x',
+    model: 'deepseek-flash@latest',
+    artifacts: {},
+  });
+  const afterInflight = JSON.parse((await cli(['runs', '--status', 'running', '--json'])).stdout);
+  assert.equal(
+    afterInflight.runs.some((row) => row.runId === 'loop_inflight'),
+    false,
+    'the final write replaces the running row'
+  );
+  const allInflight = await cli(['runs', '--json']);
+  assert.equal(
+    JSON.parse(allInflight.stdout).runs.filter((row) => row.runId === 'loop_inflight').length,
+    1
+  );
+  ok('a running row from writeRunningRecord is replaced by the final record');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

@@ -306,6 +306,18 @@ async function runPlan(
   state.concurrency = plan.concurrency;
   saveWorkflowState(context.workspaceDir, state);
   console.log(`workflow ${state.runId} (${plan.name}): ${String(plan.steps.length)} step(s)`);
+  // B180: in-flight workflow runs are visible while their steps execute.
+  try {
+    const { writeRunningRecord } = await import('../core/run-ledger.js');
+    await writeRunningRecord(context.workspaceDir, {
+      runId: state.runId,
+      kind: 'workflow',
+      goal: `workflow "${plan.name}" — ${String(plan.steps.length)} step(s)`,
+      next: `moss workflow status ${state.runId}`,
+    });
+  } catch {
+    /* the workflow state file is the source of truth */
+  }
   // B164: one usage file per step under the workflow's own state dir, then
   // aggregated into the single workflow run row.
   const usageDir = path.join(context.workspaceDir, '.moss', 'workflows', state.runId, 'usage');
