@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### A goal/task run is visible from its first planned turn (B181)
+
+- B178–B180 covered superagent/loop/workflow; a `moss goal` run (which can take minutes) still appeared
+  only at the end. As soon as the task engine creates its native task id, the CLI publishes a
+  pid/host-tagged `running` row (next: `moss task status <id>`); the final write awaits that row and
+  overwrites the same id, so the ledger never shows two rows for one task and B179's crash
+  reconciliation applies.
+
+### goal/task 运行从第一个计划回合起即可见（B181）
+
+- B178–B180 覆盖了 superagent/loop/workflow；`moss goal`（可能跑数分钟）仍只在结束时出现。
+  现在任务引擎一创建原生 task id，CLI 就发布带 pid/host 的 `running` 行（next：`moss task status <id>`）；
+  最终写入会先 await 该行再覆盖同一 id，因此一个任务不会出现两行，且自动享有 B179 的崩溃对账。
+
 ### Loop and workflow runs are visible while they run (B180)
 
 - B178/B179 gave superagent in-flight rows; `moss loop` (which can run for minutes across attempts) and
