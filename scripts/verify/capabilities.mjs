@@ -146,6 +146,29 @@ try {
   assert.match(bad.stderr, /unknown argument --bogus/);
   ok('--help prints usage and an unknown flag exits 2');
 
+  // 4b. B153: --kind narrows the text view and rejects bad combinations.
+  const skillsOnly = await cli(['capabilities', '--kind', 'skills']);
+  assert.equal(skillsOnly.status, 0, skillsOnly.stderr);
+  assert.match(skillsOnly.stdout, /skills: 1 .*alpha/);
+  assert.ok(!skillsOnly.stdout.includes('devices:'), 'only the skills block should print');
+  assert.ok(!skillsOnly.stdout.includes('workspace:'), 'the head block is omitted for a section');
+  const toolsKind = await cli(['capabilities', '--kind=tools']);
+  assert.equal(toolsKind.status, 0, toolsKind.stderr);
+  assert.match(toolsKind.stdout, /^tools: \d+ built-in/);
+  assert.ok(!toolsKind.stdout.includes('skills:'));
+  const runtimeKind = await cli(['capabilities', '--kind', 'runtime']);
+  assert.match(runtimeKind.stdout, /surfaces: .*repl/);
+  assert.match(runtimeKind.stdout, /workspace: /);
+  const badKind = await cli(['capabilities', '--kind', 'nope']);
+  assert.equal(badKind.status, 2);
+  assert.match(badKind.stderr, /unknown --kind nope; use runtime, tools/);
+  const jsonKind = await cli(['capabilities', '--kind', 'skills', '--json']);
+  assert.equal(jsonKind.status, 2, '--json already carries every section');
+  assert.match(jsonKind.stderr, /--kind narrows the text view/);
+  const kindHelp = await cli(['capabilities', '--help']);
+  assert.match(kindHelp.stdout, /runtime \| tools \| skills/);
+  ok('--kind narrows to one section and rejects unknown/JSON combinations with 2');
+
   // 5. It is reachable from the full help surface (not a hidden command).
   const full = await cli(['--help', '--all']);
   assert.equal(full.status, 0, full.stderr);

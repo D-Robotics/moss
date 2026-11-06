@@ -134,79 +134,155 @@ export function collectCapabilities(workspaceDir: string, configDir: string): Ca
   };
 }
 
+/** Sections `--kind` can narrow to; the text view shows one block. */
+export const CAPABILITY_KINDS = [
+  'runtime',
+  'tools',
+  'skills',
+  'commands',
+  'agents',
+  'hooks',
+  'mcp',
+  'devices',
+] as const;
+export type CapabilityKind = (typeof CAPABILITY_KINDS)[number];
+
 export function renderCapabilitiesUsage(zh = isZhLocale()): string {
   return zh
     ? [
         '用法：',
-        '  moss capabilities [--json]',
+        '  moss capabilities [--json] [--kind <section>]',
         '',
         '一屏看清当前安装的能力：工具、内置斜杠命令、技能、自定义命令、子代理、',
         'hooks、MCP 服务器、已注册设备。只读，不需要模型配置。',
         '',
+        `  可收窄的 section：${CAPABILITY_KINDS.join(' | ')}`,
+        '',
         '示例：',
         '  moss capabilities',
         '  moss capabilities --json',
+        '  moss capabilities --kind skills',
       ].join('\n')
     : [
         'Usage:',
-        '  moss capabilities [--json]',
+        '  moss capabilities [--json] [--kind <section>]',
         '',
         'One screen for what this install can do: tools, built-in slash commands,',
         'skills, custom commands, sub-agents, hooks, MCP servers and registered devices.',
         'Read-only; needs no model configuration.',
         '',
+        `  sections: ${CAPABILITY_KINDS.join(' | ')}`,
+        '',
         'Examples:',
         '  moss capabilities',
         '  moss capabilities --json',
+        '  moss capabilities --kind skills',
       ].join('\n');
 }
 
-export function renderCapabilities(snapshot: CapabilitiesSnapshot, zh = isZhLocale()): string {
+export function renderCapabilities(
+  snapshot: CapabilitiesSnapshot,
+  zh = isZhLocale(),
+  kind?: CapabilityKind
+): string {
   const t = (en: string, cn: string): string => (zh ? cn : en);
-  const lines = [
-    t(
-      `moss ${snapshot.runtime.moss} · node ${snapshot.runtime.node} · ${snapshot.runtime.platform}/${snapshot.runtime.arch}`,
-      `moss ${snapshot.runtime.moss} · node ${snapshot.runtime.node} · ${snapshot.runtime.platform}/${snapshot.runtime.arch}`
-    ),
-    `${t('workspace', '工作区')}: ${snapshot.runtime.workspace}`,
-    `${t('config', '配置')}: ${snapshot.runtime.configDir}`,
-    '',
-    `${t('surfaces', '交互面')}: ${snapshot.surfaces.join(' · ')}`,
-    `${t('tools', '工具')}: ${snapshot.tools.total} ${t('built-in', '内置')} (${snapshot.tools.device} ${t('device', '设备')}) · ${t(
-      'slash commands',
-      '内置斜杠命令'
-    )}: ${snapshot.slashCommands.builtin}`,
-    `${t('skills', '技能')}: ${snapshot.skills.total} (${t('workspace', '工作区')} ${snapshot.skills.workspace} · ${t(
-      'user',
-      '用户'
-    )} ${snapshot.skills.user})${snapshot.skills.names.length > 0 ? ` — ${snapshot.skills.names.join(', ')}` : ''}`,
-    `${t('custom commands', '自定义命令')}: ${snapshot.commands.total}${
-      snapshot.commands.names.length > 0
-        ? ` — ${snapshot.commands.names.map((name) => `/${name}`).join(', ')}`
-        : ''
-    }`,
-    `${t('sub-agents', '子代理')}: ${snapshot.agents.total}${
-      snapshot.agents.names.length > 0 ? ` — ${snapshot.agents.names.join(', ')}` : ''
-    }`,
-    `${t('hooks', '钩子')}: ${snapshot.hooks.total}${
-      snapshot.hooks.total > 0
-        ? ` — ${Object.entries(snapshot.hooks.events)
-            .map(([event, count]) => `${event} ${count}`)
-            .join(' · ')}`
-        : ''
-    }`,
-    `${t('MCP', 'MCP')}: ${snapshot.mcp.total}${
-      snapshot.mcp.names.length > 0 ? ` — ${snapshot.mcp.names.join(', ')}` : ''
-    }`,
-    `${t('devices', '设备')}: ${snapshot.devices.total}${
-      snapshot.devices.ids.length > 0 ? ` — ${snapshot.devices.ids.join(', ')}` : ''
-    }`,
-    '',
-    t(
-      'grow it: `moss skill create`, `.moss/commands/*.md`, `.moss/agents/*.md`, `moss plugins install`, `moss mcp add`',
-      '扩展：`moss skill create`、`.moss/commands/*.md`、`.moss/agents/*.md`、`moss plugins install`、`moss mcp add`'
-    ),
+  const blocks: { kind: CapabilityKind | 'head' | 'grow'; lines: string[] }[] = [
+    {
+      kind: 'head',
+      lines: [
+        t(
+          `moss ${snapshot.runtime.moss} · node ${snapshot.runtime.node} · ${snapshot.runtime.platform}/${snapshot.runtime.arch}`,
+          `moss ${snapshot.runtime.moss} · node ${snapshot.runtime.node} · ${snapshot.runtime.platform}/${snapshot.runtime.arch}`
+        ),
+        `${t('workspace', '工作区')}: ${snapshot.runtime.workspace}`,
+        `${t('config', '配置')}: ${snapshot.runtime.configDir}`,
+        '',
+      ],
+    },
+    {
+      kind: 'runtime',
+      lines: [
+        `${t('surfaces', '交互面')}: ${snapshot.surfaces.join(' · ')}`,
+        `${t('built-in slash commands', '内置斜杠命令')}: ${snapshot.slashCommands.builtin}`,
+      ],
+    },
+    {
+      kind: 'tools',
+      lines: [
+        `${t('tools', '工具')}: ${snapshot.tools.total} ${t('built-in', '内置')} (${snapshot.tools.device} ${t('device', '设备')})`,
+      ],
+    },
+    {
+      kind: 'skills',
+      lines: [
+        `${t('skills', '技能')}: ${snapshot.skills.total} (${t('workspace', '工作区')} ${snapshot.skills.workspace} · ${t(
+          'user',
+          '用户'
+        )} ${snapshot.skills.user})${snapshot.skills.names.length > 0 ? ` — ${snapshot.skills.names.join(', ')}` : ''}`,
+      ],
+    },
+    {
+      kind: 'commands',
+      lines: [
+        `${t('custom commands', '自定义命令')}: ${snapshot.commands.total}${
+          snapshot.commands.names.length > 0
+            ? ` — ${snapshot.commands.names.map((name) => `/${name}`).join(', ')}`
+            : ''
+        }`,
+      ],
+    },
+    {
+      kind: 'agents',
+      lines: [
+        `${t('sub-agents', '子代理')}: ${snapshot.agents.total}${
+          snapshot.agents.names.length > 0 ? ` — ${snapshot.agents.names.join(', ')}` : ''
+        }`,
+      ],
+    },
+    {
+      kind: 'hooks',
+      lines: [
+        `${t('hooks', '钩子')}: ${snapshot.hooks.total}${
+          snapshot.hooks.total > 0
+            ? ` — ${Object.entries(snapshot.hooks.events)
+                .map(([event, count]) => `${event} ${count}`)
+                .join(' · ')}`
+            : ''
+        }`,
+      ],
+    },
+    {
+      kind: 'mcp',
+      lines: [
+        `${t('MCP', 'MCP')}: ${snapshot.mcp.total}${
+          snapshot.mcp.names.length > 0 ? ` — ${snapshot.mcp.names.join(', ')}` : ''
+        }`,
+      ],
+    },
+    {
+      kind: 'devices',
+      lines: [
+        `${t('devices', '设备')}: ${snapshot.devices.total}${
+          snapshot.devices.ids.length > 0 ? ` — ${snapshot.devices.ids.join(', ')}` : ''
+        }`,
+      ],
+    },
+    {
+      kind: 'grow',
+      lines: [
+        '',
+        t(
+          'grow it: `moss skill create`, `.moss/commands/*.md`, `.moss/agents/*.md`, `moss plugins install`, `moss mcp add`',
+          '扩展：`moss skill create`、`.moss/commands/*.md`、`.moss/agents/*.md`、`moss plugins install`、`moss mcp add`'
+        ),
+      ],
+    },
   ];
+  if (!kind) return blocks.flatMap((block) => block.lines).join('\n');
+  const block = blocks.find((entry) => entry.kind === kind);
+  if (!block) return '';
+  const lines = [...block.lines];
+  if (kind === 'runtime') lines.unshift(...blocks[0]!.lines);
   return lines.join('\n');
 }
 
@@ -225,19 +301,38 @@ export async function runCapabilitiesCommand(
     ctx.output ?? ((stream: 'stdout' | 'stderr', text: string) => process[stream].write(text));
   const zh = isZhLocale();
   let json = ctx.outputJson === true;
-  for (const arg of args) {
+  let kind: CapabilityKind | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] as string;
     if (arg === '--json') json = true;
     else if (arg === '--help' || arg === '-h') {
       output('stdout', `${renderCapabilitiesUsage(zh)}\n`);
       return 0;
+    } else if (arg === '--kind' || arg.startsWith('--kind=')) {
+      const raw = (arg.includes('=') ? arg.slice('--kind='.length) : (args[++i] ?? '')).trim();
+      if (!CAPABILITY_KINDS.includes(raw as CapabilityKind)) {
+        output(
+          'stderr',
+          `unknown --kind ${raw || '(empty)'}; use ${CAPABILITY_KINDS.join(', ')}\n\n${renderCapabilitiesUsage(zh)}\n`
+        );
+        return 2;
+      }
+      kind = raw as CapabilityKind;
     } else {
       output('stderr', `unknown argument ${arg}\n\n${renderCapabilitiesUsage(zh)}\n`);
       return 2;
     }
   }
+  if (kind && json) {
+    output(
+      'stderr',
+      `${zh ? '--kind 只收窄文本视图；--json 已包含全部 section' : '--kind narrows the text view; --json already carries every section'}\n`
+    );
+    return 2;
+  }
   const configDir = ctx.configDir ?? resolveConfigDir();
   const snapshot = collectCapabilities(ctx.workspace, configDir);
   if (json) output('stdout', `${JSON.stringify(snapshot, null, 2)}\n`);
-  else output('stdout', `${renderCapabilities(snapshot, zh)}\n`);
+  else output('stdout', `${renderCapabilities(snapshot, zh, kind)}\n`);
   return 0;
 }

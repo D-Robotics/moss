@@ -129,6 +129,12 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
+        command: '/capabilities',
+        args: '[--json] [--kind <section>]',
+        description: 'one screen for tools/skills/commands/agents/hooks/MCP/devices (read-only)',
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/doctor',
         description: 'health-check model, egress, and config in this session',
         availableDuringRun: 'immediate',

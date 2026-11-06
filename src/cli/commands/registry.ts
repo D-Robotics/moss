@@ -219,6 +219,29 @@ const runsCommand: CommandSpec = {
   },
 };
 
+const capabilitiesCommand: CommandSpec = {
+  name: '/capabilities',
+  summary: 'one screen for tools/skills/commands/agents/hooks/MCP/devices (read-only)',
+  async run(ctx, args) {
+    const { runCapabilitiesCommand } = await import('../capabilities-command.js');
+    const tokens = args.trim() ? args.trim().split(/\s+/) : [];
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await runCapabilitiesCommand(tokens, {
+      workspace: ctx.workspace,
+      ...(tokens.includes('--json') ? { outputJson: true } : {}),
+      output: (stream, text) => {
+        (stream === 'stderr' ? err : out).push(text.trimEnd());
+      },
+    });
+    const stdout = out.join('\n').trim();
+    const stderr = err.join('\n').trim();
+    if (stdout) ctx.say('system', stdout);
+    if (stderr) ctx.say('error', stderr);
+    if (code !== 0 && !stderr) ctx.say('error', `moss capabilities exited ${code}`);
+  },
+};
+
 const doctorCommand: CommandSpec = {
   name: '/doctor',
   summary: 'health-check model, egress, and config in this session',
@@ -1133,6 +1156,7 @@ const COMMANDS: readonly CommandSpec[] = [
   todosCommand,
   statusCommand,
   runsCommand,
+  capabilitiesCommand,
   doctorCommand,
   languageCommand,
   trustCommand,
