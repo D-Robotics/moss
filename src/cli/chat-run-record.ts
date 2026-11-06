@@ -9,7 +9,7 @@
  * not an auditable run, and one row per chat turn would drown `moss runs`.
  */
 import type { RunOutcomeStatus } from './run-outcome.js';
-import type { RunRecord, RunRecordStatus } from '../core/run-ledger.js';
+import type { RunRecord, RunRecordStatus, RunRecordUsage } from '../core/run-ledger.js';
 
 /** Progress hint for a non-completed one-shot run (printed AND recorded). */
 export function nextStepForChatOutcome(status: RunOutcomeStatus): string | undefined {
@@ -36,6 +36,7 @@ export interface ChatRunRecordInput {
   sessionKey: string;
   startedAt: number;
   endedAt: number;
+  usage?: RunRecordUsage;
 }
 
 export function buildChatRunRecord(input: ChatRunRecordInput): RunRecord {
@@ -54,6 +55,7 @@ export function buildChatRunRecord(input: ChatRunRecordInput): RunRecord {
     sessionKey: input.sessionKey,
     ...(status === 'completed' ? {} : { reason: input.reason }),
     ...(next ? { next } : {}),
+    ...(input.usage ? { usage: input.usage } : {}),
     artifacts: { session: `.moss/sessions/${input.sessionKey}.jsonl` },
   };
 }

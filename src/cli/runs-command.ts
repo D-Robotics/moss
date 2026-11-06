@@ -14,6 +14,7 @@ import {
   type RunKind,
 } from '../core/run-ledger.js';
 import { isZhLocale, uiText } from './cli-locale.js';
+import { formatRunUsage } from './run-usage.js';
 
 const RUN_STATUSES: readonly RunRecordStatus[] = [
   'completed',
@@ -259,6 +260,8 @@ function renderShow(record: RunRecord, zh: boolean): string {
         `: attempts ${record.attempts ?? 0} · repairs ${record.repairs ?? 0} · failures ${record.failures ?? 0} · turns ${record.turns ?? 0}`
     );
   }
+  const usageLine = formatRunUsage(record.usage, zh);
+  if (usageLine) lines.push(usageLine);
   if (record.reason) lines.push(uiText('reason', '原因') + `: ${record.reason}`);
   if (record.next) lines.push(uiText('next', '下一步') + `: ${record.next}`);
   if (record.artifacts) {
@@ -292,6 +295,8 @@ export function renderRunMarkdown(record: RunRecord): string {
       `- attempts: ${record.attempts ?? 0} · repairs: ${record.repairs ?? 0} · failures: ${record.failures ?? 0} · turns: ${record.turns ?? 0}`
     );
   }
+  const usageLine = formatRunUsage(record.usage, false);
+  if (usageLine) lines.push(`- ${usageLine}`);
   if (record.reason) lines.push(`- reason: ${record.reason}`);
   if (record.next) lines.push(`- next: \`${record.next}\``);
   const artifacts = Object.entries(record.artifacts ?? {})

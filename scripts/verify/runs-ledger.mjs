@@ -233,6 +233,31 @@ try {
   );
   assert.equal(combined.total, 1);
   assert.equal(combined.runs[0].runId, 'task_fail');
+  // B159: usage rides on the record and shows in both human views.
+  const usageRecord = {
+    version: 1,
+    runId: 'usage_run',
+    kind: 'task',
+    status: 'completed',
+    exitCode: 0,
+    startedAt: 9_000,
+    endedAt: 10_000,
+    durationMs: 1_000,
+    goal: 'usage probe',
+    usage: { inputTokens: 12_345, outputTokens: 678, cacheReadTokens: 4_000, costUsd: 0.0123 },
+  };
+  await writeRunRecord(ws, usageRecord);
+  const usageShow = await cli(['runs', 'show', 'usage_run']);
+  assert.equal(usageShow.status, 0, usageShow.stderr);
+  assert.match(
+    usageShow.stdout,
+    /usage: 12\.3k in \/ 678 out · cache read 4\.0k · ~\$0\.0123 \(est\.\)/
+  );
+  const usageMd = await cli(['runs', 'export', 'usage_run']);
+  assert.match(usageMd.stdout, /^- usage: 12\.3k in \/ 678 out/m);
+  const usageJson = JSON.parse((await cli(['runs', 'show', 'usage_run', '--json'])).stdout);
+  assert.deepEqual(usageJson.usage, usageRecord.usage);
+
   const kindTable = await cli(['runs', 'list', '--kind', 'loop']);
   assert.match(kindTable.stdout, /— kind loop \(1\)/);
   const badKind = await cli(['runs', 'list', '--kind', 'nope']);

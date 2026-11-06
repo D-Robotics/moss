@@ -901,10 +901,16 @@ export async function runOneShot(
     process.env.MOSS_NO_RUN_LEDGER !== '1'
   ) {
     try {
-      const [{ writeRunRecord }, { buildChatRunRecord }] = await Promise.all([
-        import('../core/run-ledger.js'),
-        import('./chat-run-record.js'),
-      ]);
+      const [{ writeRunRecord }, { buildChatRunRecord }, { runUsageFromSlices }] =
+        await Promise.all([
+          import('../core/run-ledger.js'),
+          import('./chat-run-record.js'),
+          import('./run-usage.js'),
+        ]);
+      const usage = runUsageFromSlices(state.usageSlices ?? [], {
+        ...(pricingOverrides ? { overrides: pricingOverrides } : {}),
+        ...(baseUrl ? { baseUrl } : {}),
+      });
       await writeRunRecord(
         workspaceDir,
         buildChatRunRecord({
@@ -918,6 +924,7 @@ export async function runOneShot(
           sessionKey,
           startedAt: runStartedAt,
           endedAt: Date.now(),
+          ...(usage ? { usage } : {}),
         })
       );
     } catch (err) {

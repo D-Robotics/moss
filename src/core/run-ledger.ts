@@ -19,6 +19,16 @@ import type { RunOutcomeStatus } from '../cli/run-outcome.js';
 /** Which engine produced the run. New engines add a kind here, not a ledger. */
 export type RunKind = 'task' | 'loop' | 'workflow' | 'superagent' | 'chat';
 
+/** Token/cost summary for one run (B155). */
+export interface RunRecordUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  /** Estimated USD when every model call had a known price. */
+  costUsd?: number;
+}
+
 /** Gate vocabulary plus `interrupted` (paused, resumable — not a failure). */
 export type RunRecordStatus = RunOutcomeStatus | 'interrupted';
 
@@ -46,6 +56,8 @@ export interface RunRecord {
   /** The single command that moves it forward (`moss task resume …`). */
   next?: string;
   /** Workspace-relative paths of the engine ledgers that hold the details. */
+  /** Token/cost summary for the run, when the engine collected one (B155). */
+  usage?: RunRecordUsage;
   artifacts?: {
     taskEvents?: string;
     evidence?: string;

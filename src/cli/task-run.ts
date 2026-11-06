@@ -19,6 +19,7 @@ import {
   summarizeTaskRun,
 } from '../core/task/task-engine.js';
 import { createAgentTurnRunner } from '../core/task/agent-turn.js';
+import { runUsageFromSlices } from './run-usage.js';
 import {
   getTaskStateSnapshot,
   listTaskEvents,
@@ -590,6 +591,7 @@ export function parseLlmUsageStdout(text: string): LlmUsageStdout | null {
 function tapUsage(ctx: TaskCommandContext): {
   onAgentEvent: (event: MossAgentEvent) => void;
   line: () => string | null;
+  usage: () => import('../core/run-ledger.js').RunRecordUsage | undefined;
 } {
   const usage = createSessionUsageAccumulator();
   return {
@@ -605,6 +607,11 @@ function tapUsage(ctx: TaskCommandContext): {
         input_tokens: summary.inputTokens,
         output_tokens: summary.outputTokens,
       });
+    },
+    usage() {
+      const summary = usage.summary();
+      if (summary.calls === 0) return undefined;
+      return runUsageFromSlices(summary.slices);
     },
   };
 }
@@ -666,7 +673,8 @@ function runRecordForTask(
   startedAt: number,
   goal: string,
   acceptanceCommand: string | undefined,
-  sessionKey: string
+  sessionKey: string,
+  usage?: import('../core/run-ledger.js').RunRecordUsage
 ): RunRecord {
   const endedAt = Date.now();
   const status: RunRecordStatus =
@@ -699,6 +707,7 @@ function runRecordForTask(
     // history and must not be attached to a PASS row.
     ...(reason && status !== 'completed' ? { reason } : {}),
     ...(status === 'completed' ? {} : { next: `moss task resume ${result.snapshot.taskId}` }),
+    ...(usage ? { usage } : {}),
     artifacts: {
       taskEvents: '.moss/task-events.jsonl',
       evidence: '.moss/evidence.jsonl',
@@ -713,7 +722,8 @@ async function recordRun(
   startedAt: number,
   goal: string,
   acceptanceCommand: string | undefined,
-  output: (stream: 'stdout' | 'stderr', text: string) => void
+  output: (stream: 'stdout' | 'stderr', text: string) => void,
+  usage?: import('../core/run-ledger.js').RunRecordUsage
 ): Promise<void> {
   try {
     await recordGoalRun(ctx.workspace, {
@@ -735,7 +745,7 @@ async function recordRun(
   try {
     await writeRunRecord(
       ctx.workspace,
-      runRecordForTask(result, startedAt, goal, acceptanceCommand, ctx.sessionKey)
+      runRecordForTask(result, startedAt, goal, acceptanceCommand, ctx.sessionKey, usage)
     );
   } catch (err) {
     output('stderr', `[task] could not write the run ledger: ${errorMessage(err)}\n`);
@@ -806,7 +816,7 @@ export async function runTaskCommand(
     output('stdout', summarizeTaskRun(result, locale) + '\n');
     const usageLine = usageTap.line();
     if (usageLine) output('stdout', `${usageLine}\n`);
-    await recordRun(ctx, result, startedAt, goal, flags.accept, output);
+    await recordRun(ctx, result, startedAt, goal, flags.accept, output, usageTap.usage());
     return taskOutcomeExitCode(result.outcome);
   }
 
@@ -851,7 +861,15 @@ export async function runTaskCommand(
     output('stdout', summarizeTaskRun(result, locale) + '\n');
     const usageLine = usageTap.line();
     if (usageLine) output('stdout', `${usageLine}\n`);
-    await recordRun(ctx, result, startedAt, result.snapshot.goal, resumeFlags.accept, output);
+    await recordRun(
+      ctx,
+      result,
+      startedAt,
+      result.snapshot.goal,
+      resumeFlags.accept,
+      output,
+      usageTap.usage()
+    );
     return taskOutcomeExitCode(result.outcome);
   }
 
