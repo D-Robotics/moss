@@ -70,7 +70,8 @@ npm install -g @rdk-moss/agent@latest && moss setup
 **2. 首次进项目：**
 
 ```bash
-moss init        # 检测 test/build/lint 入口，写一份最小 AGENTS.md，并打印下一条验证式运行命令
+moss init        # 确定性扫描：检测 test/build/lint 入口，写一份最小 AGENTS.md，打印下一条验证式运行命令
+# 想要模型补全项目细节：在会话里用 /init（同一个检测结果，更丰富但更慢）
 ```
 
 **3. 选一个交互面：**

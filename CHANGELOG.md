@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### `moss init` and `/init` are one onboarding with two documented modes (B158)
+
+- The same verb had two behaviours: the CLI command is a deterministic scan (no model,
+  never overwrites AGENTS.md) while the interactive `/init` was a generic model prompt
+  ("Analyze this repository..."). They could claim different commands and users had no way
+  to know which they got.
+- `buildInitPrompt` now receives the deterministic `detectProject` result: the model gets
+  the verified entry points (`- test: npm test`, ...) with "keep them verbatim unless
+  running them proves otherwise", or an explicit "no entry point detected - say so"
+  instead of guessing. The review variant also says never to delete a user instruction.
+- Both surfaces name each other: `/init` says it is the model-drafted variant of
+  `moss init`; `moss init` prints a `/init` line for the richer variant. README,
+  cli-reference and AGENTS document the split.
+
+### `moss init` 与 `/init` 是同一套 onboarding 的两种已说明模式（B158）
+
+- 同一个动词曾有两种行为：CLI 命令是确定性扫描（不需要模型、绝不覆盖 AGENTS.md），交互式 `/init`
+  却是一个通用模型提示（"分析这个仓库..."）。两者可能声称不同的命令，用户也无法知道自己拿到哪一种。
+- `buildInitPrompt` 现在注入确定性 `detectProject` 的结果：模型拿到已验证入口
+  （`- test: npm test` ...）与"除非运行证明不同，否则逐字保留"的指令，或者明确的
+  "未检测到入口——如实说明"而不是猜测。review 变体还明确"不得删除用户指令"。
+- 两个界面互相点名：`/init` 说明自己是 `moss init` 的模型草稿版；`moss init` 打印一行指向
+  更丰富的 `/init`。README、cli-reference、AGENTS 都已记录这个分工。
+
 ### The first screen has one next step, and the REPL can resume too (B157)
 
 - After a **completed** run the interactive `Next:` pointed at `/runs` (read the ledger) — the

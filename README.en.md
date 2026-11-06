@@ -69,7 +69,8 @@ Prerequisites, upgrade/uninstall, proxies, Windows and custom gateways: [Install
 **2. First time in a project:**
 
 ```bash
-moss init        # detect test/build/lint entry points, write a minimal AGENTS.md, print the next verified run
+moss init        # deterministic scan: detect test/build/lint entry points, write a minimal AGENTS.md, print the next verified run
+# want model-written project detail? use /init inside a session (same detection, richer but slower)
 ```
 
 **3. Pick a surface:**
