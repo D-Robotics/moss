@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `runs follow` says what it is waiting for (B282)
+
+- With no run in flight, `moss runs follow` sat silent for the whole timeout (10m by default) and then
+  exited 1. It now prints `no run in progress — waiting for a new one (Ctrl+C to stop)` on the first poll,
+  so a user knows the command is alive and what would show up.
+
+### `runs follow` 会说明自己在等什么（B282）
+
+- 没有进行中运行时，`moss runs follow` 会静默等到超时（默认 10m）再 exit 1。现在首次轮询就打印
+  `no run in progress — waiting for a new one (Ctrl+C to stop)`，用户知道命令还活着、在等什么。
+
 ### A `--accept` command that can never pass is refused up front (B281)
 
 - A real probe (`--accept false`) burned 16 attempts and 2.7M input tokens before reporting the obvious

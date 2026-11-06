@@ -670,6 +670,17 @@ export async function runRunsCommand(
       for (const [id, record] of next) seen.set(id, record);
       const running = records.filter((record) => record.status === 'running').length;
       if (running > 0) sawRunning = true;
+      // B282: with nothing in flight the command used to sit silent for the
+      // whole timeout (10m default); say what it is waiting for.
+      if (firstPoll && running === 0 && !json) {
+        output(
+          'stderr',
+          uiText(
+            'no run in progress — waiting for a new one (Ctrl+C to stop)\n',
+            '没有进行中的运行 — 等待新运行（Ctrl+C 退出）\n'
+          )
+        );
+      }
       firstPoll = false;
       if (sawRunning && running === 0) {
         if (!json) output('stdout', uiText('all runs settled', '所有运行已结束') + '\n');
