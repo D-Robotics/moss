@@ -66,7 +66,8 @@ const exhausted = await run([
   'just say hello',
 ]);
 assert.equal(exhausted.status, 1);
-assert.match(exhausted.stdout, /2 attempt\(s\) and `echo boom >&2; exit 7` still exited 7/);
+// The check command text is platform-specific now (cmd.exe vs POSIX sh).
+assert.match(exhausted.stdout, /2 attempt\(s\) and `.*` still exited 7/);
 assert.match(exhausted.stdout, /boom/);
 ok('exhausted attempts exit 1 and show the check output');
 

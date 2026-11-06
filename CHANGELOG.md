@@ -6,7 +6,8 @@
 
 - `loop-command` used POSIX `[ -f flag ]` / `>&2` check commands, which can never pass through `cmd.exe`,
   so the nightly Windows leg reported exit 1 where 0 was expected. The probe now builds cmd-compatible
-  check commands on win32 (`if exist … (exit /b …)`, `echo boom 1>&2 & exit /b 7`).
+  check commands on win32 (`if exist … (exit /b …)`, `echo boom 1>&2 & exit /b 7`), and the
+  failure-message assertion matches the check text without hard-coding the POSIX spelling.
 
 ### 深门禁探针在 Windows 上说平台 shell（B286）
 
