@@ -155,4 +155,36 @@ try {
   ok('the injected <turn-context> preamble is stripped from replay');
 }
 
+// 7. B206: resume never picks an all-empty session as "the latest".
+{
+  const { resolveCliSession } = await import(dist('cli/session.js'));
+  const meta = (key, messageCount, updatedAt) => ({ sessionKey: key, messageCount, updatedAt });
+  const stub = (sessions) => ({
+    listSessions: async () => sessions,
+    exists: async (key) => sessions.some((session) => session.sessionKey === key),
+    loadMessages: async () => [],
+    replaceMessages: async () => {},
+  });
+  const mixed = await resolveCliSession({
+    command: 'resume',
+    store: stub([meta('empty', 0, 2000), meta('full', 3, 1000)]),
+    useLast: true,
+  });
+  assert.equal(mixed.sessionKey, 'full', 'the newest non-empty session wins');
+  const allEmpty = await resolveCliSession({
+    command: 'resume',
+    store: stub([meta('empty', 0, 2000)]),
+    useLast: true,
+  });
+  assert.notEqual(allEmpty.sessionKey, 'empty');
+  assert.match(allEmpty.notice ?? '', /starting a new session/);
+  const explicit = await resolveCliSession({
+    command: 'resume',
+    store: stub([meta('empty', 0, 2000)]),
+    sessionKey: 'empty',
+  });
+  assert.equal(explicit.sessionKey, 'empty', 'an explicit key is still honoured');
+  ok('resume --last/--continue skips all-empty sessions');
+}
+
 console.log(`[rewind-conversation] ${checks}/${checks} checks passed`);

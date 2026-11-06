@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### `--continue` / `resume --last` skip sessions with nothing to resume (B206)
+
+- After `/undo` dropped a session's turns it stayed the newest session, so `moss --continue` resumed
+  an empty conversation (and `moss resume` offered it in the REPL picker). Implicit selection now only
+  considers sessions with at least one message; an explicit key is still honoured.
+- Real check: in a workspace whose newest entry was a 0-message session, `moss --continue` resumed the
+  newest non-empty session and replayed its prompt + answer instead of booting blank.
+
+### `--continue` / `resume --last` 跳过没有内容的会话（B206）
+
+- `/undo` 把某会话的回合清空后，它仍是最新会话，于是 `moss --continue` 恢复了一个空对话（REPL 的 `moss resume`
+  也会把它列出来）。隐式选择现在只考虑至少有一条消息的会话；显式指定 key 仍照常。
+- 真实验证：在一个最新条目是 0 消息会话的工作区里，`moss --continue` 恢复了最新的非空会话，
+  回放了它的提问与回答，而不是启动空白会话。
+
 ### The `/resume` picker lists each session once (B205)
 
 - Opening `/resume` drew the overlay **and** printed the same ten-session list into the transcript

@@ -59,7 +59,11 @@ export async function selectSessionForResume(
   store: SessionStore,
   query?: string
 ): Promise<ResumeSelection> {
-  const sessions = sortRecent(await store.listSessions());
+  // B206: a session with 0 messages (e.g. after /undo dropped its turns) has
+  // nothing to resume; never offer it as the latest match.
+  const sessions = sortRecent(await store.listSessions()).filter(
+    (session) => (session.messageCount ?? 0) > 0
+  );
   const needle = query?.trim().toLowerCase() ?? '';
   const pool = needle
     ? sessions.filter(
@@ -134,7 +138,9 @@ async function resolveExistingSession(
     if (await store.exists(explicit)) return { key: explicit };
     return { key: explicit, error: `No saved session named "${explicit}" in this workspace.` };
   }
-  const sessions = sortRecent(await store.listSessions());
+  const sessions = sortRecent(await store.listSessions()).filter(
+    (session) => (session.messageCount ?? 0) > 0
+  );
   if (sessions.length === 0) return null;
   if (useLast) return { key: sessions[0].sessionKey };
   const selected = await promptForSession(sessions);
