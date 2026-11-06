@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Two full answers for one turn: the superseded one folds (B237)
+
+- Third-audit top-1: a turn nudged into answering again printed both answers in full (`⏺ Fixed …`
+  followed by `⏺ Interpreted …` with the same bullets and a second code block). A fresh answer block
+  arriving while the previous row is also a **fresh** answer block (no tool/result between) now folds
+  the earlier one to a single dim line; paragraphs of one answer (`continuation` rows) are untouched.
+- Real `done`-gate reproduction: two assistant messages (`done` → nudge → `done`) now render as one
+  folded progress line plus the final answer instead of two full answers.
+
+### 一轮两个完整回答：被取代的那个折叠（B237）
+
+- 第三轮审计 top1：被 nudged 再次作答的回合会把两个回答都完整打印（`⏺ Fixed …` 后又有
+  `⏺ Interpreted …`，同样的 bullet 和第二段代码块）。现在，当新的回答块前面也是**全新的**回答块
+  （中间没有工具/结果）时，前一块折叠为一行 dim；同一答案的段落（`continuation` 行）不受影响。
+- 真实 `done`-gate 复现：两条 assistant 消息（`done` → nudge → `done`）现在显示为一行折叠进度 + 最终回答，
+  而不是两个完整回答。
+
 ### The PostToolUse probe waits for content, not just file existence (B236)
 
 - `scripts/verify/skill-hooks.mjs` polled `existsSync(marker)` then read the file. On a slow CI runner the

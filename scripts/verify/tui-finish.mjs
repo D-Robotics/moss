@@ -387,6 +387,21 @@ ok('the status row can say "Esc keeps planning" for the plan gate');
   renderBridge.markProgressNarration(userStore);
   assert.equal(userStore.rows[0].progress, undefined, 'user rows are never folded');
 
+  // B237: a second fresh answer block supersedes the first; paragraphs of one
+  // answer (continuation rows) and non-answer rows are untouched.
+  const superseded = { rows: [{ id: 3, kind: 'assistant', text: 'first answer' }], version: 0 };
+  renderBridge.foldSupersededAnswer(superseded);
+  assert.equal(superseded.rows[0].progress, true);
+  const paragraph = {
+    rows: [{ id: 4, kind: 'assistant', text: 'second paragraph', continuation: true }],
+    version: 0,
+  };
+  renderBridge.foldSupersededAnswer(paragraph);
+  assert.equal(paragraph.rows[0].progress, undefined);
+  const toolLast = { rows: [{ id: 5, kind: 'tool', text: 'Read(a.txt)' }], version: 0 };
+  renderBridge.foldSupersededAnswer(toolLast);
+  assert.equal(toolLast.rows[0].progress, undefined);
+
   const plan = toolSummary.summarizeToolCompletion(
     'exit_plan',
     {},
@@ -465,6 +480,21 @@ ok('a non-zero exec exit reads as failed and lifts the error line');
   assert.match(sources[0], /project-a[\\/]\.moss[\\/]prompt-history\.jsonl$/);
 }
 ok('prompt history is per workspace (no shared config-dir merge)');
+
+// 5i. B237: the bridge folds the earlier of two fresh answer blocks (a model
+// turn nudged into answering again must not print two full answers).
+{
+  const store = renderBridge.createTuiStore();
+  if (typeof renderBridge.beginRun === 'function') renderBridge.beginRun(store, {});
+  renderBridge.applyAgentEvent(store, { type: 'text_delta', delta: 'first answer\n\n' });
+  renderBridge.applyAgentEvent(store, { type: 'turn_end' });
+  renderBridge.applyAgentEvent(store, { type: 'text_delta', delta: 'second answer\n\n' });
+  const answers = store.rows.filter((row) => row.kind === 'assistant');
+  assert.equal(answers.length, 2);
+  assert.equal(answers[0].progress, true, 'the superseded first answer folds');
+  assert.equal(answers[1].progress, undefined, 'the latest answer stays full');
+}
+ok('two fresh answer blocks: the earlier one folds, the latest stays full');
 
 // 6. B194: the status row labels each number instead of imploding.
 {

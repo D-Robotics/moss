@@ -299,11 +299,27 @@ export function markProgressNarration(store: TuiStore): void {
   store.rows[index] = { ...last, progress: true };
 }
 
+/**
+ * B237: two *fresh* answer blocks in a row (no tool/result between them) mean the
+ * first one was superseded — the model was nudged and answered again, or the
+ * reply was continued in a later turn. Fold the earlier block to one dim line so
+ * the transcript does not print two full answers for one piece of work.
+ * Paragraphs of a single answer are `continuation` rows and are left alone.
+ */
+export function foldSupersededAnswer(store: TuiStore): void {
+  const index = store.rows.length - 1;
+  const last = store.rows[index];
+  if (last?.kind !== 'assistant' || last.continuation === true || last.progress === true) return;
+  store.rows[index] = { ...last, progress: true };
+}
+
 export function flushProse(store: TuiStore): void {
   const visible = userFacingAssistantText(store.run.streamingText);
   if (visible.trim()) {
+    const continuation = Boolean(store.run.committedText);
+    if (!continuation) foldSupersededAnswer(store);
     appendRow(store, 'assistant', visible, {
-      ...(store.run.committedText ? { continuation: true } : {}),
+      ...(continuation ? { continuation: true } : {}),
       ...takeReasoning(store),
     });
     // Closed blocks were remembered when text_delta committed them. This is
@@ -470,6 +486,7 @@ export function reconcileFinalResponse(store: TuiStore, response: string | undef
   }
   if (shown && replaceRunAssistantRows(store, visibleResponse)) return;
   if (!store.run.streamingText.trim()) {
+    foldSupersededAnswer(store);
     appendRow(store, 'assistant', visibleResponse);
     return;
   }
@@ -493,9 +510,9 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       if (split.commit) {
         const visible = userFacingAssistantText(split.commit);
         if (visible.trim()) {
-          appendRow(store, 'assistant', visible, {
-            continuation: Boolean(store.run.committedText),
-          });
+          const continuation = Boolean(store.run.committedText);
+          if (!continuation) foldSupersededAnswer(store);
+          appendRow(store, 'assistant', visible, { continuation });
           store.run.committedText = `${store.run.committedText ?? ''}${visible}\n`;
           rememberFlushed(store, visible);
         }
@@ -883,8 +900,10 @@ export function endRun(store: TuiStore, halted: boolean): void {
     // This run's rows already contain the live tail (often the whole answer
     // after a paragraph commit). Appending it paints the opening sentence again.
     if (!(shown && shown.includes(want))) {
+      const continuation = Boolean(store.run.committedText);
+      if (!continuation) foldSupersededAnswer(store);
       appendRow(store, 'assistant', visible, {
-        ...(store.run.committedText ? { continuation: true } : {}),
+        ...(continuation ? { continuation: true } : {}),
         ...takeReasoning(store),
       });
     }
