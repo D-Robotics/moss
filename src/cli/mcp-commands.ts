@@ -11,6 +11,7 @@ import type { McpServerConfig } from '../core/mcp/types.js';
 import { isZhLocale } from './cli-locale.js';
 import { loadMcpConfigs } from './mcp-config.js';
 import {
+  effectiveMcpConfigs,
   rdkDocsAutoConnectEnabled,
   rdkDocsInactiveNotice,
   rdkDocsOptOut,
@@ -243,15 +244,22 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
   const rdkDocs = readRdkDocsFlag(ctx.rdkDocs);
   const enableInput = { env, rdkDocs, workspaceDir: ctx.workspaceDir };
   const effectiveConfigs = (purpose: 'session' | 'test', testName?: string): McpServerConfig[] => {
-    const loaded = loadMcpConfigs(ctx.workspaceDir, ctx.configDir, env);
-    if (rdkDocsOptOut(env, rdkDocs)) return loaded;
-    if (rdkDocsAutoConnectEnabled(enableInput))
-      return withBuiltinRdkDocs(loaded, true, resolveRdkDocsPackage(ctx.rdkDocs, env));
-    // `moss mcp test rdk-docs` health-checks the builtin even with no device.
-    if (purpose === 'test' && testName === RDK_DOCS_SERVER_NAME) {
-      return withBuiltinRdkDocs(loaded, true, resolveRdkDocsPackage(ctx.rdkDocs, env));
+    // `moss mcp test rdk-docs` health-checks the builtin even when auto-connect
+    // is off; every other view comes from the shared resolver (B291).
+    if (purpose === 'test' && testName === RDK_DOCS_SERVER_NAME && !rdkDocsOptOut(env, rdkDocs)) {
+      const builtin = withBuiltinRdkDocs(
+        loadMcpConfigs(ctx.workspaceDir, ctx.configDir, env),
+        true,
+        resolveRdkDocsPackage(ctx.rdkDocs, env)
+      );
+      return builtin;
     }
-    return loaded;
+    return effectiveMcpConfigs({
+      workspaceDir: ctx.workspaceDir,
+      configDir: ctx.configDir,
+      env,
+      rdkDocs: ctx.rdkDocs,
+    });
   };
 
   if (sub === 'list') {

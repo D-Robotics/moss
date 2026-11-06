@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `/capabilities` and `mcp list` resolve MCP servers the same way (B291)
+
+- A real session with the device host set showed `mcp: 1 — rdk-docs` in `moss mcp list` and `MCP: 0` in
+  `/capabilities`: the capability snapshot read the raw config files and never added the builtin rdk-docs.
+  Both now call `effectiveMcpConfigs` (the same opt-out / auto-connect / package-resolution rules), so the
+  server list of one session cannot disagree between surfaces.
+
+### `/capabilities` 与 `mcp list` 用同一套 MCP 解析（B291）
+
+- 真实会话里设置了 device host 时：`moss mcp list` 显示 `mcp: 1 — rdk-docs`，而 `/capabilities` 显示 `MCP: 0`；
+  能力快照只读原始配置文件，从不加入内建 rdk-docs。现在两者共用 `effectiveMcpConfigs`（同样的 opt-out /
+  自动连接 / 包解析规则），同一会话的服务列表不会在两个界面之间矛盾。
+
 ### `/capabilities` counts the same skills the session loaded (B289/B290)
 
 - A real session showed `context: … 19 skills` on the first screen and `skills: 0` in `/capabilities`:

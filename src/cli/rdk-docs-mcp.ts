@@ -15,6 +15,7 @@ import {
 import type { McpServerConfig } from '../core/mcp/types.js';
 import { ErrorCode, throwMoss } from '../errors.js';
 import { tui } from './tui/copy.js';
+import { loadMcpConfigs } from './mcp-config.js';
 
 export interface RdkDocsConfigValue {
   enabled?: boolean;
@@ -63,6 +64,28 @@ export function resolveRdkDocsPackage(value: unknown, env: NodeJS.ProcessEnv): s
 }
 
 /** Positive opt-out. Env wins so one session can disable a saved `rdkDocs: true`. */
+/**
+ * B291: the MCP list `moss mcp list` shows, including the builtin rdk-docs when
+ * it auto-connects. `/capabilities` used to read the raw files and therefore
+ * reported 0 servers while `mcp list` reported the builtin — one session, two
+ * numbers. Both surfaces now call this.
+ */
+export function effectiveMcpConfigs(input: {
+  workspaceDir: string;
+  configDir: string;
+  env?: NodeJS.ProcessEnv;
+  rdkDocs?: unknown;
+}): McpServerConfig[] {
+  const env = input.env ?? process.env;
+  const rdkDocs = readRdkDocsFlag(input.rdkDocs);
+  const loaded = loadMcpConfigs(input.workspaceDir, input.configDir, env);
+  if (rdkDocsOptOut(env, rdkDocs)) return loaded;
+  if (rdkDocsAutoConnectEnabled({ env, rdkDocs, workspaceDir: input.workspaceDir })) {
+    return withBuiltinRdkDocs(loaded, true, resolveRdkDocsPackage(input.rdkDocs, env));
+  }
+  return loaded;
+}
+
 export function rdkDocsOptOut(env: NodeJS.ProcessEnv, rdkDocs: boolean | undefined): boolean {
   const raw = (env.MOSS_NO_RDK_DOCS ?? '').trim().toLowerCase();
   if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on') return true;

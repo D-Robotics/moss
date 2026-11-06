@@ -166,6 +166,34 @@ try {
   }
   ok('a long skill list is previewed instead of printed in full');
 
+  // 2d. B291: with the builtin rdk-docs auto-connected, /capabilities and
+  // `mcp list` must name the same servers (they used different resolvers).
+  {
+    const rdkEnv = { ...env, MOSS_DEVICE_HOST: 'probe-host' };
+    delete rdkEnv.MOSS_NO_RDK_DOCS;
+    const cap = await captureProcess(
+      process.execPath,
+      [path.join(root, 'dist', 'cli.js'), 'capabilities', '--json'],
+      { cwd: ws, env: rdkEnv, timeoutMs: 60_000 }
+    );
+    assert.equal(cap.status, 0, cap.stderr);
+    const capJson = JSON.parse(cap.stdout);
+    const mcpList = await captureProcess(
+      process.execPath,
+      [path.join(root, 'dist', 'cli.js'), 'mcp', 'list', '--json'],
+      { cwd: ws, env: rdkEnv, timeoutMs: 60_000 }
+    );
+    assert.equal(mcpList.status, 0, mcpList.stderr);
+    const listJson = JSON.parse(mcpList.stdout);
+    assert.deepEqual(
+      [...capJson.mcp.names].sort(),
+      listJson.servers.map((server) => server.name).sort(),
+      'capabilities and mcp list must resolve the builtin the same way'
+    );
+    assert.ok(capJson.mcp.names.includes('rdk-docs'), 'the builtin is part of the session');
+  }
+  ok('capabilities and mcp list resolve the builtin rdk-docs identically');
+
   // 3. A minimal workspace still answers instead of erroring.
   const empty = path.join(tmp, 'empty');
   await fs.mkdir(empty, { recursive: true });

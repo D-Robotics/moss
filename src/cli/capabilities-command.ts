@@ -18,7 +18,8 @@ import { defaultSkillDirSpecs, loadSkillCatalog } from '../core/skills/skill-reg
 import { loadAgentFiles } from '../core/subagent/agent-file-loader.js';
 import { isFolderTrusted } from '../utils/folder-trust-store.js';
 import { loadDeviceRegistry } from '../device/device-registry-file.js';
-import { loadMcpConfigs } from './mcp-config.js';
+import { effectiveMcpConfigs } from './rdk-docs-mcp.js';
+import { loadConfigFile } from './config.js';
 import { resolveConfigDir } from './config.js';
 import { isZhLocale } from './cli-locale.js';
 import { uiText } from '../utils/ui-language.js';
@@ -102,7 +103,19 @@ export function collectCapabilities(workspaceDir: string, configDir: string): Ca
     projectTrust: { trusted, claudeOptIn: trusted },
   }).agents;
   const devices = loadDeviceRegistry(workspaceDir);
-  const mcp = loadMcpConfigs(workspaceDir, configDir, process.env, () => {});
+  // B291: include the builtin rdk-docs exactly when `moss mcp list` does.
+  let rdkDocsConfig: unknown;
+  try {
+    rdkDocsConfig = loadConfigFile().rdkDocs;
+  } catch {
+    rdkDocsConfig = undefined;
+  }
+  const mcp = effectiveMcpConfigs({
+    workspaceDir,
+    configDir,
+    env: process.env,
+    rdkDocs: rdkDocsConfig,
+  });
   return {
     version: 1,
     runtime: {
