@@ -582,10 +582,11 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       continue;
     }
     if (arg === '--max-turns' || arg.startsWith('--max-turns=')) {
-      // `moss task run|resume` owns --max-turns for its own loop budget; eating
-      // it here (B118) silently dropped the flag before task-run.ts could see
-      // it, so `task resume --max-turns 1` could never bound the retry.
-      if (command === 'task') {
+      // `moss task run|resume` and the `goal` shortcut own --max-turns for their
+      // own loop budget; eating it here (B118) silently dropped the flag before
+      // task-run.ts could see it, so `task resume --max-turns 1` (and
+      // `goal --max-turns 1`, B224) could never bound the run.
+      if (command === 'task' || command === 'goal') {
         commandArgs.push(arg);
         continue;
       }

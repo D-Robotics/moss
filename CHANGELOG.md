@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### `moss goal --max-turns N` is no longer swallowed (B224)
+
+- The top-level parser treated `--max-turns` as the chat agent's turn budget for every command except
+  `task`, so the `goal` shortcut lost it before `task-run` could bound the run: `goal … --max-turns 1`
+  planned, executed, repaired, and only stopped after the default budget. It is now preserved for `goal`
+  as well (plus the `task` alias), matching the documented `--max-turns` semantics.
+- Real: `moss goal "say hi in a file" --accept false --max-turns 1 --max-repairs 0` now fails with
+  `turn budget exhausted (1 turns)`, `turns: 1`, and a `next: moss task resume … --max-turns 2`.
+
+### `moss goal --max-turns N` 不再被吞掉（B224）
+
+- 顶层解析器把 `--max-turns` 当作聊天 agent 的轮次预算，除 `task` 外都吃掉，于是 `goal` 快捷方式在 task-run
+  看到它之前就丢了：`goal … --max-turns 1` 仍会规划、执行、修复，直到默认预算。现在 `goal`（以及 `task` 别名）
+  也会保留该 flag，符合文档语义。
+- 真实：`moss goal "say hi in a file" --accept false --max-turns 1 --max-repairs 0` 现在以
+  `turn budget exhausted (1 turns)` 失败，`turns: 1`，并给出 `next: moss task resume … --max-turns 2`。
+
 ### `moss review check --json` for CI gates (B223)
 
 - The review gate had the right exit codes (0 pass / 1 unresolved / 2 none-or-unknown) but only prose,
