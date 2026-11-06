@@ -5,7 +5,7 @@
  *   moss task run <goal...> [--accept "<cmd>"] [--max-repairs N] [--max-turns N] [--device ID]
  *   moss task resume <task_id> [--accept "<cmd>"]
  *   moss task status [task_id] [--json]   (default: latest; --json prints one object)
- *   moss task timeline [task_id]
+ *   moss task timeline [task_id|latest]
  *   moss task list [--limit N] [--status pass|fail|blocked|aborted] [--json]   (goal-run rollup, newest first)
  *
  * Exit code 0 only when the task reached accepted (PASS).
@@ -148,9 +148,9 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       `      --max-turns N    模型轮次预算（默认 ${DEFAULT_MAX_TURNS}）`,
       '      --device ID      契约指定的目标设备标识',
       '  resume <task_id> [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  恢复一个失败/中断/阻塞的任务（可改正验收命令、给本次重试单独的预算）',
-      '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新；--json 输出单个对象供自动化）',
+      '  status [task_id|latest]  当前阶段、计划、失败、裁决（默认：最新；--json 输出单个对象供自动化）',
       '  list [--limit N] [--status pass|fail|blocked|aborted]  目标运行汇总：时间/结果/任务/轮次/耗时/目标；fail/blocked 行还会显示记录的失败原因（↳ 原因：…）与评审裁决（默认最近 20 条；表头给出全账本计数，--status 只筛表格与 JSON）',
-      '  timeline [task_id]   完整生命周期时间线（默认：最新）',
+      '  timeline [task_id|latest]  完整生命周期时间线（默认：最新）',
       '  artifacts [种类]     只读工件：`contracts` | `tasks` | `history` | `evidence` | `deployments` | `acceptance` | `device` | `failures`',
       '  verify [task_id]     用裁决器复验一次（不发起模型回合）',
       '',
@@ -177,7 +177,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     `      --max-turns N    agent turn budget (default ${DEFAULT_MAX_TURNS})`,
     '      --device ID      target device id for the contract',
     '  resume <task_id> [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  resume a failed/abandoned/blocked task with an optional oracle fix and its own budget',
-    '  status [task_id]     current phase, plan, failures, verdict (default: latest; --json prints one object for automation)',
+    '  status [task_id|latest]  current phase, plan, failures, verdict (default: latest; --json prints one object for automation)',
     '  list [--limit N] [--status pass|fail|blocked|aborted]  goal-run rollup: time/outcome/task/turns/duration/run; fail/blocked rows also show the recorded failure reason and review verdict (default 20; the header counts the whole ledger and --status narrows table and JSON)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
     '  artifacts [kind]     read-only artifacts: contracts | tasks | history | evidence | deployments | acceptance | device | failures',
@@ -977,7 +977,11 @@ export async function runTaskCommand(
 
   if (sub === 'status') {
     const json = ctx.outputJson === true || commandArgs.includes('--json');
-    const taskId = commandArgs.slice(1).find((arg) => !arg.startsWith('-'));
+    const rawTaskId = commandArgs.slice(1).find((arg) => !arg.startsWith('-'));
+    // B253: `latest` is the word every other read path accepts (`runs show
+    // latest`, `loop show latest`, `workflow status latest`); with no id the
+    // command already means the newest task.
+    const taskId = rawTaskId === 'latest' ? undefined : rawTaskId;
     const snapshot = taskId
       ? await getTaskStateSnapshot(ctx.workspace, taskId)
       : await latestSnapshot(ctx.workspace);
@@ -1008,9 +1012,11 @@ export async function runTaskCommand(
   }
 
   if (sub === 'timeline') {
-    const snapshot = commandArgs[1]
-      ? await getTaskStateSnapshot(ctx.workspace, commandArgs[1])
-      : await latestSnapshot(ctx.workspace);
+    const rawTarget = commandArgs[1];
+    const snapshot =
+      rawTarget && rawTarget !== 'latest'
+        ? await getTaskStateSnapshot(ctx.workspace, rawTarget)
+        : await latestSnapshot(ctx.workspace);
     if (!snapshot) {
       output('stdout', zh ? '本工作区尚无任务。\n' : 'No tasks in this workspace.\n');
       return 0;

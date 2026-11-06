@@ -276,4 +276,13 @@ assert.deepEqual(afterJson, beforeJson, 'the flag position must not change the o
 assert.deepEqual(afterJson, topLevelJson, 'the top-level --json is honoured');
 ok('--json before the subcommand, after it, and at the top level all print the same object');
 
+// 8. B253: `latest` works for status and timeline (the newest task is the live
+// one created last), matching runs/loop/workflow read paths.
+const latestJson = await runStatusJson(['task', 'status', 'latest', '--json']);
+assert.equal(latestJson.taskId, live.taskId);
+const latestTimeline = await runCli(['task', 'timeline', 'latest']);
+assert.equal(latestTimeline.status, 0, latestTimeline.stderr);
+assert.match(latestTimeline.stdout, /Task created/);
+ok('task status/timeline accept `latest`');
+
 console.log(`[task-status-json] ${String(checks)} checks passed`);

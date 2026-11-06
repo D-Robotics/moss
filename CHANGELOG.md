@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `moss task status|timeline latest` works like the other read paths (B253)
+
+- `moss task status latest` and `moss task timeline latest` answered "No tasks in this workspace" even
+  with tasks present — both treated `latest` as a literal task id, while no argument already meant the
+  newest task and every other read path (`runs show latest`, `loop show latest`, `workflow status latest`)
+  accepts the word. `latest` now resolves to the newest task; unknown ids still report no task.
+
+### `moss task status|timeline latest` 与其他读路径一致（B253）
+
+- 有任务时 `moss task status latest` / `timeline latest` 仍报 "No tasks in this workspace"——两者把 `latest`
+  当成字面 task id，而无参数本来就表示最新任务，其他读路径（`runs show latest`、`loop show latest`、
+  `workflow status latest`）也都接受这个词。现在 `latest` 解析为最新任务；未知 id 仍报无任务。
+
 ### Exported/shared sessions no longer contain harness turns (B252)
 
 - A real `/export` (and `moss sessions export`) wrote `## user` sections containing `[System]` nudges and
