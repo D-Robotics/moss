@@ -23,6 +23,8 @@ import { COMPOSER_MAX_ROWS, createComposer, renderComposerEditor, takeCells } fr
 import { highlightCodeLine, normalizeCodeLang } from './code-style.js';
 import { isTuiZh, localizeApprovalText, tui } from './copy.js';
 import { renderMarkdown, renderStreamingMarkdown, type MarkdownLine } from './markdown.js';
+import os from 'node:os';
+import path from 'node:path';
 import type { TranscriptRow } from './render-bridge.js';
 import {
   clip,
@@ -217,6 +219,37 @@ export function compactExecCommand(command: string): string {
   return text;
 }
 
+const PATH_TOOLS = new Set([
+  'read_file',
+  'write_file',
+  'edit_file',
+  'multi_edit',
+  'apply_patch',
+  'read_pdf',
+  'read_image',
+  'device_file_read',
+  'device_file_write',
+]);
+
+function isPathTool(toolName: string): boolean {
+  return PATH_TOOLS.has(toolName);
+}
+
+/** File tools read better relative to the workspace (the TUI's cwd). */
+export function compactToolPath(value: string): string {
+  const text = value.replace(/\s+/g, ' ').trim();
+  if (!path.isAbsolute(text)) return text;
+  try {
+    const relative = path.relative(process.cwd(), text);
+    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) return relative;
+  } catch {
+    /* a deleted cwd is not a reason to fail a label */
+  }
+  const home = os.homedir();
+  if (home && text.startsWith(`${home}${path.sep}`)) return `~${text.slice(home.length)}`;
+  return text;
+}
+
 export function toolLabel(toolName: string, input: Record<string, unknown> = {}): string {
   const display = toolName
     .replace(/_(file|command)$/, '')
@@ -228,7 +261,14 @@ export function toolLabel(toolName: string, input: Record<string, unknown> = {})
     command && toolName.startsWith('exec')
       ? compactExecCommand(command)
       : pick(input, ['file_path', 'path', 'command', 'pattern', 'query', 'goal', 'url', 'metric']);
-  if (shown) return `${display}(${clip(shown.replace(/\s+/g, ' ').trim(), 70)})`;
+  if (shown) {
+    const compact = command
+      ? shown.replace(/\s+/g, ' ').trim()
+      : isPathTool(toolName)
+        ? compactToolPath(shown)
+        : shown.replace(/\s+/g, ' ').trim();
+    return `${display}(${clip(compact, 70)})`;
+  }
   const summary = describeToolCall(toolName, input).trim();
   // "running" / "reading" with no object says nothing (`Exec(running )`), so a
   // bare label is more honest than empty parens.

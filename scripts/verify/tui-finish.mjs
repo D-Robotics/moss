@@ -15,6 +15,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const transcript = await load('dist/cli/tui/transcript.js');
 const bridge = await load('dist/cli/tui/render-bridge.js');
+const markdown = await load('dist/cli/tui/markdown.js');
 const outcome = await load('dist/cli/run-outcome.js');
 
 let checks = 0;
@@ -113,6 +114,37 @@ assert.equal(transcript.toolLabel('exec', { command: 'npm' }), 'Exec(npm)');
   assert.doesNotMatch(appDist, /context usage will appear after the first response/);
 }
 ok('exec titles drop the cd prefix and the quiet-stream hint is actionable');
+
+// 2d. Streaming answers never paint a raw fence row.
+{
+  const streaming = (text) => markdown.renderStreamingMarkdown(text, 80);
+  const openBash = streaming('Here is the block:\n```bash\nls -l /tmp\n');
+  const openText = openBash.map((entry) => entry.text).join('\n');
+  assert.doesNotMatch(openText, /`{3}/, 'the opener is not painted literally');
+  assert.match(openText, /│ ls -l \/tmp/);
+  assert.match(openText, /┌ bash /);
+  const partial = streaming('Running:\n``');
+  assert.doesNotMatch(partial.map((entry) => entry.text).join('\n'), /`/);
+  const stableFence = streaming('done\n```\nok\n```\n');
+  assert.match(stableFence.map((entry) => entry.text).join('\n'), /│ ok/);
+}
+ok('a streaming answer renders an open fence as a code block, not raw backticks');
+
+// 2e. File tool titles are relative to the workspace, not the absolute path.
+{
+  const pathModule = await import('node:path');
+  const cwd = process.cwd();
+  assert.equal(
+    transcript.toolLabel('read_file', { file_path: pathModule.join(cwd, 'src/a.ts') }),
+    'Read(src/a.ts)'
+  );
+  assert.equal(
+    transcript.toolLabel('write_file', { file_path: pathModule.join(cwd, 'dist', 'x.js') }),
+    'Write(dist/x.js)'
+  );
+  assert.equal(transcript.toolLabel('read_file', { file_path: 'AGENTS.md' }), 'Read(AGENTS.md)');
+}
+ok('file tool titles are workspace-relative');
 
 // 3. A failed exec states its error once, not twice.
 const failed = transcript.renderTranscriptRow(

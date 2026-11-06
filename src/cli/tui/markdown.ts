@@ -149,17 +149,52 @@ function renderPlainLine(lineText: string, width: number): MarkdownLine[] {
   });
 }
 
+/** A streaming tail may end in an unterminated fence: `\`\`\``, `\`\``, … */
+const PARTIAL_FENCE = /^\s*(`{1,3}|~{1,3})\s*$/;
+
+/**
+ * An unclosed fenced block starts rendering as a code block immediately: the
+ * opener line used to be painted literally while the answer streamed, which is
+ * where the stray ```` ``` ```` row in a screenshot came from. The open block
+ * gets the body frame (`│ `) but no closing bar until its fence arrives.
+ */
+function renderOpenFence(tail: readonly string[], width: number): MarkdownLine[] {
+  const openerIndex = tail.findIndex((lineText) => FENCE.test(lineText));
+  if (openerIndex < 0) {
+    return tail.flatMap((lineText) =>
+      PARTIAL_FENCE.test(lineText) ? [] : renderPlainLine(lineText, width)
+    );
+  }
+  const before = tail.slice(0, openerIndex);
+  const opener = FENCE.exec(tail[openerIndex] ?? '');
+  const lang = opener?.[2] ?? '';
+  const styledLang = normalizeCodeLang(lang);
+  const code = tail.slice(openerIndex + 1).filter((lineText) => !PARTIAL_FENCE.test(lineText));
+  while (code.length > 0 && code[code.length - 1]!.trim() === '') code.pop();
+  const out: MarkdownLine[] = before.flatMap((lineText) => renderPlainLine(lineText, width));
+  const head = `┌${lang ? ` ${lang} ` : ' '}`;
+  out.push({
+    text: clip(`${head}${'─'.repeat(Math.max(0, width - displayWidth(head)))}`, width),
+    dim: true,
+  });
+  for (const raw of code) {
+    const body = raw.replace(/\t/g, '  ');
+    const text = clip(`│ ${body}`, width);
+    const runs =
+      text === `│ ${body}` && styledLang ? highlightCodeLine(body, styledLang) : undefined;
+    out.push(runs ? { text, runs: [{ text: '│ ' }, ...runs] } : { text });
+  }
+  return out;
+}
+
 export function renderStreamingMarkdown(text: string, width: number): MarkdownLine[] {
   const { stable: stableText, rest: openText } = stableMarkdownPrefix(text);
   const committed = stableText ? renderMarkdown(stableText, width) : [];
   if (!openText.trim()) return committed;
   // The newline that ends the last received line is not a blank row yet: counting
   // it made the live block grow and shrink by one row on every line break.
-  const openLines = openText
-    .replace(/\n+$/, '')
-    .split('\n')
-    .flatMap((lineText) => renderPlainLine(lineText, width));
-  return [...committed, ...openLines];
+  const lines = openText.replace(/\n+$/, '').split('\n');
+  return [...committed, ...renderOpenFence(lines, width)];
 }
 
 type RunStyle = Omit<MarkdownRun, 'text'>;
