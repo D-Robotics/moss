@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### The plan gate advertises its number keys (B207)
+
+- The "Ready to code?" gate only showed `↑↓ then Enter · or type feedback below · Esc keeps planning`,
+  while `1/2/3` are the fastest answers (and are printed in the status row only after the dialog opens).
+  The footer now reads `↑↓ then Enter, or 1/2/3 · or type feedback below · Esc keeps planning`.
+- Real plan-mode check on the deepseek-flash gateway: plan mode refused a model's `exec` attempts with
+  the documented "blocked (plan mode …)" message and the model switched to read-only tools to produce
+  the plan; choosing `1` applied the plan and switched to accept-edits, and `run_tests` still asked
+  approval as that mode promises.
+
+### 计划确认弹窗标出数字键（B207）
+
+- "Ready to code?" 弹窗原来只显示 `↑↓ then Enter · or type feedback below · Esc keeps planning`，而 `1/2/3`
+  是最快的回答方式（且只在弹窗打开后的状态行里出现）。现在 footer 为
+  `↑↓ then Enter, or 1/2/3 · or type feedback below · Esc keeps planning`。
+- 真实计划模式验证（deepseek-flash）：计划模式按文档拒绝模型的 `exec` 尝试（"blocked (plan mode …)"），
+  模型改用只读工具产出计划；选择 `1` 后应用计划并切到 accept-edits，`run_tests` 按该模式承诺仍需审批。
+
 ### `--continue` / `resume --last` skip sessions with nothing to resume (B206)
 
 - After `/undo` dropped a session's turns it stayed the newest session, so `moss --continue` resumed

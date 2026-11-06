@@ -1762,7 +1762,7 @@ export function TuiAppRoot({
         { key: '2', answer: 'y', label: tui('Proceed — keep manual approvals') },
         { key: '3', answer: 'y', label: tui('Tell moss what to change (type below)') },
       ],
-      footer: tui('↑↓ then Enter · or type feedback below · Esc keeps planning'),
+      footer: tui('↑↓ then Enter, or 1/2/3 · or type feedback below · Esc keeps planning'),
       cursor: 0,
     });
   }, [dispatchRun, handle, runtime, store]);
