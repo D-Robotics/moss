@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Loop runs stop double-recording and carry their usage (B163)
+
+- Every `moss loop` attempt runs a headless chat, and each attempt was also writing its own
+  `kind: chat` ledger row: one loop of three attempts produced four runs, inflating `moss runs`,
+  `--kind chat` and the summary, and leaving the loop row with `usage: n/a`.
+- Loop attempts now pass `suppressRunLedger` (the loop row is the one authoritative record) and
+  tap `onAgentEvent` into a session-usage accumulator; the loop record stores the summed
+  `usage` of all attempts. Workflow children already had env-level suppression; workflow and
+  superagent rows still do not aggregate usage (honest gap).
+
+### loop 不再重复记账，并带上自己的用量（B163）
+
+- `moss loop` 的每次 attempt 都是一次 headless chat，而每次 attempt 还会写一条自己的
+  `kind: chat` 账本行：一次 3 attempt 的 loop 会产生 4 条运行，虚增 `moss runs`、`--kind chat`
+  与 summary，同时 loop 行一直是 `usage: n/a`。
+- 现在 loop 的 attempt 传 `suppressRunLedger`（loop 行是唯一权威记录），并把 `onAgentEvent`
+  汇入 session usage 累加器；loop 记录保存所有 attempt 汇总后的 `usage`。workflow 子步骤本来就有
+  env 级抑制；workflow 与 superagent 行仍未聚合 usage（诚实缺口）。
+
 ### `moss runs summary` answers "how are my runs doing, and what did they cost" (B162)
 
 - The ledger could list and export single runs, but not aggregate. `moss runs summary
