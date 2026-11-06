@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### README documents the review gate for CI (B229)
+
+- `moss review check` is the verifiability story's CI hook (0 pass / 1 unresolved / 2 none-or-unknown,
+  `--json` added in B223), but neither README mentioned it. The handfeel tables now carry
+  "Gate the review in CI" / "把评审接进 CI" next to `/diff` · `/review`, with the exit-code contract and
+  the JSON form.
+
+### README 记录可接进 CI 的评审门禁（B229）
+
+- `moss review check` 是可验证性叙事的 CI 入口（0 通过 / 1 有未解决问题 / 2 无评审或未知，`--json` 见 B223），
+  但两版 README 都没写。现在中英手感表在 `/diff` · `/review` 旁新增"把评审接进 CI"一行，
+  写明退出码约定与 JSON 形式。
+
 ### `/usage` states the unpriced cost in one line (B228)
 
 - The unknown-price note was a two-line config tutorial (`input, output, and cached per 1M tokens;
