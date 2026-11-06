@@ -31,7 +31,6 @@ import {
 } from '../provider/keep-alive-dispatcher.js';
 import { resolveHostShell } from '../utils/host-shell.js';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { configureWindowsUtf8Console } from '../utils/run-process.js';
 import { errorMessage } from '../errors.js';
@@ -138,6 +137,7 @@ import { CONFIGURED_DEVICE_PROMPT } from '../device/device-probe-prompt.js';
 import { createWebSearchTool } from '../tools/web-search.js';
 import { createWebFetchTool } from '../tools/web-fetch.js';
 import {
+  defaultSkillDirSpecs,
   loadSkillCatalog,
   selectActiveSkills,
   skillSlashName,
@@ -1316,13 +1316,7 @@ export async function runCli(): Promise<void> {
   {
     // Discovery scopes: the Moss workspace directory wins, then the cross-client
     // `.agents/skills` / `.claude/skills` conventions, then user-level installs.
-    const skillDirSpecs: Array<{ dir: string; scope: 'workspace' | 'shared' | 'user' }> = [
-      { dir: path.join(workspace, '.moss', 'skills'), scope: 'workspace' },
-      { dir: path.join(workspace, '.agents', 'skills'), scope: 'shared' },
-      { dir: path.join(workspace, '.claude', 'skills'), scope: 'shared' },
-      { dir: path.join(configDir, 'skills'), scope: 'user' },
-      { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
-    ];
+    const skillDirSpecs = defaultSkillDirSpecs(workspace, configDir);
     const announcedSkillSkips = new Set<string>();
     const emitSkillNotice = (line: string) => {
       if (useTui) emitTuiNotice(line);

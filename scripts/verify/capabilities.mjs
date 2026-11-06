@@ -71,8 +71,13 @@ await fs.writeFile(
   'utf8'
 );
 
+// Isolate HOME: the shared skill-dir helper also scans ~/.claude/skills, and a
+// developer machine has real skills there.
+const home = path.join(tmp, 'home');
+await fs.mkdir(home, { recursive: true });
 const env = {
   ...process.env,
+  HOME: home,
   MOSS_CONFIG_DIR: configDir,
   MOSS_NO_RDK_DOCS: '1',
   MOSS_NO_TUI: '1',
@@ -118,6 +123,48 @@ try {
   assert.match(human.stdout, /MCP: 1 — local/);
   assert.match(human.stdout, /devices: 1 — rdk-01/);
   ok('the human view names skills, commands, agents, MCP servers and devices');
+
+  // 2b. B289: `/capabilities` must use the same discovery scopes as the first
+  // screen and /skills — it reported 0 user skills while the boot line said 19
+  // because .agents/.claude conventions were missing from its own list.
+  {
+    const sharedSkill = path.join(ws, '.agents', 'skills', 'beta');
+    await fs.mkdir(sharedSkill, { recursive: true });
+    await fs.writeFile(
+      path.join(sharedSkill, 'SKILL.md'),
+      '---\nname: beta\ndescription: Does the beta thing\n---\n\nBody.\n',
+      'utf8'
+    );
+    const shared = await cli(['capabilities', '--json']);
+    assert.equal(shared.status, 0, shared.stderr);
+    const sharedJson = JSON.parse(shared.stdout);
+    assert.deepEqual(sharedJson.skills.names, ['alpha', 'beta']);
+    assert.equal(sharedJson.skills.total, 2);
+    await fs.rm(sharedSkill, { recursive: true, force: true });
+  }
+  ok('capabilities counts skills from the same scopes as /skills');
+
+  // 2c. B290: many skills get a bounded preview, not a paragraph.
+  {
+    const manyRoot = path.join(ws, '.moss', 'skills');
+    const created = [];
+    for (let i = 0; i < 10; i += 1) {
+      const dir = path.join(manyRoot, `many-${String(i).padStart(2, '0')}`);
+      created.push(dir);
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(
+        path.join(dir, 'SKILL.md'),
+        `---\nname: many-${String(i).padStart(2, '0')}\ndescription: probe ${i}\n---\n\nBody.\n`,
+        'utf8'
+      );
+    }
+    const many = await cli(['capabilities', '--kind', 'skills']);
+    assert.equal(many.status, 0, many.stderr);
+    assert.match(many.stdout, /\+3 more/, '11 skills -> first 8 + "+3 more"');
+    assert.ok(!many.stdout.includes('many-09, many-10'), 'the tail is not printed');
+    for (const dir of created) await fs.rm(dir, { recursive: true, force: true });
+  }
+  ok('a long skill list is previewed instead of printed in full');
 
   // 3. A minimal workspace still answers instead of erroring.
   const empty = path.join(tmp, 'empty');

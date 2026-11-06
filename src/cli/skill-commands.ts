@@ -5,8 +5,8 @@
  * moment the user edits the description.
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { defaultSkillDirSpecs } from '../core/skills/skill-registry.js';
 import { isZhLocale } from './cli-locale.js';
 
 const SKILL_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
@@ -141,13 +141,7 @@ export async function loadSkillListData(
     SKILL_CATALOG_DEFAULT_BUDGET_CHARS,
   } = await import('../core/skills/skill-catalog.js');
   const { loadSkillUsage } = await import('../core/skills/skill-usage.js');
-  const skills = loadSkillCatalog([
-    { dir: path.join(workspaceDir, '.moss', 'skills'), scope: 'workspace' },
-    { dir: path.join(workspaceDir, '.agents', 'skills'), scope: 'shared' },
-    { dir: path.join(workspaceDir, '.claude', 'skills'), scope: 'shared' },
-    { dir: path.join(configDir, 'skills'), scope: 'user' },
-    { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
-  ]);
+  const skills = loadSkillCatalog(defaultSkillDirSpecs(workspaceDir, configDir));
   if (skills.length === 0) return null;
   const usage = loadSkillUsage(workspaceDir);
   // Same order the catalog budget uses, so the table shows which entries
@@ -314,13 +308,7 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
     // (workspace → shared conventions → user-level) instead of failing with
     // "no SKILL.md at <workspace>/<name>".
     if (!fs.existsSync(file) && !target.includes(path.sep) && !target.includes('/')) {
-      const dirs: Array<{ dir: string; scope: 'workspace' | 'shared' | 'user' }> = [
-        { dir: path.join(ctx.workspaceDir, '.moss', 'skills'), scope: 'workspace' },
-        { dir: path.join(ctx.workspaceDir, '.agents', 'skills'), scope: 'shared' },
-        { dir: path.join(ctx.workspaceDir, '.claude', 'skills'), scope: 'shared' },
-        { dir: path.join(ctx.configDir, 'skills'), scope: 'user' },
-        { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
-      ];
+      const dirs = defaultSkillDirSpecs(ctx.workspaceDir, ctx.configDir);
       const found = loadSkillCatalog(dirs).find((skill) => skill.name === target);
       if (found) file = path.join(found.dir, 'SKILL.md');
       else {

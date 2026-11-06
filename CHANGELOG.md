@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### `/capabilities` counts the same skills the session loaded (B289/B290)
+
+- A real session showed `context: … 19 skills` on the first screen and `skills: 0` in `/capabilities`:
+  the capability snapshot had its own two-directory list and missed the `.agents/skills` / `.claude/skills`
+  conventions. All surfaces now share `defaultSkillDirSpecs` (runtime, `/skills`, `skill list`,
+  `skill validate`, `capabilities`), so the numbers cannot disagree.
+- With many skills the one-screen view printed every name; it now previews the first eight and says
+  `+N more` (real: `skills: 19 (workspace 0 · user 19) — …, +11 more`).
+
+### `/capabilities` 统计的技能与会话实际加载一致（B289/B290）
+
+- 真实会话首屏显示 `context: … 19 skills`，而 `/capabilities` 显示 `skills: 0`：能力快照自己维护两份目录，
+  漏掉了 `.agents/skills` / `.claude/skills` 约定。现在所有入口共用 `defaultSkillDirSpecs`
+  （runtime、`/skills`、`skill list`、`skill validate`、`capabilities`），数字不可能再互相矛盾。
+- 技能很多时一屏视图会打印全部名字；现在预览前 8 个并给出 `+N more`（真实：`skills: 19 (workspace 0 · user 19)
+— …, +11 more`）。
+
 ### The deep gate's Windows leg proves what Windows supports (B288)
 
 - The nightly deep matrix ran the full behavior gate on Windows, which has been red since 2026-11-04
