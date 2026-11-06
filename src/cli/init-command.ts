@@ -236,7 +236,12 @@ export function renderInitHuman(result: InitResult, zh = isZhLocale()): string {
     lines.push('  moss goal "<intent>"');
   }
   lines.push(
-    '  moss capabilities        # ' + t('what this install can do', '一屏看清这个安装能做什么')
+    '  moss capabilities        # ' + t('what this install can do', '一屏看清这个安装能做什么'),
+    '  /init                    # ' +
+      t(
+        'model-drafted variant of this command, richer but slower (inside a session)',
+        '本命令的模型草稿版：更丰富但更慢（在会话里用）'
+      )
   );
   return lines.join('\n');
 }

@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { captureProcess } from './lib/proc.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
@@ -41,10 +42,10 @@ const env = {
   MOSS_NO_TUI: '1',
   MOSS_LANG: 'en',
 };
-const cli = (cwd, args) =>
+const cli = (cwd, args, extraEnv = {}) =>
   captureProcess(process.execPath, [path.join(root, 'dist', 'cli.js'), ...args], {
     cwd,
-    env,
+    env: { ...env, ...extraEnv },
     timeoutMs: 60_000,
   });
 
@@ -123,6 +124,44 @@ try {
   assert.deepEqual(emptyResult.detection.acceptanceCandidates, []);
   assert.match(emptyResult.content, /No machine-checkable acceptance entry point/);
   ok('python gets pytest; an empty workspace gets no invented command');
+
+  // 4b. B158: CLI init and the interactive `/init` share the detected entry
+  // points, and each names the other mode instead of silently diverging.
+  {
+    const human = await cli(nodeWs, ['init', '--dry-run']);
+    assert.equal(human.status, 0, human.stderr);
+    assert.match(human.stdout, /\/init\s+# model-drafted variant of this command/);
+    const zh = await cli(nodeWs, ['init', '--dry-run'], { MOSS_LANG: 'zh' });
+    assert.equal(zh.status, 0, zh.stderr);
+    assert.match(zh.stdout, /\/init\s+# 本命令的模型草稿版/);
+
+    const registry = await import(
+      pathToFileURL(path.join(root, 'dist/cli/commands/registry.js')).href
+    );
+    const freshNode = await fixture('agents-fresh-node', {
+      'package.json': JSON.stringify({ scripts: { test: 'vitest run', build: 'tsc' } }),
+    });
+    const detected = registry.buildInitPrompt(freshNode);
+    assert.match(detected, /Verified entry points detected from files \(node\)/);
+    assert.match(detected, /- test: npm test/);
+    assert.match(detected, /keep them verbatim unless running them proves otherwise/);
+    assert.match(detected, /Do not invent commands/);
+
+    const existing = await fixture('agents-existing', {
+      'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }),
+      'AGENTS.md': '# AGENTS.md\n\nKeep this line.\n',
+    });
+    const review = registry.buildInitPrompt(existing);
+    assert.match(review, /update it incrementally/);
+    assert.match(review, /Never delete a user instruction/);
+    assert.match(review, /- test: npm test/);
+
+    const blank = await fixture('agents-empty', {});
+    const draft = registry.buildInitPrompt(blank);
+    assert.match(draft, /No build\/test entry point was detected/);
+    assert.match(draft, /Say so explicitly rather than inventing commands/);
+  }
+  ok('CLI init and /init share detection and each names the other mode');
 
   // 5. Help/usage and bad arguments behave like every other subcommand.
   const help = await cli(nodeWs, ['init', '--help']);

@@ -44,6 +44,7 @@ import { probeDoctorModelPing } from '../doctor-model-ping.js';
 import { reportedModelMatchesConfigured } from '../model-resolution.js';
 import { envBeforeDotenv, loadCliConfigFile, resolveConfigDir } from '../config.js';
 import { isFilesystemRoot, forgetFolderTrust, rememberFolderTrust } from '../folder-trust-store.js';
+import { detectProject } from '../init-command.js';
 import { resolveFolderKey } from '../workspace-trust.js';
 import {
   configuredBaseUrl,
@@ -781,8 +782,25 @@ const exportCommand: CommandSpec = {
   },
 };
 
-function buildInitPrompt(workspace: string): string {
+/**
+ * B158: `/init` is the model-drafted variant of `moss init`. The deterministic
+ * CLI detection is passed in as verified starting points so the two modes agree
+ * on the commands they claim, and the model never has to rediscover them.
+ */
+export function buildInitPrompt(workspace: string): string {
   const agentsPath = path.join(workspace, 'AGENTS.md');
+  const detection = detectProject(workspace);
+  const detected =
+    detection.commands.length > 0
+      ? [
+          `Verified entry points detected from files (${detection.kind}):`,
+          ...detection.commands.map((entry) => `- ${entry.label}: ${entry.command}`),
+          'These were read from the repository; keep them verbatim unless running them proves otherwise.',
+        ]
+      : [
+          'No build/test entry point was detected from package.json, Makefile, go.mod or pyproject.toml.',
+          'Say so explicitly rather than inventing commands.',
+        ];
   const gitignore = [
     'If you create or update .gitignore, include this suggestion so session logs are not committed:',
     '```',
@@ -794,13 +812,16 @@ function buildInitPrompt(workspace: string): string {
       'Analyze this repository and create an AGENTS.md project memory file at the workspace root.',
       'Cover the build, test, and layout facts you can verify by reading the repo.',
       'Do not invent commands or conventions you did not observe.',
+      ...detected,
       ...gitignore,
     ].join('\n');
   }
   return [
     'AGENTS.md already exists. Review it against the current repository and update it incrementally.',
     'Keep instructions that are still accurate, fix stale ones, and do not rewrite unrelated sections.',
+    'Never delete a user instruction just because your review did not confirm it; mark it stale or ask.',
     'The file to edit is AGENTS.md.',
+    ...detected,
     ...gitignore,
   ].join('\n');
 }
@@ -816,8 +837,8 @@ const initCommand: CommandSpec = {
     ctx.say(
       'system',
       fs.existsSync(path.join(ctx.workspace, 'AGENTS.md'))
-        ? 'Reviewing the existing AGENTS.md…'
-        : 'Drafting AGENTS.md from the repository…'
+        ? 'Reviewing the existing AGENTS.md with the model… (the offline deterministic variant is `moss init`)'
+        : 'Drafting AGENTS.md with the model… (the offline deterministic variant is `moss init`)'
     );
     ctx.submitPrompt(buildInitPrompt(ctx.workspace));
   },
