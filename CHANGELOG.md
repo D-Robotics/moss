@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### `moss sessions list/search --json` (B277)
+
+- A JSON sweep of the read commands found `sessions list`/`sessions search` printing tables even with
+  `--json` (the global flag is stripped by the arg parser before the dispatcher runs). They now emit
+  `moss_sessions_list.v1` (`{sessions:[{key,messageCount,updatedAt,title}],total,shown}`) and
+  `moss_sessions_search.v1` (`{query,hits:[{key,messageCount,updatedAt,snippet}]}`), including an empty
+  array on a workspace with no sessions; the human tables are unchanged.
+
+### `moss sessions list/search --json`（B277）
+
+- 只读命令的 JSON 扫描发现 `sessions list` / `sessions search` 即使带 `--json` 也打印表格（全局 flag 在
+  dispatcher 前被参数解析器剥离）。现在输出 `moss_sessions_list.v1`（`{sessions,…}`）与
+  `moss_sessions_search.v1`（`{query,hits:[…]}`），空工作区返回空数组；人类表格不变。
+
 ### `moss skill list --json` (B276)
 
 - Scripts had no machine-readable skill list; the table was the only output. `moss skill list --json`

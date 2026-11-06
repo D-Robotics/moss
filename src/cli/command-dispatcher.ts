@@ -885,6 +885,8 @@ export const COMMANDS: Record<string, CommandConfig> = {
         dir: (ctx.workspacePathMigration as any).paths.sessionsDir,
       });
       const subCommand = ctx.commandArgs[0];
+      // B277: the arg parser strips the global `--json`; read it from argv.
+      const jsonOut = ctx.argv.includes('--json');
 
       if (subCommand === 'list' || !subCommand) {
         const listArgs = subCommand === 'list' ? ctx.commandArgs.slice(1) : ctx.commandArgs;
@@ -894,12 +896,32 @@ export const COMMANDS: Record<string, CommandConfig> = {
 
         const sessions = await store.listSessions().catch(() => []);
         if (sessions.length === 0) {
+          if (jsonOut) {
+            console.log('{"schema":"moss_sessions_list.v1","sessions":[],"total":0,"shown":0}');
+            return;
+          }
           console.log(uiText('No saved sessions in this workspace.', '此工作区没有已保存的会话。'));
           return;
         }
 
         const sorted = sessions.sort((a, b) => b.updatedAt - a.updatedAt);
         const shown = showAll ? sorted : sorted.slice(0, limit);
+        if (jsonOut) {
+          console.log(
+            JSON.stringify({
+              schema: 'moss_sessions_list.v1',
+              sessions: shown.map((session) => ({
+                key: session.sessionKey,
+                messageCount: session.messageCount,
+                updatedAt: session.updatedAt,
+                title: session.title ?? '',
+              })),
+              total: sorted.length,
+              shown: shown.length,
+            })
+          );
+          return;
+        }
         console.log(
           uiText(
             'SESSION                          MESSAGES  UPDATED             TITLE',
@@ -964,6 +986,21 @@ export const COMMANDS: Record<string, CommandConfig> = {
           return;
         }
         const hits = await searchSessions(store, query);
+        if (jsonOut) {
+          console.log(
+            JSON.stringify({
+              schema: 'moss_sessions_search.v1',
+              query,
+              hits: hits.map((hit) => ({
+                key: hit.key,
+                messageCount: hit.messageCount,
+                updatedAt: hit.updatedAt,
+                snippet: hit.snippet,
+              })),
+            })
+          );
+          return;
+        }
         if (hits.length === 0) {
           console.log(uiText(`No sessions matched "${query}".`, `没有会话匹配「${query}」。`));
           return;

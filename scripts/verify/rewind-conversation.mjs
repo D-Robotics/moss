@@ -386,4 +386,47 @@ try {
   ok('sessions export --last exports the newest non-empty session');
 }
 
+// 12. B277: `sessions list/search --json` forwards the global flag.
+{
+  const { JsonlSessionStore } = await import(dist('core/session/jsonl-session-store.js'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-json-'));
+  const store = new JsonlSessionStore({ dir: path.join(tmp, '.moss', 'sessions') });
+  await store.appendMessage('alpha', {
+    role: 'user',
+    content: 'find the widget',
+    timestamp: Date.now(),
+  });
+  await store.appendMessage('alpha', {
+    role: 'assistant',
+    content: 'the widget lives here',
+    timestamp: Date.now(),
+  });
+  await store.appendMessage('beta', { role: 'user', content: 'unrelated', timestamp: Date.now() });
+  const env = {
+    ...process.env,
+    MOSS_LANG: 'en',
+    MOSS_NO_TUI: '1',
+    MOSS_CONFIG_DIR: path.join(tmp, 'cfg'),
+  };
+  const runJson = async (args) => {
+    const result = await captureProcess(
+      process.execPath,
+      [path.join(root, 'dist/cli.js'), 'sessions', ...args, '--json'],
+      { cwd: tmp, env, timeoutMs: 30_000 }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  const list = await runJson(['list']);
+  assert.equal(list.schema, 'moss_sessions_list.v1');
+  assert.equal(list.total, 2);
+  assert.deepEqual(list.sessions.map((session) => session.key).sort(), ['alpha', 'beta']);
+  const search = await runJson(['search', 'widget']);
+  assert.equal(search.schema, 'moss_sessions_search.v1');
+  assert.equal(search.query, 'widget');
+  assert.ok(search.hits.some((hit) => hit.key === 'alpha'));
+  fs.rmSync(tmp, { recursive: true, force: true });
+  ok('sessions list/search --json emit the shared schemas');
+}
+
 console.log(`[rewind-conversation] ${checks}/${checks} checks passed`);
