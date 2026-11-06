@@ -142,6 +142,13 @@ export {
   execStopTool,
 } from './tools/background-exec.js';
 export {
+  diagnosticsTool,
+  type DiagnosticsInput,
+  type Diagnostic,
+  type DiagnosticSeverity,
+  type DiagnosticSource,
+} from './tools/diagnostics.js';
+export {
   subscribeBackgroundOutput,
   subscribeBackgroundLifecycle,
   getBackgroundProcessSnapshot,
