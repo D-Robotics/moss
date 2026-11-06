@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### The first screen has one next step, and the REPL can resume too (B157)
+
+- After a **completed** run the interactive `Next:` pointed at `/runs` (read the ledger) — the
+  lowest-value action on the happy path. It now points at `/diff` ("review what changed / ship
+  it"); a pending run still leads with its resume command and a fresh folder with `/init`. The
+  CLI keeps `moss runs` because there is no `/diff` shell command.
+- The TUI's "previous session … `moss --continue`" hint now comes from one shared formatter
+  (`formatPreviousSessionHint`) and the REPL prints the same one dim line on a fresh session, so
+  the two surfaces agree and the restart path is discoverable in both. The hint is computed once
+  at boot, localised, and skipped when the session was resumed (it already has messages).
+
+### 首屏只有一个「下一步」，而且 REPL 也能续旧会话（B157）
+
+- **完成**一次运行后，交互面 `Next:` 以前指向 `/runs`（去读账本）——happy path 上价值最低的动作。
+  现在指向 `/diff`（看改了什么 / 收尾）；有未收尾运行时仍是续跑命令，全新目录仍是 `/init`。
+  CLI 保留 `moss runs`（shell 里没有 `/diff`）。
+- TUI 的「previous session … `moss --continue`」提示改为共享格式化函数
+  （`formatPreviousSessionHint`），REPL 在全新会话上打印同一行 dim 提示：两个界面一致，
+  续旧会话的路径在两处都能被发现。提示只在启动时算一次、本地化，并且在 resuming（已有消息）时跳过。
+
 ### The REPL tells the truth about modes, stopping and help (B156)
 
 - `/help` said only `Ctrl+C exit`, while Ctrl+C pauses a goal run (resumable with
