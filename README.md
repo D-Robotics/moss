@@ -99,6 +99,7 @@ moss runs                              # 所有自主运行（task / loop / -p /
 moss runs export latest > run.md       # 把这次运行导成 PR/CI 可贴的 Markdown
 moss runs summary --since 7d --by day  # 近 7 天：逐日次数/通过率/token/可算的费用
 moss runs summary --by model           # 按模型归因 token/费用（没记录模型的算 unknown）
+moss runs --status running             # 进行中的自主运行（工单派发即出现，结束后被最终结果覆盖）
 moss task status --json                # 同一份事实，给脚本/CI 用
 ```
 

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### An in-flight ticket is visible: `running` rows in the ledger (B178)
+
+- A superagent ticket used to appear in `moss runs` only when it ended — a 6-minute ticket was
+  invisible (and the first screen had nothing to show) until then. The runtime now writes a
+  `running` row when the dispatch starts and overwrites it with the final outcome.
+- The ledger vocabulary gains `running`: `moss runs --status running` lists it, the header shows
+  `· N running` only when present, and `runs show` prints `exit: —` without a misleading 0s
+  duration. The first screen says `In progress — …` / `进行中：…` and points at `/runs` (interactive)
+  or `moss runs show latest` (CLI) instead of offering a pointless "resume".
+
+### 进行中的工单可见：账本新增 `running` 行（B178）
+
+- 之前 superagent 工单只有在结束时才出现在 `moss runs`——一个跑 6 分钟的工单在此之前完全不可见，
+  首屏也无从提示。现在派发开始时写一条 `running` 行，结束时用最终结果覆盖它。
+- 账本状态词汇新增 `running`：`moss runs --status running` 可筛，表头仅在有进行中运行时显示
+  `· N running`；`runs show` 打印 `exit: —` 而不是误导性的 0s 耗时。首屏改为
+  `In progress — …` / `进行中：…`，交互面指向 `/runs`，CLI 指向 `moss runs show latest`，
+  不再提示无意义的「继续」。
+
 ### Workflow runs report their model too (B177)
 
 - B167 recorded the model for chat/task/loop/superagent runs but not workflow: children write their
