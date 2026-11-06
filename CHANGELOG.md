@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### The deep gate's Windows leg proves what Windows supports (B288)
+
+- The nightly deep matrix ran the full behavior gate on Windows, which has been red since 2026-11-04
+  because several probes assume POSIX shells/PTYs (loop checks, hook fixtures, plugin path spellings).
+  While those are being ported, the Windows leg now runs the cross-platform subset the product actually
+  promises there — `static,build,smoke,examples` — and Linux/macOS keep the full gate. The CI design page
+  now matches reality (it still described the pre-probe "no behavior suite" state).
+
+### 夜间深门禁的 Windows leg 只证明 Windows 承诺的部分（B288）
+
+- 夜间矩阵此前在 Windows 上跑完整行为门禁，而多个探针假设 POSIX shell/PTY（loop 检查命令、hook 夹具、
+  插件路径写法），自 2026-11-04 起一直红。在移植完成前，Windows leg 改为跑该平台承诺的跨平台子集
+  `static,build,smoke,examples`；Linux/macOS 保持完整门禁。CI 设计文档也改成与现状一致（此前仍写着
+  "无行为测试"的旧状态）。
+
 ### Windows: plugin records use `/`, hook fixtures avoid inline `-e` paths (B287)
 
 - `plugins list --json` reported drift paths as `.moss\skills\…` on Windows while the same pack is
