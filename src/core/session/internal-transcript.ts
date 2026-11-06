@@ -31,9 +31,15 @@ export function goalFromPhasePrompt(text: string): string | undefined {
  */
 export function selectNudgeUserText(candidatesNewestFirst: readonly string[]): string {
   for (const text of candidatesNewestFirst) {
-    if (!text.trim()) continue;
-    if (isInternalUserText(text)) continue;
-    return text;
+    // B258: the stored user turn carries the injected <turn-context> (skills
+    // catalog, project notes). Matching nudge triggers against that preamble
+    // made the spec-audit nudge fire on ordinary requests ("spec"/"requirements"
+    // appear in skill descriptions), which bought hidden turns and repeated
+    // answers. Nudges must decide on the user's own words.
+    const cleaned = stripTurnContext(text).replace(/\s+/g, ' ').trim();
+    if (!cleaned) continue;
+    if (isInternalUserText(cleaned)) continue;
+    return cleaned;
   }
   return '';
 }

@@ -80,4 +80,18 @@ assert.match(correction ?? '', /do NOT write SPEC-AUDIT\.md/);
 assert.match(correction ?? '', /ask the user for the exact/);
 ok('citation phrasing fires once; plain mentions and completed audits stay quiet');
 
+// 4. B258: the injected <turn-context> preamble (skill catalog here) must not
+//    satisfy the trigger — ordinary "run the tests" requests used to fire it.
+{
+  const { selectNudgeUserText } = await import(
+    pathToFileURL(path.join(root, 'dist/core/session/internal-transcript.js')).href
+  );
+  const prompt = 'run the tests and tell me the result in one line';
+  const stored = `${prompt}\n\n<turn-context>\n## Available skills\n- writing-plans: Use when you have a spec or requirements for a multi-step task\n</turn-context>`;
+  const selected = selectNudgeUserText([stored]);
+  assert.equal(selected, prompt);
+  assert.equal(fire(selected), false, 'the skill catalog text is not a citation');
+}
+ok('the turn-context preamble never satisfies nudge triggers');
+
 console.log(`[spec-audit-nudge] ${checks}/${checks} checks passed`);

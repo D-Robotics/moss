@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Nudges decide on the user's words, not the injected context (B258)
+
+- The 4th read-only audit showed an ordinary "run the tests and tell me the result in one line" answered in
+  Chinese about `SPEC-AUDIT` and derailing, plus 5–6 near-duplicate answer blocks for a one-character fix.
+  Root cause: `selectNudgeUserText` matched triggers against the stored user turn **including the injected
+  `<turn-context>`** — whose skill catalog contains "spec"/"requirements" — so the spec-audit nudge (and
+  length-based nudges) fired on nearly every request, buying hidden turns the user never saw. Nudges now
+  see only the user's own words (turn-context stripped and whitespace collapsed).
+- Same-workspace real re-run: the tests prompt got one short English answer about the actual result (no
+  SPEC-AUDIT text, no derail); the fix prompt ended with 2 blocks instead of 5–6.
+
+### nudge 只看用户自己的话，不看注入的上下文（B258）
+
+- 第四轮审计里，普通的 "run the tests and tell me the result in one line" 被用中文回答成 SPEC-AUDIT 内容，且
+  一个字符的修复出现 5–6 个近似重复的回答块。根因：`selectNudgeUserText` 用**包含注入 `<turn-context>`** 的
+  存储用户回合匹配触发器——而技能目录里含 "spec"/"requirements"——导致 spec-audit nudge 与长度类 nudge 几乎每次
+  都触发，买来用户看不见的隐藏回合。现在 nudge 只看用户自己的话（剥离 turn-context 并压缩空白）。
+- 同工作区真实复跑：测试问题得到一句英文结果回答（无 SPEC-AUDIT、无跑题）；修复问题结尾 2 个块而不是 5–6 个。
+
 ### Undo says when the scrollback above is stale (B257)
 
 - A real `/undo` restored the file and dropped 8 messages, but the rows above stayed on screen (terminal
