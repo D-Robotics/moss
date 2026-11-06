@@ -134,7 +134,8 @@ export const ZH: Readonly<Record<string, string>> = {
   '  ↻ provider retry {attempt} — {error}': '  ↻ 服务商重试 {attempt} — {error}',
   ' · {count} out': ' · 输出 {count}',
   ' · {count} queued': ' · {count} 排队',
-  '  … stream quiet for {seconds}s — the gateway may be stuck': '  … 流已静默 {seconds} 秒',
+  '  … no output for {seconds}s — Esc to interrupt, or wait if the gateway is slow':
+    '  … 已 {seconds} 秒没有输出 · Esc 中断，或等待网关恢复',
   'Waiting for device': '等待设备',
   '  ⏐ next: {preview}': '  ⏐ 下一条：{preview}',
 
@@ -538,8 +539,6 @@ export const ZH: Readonly<Record<string, string>> = {
   'this session only — /model save {model} writes the default':
     '仅本次会话 — `/model save {model}` 会写成默认',
   'switched to custom model {model} ({provider})': '已切换到自定义模型 {model}（{provider}）',
-  'context usage will appear after the first response from this model':
-    '本模型首次响应后将显示上下文用量',
   '/model config is not wired in the shell — use `moss setup` for a guided':
     'shell 中未接入 /model config — 用 `moss setup` 进行引导式',
   'provider/model/key change, or `moss config set model <name>` to persist one.':

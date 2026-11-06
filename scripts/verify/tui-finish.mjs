@@ -92,6 +92,28 @@ ok('the checklist collapses when the run ends (open items are disclosed)');
 }
 ok("beginRun clears the previous run's checklist");
 
+// 2c. Exec titles and quiet-stream hints read like product copy, not debug logs.
+assert.equal(
+  transcript.compactExecCommand('cd /private/tmp/ws && ls -l note.txt && wc -c note.txt'),
+  'ls -l note.txt && wc -c note.txt'
+);
+assert.equal(transcript.compactExecCommand("cd '/tmp/my ws'; printf 'hi'"), "printf 'hi'");
+assert.equal(transcript.compactExecCommand('npm test'), 'npm test');
+assert.equal(
+  transcript.toolLabel('exec', { command: 'cd /private/tmp/ws && ls -l a.txt' }),
+  'Exec(ls -l a.txt)'
+);
+assert.equal(transcript.toolLabel('exec', { command: 'npm' }), 'Exec(npm)');
+{
+  const fs = await import('node:fs');
+  const dist = fs.readFileSync(path.join(root, 'dist/cli/tui/transcript.js'), 'utf8');
+  assert.match(dist, /no output for \{seconds\}s — Esc to interrupt/);
+  assert.doesNotMatch(dist, /stream quiet for \{seconds\}s/);
+  const appDist = fs.readFileSync(path.join(root, 'dist/cli/tui/app.js'), 'utf8');
+  assert.doesNotMatch(appDist, /context usage will appear after the first response/);
+}
+ok('exec titles drop the cd prefix and the quiet-stream hint is actionable');
+
 // 3. A failed exec states its error once, not twice.
 const failed = transcript.renderTranscriptRow(
   {

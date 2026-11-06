@@ -205,16 +205,30 @@ function formatCompactCount(value: number): string {
 }
 
 /** Claude-style tool labels: `Write(hello.txt)` rather than prose. */
+/**
+ * The TUI already knows the workspace, so `cd /abs/path && <cmd>` prefixes are
+ * noise in a one-line tool title; strip them and keep the command itself
+ * readable instead of letting terminal clipping eat the interesting half.
+ */
+export function compactExecCommand(command: string): string {
+  let text = command.trim().replace(/\s+/g, ' ');
+  const cdPrefix = /^cd\s+(?:"[^"]+"|'[^']+'|\S+)\s*(?:&&|;)\s*/;
+  while (cdPrefix.test(text)) text = text.replace(cdPrefix, '');
+  return text;
+}
+
 export function toolLabel(toolName: string, input: Record<string, unknown> = {}): string {
   const display = toolName
     .replace(/_(file|command)$/, '')
     .split('_')
     .map((part) => (part ? part[0]!.toUpperCase() + part.slice(1) : part))
     .join(' ');
-  const primary =
-    pick(input, ['file_path', 'path', 'command', 'pattern', 'query', 'goal', 'url', 'metric']) ??
-    '';
-  if (primary) return `${display}(${clip(primary.replace(/\s+/g, ' ').trim(), 70)})`;
+  const command = typeof input.command === 'string' ? input.command : undefined;
+  const shown =
+    command && toolName.startsWith('exec')
+      ? compactExecCommand(command)
+      : pick(input, ['file_path', 'path', 'command', 'pattern', 'query', 'goal', 'url', 'metric']);
+  if (shown) return `${display}(${clip(shown.replace(/\s+/g, ' ').trim(), 70)})`;
   const summary = describeToolCall(toolName, input).trim();
   // "running" / "reading" with no object says nothing (`Exec(running )`), so a
   // bare label is more honest than empty parens.
@@ -1010,7 +1024,7 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
       out.push(
         line(
           clip(
-            tui('  … stream quiet for {seconds}s — the gateway may be stuck', {
+            tui('  … no output for {seconds}s — Esc to interrupt, or wait if the gateway is slow', {
               seconds: quietS,
             }),
             width

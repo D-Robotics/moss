@@ -1990,7 +1990,6 @@ export function TuiAppRoot({
           ? tui('switched to {model} ({provider})', { model, provider })
           : tui('switched to custom model {model} ({provider})', { model, provider }),
         savedNote ?? tui('this session only — /model save {model} writes the default', { model }),
-        tui('context usage will appear after the first response from this model'),
       ]);
       // Re-probe the new model's context window. Ignore an older probe that
       // finishes after a later model switch.
