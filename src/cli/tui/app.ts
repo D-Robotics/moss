@@ -4444,9 +4444,10 @@ export function TuiAppRoot({
   if (fullscreen) {
     const folded = foldReadonlyRows(store.rows, verbose);
     const cache = projectionCacheRef.current;
+    const narrowRows = (windowSize.rows || 24) < 20;
     folded.forEach((row, rowIndex) => {
       cache
-        .render(row, bodyWidth, rowDetail(row), folded[rowIndex - 1])
+        .render(row, bodyWidth, rowDetail(row), folded[rowIndex - 1], narrowRows)
         .forEach((entry, lineIndex) => {
           projected.push({ rowId: row.id, lineIndex, text: entry.text, line: entry });
         });
@@ -4669,9 +4670,13 @@ export function TuiAppRoot({
             return React.createElement(
               Box,
               { key: row.id, flexDirection: 'column' },
-              ...renderTranscriptRow(row, columns, rowDetail(row), store.rows[rowIndex - 1]).map(
-                (l, index) => inkLine(l, `${row.id}-${index}`)
-              )
+              ...renderTranscriptRow(
+                row,
+                columns,
+                rowDetail(row),
+                store.rows[rowIndex - 1],
+                (windowSize.rows || 24) < 20
+              ).map((l, index) => inkLine(l, `${row.id}-${index}`))
             );
           },
         }),

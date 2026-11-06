@@ -17,7 +17,8 @@ export interface ProjectionCache {
     row: TranscriptRow,
     width: number,
     detail: boolean,
-    previous: TranscriptRow | undefined
+    previous: TranscriptRow | undefined,
+    narrow?: boolean
   ): TuiLine[];
   readonly stats: { hits: number; misses: number };
   clear(): void;
@@ -33,8 +34,8 @@ export function createProjectionCache(): ProjectionCache {
       stats.hits = 0;
       stats.misses = 0;
     },
-    render(row, width, detail, previous): TuiLine[] {
-      const key = `${width}|${detail ? 1 : 0}|${isAttachedResult(row, previous) ? 1 : 0}`;
+    render(row, width, detail, previous, narrow = false): TuiLine[] {
+      const key = `${width}|${detail ? 1 : 0}|${isAttachedResult(row, previous) ? 1 : 0}|${narrow ? 1 : 0}`;
       let entries = rows.get(row);
       if (!entries) {
         entries = new Map();
@@ -46,7 +47,7 @@ export function createProjectionCache(): ProjectionCache {
         return cached;
       }
       stats.misses += 1;
-      const fresh = renderTranscriptRow(row, width, detail, previous);
+      const fresh = renderTranscriptRow(row, width, detail, previous, narrow);
       entries.set(key, fresh);
       return fresh;
     },

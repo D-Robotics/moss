@@ -643,6 +643,30 @@ ok('a network error row names the base URL and marks the run failed');
 }
 ok('narrow status uses the directory name and the zh mode label is not doubled');
 
+// 5p. B262: in a short terminal a result preview keeps one line (success) or
+// two (failure), so the conversation still fits.
+{
+  const row = {
+    id: 50,
+    kind: 'result',
+    text: 'a\nb\nc\nd\ne',
+    tool: { name: 'run_tests', summary: 'passed' },
+  };
+  const normal = transcript.renderTranscriptRow(row, 80);
+  const narrow = transcript.renderTranscriptRow(row, 80, false, undefined, true);
+  assert.equal(normal.filter((line) => /^ {5}[a-e]$/.test(line.text)).length, 3);
+  assert.equal(narrow.filter((line) => /^ {5}[a-e]$/.test(line.text)).length, 1);
+  const failed = {
+    id: 51,
+    kind: 'result',
+    text: 'a\nb\nc\nd\ne',
+    tool: { name: 'run_tests', isError: true, summary: 'failed — boom' },
+  };
+  const narrowFailed = transcript.renderTranscriptRow(failed, 80, false, undefined, true);
+  assert.equal(narrowFailed.filter((line) => /^ {5}[a-e]$/.test(line.text)).length, 2);
+}
+ok('a narrow terminal shortens result previews to 1/2 lines');
+
 // 6. B194: the status row labels each number instead of imploding.
 {
   const en = statusLine.formatStatusLine({

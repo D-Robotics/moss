@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### A short terminal keeps result previews to one or two lines (B262)
+
+- At rows < 20 a five-line tool result left almost no conversation on screen. Result previews now keep one
+  line on success and two on failure (inline and fullscreen renderers both get the narrow flag); the hidden
+  remainder stays behind `ctrl+o`. Writes/patches keep their larger window because the source dump is the
+  point of those rows.
+
+### 短终端把工具结果压到一行或两行（B262）
+
+- 行数 < 20 时，五行工具结果几乎不留对话空间。现在结果预览成功 1 行、失败 2 行（inline 与 fullscreen
+  渲染器都收到 narrow 标记），其余仍在 `ctrl+o` 后；写文件/补丁保持较大窗口（源码本身就是要看的内容）。
+
 ### A narrow status bar shows the directory name; the Chinese full-mode label stops doubling (B261)
 
 - At 60 columns the bar printed a mid-truncated path (`…vate/tmp/ux4-ws (main)`). Below 80 columns it now

@@ -666,7 +666,9 @@ export function renderTranscriptRow(
   row: TranscriptRow,
   width: number,
   verbose = false,
-  previous?: TranscriptRow
+  previous?: TranscriptRow,
+  /** B262: a short terminal trades preview detail for scrollback context. */
+  narrow = false
 ): TuiLine[] {
   // A tool's result belongs to the call right above it: no blank line between
   // `⏺ Read(x)` and its `⎿ …`, and consecutive results of one fold stay a block.
@@ -864,17 +866,20 @@ export function renderTranscriptRow(
         out.push(...headline.slice(0, -1), withRuns);
         return out;
       }
+      const defaultLimit = verbose
+        ? source.length
+        : codeLike
+          ? CODE_PREVIEW_LINES
+          : row.tool?.name === 'exec' && row.tool?.isError !== true
+            ? // A successful command is one fact plus its first line of output;
+              // three preview lines per call turned a six-command run into 30 rows.
+              EXEC_SUCCESS_PREVIEW_LINES
+            : failedPreviewLimit(row.tool?.isError === true, source, RESULT_PREVIEW_LINES);
+      // B262: in a short terminal (rows < 20) a five-line preview leaves almost no
+      // conversation on screen; success keeps one line, failure two.
       const preview = compactPreview(
         deduped,
-        verbose
-          ? source.length
-          : codeLike
-            ? CODE_PREVIEW_LINES
-            : row.tool?.name === 'exec' && row.tool?.isError !== true
-              ? // A successful command is one fact plus its first line of output;
-                // three preview lines per call turned a six-command run into 30 rows.
-                EXEC_SUCCESS_PREVIEW_LINES
-              : failedPreviewLimit(row.tool?.isError === true, source, RESULT_PREVIEW_LINES)
+        narrow && !verbose && !codeLike ? (row.tool?.isError === true ? 2 : 1) : defaultLimit
       );
       const shown = preview.shown;
       out.push(...headline);
