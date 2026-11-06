@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `moss task resume` / `verify` accept `latest` (B280)
+
+- Every other task read path took `latest`, and `moss goal --resume` already meant "newest resumable";
+  `task resume` demanded an id and `task verify latest` would have treated `latest` as a task id. `resume`
+  with no id (or `latest`) now picks the newest resumable task, and an empty workspace explains itself
+  instead of printing usage. `verify latest` verifies the newest task.
+
+### `moss task resume` / `verify` 接受 `latest`（B280）
+
+- 其他 task 读路径都接受 `latest`，`moss goal --resume` 也早已表示"最新可恢复"；但 `task resume` 强制要 id，
+  `task verify latest` 会把 `latest` 当 task id。现在 `resume` 不带 id（或 `latest`）取最新可恢复任务，空工作区
+  给出解释而非 usage；`verify latest` 复验最新任务。
+
 ### The resume confirmation names the session (B279)
 
 - A resumed boot said `resumed cli-20261107052804-4430c33c — replayed 3 row(s)`: honest, but a key says

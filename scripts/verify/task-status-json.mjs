@@ -285,4 +285,19 @@ assert.equal(latestTimeline.status, 0, latestTimeline.stderr);
 assert.match(latestTimeline.stdout, /Task created/);
 ok('task status/timeline accept `latest`');
 
+// 9. B280: verify/resume accept `latest`; resume with no id means newest
+// resumable, and an empty workspace says so instead of leaking a usage error.
+const verifyLatest = await runCli(['task', 'verify', 'latest']);
+assert.notEqual(verifyLatest.status, 0, 'a task with no acceptance command cannot verify as PASS');
+assert.match(
+  `${verifyLatest.stdout}${verifyLatest.stderr}`,
+  /acceptance|verify|task/i,
+  'verify latest explains why it could not pass'
+);
+cwd = emptyWorkspace;
+const resumeEmpty = await runCli(['task', 'resume']);
+assert.equal(resumeEmpty.status, 2);
+assert.match(resumeEmpty.stderr, /no resumable task/);
+ok('task verify/resume accept `latest` and explain an empty workspace');
+
 console.log(`[task-status-json] ${String(checks)} checks passed`);

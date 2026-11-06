@@ -3,7 +3,7 @@
  * One natural-language goal in, one verified result out:
  *
  *   moss task run <goal...> [--accept "<cmd>"] [--max-repairs N] [--max-turns N] [--device ID]
- *   moss task resume <task_id> [--accept "<cmd>"]
+ *   moss task resume [<task_id>|latest] [--accept "<cmd>"]
  *   moss task status [task_id] [--json]   (default: latest; --json prints one object)
  *   moss task timeline [task_id|latest]
  *   moss task list [--limit N] [--status pass|fail|blocked|aborted] [--json]   (goal-run rollup, newest first)
@@ -147,12 +147,12 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       `      --max-repairs N  诚实报告失败前的修复尝试次数（默认 ${DEFAULT_MAX_REPAIR_ATTEMPTS}）`,
       `      --max-turns N    模型轮次预算（默认 ${DEFAULT_MAX_TURNS}）`,
       '      --device ID      契约指定的目标设备标识',
-      '  resume <task_id> [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  恢复一个失败/中断/阻塞的任务（可改正验收命令、给本次重试单独的预算）',
+      '  resume [<task_id>|latest] [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  恢复一个失败/中断/阻塞的任务（不带 id 取最新可恢复；可改正验收命令、给本次重试单独的预算）',
       '  status [task_id|latest]  当前阶段、计划、失败、裁决（默认：最新；--json 输出单个对象供自动化）',
       '  list [--limit N] [--status pass|fail|blocked|aborted]  目标运行汇总：时间/结果/任务/轮次/耗时/目标；fail/blocked 行还会显示记录的失败原因（↳ 原因：…）与评审裁决（默认最近 20 条；表头给出全账本计数，--status 只筛表格与 JSON）',
       '  timeline [task_id|latest]  完整生命周期时间线（默认：最新）',
       '  artifacts [种类]     只读工件：`contracts` | `tasks` | `history` | `evidence` | `deployments` | `acceptance` | `device` | `failures`',
-      '  verify [task_id]     用裁决器复验一次（不发起模型回合）',
+      '  verify [task_id|latest]  用裁决器复验一次（不发起模型回合；默认最新）',
       '',
       '只有任务被验收（通过）时退出码才是 0。',
       '',
@@ -176,7 +176,7 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
     `      --max-repairs N  repair attempts before honest FAIL (default ${DEFAULT_MAX_REPAIR_ATTEMPTS})`,
     `      --max-turns N    agent turn budget (default ${DEFAULT_MAX_TURNS})`,
     '      --device ID      target device id for the contract',
-    '  resume <task_id> [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  resume a failed/abandoned/blocked task with an optional oracle fix and its own budget',
+    '  resume [<task_id>|latest] [--accept "<cmd>"] [--max-repairs N] [--max-turns N]  resume a failed/abandoned/blocked task (no id = newest resumable) with an optional oracle fix and its own budget',
     '  status [task_id|latest]  current phase, plan, failures, verdict (default: latest; --json prints one object for automation)',
     '  list [--limit N] [--status pass|fail|blocked|aborted]  goal-run rollup: time/outcome/task/turns/duration/run; fail/blocked rows also show the recorded failure reason and review verdict (default 20; the header counts the whole ledger and --status narrows table and JSON)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
@@ -884,13 +884,23 @@ export async function runTaskCommand(
 
   if (sub === 'resume') {
     const resumeFlags = parseFlags(commandArgs.slice(1));
-    const taskId = resumeFlags.goal[0];
-    if (!taskId) {
-      output(
-        'stderr',
-        zh ? 'moss task resume: 需要 task_id。\n' : 'moss task resume: task_id required.\n'
-      );
-      return 2;
+    let taskId = resumeFlags.goal[0];
+    // B280: `moss task resume` now means "resume the newest resumable task",
+    // the same rule `moss goal --resume` and `/goal resume` already used.
+    if (!taskId || taskId === 'latest') {
+      const newest = (await listTaskStateSnapshots(ctx.workspace))
+        .filter((snapshot) => isResumableTaskPhase(snapshot.phase))
+        .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+      if (!newest) {
+        output(
+          'stderr',
+          zh
+            ? 'moss task resume: 本工作区没有可恢复的任务。先开始一个：moss task run "<目标>"。\n'
+            : 'moss task resume: no resumable task in this workspace. Start one with `moss task run "<goal>"`.\n'
+        );
+        return 2;
+      }
+      taskId = newest.taskId;
     }
     const usageTap = tapUsage(ctx);
     const startedAt = Date.now();
@@ -1027,8 +1037,16 @@ export async function runTaskCommand(
   }
 
   if (sub === 'verify') {
+    // B280: every other read path accepts `latest`; verify should too.
+    const rawTarget = commandArgs[1];
+    const target =
+      rawTarget === 'latest' ? (await latestSnapshot(ctx.workspace))?.taskId : rawTarget;
+    if (rawTarget === 'latest' && !target) {
+      output('stderr', zh ? '本工作区尚无任务。\n' : 'No tasks in this workspace.\n');
+      return 1;
+    }
     const result = await verifyTaskOnce(ctx.workspace, {
-      ...(commandArgs[1] ? { taskId: commandArgs[1] } : {}),
+      ...(target ? { taskId: target } : {}),
     });
     output(result.exitCode === 0 ? 'stdout' : 'stderr', result.summary + '\n');
     return result.exitCode;
