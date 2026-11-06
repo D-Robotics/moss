@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Maintenance: drop the unused `ink-testing-library` dev dependency (B201)
+
+- No file imports it (the TUI probes render through the real transcript functions), so it leaves
+  `package.json` and the lockfile: one dev dependency fewer to install, no runtime or test change.
+
+### 维护：移除未使用的 `ink-testing-library` 开发依赖（B201）
+
+- 仓库没有任何文件 import 它（TUI 探针直接走真实 transcript 渲染函数），因此从 `package.json` 与 lockfile 移除：
+  少装一个开发依赖，运行时与测试行为不变。
+
 ### Validation round: real TUI task, plus the last two unreferenced exports removed (B200)
 
 - Ran a real end-to-end TUI task on the deepseek-flash gateway (`Create sum.js + node:test, run it`):
