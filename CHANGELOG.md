@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### A crashed in-flight run no longer looks "in progress" forever (B179)
+
+- B178's `running` row had no reconciliation: a `moss superagent work` killed mid-ticket left the row
+  running indefinitely. The row now records `pid` + `host`; on read, a running row whose owning
+  process is gone **on this host** becomes `interrupted` (paused) with exit 130 and an explicit reason
+  ("the run process is gone"). Foreign hosts and rows without a pid stay `running` — genuinely unknown
+  is not guessed.
+- `runs show` for a live pid keeps `running` + `exit: —`; a dead pid shows `paused`, `exit: 130`.
+  Probe runs-ledger 15/15 covers dead/live/foreign/missing pid.
+
+### 崩溃的进行中运行不会永远显示「进行中」（B179）
+
+- B178 的 `running` 行没有对账：`moss superagent work` 在工单中途被杀会留下永远 running 的行。现在运行行记录
+  `pid` + `host`；读取时，若该行属于**本机**且其进程已不存在，就归一为 `interrupted`（暂停），exit 130，
+  并给出明确原因（"the run process is gone"）。异机 pid 或没有 pid 的行保持 `running`——真正未知就不猜。
+- `runs show`：活 pid 仍显示 `running` + `exit: —`；死 pid 显示 `paused`、`exit: 130`。
+  探针 `runs-ledger` 15/15 覆盖 dead/live/foreign/missing pid 四种情况。
+
 ### An in-flight ticket is visible: `running` rows in the ledger (B178)
 
 - A superagent ticket used to appear in `moss runs` only when it ended — a 6-minute ticket was
