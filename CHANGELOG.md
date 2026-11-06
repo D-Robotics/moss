@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The deep gate's Windows leg can pass again (B284)
+
+- `Deep verification` had been red on every nightly since 2026-11-04: the clipboard probe asserted a POSIX
+  `file:///tmp/…` URL resolves to `/tmp/…` on Windows, where `fileURLToPath` correctly returns null (that URL
+  has no drive). The probe now builds the platform's own URL/expected pair (`file:///C:/tmp/…` →
+  `C:\tmp\…` on win32), so the nightly cross-platform evidence is meaningful again instead of a known red.
+
+### 夜间深门禁的 Windows leg 可以重新变绿（B284）
+
+- `Deep verification` 自 2026-11-04 起每晚都失败：clipboard 探针在 Windows 上断言 POSIX 风格
+  `file:///tmp/…` 会解析成 `/tmp/…`，而 `fileURLToPath` 在 Windows 上正确返回 null（该 URL 没有盘符）。
+  探针现在按平台构造 URL/期望值（win32：`file:///C:/tmp/…` → `C:\tmp\…`），夜间跨平台证据重新有意义。
+
 ### "Unprobed window" copy stops calling an over-estimate conservative (B283)
 
 - `doctor` said "using conservative default of 1M tokens" and `/context` said "conservative 1,000k default" while
