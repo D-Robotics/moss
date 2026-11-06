@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Resuming a session shows your prompt, not the injected turn context (B204)
+
+- A stored user turn carries the `<turn-context>` preamble (skills catalog, environment, context
+  window). `/resume` replayed the whole block as if the user had typed it; in a real resumed session
+  that meant three screens of environment text under `❯ hi`. `resumeUserText` now strips the block
+  (closed or truncated) while keeping the user's own text, so the replay is the conversation.
+- Probe `rewind-conversation` 6/6 covers closed and unclosed preambles plus real user/assistant turns.
+
+### 恢复会话显示你的输入，而不是注入的 turn context（B204）
+
+- 存储的用户回合带有 `<turn-context>` 前缀（技能目录、环境、上下文窗口）。`/resume` 会把它整块当成用户输入回放：
+  真实恢复会话里 `❯ hi` 下面出现三屏环境文本。`resumeUserText` 现在会剥掉该块（闭合或被截断），保留用户自己的文字，
+  回放就是对话本身。
+- 探针 `rewind-conversation` 6/6 覆盖闭合/未闭合前缀与真实用户/助手回合。
+
 ### `/undo` actually undoes, and replay no longer shows harness corrections as user text (B203)
 
 - The TUI rewrites aliases before dispatch, so `/undo` arrived as the canonical `/rewind`; the new

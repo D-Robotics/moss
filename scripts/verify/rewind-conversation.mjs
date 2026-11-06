@@ -129,6 +129,30 @@ try {
     'the correction is dropped; real user/assistant turns remain'
   );
   ok('a stored [System] correction is not replayed as a user turn');
+
+  // 6. B204: the injected <turn-context> preamble never replays as user text.
+  const withContext = buildResumeReplay([
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: 'Add subtract() to sum.js\n\n<turn-context>\n## Environment\n- Working directory: /tmp/x\n</turn-context>',
+        },
+      ],
+    },
+    { role: 'assistant', content: [{ type: 'text', text: 'Added.' }] },
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'hi\n\n<turn-context>\n## Available skills\n- a: b' }],
+    },
+  ]);
+  assert.deepEqual(
+    withContext.items.map((item) => `${item.kind}:${item.text}`),
+    ['user:Add subtract() to sum.js', 'assistant:Added.', 'user:hi'],
+    'the preamble is stripped, including an unclosed block'
+  );
+  ok('the injected <turn-context> preamble is stripped from replay');
 }
 
 console.log(`[rewind-conversation] ${checks}/${checks} checks passed`);

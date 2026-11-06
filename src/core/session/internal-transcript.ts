@@ -74,7 +74,13 @@ export function sessionTitleFromTexts(texts: readonly string[]): string | undefi
  * phase prompts and system nudges are dropped.
  */
 export function resumeUserText(text: string): string {
-  const trimmed = text.trim();
+  // B204: a stored user turn carries the injected <turn-context> preamble. The
+  // replay used to print it as if the user had typed the environment + skills.
+  const stripped = text
+    .replace(/<turn-context>[\s\S]*?<\/turn-context>/g, '')
+    .replace(/<turn-context>[\s\S]*$/, '')
+    .trim();
+  const trimmed = stripped;
   if (!trimmed || trimmed.includes('<moss_working_context_checkpoint')) return '';
   if (trimmed.startsWith('[System]')) return '';
   if (trimmed.startsWith('[task-phase:planning]')) return goalFromPhasePrompt(text) ?? '';
