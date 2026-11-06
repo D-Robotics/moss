@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Watch autonomous runs settle: `moss runs follow` (B183)
+
+- The ledger could be read after the fact; there was no way to watch it like `loop follow` watches a
+  loop. `moss runs follow [--interval 1s] [--timeout 10m] [--kind <engine>] [--json]` polls the
+  ledger and prints new runs (`+`) and status changes (`~`, e.g. running → completed), then exits 0
+  with `all runs settled` once nothing is in flight. The first poll is a baseline that only announces
+  in-flight rows, so history is not a wall of `+` lines; a timeout with work still running exits 1.
+
+### 观察自主运行收尾：`moss runs follow`（B183）
+
+- 账本此前只能事后读，不能像 `loop follow` 那样"盯着看"。`moss runs follow [--interval 1s] [--timeout 10m] [--kind <引擎>] [--json]`
+  轮询账本，打印新运行（`+`）与状态变化（`~`，如 running → completed），没有在飞运行后打印
+  `all runs settled` 并 exit 0。第一次轮询只作基线、只播报进行中的行（不会把历史刷成一屏 `+`）；
+  超时仍有运行在跑则 exit 1。
+
 ### `moss runs export` can report many runs at once (B182)
 
 - Exporting one run was fine for a single PR, but a week of autonomous work (or a CI job's last day)

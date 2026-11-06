@@ -101,6 +101,7 @@ moss runs export --since 7d --kind task --format md   # 一批运行合成一份
 moss runs summary --since 7d --by day  # 近 7 天：逐日次数/通过率/token/可算的费用
 moss runs summary --by model           # 按模型归因 token/费用（没记录模型的算 unknown）
 moss runs --status running             # 进行中的自主运行（工单派发即出现，结束后被最终结果覆盖）
+moss runs follow --timeout 10m         # 盯着账本：新运行 + 状态变化，全部收尾后退出 0
 moss task status --json                # 同一份事实，给脚本/CI 用
 ```
 

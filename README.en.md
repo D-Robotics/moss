@@ -102,6 +102,7 @@ moss runs export --since 7d --kind task --format md   # one combined report for 
 moss runs summary --since 7d --by day  # last 7 days: per-day runs/pass-rate/tokens/priced cost
 moss runs summary --by model           # attribute tokens/cost per model (unrecorded = unknown)
 moss runs --status running             # in-flight autonomous runs (appears at dispatch, overwritten by the outcome)
+moss runs follow --timeout 10m         # watch the ledger: new runs + status changes, exit 0 when settled
 moss task status --json                # the same facts, for scripts and CI
 ```
 
