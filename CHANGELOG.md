@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### CI-only flake fixes: same-millisecond rows and a starved interrupt probe
+
+- `goal-runs` failed `newest first` again on CI: the tie-break ranked `startedAt` before the ledger
+  position, so two runs recorded in the same millisecond could show an older long-running entry
+  first. Append order is the record order now (endedAt → later row → startedAt), and the probe
+  constructs that tie directly (7/7).
+- `repl-interrupt` retries a key once when the REPL never starts streaming on a heavily loaded
+  machine, with a message that names the cause instead of reporting a false interrupt regression.
+
 ### The mutation notice only fires when a read body actually went stale (B173)
 
 - After B172, `2>/dev/null` no longer produced the notice, but it still printed for every real
