@@ -34,6 +34,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '  moss runs [list] [--limit N] [--status <状态>] [--kind <引擎>] [--since <时长|日期>] [--json]',
       '  moss runs show [<run_id>|latest] [--json]',
       '  moss runs export [<run_id>|latest] [--format md|json] [--out <文件>]',
+      '  moss runs summary [--since <时长|日期>] [--kind <引擎>] [--json]',
       '  moss runs prune [--keep N] [--dry-run] [--json]',
       '',
       '统一运行账本（.moss/runs/<run_id>/goal.json）：每次 task / loop 等自动运行一条。',
@@ -45,6 +46,8 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '  moss runs show latest',
       '  moss runs list --kind loop --limit 5',
       '  moss runs list --since 24h --status fail',
+      '  moss runs summary --since 7d',
+      '  moss runs summary --since 7d',
       '  moss runs list --since 24h --status fail',
       '  moss runs export latest > run.md',
       '  moss runs prune --keep 20 --dry-run',
@@ -55,6 +58,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
     '  moss runs [list] [--limit N] [--status <status>] [--kind <engine>] [--since <window|date>] [--json]',
     '  moss runs show [<run_id>|latest] [--json]',
     '  moss runs export [<run_id>|latest] [--format md|json] [--out <file>]',
+    '  moss runs summary [--since <window|date>] [--kind <engine>] [--json]',
     '  moss runs prune [--keep N] [--dry-run] [--json]',
     '',
     'Unified run ledger (.moss/runs/<run_id>/goal.json): one row per autonomous run.',
@@ -337,6 +341,113 @@ function parseKeep(
   return { keep, dryRun, json };
 }
 
+function filterRuns(all: readonly RunRecord[], parsed: ListFlags): RunRecord[] {
+  return all.filter(
+    (record) =>
+      (!parsed.status || record.status === parsed.status) &&
+      (!parsed.kind || record.kind === parsed.kind) &&
+      (!parsed.since || record.endedAt >= parsed.since.cutoff)
+  );
+}
+
+function filterLabelFor(parsed: ListFlags): string {
+  return [
+    ...(parsed.status ? [`status ${parsed.status}`] : []),
+    ...(parsed.kind ? [`kind ${parsed.kind}`] : []),
+    ...(parsed.since ? [`since ${parsed.since.label}`] : []),
+  ].join(', ');
+}
+
+interface RunTotals {
+  runs: number;
+  pass: number;
+  fail: number;
+  other: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  costUsd: number;
+  withUsage: number;
+  withCost: number;
+}
+
+function buildRunTotals(records: readonly RunRecord[]): RunTotals {
+  const totals: RunTotals = {
+    runs: records.length,
+    pass: 0,
+    fail: 0,
+    other: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    costUsd: 0,
+    withUsage: 0,
+    withCost: 0,
+  };
+  for (const record of records) {
+    if (record.status === 'completed') totals.pass += 1;
+    else if (record.status === 'verify_failed' || record.status === 'incomplete') totals.fail += 1;
+    else totals.other += 1;
+    if (!record.usage) continue;
+    totals.withUsage += 1;
+    totals.inputTokens += record.usage.inputTokens;
+    totals.outputTokens += record.usage.outputTokens;
+    totals.cacheReadTokens += record.usage.cacheReadTokens ?? 0;
+    if (typeof record.usage.costUsd === 'number') {
+      totals.withCost += 1;
+      totals.costUsd += record.usage.costUsd;
+    }
+  }
+  totals.costUsd = Number(totals.costUsd.toFixed(6));
+  return totals;
+}
+
+function formatTokenCount(value: number): string {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
+}
+
+function renderSummary(
+  all: readonly RunRecord[],
+  filtered: readonly RunRecord[],
+  kinds: readonly ({ kind: RunKind } & RunTotals)[],
+  total: RunTotals,
+  filterLabel: string,
+  zh: boolean
+): string {
+  const counts = countsOf(all);
+  const t = (en: string, cn: string): string => (zh ? cn : en);
+  const header =
+    uiText(
+      `run summary · ${all.length} total · ${counts.completed ?? 0} pass · ${counts.verify_failed ?? 0} fail · ${counts.blocked ?? 0} blocked · ${counts.interrupted ?? 0} paused · ${counts.incomplete ?? 0} incomplete · ${counts.unverified ?? 0} unverified`,
+      `运行汇总 · 共 ${all.length} · 通过 ${counts.completed ?? 0} · 失败 ${counts.verify_failed ?? 0} · 阻塞 ${counts.blocked ?? 0} · 暂停 ${counts.interrupted ?? 0} · 未完成 ${counts.incomplete ?? 0} · 未验证 ${counts.unverified ?? 0}`
+    ) + (filterLabel ? ` — ${filterLabel} (${filtered.length})` : '');
+  const lines = [header];
+  if (filtered.length === 0) {
+    lines.push(
+      filterLabel
+        ? t(`no runs match ${filterLabel}`, `没有匹配 ${filterLabel} 的运行记录`)
+        : t('no runs recorded yet', '还没有运行记录')
+    );
+    return lines.join('\n');
+  }
+  const costText = (totals: RunTotals): string => {
+    if (totals.withUsage === 0) return t('usage: n/a', '用量：无');
+    const tokens = `${t('usage', '用量')}: ${formatTokenCount(totals.inputTokens)} ${t('in', '入')} / ${formatTokenCount(totals.outputTokens)} ${t('out', '出')}`;
+    if (totals.withCost === 0) return `${tokens} · ${t('cost: unpriced', '费用：无公开价')}`;
+    return `${tokens} · ${t('est.', '估算')} $${totals.costUsd.toFixed(4)} (${totals.withCost}/${totals.withUsage} ${t('priced', '有价')})`;
+  };
+  for (const entry of kinds) {
+    if (entry.runs === 0) continue;
+    lines.push(
+      `  ${entry.kind.padEnd(10)} ${String(entry.runs).padStart(3)} ${t('runs', '次')} · ${entry.pass} ${t('pass', '通过')} · ${entry.fail} ${t('fail', '失败')} · ${entry.other} ${t('other', '其他')} · ${costText(entry)}`
+    );
+  }
+  lines.push(
+    `  ${t('total', '合计').padEnd(10)} ${String(total.runs).padStart(3)} ${t('runs', '次')} · ${total.pass} ${t('pass', '通过')} · ${total.fail} ${t('fail', '失败')} · ${total.other} ${t('other', '其他')} · ${costText(total)}`
+  );
+  return lines.join('\n');
+}
+
 export async function runRunsCommand(
   args: readonly string[],
   ctx: RunsCommandContext
@@ -354,17 +465,8 @@ export async function runRunsCommand(
       return 2;
     }
     const all = await listRunRecords(ctx.workspace);
-    const filtered = all.filter(
-      (record) =>
-        (!parsed.status || record.status === parsed.status) &&
-        (!parsed.kind || record.kind === parsed.kind) &&
-        (!parsed.since || record.endedAt >= parsed.since.cutoff)
-    );
-    const filterLabel = [
-      ...(parsed.status ? [`status ${parsed.status}`] : []),
-      ...(parsed.kind ? [`kind ${parsed.kind}`] : []),
-      ...(parsed.since ? [`since ${parsed.since.label}`] : []),
-    ].join(', ');
+    const filtered = filterRuns(all, parsed);
+    const filterLabel = filterLabelFor(parsed);
     const page = filtered.slice(0, parsed.limit);
     if (parsed.json) {
       output(
@@ -373,6 +475,45 @@ export async function runRunsCommand(
       );
     } else {
       output('stdout', `${renderList(page, all, filterLabel, filtered.length)}\n`);
+    }
+    return 0;
+  }
+
+  if (sub === 'summary') {
+    const parsed = parseListFlags(rest, ctx.outputJson === true);
+    if ('error' in parsed) {
+      output('stderr', `${parsed.error}\n\n${renderRunsUsage(zh)}\n`);
+      return 2;
+    }
+    const all = await listRunRecords(ctx.workspace);
+    const filtered = filterRuns(all, parsed);
+    const kinds = RUN_KINDS.map((kind) => ({
+      kind,
+      ...buildRunTotals(filtered.filter((r) => r.kind === kind)),
+    }));
+    const total = buildRunTotals(filtered);
+    const filterLabel = filterLabelFor(parsed);
+    if (parsed.json) {
+      output(
+        'stdout',
+        `${JSON.stringify(
+          {
+            version: 1,
+            totalRuns: filtered.length,
+            ledgerRuns: all.length,
+            counts: countsOf(all),
+            total,
+            kinds,
+            ...(parsed.status ? { status: parsed.status } : {}),
+            ...(parsed.kind ? { kind: parsed.kind } : {}),
+            ...(parsed.since ? { since: new Date(parsed.since.cutoff).toISOString() } : {}),
+          },
+          null,
+          2
+        )}\n`
+      );
+    } else {
+      output('stdout', `${renderSummary(all, filtered, kinds, total, filterLabel, zh)}\n`);
     }
     return 0;
   }

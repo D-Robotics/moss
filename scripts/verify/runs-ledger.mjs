@@ -311,6 +311,34 @@ try {
   assert.equal(badSince.status, 2);
   assert.match(badSince.stderr, /--since must be a duration/);
   ok('moss runs list --since accepts windows/dates and rejects anything else with 2');
+
+  // 10. B162: summary aggregates the same ledger (per kind, tokens, priced cost).
+  const summaryJson = JSON.parse((await cli(['runs', 'summary', '--json'])).stdout);
+  assert.equal(summaryJson.version, 1);
+  assert.equal(summaryJson.totalRuns, summaryJson.total.runs);
+  assert.equal(summaryJson.total.withUsage, 1, 'only usage_run carries usage');
+  assert.equal(summaryJson.total.withCost, 1);
+  assert.equal(summaryJson.total.costUsd, 0.0123);
+  assert.equal(summaryJson.total.inputTokens, 12_345);
+  const taskKind = summaryJson.kinds.find((entry) => entry.kind === 'task');
+  const loopKind = summaryJson.kinds.find((entry) => entry.kind === 'loop');
+  assert.equal(taskKind.withUsage, 1);
+  assert.equal(loopKind.withUsage, 0);
+  assert.equal(summaryJson.kinds.length, 5, 'every kind is reported');
+
+  const summaryLoop = await cli(['runs', 'summary', '--kind', 'loop']);
+  assert.equal(summaryLoop.status, 0, summaryLoop.stderr);
+  assert.match(summaryLoop.stdout, /loop\s+1 runs/);
+  assert.match(summaryLoop.stdout, /total\s+1 runs/);
+  assert.match(summaryLoop.stdout, /— kind loop \(1\)/);
+
+  const summaryEmpty = await cli(['runs', 'summary', '--since', '2100-01-01']);
+  assert.equal(summaryEmpty.status, 0, summaryEmpty.stderr);
+  assert.match(summaryEmpty.stdout, /no runs match since 2100-01-01/);
+
+  const summaryBadKind = await cli(['runs', 'summary', '--kind', 'nope']);
+  assert.equal(summaryBadKind.status, 2);
+  ok('moss runs summary aggregates runs, tokens and priced cost with the same filters');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }
