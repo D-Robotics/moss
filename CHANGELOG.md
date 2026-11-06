@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### `moss mcp list --json` and `moss device list --json` (B278)
+
+- The JSON sweep finished: the two remaining list commands printed only tables. `mcp list --json` emits
+  `moss_mcp_list.v1` (`{servers:[{name,transport,command|url}],inactive}` — routing fields only, because
+  server env blocks can hold tokens), and `device list --json` emits `moss_devices_list.v1`
+  (`{env,devices:[{id,user,host,port,kind,auth}]}`). Both forward the parser-stripped global `--json`.
+
+### `moss mcp list --json` 与 `moss device list --json`（B278）
+
+- JSON 扫描收尾：最后两个列表命令只看表格。`mcp list --json` 输出 `moss_mcp_list.v1`
+  （`{servers:[{name,transport,command|url}],inactive}`，只给路由字段，因为 server env 可能含 token）；
+  `device list --json` 输出 `moss_devices_list.v1`（`{env,devices:[{id,user,host,port,kind,auth}]}`）。
+  两者都显式转发被解析器剥离的全局 `--json`。
+
 ### `moss sessions list/search --json` (B277)
 
 - A JSON sweep of the read commands found `sessions list`/`sessions search` printing tables even with

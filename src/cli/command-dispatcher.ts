@@ -664,7 +664,10 @@ export const COMMANDS: Record<string, CommandConfig> = {
         process.exitCode = ExitCode.USAGE;
         return;
       }
-      const code = await runDeviceCommand(ctx.commandArgs, { workspaceDir: workspace });
+      const code = await runDeviceCommand(ctx.commandArgs, {
+        workspaceDir: workspace,
+        json: ctx.argv.includes('--json'),
+      });
       if (code !== 0) process.exitCode = code;
     },
     description: 'Manage devices: add/list/remove/test (.moss/devices.json registry)',
@@ -697,6 +700,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
       const code = await runMcpCommand(ctx.commandArgs, {
         workspaceDir: workspace,
         configDir,
+        json: ctx.argv.includes('--json'),
         ...(rdkDocsConfig !== undefined ? { rdkDocs: rdkDocsConfig } : {}),
       });
       if (code !== 0) process.exitCode = code;

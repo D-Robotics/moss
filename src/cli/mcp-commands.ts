@@ -131,6 +131,8 @@ export interface McpCommandContext {
   env?: NodeJS.ProcessEnv;
   /** Merged config.json `rdkDocs`, when the caller already loaded it. */
   rdkDocs?: unknown;
+  /** Global `--json` is stripped by the arg parser; the dispatcher forwards it. */
+  json?: boolean;
 }
 
 /**
@@ -258,6 +260,24 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
       !rdkDocsOptOut(env, rdkDocs) &&
       !rdkDocsAutoConnectEnabled(enableInput) &&
       !merged.some((config) => config.name === RDK_DOCS_SERVER_NAME);
+    if (ctx.json === true) {
+      // Only routing fields: server env blocks can carry tokens and must not be
+      // echoed into CI logs by a list command.
+      out(
+        JSON.stringify({
+          schema: 'moss_mcp_list.v1',
+          servers: merged.map((config) => ({
+            name: config.name,
+            transport: config.transport,
+            ...(config.transport === 'http'
+              ? { url: config.url ?? '' }
+              : { command: config.command ?? '' }),
+          })),
+          inactive: showInactive ? [{ name: RDK_DOCS_SERVER_NAME, reason: 'inactive' }] : [],
+        })
+      );
+      return 0;
+    }
     if (merged.length === 0) {
       out(
         zh

@@ -174,6 +174,55 @@ try {
   assert.equal(full.status, 0, full.stderr);
   assert.match(full.stdout, /capabilities\s+one screen: tools, skills, commands/);
   ok('the command is listed in `moss --help --all`');
+  // B278: `mcp list --json` / `device list --json` are the scriptable view of
+  // the same two sections this command summarizes.
+  await fs.writeFile(
+    path.join(ws, '.moss', 'mcp.json'),
+    JSON.stringify({ mcpServers: { echo: { command: 'node', args: ['-e', 'process.exit(0)'] } } }),
+    'utf8'
+  );
+  const jsonEnv = {
+    ...process.env,
+    MOSS_CONFIG_DIR: configDir,
+    MOSS_NO_TUI: '1',
+    MOSS_NO_RDK_DOCS: '1',
+    MOSS_LANG: 'en',
+    MOSS_TRUST_WORKSPACE: '1',
+    MOSS_DEVICE_HOST: '',
+  };
+  const mcpJson = await captureProcess(
+    process.execPath,
+    [path.join(root, 'dist/cli.js'), 'mcp', 'list', '--json'],
+    { cwd: ws, env: jsonEnv, timeoutMs: 30_000 }
+  );
+  assert.equal(mcpJson.status, 0, mcpJson.stderr);
+  const mcp = JSON.parse(mcpJson.stdout);
+  assert.equal(mcp.schema, 'moss_mcp_list.v1');
+  // User scope (`configDir/mcp.json`, "local") and project scope both merge.
+  assert.deepEqual(mcp.servers.map((server) => server.name).sort(), ['echo', 'local']);
+  assert.equal(mcp.servers.find((server) => server.name === 'echo').command, 'node');
+
+  const add = await captureProcess(
+    process.execPath,
+    [path.join(root, 'dist/cli.js'), 'device', 'add', 'sim1', '10.0.0.5', '--user', 'ubuntu'],
+    { cwd: ws, env: jsonEnv, timeoutMs: 30_000 }
+  );
+  assert.equal(add.status, 0, add.stderr);
+  const devJson = await captureProcess(
+    process.execPath,
+    [path.join(root, 'dist/cli.js'), 'device', 'list', '--json'],
+    { cwd: ws, env: jsonEnv, timeoutMs: 30_000 }
+  );
+  assert.equal(devJson.status, 0, devJson.stderr);
+  const devices = JSON.parse(devJson.stdout);
+  assert.equal(devices.schema, 'moss_devices_list.v1');
+  assert.equal(devices.env, null);
+  // The probe's existing registry entry (rdk-01) stays; the new one is added.
+  assert.deepEqual(
+    devices.devices.map((device) => `${device.id}:${device.user}@${device.host}`).sort(),
+    ['rdk-01:root@192.168.1.10', 'sim1:ubuntu@10.0.0.5']
+  );
+  ok('mcp/device list --json give scripts the same registries');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }
