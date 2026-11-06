@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Interactive surfaces name the command they can run (B154)
+
+- The first-screen `Next:` line and the post-run hint named shell verbs even inside the REPL and
+  TUI: a fresh workspace said `moss init`, a completed run said `moss runs`, a paused task said
+  `moss task resume <id>`. Those commands are not what the user can type there.
+- `renderWelcomeContextLines` / `renderCliWelcome` / `renderNextHint` now take a surface:
+  interactive surfaces get `/init`, `/runs`, `/run resume <id>` and
+  `/run "<intent>" --accept "<cmd>"`; the CLI keeps the shell forms. TUI boot/setup/refresh and
+  the REPL pass `interactive`, so the welcome line and the composer hint agree.
+
+### 交互面只提示它真正能敲的命令（B154）
+
+- 首屏 `Next:` 与运行后提示在 REPL/TUI 里也写着 shell 动词：全新工作区写 `moss init`、完成的运行写
+  `moss runs`、暂停的任务写 `moss task resume <id>`——这些都不是用户在会话里能直接输入的。
+- `renderWelcomeContextLines` / `renderCliWelcome` / `renderNextHint` 增加 surface 参数：交互面得到
+  `/init`、`/runs`、`/run resume <id>`、`/run "<意图>" --accept "<命令>"`；CLI 保持 shell 形式。
+  TUI 的 boot/setup/刷新与 REPL 都传 `interactive`，首屏与输入框提示一致。
+
 ### `/capabilities` in-session and `--kind` narrowing (B153)
 
 - The capability panel was CLI-only: answering "what is installed here?" mid-session meant
