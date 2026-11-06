@@ -354,12 +354,12 @@ function runHelp(zh: boolean): string {
   if (zh) {
     return [
       '用法：',
-      '  moss run "<意图>" [--accept "<验收命令>"] [--max-repairs N] [--max-turns N]',
-      '  moss run "<意图>" --until "<命令>" [--max N] [--every <时长>]   运行→验收→修复的本地闭环',
-      '  moss run --workflow <plan.json> [--mock]                        声明式多步 workflow',
-      '  moss run --resume [<task_id>] [--accept "<验收命令>"] …        续跑（不给 id 取最新可恢复任务）',
+      '  moss goal "<意图>" [--accept "<验收命令>"] [--max-repairs N] [--max-turns N]',
+      '  moss goal "<意图>" --until "<命令>" [--max N] [--every <时长>]   运行→验收→修复的本地闭环',
+      '  moss goal --workflow <plan.json> [--mock]                        声明式多步 workflow',
+      '  moss goal --resume [<task_id>] [--accept "<验收命令>"] …        续跑（不给 id 取最新可恢复任务）',
       '',
-      '  一个 run 动词 + 三个修饰符：--accept（单次验证）、--until（反复到命令通过）、--workflow（多步依赖）。',
+      '  一个 goal 动词 + 三个修饰符：--accept（单次验证）、--until（反复到命令通过）、--workflow（多步依赖）。',
       '  --until 与 --workflow 互斥；两者都不接受 --accept（成功由它们自己的检查决定）。',
       '',
       '验证式运行——`moss task run` 的快捷方式：同一个任务状态机、同样的 Ctrl+C 暂停语义、',
@@ -372,23 +372,23 @@ function runHelp(zh: boolean): string {
       '  --max-turns N      agent 回合预算（含计划回合）',
       '',
       '示例：',
-      '  moss run "创建 hello.txt 内容为 MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"',
-      '  moss run "修复失败的测试" --accept "npm test"',
+      '  moss goal "创建 hello.txt 内容为 MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"',
+      '  moss goal "修复失败的测试" --accept "npm test"',
       '  moss task status --json      # 运行后看同一份事实',
     ].join('\n');
   }
   return [
     'Usage:',
-    '  moss run "<intent>" [--accept "<command>"] [--max-repairs N] [--max-turns N]',
-    '  moss run "<intent>" --until "<command>" [--max N] [--every <duration>]   run→check→fix loop',
-    '  moss run --workflow <plan.json> [--mock]                                declarative multi-step workflow',
-    '  moss run --resume [<task_id>] [--accept "<command>"] …                  resume (newest resumable without an id)',
+    '  moss goal "<intent>" [--accept "<command>"] [--max-repairs N] [--max-turns N]',
+    '  moss goal "<intent>" --until "<command>" [--max N] [--every <duration>]   run→check→fix loop',
+    '  moss goal --workflow <plan.json> [--mock]                                declarative multi-step workflow',
+    '  moss goal --resume [<task_id>] [--accept "<command>"] …                  resume (newest resumable without an id)',
     '',
-    '  One run verb plus three modifiers: --accept (single verdict), --until (repeat until the',
+    '  One goal verb plus three modifiers: --accept (single verdict), --until (repeat until the',
     '  command passes), --workflow (dependent steps). --until and --workflow are exclusive and neither',
     '  accepts --accept: their own checks decide success.',
     '',
-    'Verified run — a shortcut for `moss task run`: same task state machine, same',
+    'A goal — work until your acceptance command passes (shortcut for `moss task run`): same task state machine, same',
     'Ctrl+C pause semantics and the same exit codes (0 pass, 1 fail/blocked, 130',
     'interrupted and resumable). The acceptance command decides PASS; model prose',
     'never does.',
@@ -399,8 +399,8 @@ function runHelp(zh: boolean): string {
     '  --max-turns N      agent turn budget (planning turn included)',
     '',
     'Examples:',
-    '  moss run "create hello.txt containing MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"',
-    '  moss run "fix the failing tests" --accept "npm test"',
+    '  moss goal "create hello.txt containing MOSS_OK" --accept "grep -qx MOSS_OK hello.txt"',
+    '  moss goal "fix the failing tests" --accept "npm test"',
     '  moss task status --json      # the same facts after the run',
   ].join('\n');
 }
@@ -481,6 +481,7 @@ export async function renderSubcommandHelp(
       const { renderTaskCliUsage } = await import('./task-run.js');
       return renderTaskCliUsage(zh);
     }
+    case 'goal':
     case 'run':
       return runHelp(zh);
     case 'init': {

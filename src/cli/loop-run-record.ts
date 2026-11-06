@@ -1,6 +1,6 @@
 /**
  * B129 follow-up: a `moss loop` run is also an autonomous run, so it writes the
- * same `.moss/runs/<runId>/run.json` record the task engine writes. Formatting
+ * same `.moss/runs/<runId>/goal.json` record the task engine writes. Formatting
  * lives here (not inside the 1.7k-line loop command) so the mapping can be
  * probed without a model or a PTY.
  */

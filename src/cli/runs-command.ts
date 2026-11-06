@@ -36,7 +36,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
       '  moss runs export [<run_id>|latest] [--format md|json] [--out <文件>]',
       '  moss runs prune [--keep N] [--dry-run] [--json]',
       '',
-      '统一运行账本（.moss/runs/<run_id>/run.json）：每次 task / loop 等自动运行一条。',
+      '统一运行账本（.moss/runs/<run_id>/goal.json）：每次 task / loop 等自动运行一条。',
       `  状态：${RUN_STATUSES.join(' | ')}`,
       '  interrupted 表示暂停但可续跑（不是失败）。',
       '',
@@ -57,7 +57,7 @@ export function renderRunsUsage(zh = isZhLocale()): string {
     '  moss runs export [<run_id>|latest] [--format md|json] [--out <file>]',
     '  moss runs prune [--keep N] [--dry-run] [--json]',
     '',
-    'Unified run ledger (.moss/runs/<run_id>/run.json): one row per autonomous run.',
+    'Unified run ledger (.moss/runs/<run_id>/goal.json): one row per autonomous run.',
     `  statuses: ${RUN_STATUSES.join(' | ')}`,
     '  interrupted means paused and resumable, not failed.',
     '',
@@ -222,8 +222,8 @@ function renderList(
     const empty = filterLabel
       ? uiText(`no runs match ${filterLabel}`, `没有匹配 ${filterLabel} 的运行记录`)
       : uiText(
-          'no runs recorded yet — start one with `moss run "<intent>" --accept "<cmd>"`',
-          '还没有运行记录——用 `moss run "<意图>" --accept "<命令>"` 开始一次'
+          'no runs recorded yet — start one with `moss goal "<intent>" --accept "<cmd>"`',
+          '还没有运行记录——用 `moss goal "<意图>" --accept "<命令>"` 开始一次'
         );
     return `${header}\n${empty}`;
   }

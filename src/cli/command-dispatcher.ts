@@ -222,7 +222,7 @@ export interface CommandContext {
 }
 
 /**
- * Shared `moss task …` / `moss run …` execution: Ctrl+C must pause the verified
+ * Shared `moss task …` / `moss goal …` execution: Ctrl+C must pause the verified
  * run (write `task_failed{detail:"aborted"}`, print the resume hint) and exit
  * 130 instead of killing the process with an in-flight task behind it.
  */
@@ -344,19 +344,19 @@ export const COMMANDS: Record<string, CommandConfig> = {
       'Unified task runtime: run/resume/status/timeline — one goal in, one verified result out',
   },
 
-  // Hero shortcut: `moss run "<intent>" --accept "<cmd>"` is the product's
+  // Hero shortcut: `moss goal "<intent>" --accept "<cmd>"` is the product's
   // one-line promise (one intent in, one verified result out). It is exactly
   // `moss task run`, so the two can never drift; the long form stays documented
   // for discoverability and for the other task subcommands.
-  run: {
-    name: 'run',
+  goal: {
+    name: 'goal',
     phase: CliPhase.AgentReady,
     handler: async (ctx) => {
       const { classifyRunMode } = await import('./run-mode-args.js');
       const mode = classifyRunMode(ctx.commandArgs);
       if (mode.mode === 'error') {
         const { ExitCode } = await import('./exit-codes.js');
-        console.error(`moss run: ${mode.message}`);
+        console.error(`moss goal: ${mode.message}`);
         process.exitCode = ExitCode.USAGE;
         return;
       }
@@ -400,7 +400,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
       const workspace = ctx.workspace as string | undefined;
       let target = shaped.id;
       if (!target && workspace) {
-        // No id: the newest resumable task, same rule `/run resume` uses.
+        // No id: the newest resumable task, same rule `/goal resume` uses.
         const { listTaskStateSnapshots } = await import('../core/index.js');
         const { isResumableTaskPhase } = await import('../contracts/task-runtime.js');
         const latest = (await listTaskStateSnapshots(workspace))
@@ -411,7 +411,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
       if (!target) {
         const { ExitCode } = await import('./exit-codes.js');
         console.error(
-          'moss run --resume: no resumable task in this workspace. Start one with `moss run "<intent>" --accept "<cmd>"`, or pass a task id.'
+          'moss goal --resume: no resumable task in this workspace. Start one with `moss goal "<intent>" --accept "<cmd>"`, or pass a task id.'
         );
         process.exitCode = ExitCode.USAGE;
         return;

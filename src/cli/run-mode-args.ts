@@ -1,10 +1,10 @@
 /**
- * `moss run` is one verb with three modifiers (B140):
+ * `moss goal` is one verb with three modifiers (B140):
  *
- *   moss run "<intent>" [--accept "<cmd>"]   verified task run
- *   moss run --resume [<task_id>]            continue a task
- *   moss run "<intent>" --until "<cmd>"      closed loop (loop engine)
- *   moss run --workflow <plan.json>              declarative workflow engine
+ *   moss goal "<intent>" [--accept "<cmd>"]   verified task run
+ *   moss goal --resume [<task_id>]            continue a task
+ *   moss goal "<intent>" --until "<cmd>"      closed loop (loop engine)
+ *   moss goal --workflow <plan.json>              declarative workflow engine
  *
  * The point of the audit's N1: six engines should be one verb plus a modifier,
  * not six verbs. This module classifies argv before any engine starts, so the
@@ -75,7 +75,7 @@ export function classifyRunMode(args: readonly string[]): RunMode {
     if (rest.length === 0) {
       return {
         mode: 'error',
-        message: '--until needs the intent to loop on: moss run "<intent>" --until "<cmd>"',
+        message: '--until needs the intent to loop on: moss goal "<intent>" --until "<cmd>"',
       };
     }
     return { mode: 'until', until: taken.value as string, rest };

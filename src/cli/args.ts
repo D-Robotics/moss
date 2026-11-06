@@ -29,7 +29,7 @@ export type CliCommand =
   | 'migrate'
   | 'sessions'
   | 'task'
-  | 'run'
+  | 'goal'
   | 'runs'
   | 'artifacts'
   | 'capabilities'
@@ -247,7 +247,7 @@ export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'workflow',
   'migrate',
   'task',
-  'run',
+  'goal',
   'runs',
   'artifacts',
   'capabilities',
@@ -288,6 +288,8 @@ const COMMAND_ALIASES: Record<string, { command: CliCommand; args: readonly stri
   logout: { command: 'auth', args: ['logout'] },
   // B131: folded into `moss task artifacts`; keep the old verb working.
   tasks: { command: 'artifacts', args: [] },
+  // B160: the verified-run verb is `goal`; `run` stays as a compatibility alias.
+  run: { command: 'goal', args: [] },
 };
 
 /** `status` is not a subcommand; a typo of it still points at `doctor`. */
@@ -307,7 +309,6 @@ const INTERACTIVE_ONLY_COMMANDS = new Set<string>([
   'context',
   'permissions',
   'compact',
-  'goal',
   'diff',
   'rewind',
   'attach',

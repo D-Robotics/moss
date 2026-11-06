@@ -1,5 +1,5 @@
 /**
- * Read one line from the terminal while a `/run`/`/task` run owns stdin.
+ * Read one line from the terminal while a `/goal`/`/task` run owns stdin.
  *
  * During a run the REPL has paused readline, so the normal approval asker can
  * never resolve — an `ask_user_question` from the agent used to spin until the

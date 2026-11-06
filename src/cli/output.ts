@@ -54,7 +54,7 @@ interface CliRunRendererOptions extends Partial<CliOutputStreams> {
   interactive?: boolean;
 
   workspaceDir?: string;
-  /** /run or moss task: Esc may mention `/run resume`. Chat leaves this unset. */
+  /** /goal or moss task: Esc may mention `/goal resume`. Chat leaves this unset. */
   resumeHint?: boolean;
 }
 

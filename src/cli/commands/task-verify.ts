@@ -31,7 +31,7 @@ export async function verifyTaskOnce(
     ? await getTaskStateSnapshot(workspace, options.taskId)
     : (await listTaskStateSnapshots(workspace)).sort((a, b) => b.updatedAt - a.updatedAt)[0];
   if (!snapshot) {
-    return { exitCode: 2, summary: 'No task to verify. Start one with /run <condition>.' };
+    return { exitCode: 2, summary: 'No task to verify. Start one with /goal <condition>.' };
   }
   const wasAccepted = snapshot.phase === 'accepted';
   const events = await listTaskEvents(workspace, snapshot.taskId);
@@ -114,7 +114,7 @@ export async function verifyTaskOnce(
         `Regression: task ${snapshot.taskId} previously PASS, now FAIL from the ${verdict.source} verdict.`,
         verdict.detail,
         'Reopened for repair. The previous acceptance stays in the timeline.',
-        `Continue with /run <condition> (or /task resume ${snapshot.taskId}).`,
+        `Continue with /goal <condition> (or /task resume ${snapshot.taskId}).`,
       ].join('\n'),
     };
   }
@@ -123,7 +123,7 @@ export async function verifyTaskOnce(
     summary: [
       `Task ${snapshot.taskId} — FAIL from the ${verdict.source} verdict.`,
       verdict.detail,
-      `Continue with /run <condition> (or /task resume ${snapshot.taskId}).`,
+      `Continue with /goal <condition> (or /task resume ${snapshot.taskId}).`,
     ].join('\n'),
   };
 }

@@ -1,7 +1,7 @@
 /**
  * B125: carry the last autonomous run into the next chat turn.
  *
- * A `/run` or `/task` run writes its own session (`taskSessionKey`), so the
+ * A `/goal` or `/task` run writes its own session (`taskSessionKey`), so the
  * conversation that follows starts blind: the user has to paste the task id or
  * the agent re-reads `.moss/`. Cursor/Claude Code keep the interrupted run in
  * context. This builds a compact, factual `<turn-context>` note (task id, goal,
@@ -45,7 +45,7 @@ export function formatRunContextNote(status: TaskStatusJson, zh = false): string
       lines.push(`阻塞原因：${truncate(status.blockedReason, SYMPTOM_LIMIT)}`);
     lines.push(
       status.resumable
-        ? `可续跑：moss task resume ${status.taskId}（REPL 里 /run resume ${status.taskId}）`
+        ? `可续跑：moss task resume ${status.taskId}（REPL 里 /goal resume ${status.taskId}）`
         : '该任务已结束，不能 resume。'
     );
     lines.push(`详情：moss task status ${status.taskId} --json（账本 .moss/task-events.jsonl）`);
@@ -70,7 +70,7 @@ export function formatRunContextNote(status: TaskStatusJson, zh = false): string
       lines.push(`blocked: ${truncate(status.blockedReason, SYMPTOM_LIMIT)}`);
     lines.push(
       status.resumable
-        ? `resume: moss task resume ${status.taskId} (REPL: /run resume ${status.taskId})`
+        ? `resume: moss task resume ${status.taskId} (REPL: /goal resume ${status.taskId})`
         : 'this task is settled and cannot be resumed.'
     );
     lines.push(

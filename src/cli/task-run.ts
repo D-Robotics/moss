@@ -664,7 +664,7 @@ function listOptions(args: string[]): ListOptions {
  * the task exit code — the run's own verdict already happened.
  */
 /**
- * B129: every task run also lands one unified record in `.moss/runs/<id>/run.json`
+ * B129: every task run also lands one unified record in `.moss/runs/<id>/goal.json`
  * so `moss runs list|show` can answer "what ran, how did it end, what next"
  * without knowing the per-engine ledgers.
  */

@@ -1,6 +1,6 @@
 /**
  * B129 follow-up: a headless `moss -p` run is an autonomous run too, so it
- * writes the same `.moss/runs/<runId>/run.json` record the task and loop
+ * writes the same `.moss/runs/<runId>/goal.json` record the task and loop
  * engines write. The status vocabulary comes from the completion gate
  * (`resolveRunOutcome`), so "completed / incomplete / verify_failed / blocked /
  * unverified" mean exactly what the printed last line means.

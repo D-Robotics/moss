@@ -1,5 +1,5 @@
 /**
- * Acceptance-command proposals for `/run <condition>` when the user did not
+ * Acceptance-command proposals for `/goal <condition>` when the user did not
  * pass `--accept`. Candidates come only from files that are actually in the
  * workspace. An empty list is reported honestly — moss does not invent a command.
  */
@@ -88,19 +88,19 @@ export interface ParsedGoalCommand {
   maxTurns?: number;
 }
 
-/** `/run` flags after the goal; unknown flags are usage errors, not goal text. */
+/** `/goal` flags after the goal; unknown flags are usage errors, not goal text. */
 const RUN_FLAG_NAMES: readonly string[] = ['--accept', '--max-repairs', '--max-turns'];
 
 /**
- * Parse a `/run <goal text> [--accept "<cmd>"] [--max-turns N]` line.
+ * Parse a `/goal <goal text> [--accept "<cmd>"] [--max-turns N]` line.
  *
  * B146: the old version took everything after `--accept` as the command, so
- * `/run "goal" --accept "test -f ok.txt" --max-turns 2` stored the literal
+ * `/goal "goal" --accept "test -f ok.txt" --max-turns 2` stored the literal
  * `"test -f ok.txt" --max-turns 2`. `bash -c` then ran a quoted command word
  * named `test -f ok.txt` and exited 127, which the task engine correctly
  * reported as `acceptance_command_unavailable` — a broken oracle caused by
  * quoting, not by the user's work. Tokens now go through the same quote-aware
- * splitter as `/run resume`, so quotes are stripped and later flags survive.
+ * splitter as `/goal resume`, so quotes are stripped and later flags survive.
  */
 export function parseGoalCommandLine(line: string): ParsedGoalCommand | null {
   const raw = line.trim();
@@ -184,10 +184,10 @@ export type GoalInvocation =
       maxTurns?: number;
     };
 
-/** The parsed `/run resume` plan, before the task id is resolved. */
+/** The parsed `/goal resume` plan, before the task id is resolved. */
 export type GoalResumeInvocation = Extract<GoalInvocation, { kind: 'resume' }>;
 
-/** Flags `/run resume` shares with `moss task resume` (B114 / B117 parity). */
+/** Flags `/goal resume` shares with `moss task resume` (B114 / B117 parity). */
 const RESUME_FLAG_NAMES: readonly string[] = ['--accept', '--max-repairs', '--max-turns'];
 
 function resumeFlagName(token: string): string {
@@ -196,7 +196,7 @@ function resumeFlagName(token: string): string {
 }
 
 /**
- * Split a `/run resume` tail into tokens, honoring both quote styles (a quoted
+ * Split a `/goal resume` tail into tokens, honoring both quote styles (a quoted
  * run is one token even when it contains spaces) and `--flag=<value>` tails
  * whose value may itself be quoted. Returns null for an unterminated quote or a
  * quote glued to a bare word — those are usage errors, not commands we should
@@ -239,7 +239,7 @@ function parseResumeBudget(value: string | undefined): number | null {
 }
 
 /**
- * `/run resume [<task_id>] [--accept "<cmd>"] [--max-repairs N] [--max-turns N]`
+ * `/goal resume [<task_id>] [--accept "<cmd>"] [--max-repairs N] [--max-turns N]`
  * — the interactive twin of `moss task resume <id> …` (B98 for the oracle,
  * B117 for the retry budget). Flags may appear in any order. Without a task id
  * the newest resumable task is used, exactly as before.
@@ -298,7 +298,7 @@ function parseResumeArgs(rest: string): {
   return out;
 }
 
-/** How `/run` should behave for this argument line. `/loop` does not call this. */
+/** How `/goal` should behave for this argument line. `/loop` does not call this. */
 export function planGoalInvocation(rest: string, workspace: string): GoalInvocation {
   const token = rest.trim();
   if (!token) return { kind: 'usage' };
@@ -331,7 +331,7 @@ export function planGoalInvocation(rest: string, workspace: string): GoalInvocat
 }
 
 export const GOAL_USAGE =
-  'Usage: /run <condition> [--accept "<verification command>"] | /run resume [task_id] [--accept "<verification command>"] [--max-repairs N] [--max-turns N] | /run clear';
+  'Usage: /goal <condition> [--accept "<verification command>"] | /goal resume [task_id] [--accept "<verification command>"] [--max-repairs N] [--max-turns N] | /goal clear';
 
 export function acceptanceProposalLines(
   goal: string,
@@ -359,17 +359,17 @@ export function skippedAcceptanceNotice(locale?: string): string {
     : 'Skipped the acceptance command. Only the contract verdict will apply.';
 }
 
-/** `/run clear` (and the clear-words) abandons the latest live task, if any. */
+/** `/goal clear` (and the clear-words) abandons the latest live task, if any. */
 export async function abandonLiveGoal(workspace: string, locale?: string): Promise<string> {
   const zh = isZhLocale(locale);
   const snapshot = await findLatestLiveTaskSnapshot(workspace);
   if (!snapshot) return zh ? '没有可清除的进行中目标。' : 'No live goal to clear.';
-  await appendTaskEvent(workspace, snapshot.taskId, 'task_abandoned', { reason: '/run clear' });
+  await appendTaskEvent(workspace, snapshot.taskId, 'task_abandoned', { reason: '/goal clear' });
   return zh ? `已清除目标 ${snapshot.taskId}。` : `Cleared goal ${snapshot.taskId}.`;
 }
 
 /**
- * Turn cap for `/run`. `MOSS_GOAL_AUTO_MAX_RUNS` wins for a goal run;
+ * Turn cap for `/goal`. `MOSS_GOAL_AUTO_MAX_RUNS` wins for a goal run;
  * `MOSS_LOOP_MAX` is the fallback. Missing or invalid values mean no cap (0).
  */
 export function resolveLoopMaxIterations(
@@ -431,7 +431,7 @@ export function resumeEchoLine(
 }
 
 /**
- * Translate a parsed `/run resume` plan into the `/task resume ...` line that
+ * Translate a parsed `/goal resume` plan into the `/task resume ...` line that
  * the REPL and the full-screen TUI dispatch (B98 oracle + B117 budget). The
  * caller's resolved task id wins over the one the user typed: the REPL picks
  * the newest resumable task when the line has no id, and the flags must land on

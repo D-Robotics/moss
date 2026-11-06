@@ -3,10 +3,10 @@
  *
  * Best products reduce first-run friction to "detect the project, write the
  * conventions file, show the next command". Moss already proposes acceptance
- * commands from real workspace files (`/run` without `--accept`), so `init`
+ * commands from real workspace files (`/goal` without `--accept`), so `init`
  * reuses that: it detects test/build/lint entry points, writes a minimal
  * `AGENTS.md` (only when absent — never overwrite instructions the user owns),
- * and prints the exact `moss run … --accept …` to try next. Read-only mode
+ * and prints the exact `moss goal … --accept …` to try next. Read-only mode
  * (`--dry-run`) prints the file instead of writing it; no model config needed.
  */
 import fs from 'node:fs';
@@ -102,8 +102,8 @@ function renderAgentsFile(detection: InitDetection, zh: boolean): string {
   const acceptanceLines = acceptance
     ? [
         zh
-          ? '自主运行（`moss run … --accept "<命令>"`）的验收命令：'
-          : 'Acceptance command for autonomous runs (`moss run … --accept "<cmd>"`):',
+          ? '自主运行（`moss goal … --accept "<命令>"`）的验收命令：'
+          : 'Acceptance command for autonomous runs (`moss goal … --accept "<cmd>"`):',
         '',
         '```bash',
         acceptance,
@@ -111,8 +111,8 @@ function renderAgentsFile(detection: InitDetection, zh: boolean): string {
       ]
     : [
         zh
-          ? '这个工作区没有可机检的验收入口。`moss run` 会退回任务契约裁决；如果你有验收脚本，把命令写在这里。'
-          : 'No machine-checkable acceptance entry point was detected. `moss run` will fall back to the task-contract verdict; if you have a check script, put its command here.',
+          ? '这个工作区没有可机检的验收入口。`moss goal` 会退回任务契约裁决；如果你有验收脚本，把命令写在这里。'
+          : 'No machine-checkable acceptance entry point was detected. `moss goal` will fall back to the task-contract verdict; if you have a check script, put its command here.',
       ];
   return [
     `# AGENTS.md`,
@@ -231,9 +231,9 @@ export function renderInitHuman(result: InitResult, zh = isZhLocale()): string {
   }
   lines.push('', t('next:', '下一步：'));
   if (acceptance) {
-    lines.push(`  moss run "<intent>" --accept "${acceptance}"`);
+    lines.push(`  moss goal "<intent>" --accept "${acceptance}"`);
   } else {
-    lines.push('  moss run "<intent>"');
+    lines.push('  moss goal "<intent>"');
   }
   lines.push(
     '  moss capabilities        # ' + t('what this install can do', '一屏看清这个安装能做什么')

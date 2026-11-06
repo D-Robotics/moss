@@ -20,7 +20,7 @@ export type CommandSurface = 'repl' | 'tui';
 export type RunAvailability = 'immediate' | 'queue' | 'reject';
 
 export interface InteractiveCommandRow {
-  /** Bare token both surfaces dispatch, e.g. `/run`. */
+  /** Bare token both surfaces dispatch, e.g. `/goal`. */
   command: string;
 
   /** Usage hint printed after the command, e.g. `[plan|default|accept-edits]`. */
@@ -71,10 +71,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'reject',
       },
       {
-        command: '/run',
-        args: '<condition> | clear',
-        description: 'work until a condition is met; /run clear cancels',
-        aliases: ['/goal'],
+        command: '/goal',
+        args: '<condition> [--accept "<cmd>"] | resume [task_id] | clear',
+        description:
+          'work until a condition (or acceptance command) passes; /goal resume continues, /goal clear cancels',
+        aliases: ['/run'],
         availableDuringRun: 'queue',
       },
       {
@@ -93,7 +94,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         command: '/task',
         args: 'status|timeline|resume|view|verify',
         description:
-          'Task OS entry (hidden): status, timeline, resume, view, and verify — everyday work is /run',
+          'Task OS entry (hidden): status, timeline, resume, view, and verify — everyday work is /goal',
         hidden: true,
         availableDuringRun: 'queue',
       },
@@ -320,14 +321,14 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
 /**
  * Retired names. Checked before catalog aliases so a moss-only name can print
  * a one-line migration and then run the canonical command. `/loop` is the
- * exception: it only suggests `/run` and does not run. Silent aliases
+ * exception: it only suggests `/goal` and does not run. Silent aliases
  * (`/cost`, `/new`, `/ps`, …) live on the row and are not listed here.
  * `replaceAll` drops any trailing args (`/history extra` → `/task view history`).
  */
 const RETIRED_SLASH: Readonly<
   Record<string, { command: string; migration: string; replaceAll?: boolean; suggest?: boolean }>
 > = {
-  '/loop': { command: '/run', migration: '', suggest: true },
+  '/loop': { command: '/goal', migration: '', suggest: true },
   '/jobs': { command: '/tasks', migration: '/jobs is now /tasks.' },
   '/bg': { command: '/tasks', migration: '/bg is now /tasks.' },
   '/subs': { command: '/tasks', migration: '/subs is now /tasks.' },
@@ -373,13 +374,13 @@ export interface SlashRewrite {
   suggestion?: string;
 }
 
-const LOOP_EXAMPLE_EN = '/run make the tests pass';
-const LOOP_EXAMPLE_ZH = '/run 让测试通过';
+const LOOP_EXAMPLE_EN = '/goal make the tests pass';
+const LOOP_EXAMPLE_ZH = '/goal 让测试通过';
 
 /**
- * `/loop` is now `/run`. One localized line, plus the `/run` command the
+ * `/loop` is now `/goal`. One localized line, plus the `/goal` command the
  * user confirms or edits. Arguments are kept as the example. The line names
- * only `/loop` and `/run`.
+ * only `/loop` and `/goal`.
  */
 export function loopRetirement(
   args: string,
@@ -388,10 +389,10 @@ export function loopRetirement(
   const zh = isZhLocale(locale);
   const trimmed = args.trim();
   const example = zh ? LOOP_EXAMPLE_ZH : LOOP_EXAMPLE_EN;
-  const suggestion = trimmed.length > 0 ? `/run ${trimmed}` : example;
+  const suggestion = trimmed.length > 0 ? `/goal ${trimmed}` : example;
   const notice = zh
-    ? `/loop 已改为 /run。例如：${suggestion}`
-    : `/loop is now /run. Example: ${suggestion}`;
+    ? `/loop 已改为 /goal。例如：${suggestion}`
+    : `/loop is now /goal. Example: ${suggestion}`;
   return { notice, suggestion };
 }
 

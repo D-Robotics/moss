@@ -271,7 +271,7 @@ function truncateOneLine(text: string, limit: number): string {
 
 /**
  * B136: the first screen should answer "what happened last, what do I do now".
- * Reads the unified run ledger (`.moss/runs/<id>/run.json`) and AGENTS.md, so a
+ * Reads the unified run ledger (`.moss/runs/<id>/goal.json`) and AGENTS.md, so a
  * failed run surfaces its own resume command instead of a generic greeting.
  * Sync on purpose: it runs once at REPL startup over a few small files.
  */
@@ -301,7 +301,7 @@ export function welcomeComposerSuggestion(
 
 /**
  * Which surface reads this hint. Interactive surfaces can type slash commands,
- * so `Next:` names `/init`, `/runs` and `/run resume …` instead of shell
+ * so `Next:` names `/init`, `/runs` and `/goal resume …` instead of shell
  * commands the user would have to leave the session to run (B154).
  */
 export type WelcomeSurface = 'cli' | 'interactive';
@@ -364,15 +364,15 @@ export function renderWelcomeContextLines(
   let next: string;
   if (latest && latest.status !== 'completed' && latest.next) {
     const resume = /^moss task resume (\S+)$/.exec(latest.next);
-    next = interactive && resume ? `/run resume ${resume[1]}` : latest.next;
+    next = interactive && resume ? `/goal resume ${resume[1]}` : latest.next;
   } else if (latest) {
     next = interactive ? `/runs    ${allRuns}` : `moss runs    ${allRuns}`;
   } else if (!hasAgents) {
     next = interactive ? `/init    ${initNote}` : `moss init    ${initNote}`;
   } else {
     next = interactive
-      ? '/run "<intent>" --accept "<cmd>"'
-      : 'moss run "<intent>" --accept "<cmd>"';
+      ? '/goal "<intent>" --accept "<cmd>"'
+      : 'moss goal "<intent>" --accept "<cmd>"';
   }
   const suggestion = welcomeComposerSuggestion(
     latest ? { status: latest.status, ...(latest.next ? { next: latest.next } : {}) } : null,

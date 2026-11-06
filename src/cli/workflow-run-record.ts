@@ -1,6 +1,6 @@
 /**
  * B129 follow-up: a `moss workflow run` is an autonomous run too, so it writes
- * the same `.moss/runs/<runId>/run.json` record the task/loop/chat engines write.
+ * the same `.moss/runs/<runId>/goal.json` record the task/loop/chat engines write.
  * The mapping lives here (pure) so it can be probed without spawning child
  * sessions; the workflow state file stays the source of truth for step details.
  */
