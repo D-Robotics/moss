@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The PostToolUse probe waits for content, not just file existence (B236)
+
+- `scripts/verify/skill-hooks.mjs` polled `existsSync(marker)` then read the file. On a slow CI runner the
+  hook had created the file but not finished writing, so shard 2 read `''` against `'post'` (run
+  42255871389). The probe now polls the content until it equals `post` (bounded, same 2 s window).
+
+### PostToolUse 探针等待内容而不是文件存在（B236）
+
+- `scripts/verify/skill-hooks.mjs` 先轮询 `existsSync(marker)` 再读文件。CI 慢机上 hook 已创建文件但尚未写完，
+  shard 2 读到 `''` 而期望 `'post'`（run 42255871389）。现在轮询文件内容直到等于 `post`（同样的 2 秒上限）。
+
 ### A resumed boot does not show onboarding's `Next:` (B235)
 
 - Third-audit finding #5: after `moss --continue`, the first screen still printed

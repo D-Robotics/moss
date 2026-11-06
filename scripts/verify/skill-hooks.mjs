@@ -134,10 +134,19 @@ configured.onToolResult(
   { id: 'call-2', name: 'write_file', input: { path: marker } },
   { toolUseId: 'call-2', content: 'ok', isError: false }
 );
-for (let i = 0; i < 100 && !fs.existsSync(marker); i += 1) {
+// B236: the hook creates the file and writes it; polling only for existence
+// could read it empty on a slow CI runner (shard 2 of run 42255871389).
+let markerText = '';
+for (let i = 0; i < 100; i += 1) {
+  try {
+    markerText = fs.readFileSync(marker, 'utf8');
+  } catch {
+    markerText = '';
+  }
+  if (markerText === 'post') break;
   await new Promise((resolve) => setTimeout(resolve, 20));
 }
-assert.equal(fs.readFileSync(marker, 'utf8'), 'post');
+assert.equal(markerText, 'post');
 ok('PostToolUse skill hook runs after the tool call');
 
 // 5. Composition stays intact when no static pre hooks exist: the approval gate
