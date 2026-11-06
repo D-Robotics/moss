@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### The REPL repeats the ledger-derived next step after a run (B151)
+
+- The TUI composer refreshes its hint when a run settles (B145), but the REPL only showed
+  `Next:` at boot, so a finished run left the startup suggestion standing. The REPL now
+  prints the same ledger-derived line after a normal (non-aborted) autonomous run:
+  a pending run's resume command, `moss runs` after a completed one, or `moss init` on a
+  fresh workspace. Aborted runs keep their dedicated resume/pause lines.
+
+### REPL 在运行结束后重新打印账本派生的下一步（B151）
+
+- TUI 的输入框提示会在运行收尾时刷新（B145），但 REPL 只在启动时显示一次 `Next:`，跑完一次
+  自主运行后仍留着启动时的建议。现在 REPL 在正常（未中断）运行结束后打印同一条账本派生提示：
+  有未收尾运行 → 续跑命令；最新已完成 → `moss runs`；全新工作区 → `moss init`。中断的运行仍走
+  专门的暂停/续跑提示。
+
 ### Super-agent tickets join the unified ledger — and can finally write (B149, B150)
 
 - `kind: superagent` is no longer an empty filter: every ticket that ends leaves

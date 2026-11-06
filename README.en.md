@@ -122,7 +122,7 @@ sessions can be saved / searched / exported / forked. One screen for what this i
 `moss capabilities` (tools / skills / commands / agents / hooks / MCP / devices, read-only, no model config). **13 device tools** bring SSH hardware work
 into the same evidence and acceptance model; `moss device fleet` inspects many boards in one command.
 
-**Long runs.** `/run` and `moss run` share one task state machine; `moss loop` repeats
+**Long runs.** After every autonomous run the REPL prints a fresh ledger-derived `Next` line (a resume command / `moss runs` / `moss init`) instead of leaving boot-time guidance stale; `/run` and `moss run` share one task state machine; `moss loop` repeats
 "run → check with your command → feed failures back"; `moss task status|timeline|list` are the
 offline read paths (`moss runs --kind task/loop/workflow/chat` narrows by engine); `moss artifacts` (contracts/evidence/deployments/acceptance/device) needs no model configuration at all; a resumed task verifies the workspace first and only then spends execution
 turns. Write sub-agents can run in isolated git worktrees and merge back as three-way patches.
