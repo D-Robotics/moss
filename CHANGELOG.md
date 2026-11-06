@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `moss artifacts failures` names its columns (B265)
+
+- Failures printed as three anonymous columns (`task_id  stage  symptom`) while evidence/acceptance had
+  headers. The kind now prints `TASK ID  STAGE  SYMPTOM` with a rule and aligned rows (empty state
+  unchanged).
+
+### `moss artifacts failures` 带表头（B265）
+
+- 失败记录原本是三列匿名文本（`task_id  stage  symptom`），而 evidence/acceptance 都有表头。现在输出
+  `TASK ID  STAGE  SYMPTOM` + 分隔线与对齐行（空态不变）。
+
 ### A resumed boot confirms the replay, and `/init` stops looking padded (B264)
 
 - `moss --continue` replayed rows but the `[session] Resuming session:` line scrolled away; the replay now

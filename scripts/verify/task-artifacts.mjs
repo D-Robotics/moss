@@ -53,6 +53,22 @@ try {
   }
   ok('artifacts: contracts/evidence/acceptance/device/tasks/failures answer without model config');
 
+  // 1b. B265: recorded failures render as a named table, not an anonymous list.
+  {
+    const failuresFile = path.join(ws, '.moss', 'task-failures.jsonl');
+    await fs.mkdir(path.dirname(failuresFile), { recursive: true });
+    await fs.writeFile(
+      failuresFile,
+      `${JSON.stringify({ failureId: 'f1', taskId: 'task_demo', stage: 'verifying', symptom: 'acceptance command exited 1' })}\n`,
+      'utf8'
+    );
+    const table = await cli(['artifacts', 'failures']);
+    assert.match(table.stdout, /^TASK ID\s+STAGE\s+SYMPTOM$/m);
+    assert.match(table.stdout, /^task_demo\s+verifying\s+acceptance command exited 1$/m);
+    await fs.rm(failuresFile, { force: true });
+  }
+  ok('artifacts failures names its columns');
+
   // 2. The old verb is the same output, not a second implementation.
   const current = await cli(['artifacts']);
   const alias = await cli(['tasks']);

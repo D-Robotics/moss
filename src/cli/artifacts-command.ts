@@ -176,13 +176,20 @@ export async function runArtifactsCommand(
     output('stdout', `${JSON.stringify(failures, null, 2)}\n`);
     return 0;
   }
-  output(
-    'stdout',
-    failures.length === 0
-      ? zh
-        ? '没有失败记录。\n'
-        : 'No failures recorded.\n'
-      : `${failures.map((failure) => `${failure.taskId}  ${failure.stage}  ${failure.symptom}`).join('\n')}\n`
+  if (failures.length === 0) {
+    output('stdout', zh ? '没有失败记录。\n' : 'No failures recorded.\n');
+    return 0;
+  }
+  // B265: a table without a header read as three anonymous columns; evidence
+  // and acceptance already name theirs.
+  const idWidth = Math.max(6, ...failures.map((failure) => failure.taskId.length));
+  const stageWidth = Math.max(5, ...failures.map((failure) => failure.stage.length));
+  const header = `${'TASK ID'.padEnd(idWidth)}  ${'STAGE'.padEnd(stageWidth)}  SYMPTOM`;
+  const rule = '─'.repeat(Math.min(120, header.length + 40));
+  const rows = failures.map(
+    (failure) =>
+      `${failure.taskId.padEnd(idWidth)}  ${failure.stage.padEnd(stageWidth)}  ${failure.symptom}`
   );
+  output('stdout', `${header}\n${rule}\n${rows.join('\n')}\n`);
   return 0;
 }
