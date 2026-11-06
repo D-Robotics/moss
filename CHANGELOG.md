@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The resume confirmation names the session (B279)
+
+- A resumed boot said `resumed cli-20261107052804-4430c33c — replayed 3 row(s)`: honest, but a key says
+  nothing about what came back. The notice now uses the session title when one is known
+  (`resumed “Run node --test, then rewrite…” — replayed 3 row(s)`, 48-char cap), falls back to the key when
+  it is not, and the picker's resume path uses the same helper (it printed `rows` instead of `row(s)`).
+
+### 恢复确认会指出会话标题（B279）
+
+- 恢复启动原本显示 `resumed cli-20261107052804-4430c33c — replayed 3 row(s)`：诚实，但 key 看不出恢复了什么。
+  现在已知标题时显示 `resumed “Run node --test, then rewrite…” — replayed 3 row(s)`（48 字符上限），
+  不知道时回退 key；picker 的恢复路径共用同一 helper（此前打印 `rows` 而非 `row(s)`）。
+
 ### `moss mcp list --json` and `moss device list --json` (B278)
 
 - The JSON sweep finished: the two remaining list commands printed only tables. `mcp list --json` emits

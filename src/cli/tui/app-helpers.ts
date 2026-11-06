@@ -117,6 +117,8 @@ export interface TuiAppOptions {
   locale?: string;
   /** Transcript rows replayed on boot (resume). */
   replayRows?: TuiReplayRow[];
+  /** Session title of a boot-time replay, when one is known. */
+  resumeTitle?: string;
   /** Boot-time context note (skills/MCP/soul/branch) printed under the banner. */
   contextInfo?: TuiContextInfo;
   /** Host diagnostics that may arrive after Ink owns the terminal. */
@@ -550,8 +552,12 @@ export function rewindScrollbackNote(droppedMessages: number | undefined): strin
  * `[session] Resuming session:` line scrolls away, so the replay ends with one
  * short confirmation (the picker flow already prints the same shape).
  */
-export function resumeReplayNotice(sessionKey: string, replayRows: number): string {
-  return tui('resumed {key} — replayed {count} row(s)', { key: sessionKey, count: replayRows });
+export function resumeReplayNotice(sessionKey: string, replayRows: number, title?: string): string {
+  const clipped = (title ?? '').replace(/\s+/g, ' ').trim();
+  // B279: the session key alone says nothing about what was resumed; a short
+  // title is what makes the confirmation recognizable.
+  const label = clipped.length > 48 ? `${clipped.slice(0, 47).trimEnd()}…` : clipped || sessionKey;
+  return tui('resumed “{label}” — replayed {count} row(s)', { label, count: replayRows });
 }
 
 /** One `HH:MM:SS role: snippet…` line for a conversation-log JSONL entry. */

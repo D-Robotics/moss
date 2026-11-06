@@ -1175,7 +1175,11 @@ export function TuiAppRoot({
     }
     for (const row of options.replayRows ?? []) appendRow(store, row.kind, row.text);
     if ((options.replayRows?.length ?? 0) > 0) {
-      appendRow(store, 'system', resumeReplayNotice(sessionKey, options.replayRows!.length));
+      appendRow(
+        store,
+        'system',
+        resumeReplayNotice(sessionKey, options.replayRows!.length, options.resumeTitle)
+      );
     }
     void runtime.refresh().then(() => handle.notify(), reportRuntimeError);
     handle.notify();
@@ -2517,10 +2521,7 @@ export function TuiAppRoot({
               appendRow(
                 store,
                 'result',
-                tui('resumed {key} — replayed {count} rows', {
-                  key: pick.key,
-                  count: replay.items.length,
-                })
+                resumeReplayNotice(pick.key, replay.items.length, pick.title)
               );
               setActiveSession(pick.key);
             } catch (err) {
@@ -3461,10 +3462,7 @@ export function TuiAppRoot({
               appendRow(
                 store,
                 'result',
-                tui('resumed {key} — replayed {count} rows', {
-                  key: pick.key,
-                  count: replay.items.length,
-                })
+                resumeReplayNotice(pick.key, replay.items.length, pick.title)
               );
               setActiveSession(pick.key);
             } catch (err) {

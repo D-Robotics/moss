@@ -670,7 +670,12 @@ ok('a narrow terminal shortens result previews to 1/2 lines');
 // 5q. B264: a resumed boot ends its replay with one confirmation line.
 {
   const notice = appHelpers.resumeReplayNotice('cli-abc', 15);
-  assert.match(notice, /resumed cli-abc — replayed 15 row\(s\)/);
+  assert.match(notice, /resumed “cli-abc” — replayed 15 row\(s\)/);
+  // B279: a known title is what makes the confirmation recognizable.
+  const titled = appHelpers.resumeReplayNotice('cli-abc', 15, 'fix the flaky test');
+  assert.match(titled, /resumed “fix the flaky test” — replayed 15 row\(s\)/);
+  const longTitle = appHelpers.resumeReplayNotice('cli-abc', 3, 'x'.repeat(80));
+  assert.match(longTitle, /resumed “x{47}…” — replayed 3 row\(s\)/);
 }
 ok('a resumed replay ends with a resume confirmation');
 

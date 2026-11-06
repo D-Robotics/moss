@@ -1958,10 +1958,14 @@ export async function runCli(): Promise<void> {
       // never wired here, so a resumed session booted blank (D2 in the parity
       // baseline audit).
       let replayRows: Array<{ kind: 'user' | 'assistant' | 'system'; text: string }> | undefined;
+      let resumeTitle: string | undefined;
       if (sessionCommand !== 'chat') {
         try {
           const replay = buildResumeReplay(await sessionStore.loadMessages(session.sessionKey));
-          if (replay.items.length > 0) replayRows = replay.items;
+          if (replay.items.length > 0) {
+            replayRows = replay.items;
+            resumeTitle = replay.items.find((item) => item.kind === 'user')?.text;
+          }
         } catch {
           // A missing/unreadable session store must not block the shell.
         }
@@ -2028,6 +2032,7 @@ export async function runCli(): Promise<void> {
         skills: loadedSkills,
         ...(resumeInteractive ? { resumePicker: true } : {}),
         ...(replayRows ? { replayRows } : {}),
+        ...(resumeTitle ? { resumeTitle } : {}),
         // The checkpoint is what `/rewind` restores from; without this call the
         // store records nothing and every rewind silently did nothing (D1).
         onTurnStart: async (message) => {
