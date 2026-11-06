@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Resume replay uses live tool labels and compresses across turns (B232)
+
+- A third real-TUI audit found the replay was "another interface": raw `read_file`/`run_tests` names
+  instead of the live `Read(...)`/`Run Tests(...)`, and tool-only turns printed one `⎿` row each, so seven
+  calls in a row filled the screen. Replay now reuses the live tool labels, and consecutive tool rows
+  (across assistant turns) collapse into one line when there are more than three
+  (`⎿ 14 tool calls: Read ×6 · List Directory · Exec ×2 · Task Define · +3 more`).
+- Same audit: fixed the top-1 duplicate-answer issue is still open (same-turn multiple final answers).
+
+### 恢复会话回放使用实时工具名，并跨回合压缩（B232）
+
+- 第三轮真实 TUI 审计发现回放像"另一个界面"：工具名是原始 `read_file`/`run_tests`，而不是实时的
+  `Read(...)`/`Run Tests(...)`；且只有工具调用的回合各打一行 `⎿`，连续 7 次调用占满屏幕。现在回放复用实时
+  工具标签，连续的 `⎿` 行（跨 assistant 回合）超过 3 行时折叠为一行
+  （`⎿ 14 tool calls: Read ×6 · List Directory · Exec ×2 · Task Define · +3 more`）。
+- 同一审计的 top1（同回合多段最终答复重复）仍未关闭。
+
 ### Long tool turns compress to one line when a session replays (B231)
 
 - After `[Steering]` was filtered (B230), the remaining noise in a resumed transcript was tool headlines:

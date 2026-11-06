@@ -1,5 +1,5 @@
 import { resumeUserText } from '../core/session/internal-transcript.js';
-import { toolHeadline } from './tool-headline.js';
+import { toolLabel } from './tui/transcript.js';
 
 /**
  * A stored conversation message, structurally typed so the resume-replay helpers
@@ -42,8 +42,13 @@ export function resumedToolLines(message: ResumableMessage): string[] {
   for (const block of message.content) {
     if (!block || block.type !== 'tool_use') continue;
     const name = typeof block.name === 'string' ? block.name : 'tool';
-    const headline = toolHeadline(block.input);
-    lines.push(headline ? `⎿ ${name} (${headline})` : `⎿ ${name}`);
+    const input =
+      block.input && typeof block.input === 'object'
+        ? (block.input as Record<string, unknown>)
+        : {};
+    // B232: replay uses the same labels as the live transcript
+    // (`Read(a.txt)`, `Run Tests(running tests)`), not raw snake_case tool names.
+    lines.push(`⎿ ${toolLabel(name, input)}`);
   }
   return lines;
 }
@@ -75,33 +80,54 @@ export function buildResumeReplay(
     // After an assistant turn's prose, surface the tools it called so the
     // resumed user can see the action history. (Skipped on user turns.)
     if (message.role === 'assistant') {
-      const toolLines = resumedToolLines(message);
-      if (toolLines.length > 3) {
-        // B231: a debugging turn can call 20+ tools; replaying every headline
-        // pushed the conversation off screen. Long turns get one grouped line.
-        const order: string[] = [];
-        const counts = new Map<string, number>();
-        for (const toolLine of toolLines) {
-          const name = /^⎿ (\S+)/.exec(toolLine)?.[1] ?? 'tool';
-          if (!counts.has(name)) order.push(name);
-          counts.set(name, (counts.get(name) ?? 0) + 1);
-        }
-        const shown = order.slice(0, 4).map((name) => {
-          const count = counts.get(name) ?? 1;
-          return count > 1 ? `${name} ×${count}` : name;
-        });
-        const more = order.length > shown.length ? ` · +${order.length - shown.length} more` : '';
-        rows.push({
-          kind: 'system',
-          text: `⎿ ${toolLines.length} tool calls: ${shown.join(' · ')}${more}`,
-        });
-      } else {
-        for (const toolLine of toolLines) {
-          rows.push({ kind: 'system', text: toolLine });
-        }
+      for (const toolLine of resumedToolLines(message)) {
+        rows.push({ kind: 'system', text: toolLine });
       }
     }
   }
-  const hiddenCount = Math.max(0, rows.length - max);
-  return { items: hiddenCount > 0 ? rows.slice(rows.length - max) : rows, hiddenCount };
+  // B231/B232: tool-only turns chain into long `⎿` runs (a debugging turn can
+  // call 20+ tools across several assistant messages). Collapse each run of
+  // more than three consecutive tool rows into one grouped line.
+  const compacted: typeof rows = [];
+  for (let index = 0; index < rows.length; ) {
+    const row = rows[index];
+    if (!(row.kind === 'system' && row.text.startsWith('⎿ '))) {
+      compacted.push(row);
+      index += 1;
+      continue;
+    }
+    let end = index;
+    while (end < rows.length) {
+      const candidate = rows[end];
+      if (!(candidate.kind === 'system' && candidate.text.startsWith('⎿ '))) break;
+      end += 1;
+    }
+    const run = rows.slice(index, end);
+    if (run.length <= 3) {
+      compacted.push(...run);
+    } else {
+      const order: string[] = [];
+      const counts = new Map<string, number>();
+      for (const toolRow of run) {
+        const name = /^⎿ (.+?)(?:\(|$)/.exec(toolRow.text)?.[1] ?? 'tool';
+        if (!counts.has(name)) order.push(name);
+        counts.set(name, (counts.get(name) ?? 0) + 1);
+      }
+      const shown = order.slice(0, 4).map((name) => {
+        const count = counts.get(name) ?? 1;
+        return count > 1 ? `${name} ×${count}` : name;
+      });
+      const more = order.length > shown.length ? ` · +${order.length - shown.length} more` : '';
+      compacted.push({
+        kind: 'system',
+        text: `⎿ ${run.length} tool calls: ${shown.join(' · ')}${more}`,
+      });
+    }
+    index = end;
+  }
+  const hiddenCount = Math.max(0, compacted.length - max);
+  return {
+    items: hiddenCount > 0 ? compacted.slice(compacted.length - max) : compacted,
+    hiddenCount,
+  };
 }

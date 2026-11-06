@@ -192,10 +192,7 @@ try {
   ]);
   const longRows = longTurn.items.map((item) => `${item.kind}:${item.text}`);
   assert.equal(longRows.length, 3, 'long turn = user + prose + one grouped tool row');
-  assert.match(
-    longRows[2],
-    /^system:⎿ 7 tool calls: read_file ×3 · exec ×2 · list_directory · write_file$/
-  );
+  assert.match(longRows[2], /^system:⎿ 7 tool calls: Read ×3 · Exec ×2 · List Directory · Write$/);
   const shortTurn = buildResumeReplay([
     {
       role: 'assistant',
@@ -208,7 +205,7 @@ try {
   ]);
   assert.deepEqual(
     shortTurn.items.map((item) => `${item.kind}:${item.text}`),
-    ['assistant:Reading.', 'system:⎿ read_file (a.txt)', 'system:⎿ exec (true)'],
+    ['assistant:Reading.', 'system:⎿ Read(a.txt)', 'system:⎿ Exec(true)'],
     'short turns keep per-call detail'
   );
   ok('a long replay turn groups its tool calls; a short one keeps detail');
