@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### No more `/dev/null` mutation notice; the wait line stops repeating itself (B172)
+
+A long real TUI run showed two wrong lines after every noisy command:
+
+- `[moss] Detected shell file mutation — prior read credit cleared for: /dev/null` was printed for
+  ordinary `2>/dev/null` redirects. A character device cannot have a stale read body, so device and
+  fd pseudo-paths (`/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/fd/*`, `/proc/self/fd/*`, …) are
+  no longer treated as workspace mutations, while real file targets (`> out.txt`, `sed -i`) still
+  invalidate read credit and still print the notice.
+- `Still reasoning, waited 570s 573s` appended the raw elapsed seconds after the wait bucket. The
+  live line now prints the bucket once (`… waited 570s`) and keeps the token count.
+
+### 不再为 `/dev/null` 报「shell 文件变更」；等待行不再重复秒数（B172）
+
+一次真实的长 TUI 运行里，每条带重定向的命令后都会出现两行错误信息：
+
+- 普通 `2>/dev/null` 会触发 `[moss] Detected shell file mutation — prior read credit cleared for:
+/dev/null`。字符设备没有可能过期的读取内容，因此设备与 fd 伪路径（`/dev/null`、
+  `/dev/stdout`、`/dev/stderr`、`/dev/fd/*`、`/proc/self/fd/*` …）不再被当作工作区文件变更；
+  真实文件目标（`> out.txt`、`sed -i`）仍会失效旧的读取并打印提示。
+- `Still reasoning, waited 570s 573s` 在等待分桶后又拼了一次原始秒数。现在实时行只打印一次
+  （`… waited 570s`），并保留 token 计数。
+
+### Shell writes through a symlinked workspace path are no longer refused (B91)
+
+- On macOS `/tmp` is a symlink to `/private/tmp`. With workspace-write shell confinement, a
+  workspace opened as `/private/tmp/ws` and a command writing `/tmp/ws/x` failed a _lexical_
+  containment check even though the target is inside the workspace (`/tmp/ws` and
+  `/private/tmp/ws` are the same directory).
+- `assertSandboxPath` now retries through `realpath` when the lexical check misses: it resolves
+  the nearest existing ancestor and compares the real target against real roots. Real escapes are
+  still refused, and a symlink inside the root pointing outside is still refused (the retry is not
+  a bypass). New offline probe `shell-write-sandbox` covers both spellings, a relative write, a
+  real escape and the inside-symlink escape.
+
+### 通过符号链接路径的 shell 写入不再被误拦（B91）
+
+- macOS 上 `/tmp` 是指向 `/private/tmp` 的符号链接。开启 workspace-write 的 shell 约束时，工作区以
+  `/private/tmp/ws` 打开、命令写 `/tmp/ws/x`，会因**词法**包含判断失败而被拦——尽管目标就在工作区内
+  （`/tmp/ws` 与 `/private/tmp/ws` 是同一目录）。
+- `assertSandboxPath` 现在在词法判断失败时改用 `realpath` 重试：解析最近的存在祖先，把真实目标与
+  真实根比较。真正的逃逸仍被拒绝，根内指向外部的符号链接也仍被拒绝（重试不是绕过）。新增离线探针
+  `shell-write-sandbox` 覆盖两种拼写、相对写入、真实逃逸与根内符号链接逃逸。
+
 ### Code blocks lose their full-width rules (B171)
 
 - The fenced-code frame spent most of each line on `────` (`┌ bash ─────…`, `└────…`), which made
