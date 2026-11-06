@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### A successful steer says "steered"; revising an answer prints only the delta (B273/B274)
+
+- Typing during a run showed `queued: 2 — applies at the next step` even when the instruction was
+  **steered** into the live turn — "queued" describes the other path. Steered instructions now read
+  `steered: <text> — applies at the next step`.
+- A real follow-up ("make the ending focus on integration tests") reprinted a 120-line essay verbatim
+  (7.6k output tokens). The communication contract now says: when asked to revise an earlier answer,
+  apply the change and state only what changed. Real re-run printed the three changed lines and nothing
+  else (727 output tokens vs reprinting the whole essay).
+
+### 成功 steer 显示 steered；改答案只给增量（B273/B274）
+
+- 运行中输入消息即使成功 **steer** 也显示 `queued: 2 — applies at the next step`——"queued" 是另一条路径。
+  现在显示 `steered: <text> — applies at the next step`。
+- 真实后续请求（"make the ending focus on integration tests"）把 120 行文章整篇重印（7.6k output tokens）。
+  通信契约新增：被要求修改先前答案时只应用变化并说明改了什么。真实复跑只打印改动的三行（727 tokens）。
+
 ### The full help names the subcommands that exist (B271)
 
 - `moss --help --all` said `runs list|show|prune` while `export`/`follow`/`summary` shipped, listed

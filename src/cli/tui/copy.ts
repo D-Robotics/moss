@@ -472,7 +472,7 @@ export const ZH: Readonly<Record<string, string>> = {
     '用法：/steer <constraint> — 在下一个边界注入',
   'could not send instruction: {error} — draft kept': '补充指令发送失败：{error}，草稿已保留',
   'rejected — no single active run on this session': '已拒绝 — 本会话没有单一活动运行',
-  'queued: {text}': '已排队：{text}',
+  'steered: {text}': '已注入：{text}',
   'applies at the next step': '将在下一步生效',
   'applies when this run finishes': '将在本次运行结束后生效',
   'queued — applies when this run finishes': '已排队 — 将在本次运行结束后生效',

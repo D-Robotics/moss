@@ -308,7 +308,7 @@ import {
   questionDialogFromPrompt,
   commandBlockTitle,
   buildHelpOverlayLines,
-  formatSteerQueued,
+  formatSteered,
   sliceHelpOverlay,
   relativeAge,
   filterPickerSessions,
@@ -352,7 +352,7 @@ export {
   questionDialogFromPrompt,
   commandBlockTitle,
   buildHelpOverlayLines,
-  formatSteerQueued,
+  formatSteered,
   sliceHelpOverlay,
   relativeAge,
   filterPickerSessions,
@@ -2642,7 +2642,7 @@ export function TuiAppRoot({
             printBlock('Steer', [
               entry === null || entry === undefined
                 ? tui('rejected — no single active run on this session')
-                : formatSteerQueued(constraint, 'next-step'),
+                : formatSteered(constraint),
             ]);
           } catch (error) {
             restoreFailedSteer(error);
@@ -2738,7 +2738,7 @@ export function TuiAppRoot({
           return;
         }
         if (steered) {
-          appendRow(store, 'summary', formatSteerQueued(display, 'next-step'));
+          appendRow(store, 'summary', formatSteered(display));
           handle.notify();
           return;
         }

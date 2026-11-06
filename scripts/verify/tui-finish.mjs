@@ -674,6 +674,13 @@ ok('a narrow terminal shortens result previews to 1/2 lines');
 }
 ok('a resumed replay ends with a resume confirmation');
 
+// 5r. B273: a successful steer says "steered", not "queued".
+{
+  const steered = appHelpers.formatSteered('use ES modules');
+  assert.match(steered, /^steered: use ES modules — applies at the next step$/);
+}
+ok('a successful steer is reported as steered, not queued');
+
 // 6. B194: the status row labels each number instead of imploding.
 {
   const en = statusLine.formatStatusLine({

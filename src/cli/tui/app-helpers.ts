@@ -452,12 +452,13 @@ export function sliceHelpOverlay(
   return { offset: start, lines: visible, ...(hint ? { hint } : {}) };
 }
 
-/** Transcript line for a steer or a follow-up that waits until the run can take it. */
-export function formatSteerQueued(text: string, when: 'next-step' | 'run-finished'): string {
+/**
+ * B273: a successful steer is injected at the next boundary — saying "queued"
+ * described a different path (a follow-up that waits for the run to finish).
+ */
+export function formatSteered(text: string): string {
   const clipped = text.slice(0, 80);
-  const timing =
-    when === 'next-step' ? tui('applies at the next step') : tui('applies when this run finishes');
-  return `${tui('queued: {text}', { text: clipped })} — ${timing}`;
+  return `${tui('steered: {text}', { text: clipped })} — ${tui('applies at the next step')}`;
 }
 
 /** `5m` / `2h` / `3d` — a session's age in one glance. */
