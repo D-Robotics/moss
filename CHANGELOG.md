@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### The plan → approve → execute ritual is in README and verified end to end (B250)
+
+- A real plan-mode session (`/plan`, one-file plan) hit the blocked `run_tests` explainer, produced a clear
+  plan, showed `Ready to code?` with the three decisions, switched to accept-edits on `1`, made both edits
+  without approval, asked once for the test command, and finished with the todo panel at 4/4 — the mode
+  label and footer hint stayed consistent throughout. README's handfeel tables now name this ritual
+  (`Ready to code?` → 1/2/3, `Esc keeps planning`).
+
+### 计划 → 批准 → 执行的流程写进 README，并做了真实端到端验证（B250）
+
+- 真实 plan 模式会话（`/plan` + 单文件计划）触发了 plan 模式对 `run_tests` 的阻断说明，产出清晰计划后显示
+  `Ready to code?` 三选项；按 `1` 切到 accept-edits，两次编辑免批准，测试命令确认一次，最后 todo 面板 4/4；
+  模式标签与 footer 提示全程一致。README 中英手感表补上这个流程
+  （`Ready to code?` → 1/2/3，`Esc keeps planning`）。
+
 ### A tool result no longer repeats its own headline (B249)
 
 - A real sub-agent run printed `⎿ [Sub-agent aadde5f2] SUCCESS · 4s` and then `[Sub-agent aadde5f2]
