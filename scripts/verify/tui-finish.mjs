@@ -11,11 +11,13 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// B284: the nightly Windows leg reported only "probe exited 1: Node.js v…"
-// because the uncaught error's stack was behind the banner in the log; print it.
+// B284: the nightly Windows leg reported only "probe exited 1: …", because the
+// verify runner keeps the LAST stderr line. Print the crash as one line so the
+// next nightly names the failing check.
 for (const signal of ['uncaughtException', 'unhandledRejection']) {
   process.on(signal, (error) => {
-    console.error(`[tui-finish] ${signal}:`, error);
+    const text = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    console.error(`[tui-finish] ${signal}: ${text.replace(/\n/g, ' ⏎ ')}`);
     process.exit(1);
   });
 }
