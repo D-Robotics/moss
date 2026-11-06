@@ -486,7 +486,8 @@ export function renderSessionPicker(
   matches: readonly TuiSessionSummary[],
   selected: number,
   width: number,
-  maxRows = 8
+  maxRows = 8,
+  options: { loading?: boolean } = {}
 ): TuiLine[] {
   const out: TuiLine[] = [
     line(clip(tui('Resume session  ⌕ {query}', { query }), width), {
@@ -516,7 +517,13 @@ export function renderSessionPicker(
     );
   }
   if (matches.length === 0) {
-    out.push(line(clip(tui('  no matching session'), width), { dim: true }));
+    // B256: the boot picker lists sessions asynchronously; "no matching session"
+    // for the first frames read like an empty workspace.
+    out.push(
+      line(clip(tui(options.loading ? '  loading sessions…' : '  no matching session'), width), {
+        dim: true,
+      })
+    );
   }
   out.push(
     line(clip(tui('  ↑/↓ to pick · type to filter · Esc starts fresh'), width), { dim: true })

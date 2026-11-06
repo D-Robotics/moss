@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The resume picker says it is loading instead of "no matching session" (B256)
+
+- `moss resume` lists sessions asynchronously, so the picker's first frames said `no matching session`
+  before the list arrived — it read like an empty workspace. The picker now opens in a loading state and
+  shows `loading sessions…` until the list lands (and the loading flag is set on the first render, not
+  after the first effect).
+
+### 恢复选择器先显示"加载中"，不再短暂说没有会话（B256）
+
+- `moss resume` 异步加载会话列表，选择器前几帧会显示 `no matching session`，看起来像工作区没有会话。
+  现在选择器以 loading 状态打开，列表到达前显示 `loading sessions…`；loading 标记在首帧渲染前就设置，
+  不再先闪一帧空列表。
+
 ### Export message counts match what is written (B255)
 
 - After B252 the markdown header counted only exportable messages, but the success line still counted raw

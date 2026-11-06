@@ -650,6 +650,9 @@ export function TuiAppRoot({
     options.resumePicker ? { query: '', cursor: 0 } : undefined
   );
   const [pickerSessions, setPickerSessions] = useState<TuiSessionSummary[]>([]);
+  // B256: the boot picker's first frame must not claim "no matching session"
+  // before the async session list arrives.
+  const [pickerLoading, setPickerLoading] = useState(options.resumePicker === true);
   const [paletteCursor, setPaletteCursor] = useState(0);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const [mentionCursor, setMentionCursor] = useState(0);
@@ -1151,12 +1154,14 @@ export function TuiAppRoot({
     }
     if (options.resumePicker) {
       // `moss resume` on a TTY: the picker overlay opens with real sessions.
+      setPickerLoading(true);
       void (async () => {
         try {
           setPickerSessions((await options.listSessions?.()) ?? []);
         } catch {
           setPickerSessions([]);
         }
+        setPickerLoading(false);
         handle.notify();
       })();
     }
@@ -4222,7 +4227,9 @@ export function TuiAppRoot({
         sessionPicker.query,
         sessionPickerMatches,
         Math.min(sessionPicker.cursor, Math.max(0, sessionPickerMatches.length - 1)),
-        columns
+        columns,
+        8,
+        { loading: pickerLoading && pickerSessions.length === 0 }
       )
     : [];
   // Context-window high-water mark: the status row paints the percentage, and

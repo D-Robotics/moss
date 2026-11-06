@@ -17,6 +17,7 @@ const transcript = await load('dist/cli/tui/transcript.js');
 const renderer = await load('dist/cli/tui/renderer.js');
 const toolSummary = await load('dist/cli/tui/tool-summary.js');
 const promptHistory = await load('dist/cli/tui/prompt-history.js');
+const appHelpers = await load('dist/cli/tui/app-helpers.js');
 const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
 const interactionMode = await load('dist/cli/interaction-mode.js');
@@ -515,6 +516,23 @@ ok('two fresh answer blocks: the earlier one folds, the latest stays full');
   );
 }
 ok('a duplicated leading result line is dropped, not repeated under the headline');
+
+// 5k. B256: the boot resume picker says it is loading instead of "no matching
+// session" for its first frames.
+{
+  const loading = appHelpers
+    .renderSessionPicker('', [], 0, 120, 8, { loading: true })
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(loading, /loading sessions/);
+  assert.doesNotMatch(loading, /no matching session/);
+  const empty = appHelpers
+    .renderSessionPicker('', [], 0, 120, 8)
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(empty, /no matching session/);
+}
+ok('the resume picker shows a loading line, then the empty line');
 
 // 6. B194: the status row labels each number instead of imploding.
 {
