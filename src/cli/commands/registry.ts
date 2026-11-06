@@ -45,6 +45,7 @@ import { reportedModelMatchesConfigured } from '../model-resolution.js';
 import { envBeforeDotenv, loadCliConfigFile, resolveConfigDir } from '../config.js';
 import { isFilesystemRoot, forgetFolderTrust, rememberFolderTrust } from '../folder-trust-store.js';
 import { detectProject } from '../init-command.js';
+import { resolveExportOutPath } from '../export-path.js';
 import {
   currentOutputStyle,
   OUTPUT_STYLE_NAMES,
@@ -814,7 +815,14 @@ const exportCommand: CommandSpec = {
         return;
       }
       const target = pathArg || `moss-session-${ctx.sessionKey}.md`;
-      await writeFile(target, markdown + '\n', 'utf8');
+      // B210: like `moss sessions export --out`, `/export <path>` stays inside
+      // the workspace instead of writing wherever the path points.
+      const resolved = resolveExportOutPath(ctx.workspace, target);
+      if ('error' in resolved) {
+        ctx.say('error', resolved.error);
+        return;
+      }
+      await writeFile(resolved.absolute, markdown + '\n', 'utf8');
       ctx.say(
         'system',
         `Exported ${messages.length} message(s) to ${target}. (Use /export - to print, or /export <path> to choose a file.)`

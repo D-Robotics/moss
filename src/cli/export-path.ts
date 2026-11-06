@@ -13,7 +13,7 @@ export function resolveExportOutPath(
   const absolute = path.resolve(root, out);
   const relative = path.relative(root, absolute);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return { error: `--out must stay inside the workspace: ${out}` };
+    return { error: `path must stay inside the workspace: ${out}` };
   }
   return { absolute };
 }

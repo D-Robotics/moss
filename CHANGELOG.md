@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### In-session `/export <path>` stays inside the workspace too (B210)
+
+- `/export /tmp/x.md` (or `../x.md`) wrote the session export wherever the path pointed. It now uses the
+  same workspace confinement as `moss sessions export --out` and `moss runs export --out`; the shared
+  message is generic (`path must stay inside the workspace: …`) because all three spell the destination
+  differently. `/export` with no path (default `moss-session-<key>.md`) and `/export -` are unchanged.
+
+### 会话内 `/export <path>` 同样限定在工作区内（B210）
+
+- `/export /tmp/x.md`（或 `../x.md`）会把会话导出写到任意位置。现在与 `moss sessions export --out`、
+  `moss runs export --out` 共用工作区限定；错误文案统一为 `path must stay inside the workspace: …`
+  （三者参数写法不同，不再写死 `--out`）。不带路径（默认 `moss-session-<key>.md`）与 `/export -` 不变。
+
 ### `moss sessions export --out` stays inside the workspace (B209)
 
 - `--out=../x.md` wrote the exported session outside the workspace (same class as the `runs export`

@@ -228,6 +228,30 @@ try {
   assert.match(resolveExportOutPath('/tmp/ws', '../escape.md').error ?? '', /inside the workspace/);
   assert.match(resolveExportOutPath('/tmp/ws', '/tmp/abs.md').error ?? '', /inside the workspace/);
   ok('--out is confined to the workspace for session/run exports');
+
+  // 10. B210: the in-session `/export <path>` uses the same confinement.
+  const { findRegistryCommand } = await import(dist('cli/commands/registry.js'));
+  const exportSpec = findRegistryCommand('/export')?.spec;
+  assert.ok(exportSpec, '/export must be registered');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-export-'));
+  const said = [];
+  const ctx = {
+    agent: {
+      config: { sessionStore: { loadMessages: async () => [{ role: 'user', content: 'hi' }] } },
+    },
+    sessionKey: 's1',
+    workspace: tmp,
+    say: (kind, text) => said.push([kind, text]),
+    prefillInput: () => {},
+  };
+  await exportSpec.run(ctx, '../escape.md');
+  assert.equal(said.at(-1)[0], 'error');
+  assert.match(said.at(-1)[1], /inside the workspace/);
+  assert.equal(fs.existsSync(path.join(tmp, '..', 'escape.md')), false);
+  await exportSpec.run(ctx, 'session.md');
+  assert.match(fs.readFileSync(path.join(tmp, 'session.md'), 'utf8'), /## user/);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  ok('/export <path> stays inside the workspace');
 }
 
 console.log(`[rewind-conversation] ${checks}/${checks} checks passed`);
