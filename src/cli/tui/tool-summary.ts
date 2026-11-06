@@ -197,6 +197,9 @@ export function summarizeToolCompletion(
     return { summary: counted(entries, 'Listed {count} entry', 'Listed {count} entries') };
   }
   if (SEARCH_TOOLS.has(toolName)) {
+    // B219: the body can be a single explanatory line ("No files found"), which
+    // countContentLines turned into "Found 1 match".
+    if (/^\s*No (?:files|matches) found\b/im.test(body)) return { summary: tui('No matches') };
     const matches = countContentLines(body);
     if (matches === 0) return { summary: tui('No matches') };
     return { summary: counted(matches, 'Found {count} match', 'Found {count} matches') };

@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### A real-TUI re-audit: stale wait verbs, stale interrupt hint, lying search summaries (B219)
+
+A second read-only UX audit (3 real sessions) found the next layer of friction. This round fixes three
+of its items:
+
+- **The wait verb means quiet.** `Waiting on the model, 30s` could keep ticking while reasoning tokens
+  were arriving (reasoning keeps `streaming` empty). A wait verb now requires no event for five seconds;
+  otherwise the row says `Thinking`.
+- **The interrupt hint dies with the run.** After Ctrl+C stopped a run, `run interrupted — press
+Ctrl+C again to quit` stayed in the status row after the composer went idle. It is cleared (and the
+  arm disarmed) when the run settles.
+- **An empty search is not a match.** `Search Files … Found 1 match` sat directly above `No files found`;
+  a `No files found`/`No matches` body now summarizes as `No matches`.
+- Also: the plan gate's status hint said `Esc to skip` while its footer said `Esc keeps planning`; the
+  hint now follows the dialog (`Esc keeps planning`).
+
+Remaining from the audit (not this round): near-duplicate final answer paragraphs, and plan text
+appearing in the exit-plan result plus the gate panel.
+
+### 真实 TUI 复审计：过期的等待动词、残留的中断提示、说谎的搜索摘要（B219）
+
+第二轮只读 UX 复审计（3 个真实会话）找到下一层摩擦，本轮修其中三项：
+
+- **等待动词意味着"真的安静"**：推理 token 到达时 `streaming` 仍为空，于是 `Waiting on the model, 30s`
+  会一直刷。现在要求 5 秒内没有任何事件才显示等待动词，否则显示 `Thinking`。
+- **中断提示随运行结束消失**：Ctrl+C 结束运行后，`run interrupted — press Ctrl+C again to quit`
+  在 composer 已恢复空闲后仍留在状态行。现在运行收尾时清除该行并解除 quit arm。
+- **空搜索不是命中**：`Search Files … Found 1 match` 与 `No files found` 同屏；body 为
+  `No files found`/`No matches` 时摘要改为 `No matches`。
+- 另：计划确认弹窗的状态行原来写 `Esc to skip`，而 footer 写 `Esc keeps planning`；现在状态行跟随弹窗。
+
+审计剩余（本轮未做）：最终答复近似重复段落；计划在 Exit Plan 结果与 gate 面板各出现一次。
+
 ### `moss sessions export --last` exports the newest non-empty session (B218)
 
 - Export needed an opaque key (`moss sessions list` first), unlike `moss resume --last` and

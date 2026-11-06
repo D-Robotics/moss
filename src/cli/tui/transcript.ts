@@ -1041,6 +1041,8 @@ export interface LiveView {
 
 /** Seconds of stream silence before the live region says so out loud. */
 export const STALL_HINT_S = 15;
+/** Any event this recent means the model is producing, not waiting. */
+const WAIT_VERB_FRESH_MS = 5_000;
 
 export function renderLive(view: LiveView, width: number, verbose = false): TuiLine[] {
   if (!view.running) return [];
@@ -1098,16 +1100,20 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   const queued = view.queued > 0 ? tui(' · {count} queued', { count: view.queued }) : '';
   // O99: real progress first — active tool label, then thinking-wait with Ns,
   // then a stable Working label. Never rotate empty slogans.
+  // B219: a wait verb must mean the stream is quiet; tokens can arrive as
+  // reasoning while `streaming` stays empty.
+  const streamFresh =
+    view.lastEventAt !== undefined && Date.now() - view.lastEventAt < WAIT_VERB_FRESH_MS;
   let verb: string;
   if (view.waitingForDevice) {
     verb = tui('Waiting for device');
   } else if (view.toolLine && view.toolLine.trim()) {
     verb = view.toolLine.trim();
-  } else if (view.thinkingActive && !view.streaming.trim() && elapsedMs >= 30_000) {
+  } else if (view.thinkingActive && !view.streaming.trim() && elapsedMs >= 30_000 && !streamFresh) {
     verb = formatThinkingWaitLine(elapsedMs, isTuiZh());
   } else if (view.thinkingActive && !view.streaming.trim()) {
     verb = tui('Thinking');
-  } else if (elapsedMs >= 60_000 && !view.streaming.trim()) {
+  } else if (elapsedMs >= 60_000 && !view.streaming.trim() && !streamFresh) {
     verb = formatThinkingWaitLine(elapsedMs, isTuiZh());
   } else {
     verb = runVerb(seconds);
@@ -1470,6 +1476,8 @@ export interface StatusView {
   shellMode?: boolean;
   /** Pending interaction kind, so hints describe question input honestly. */
   dialogKind?: 'approval' | 'question';
+  /** Overrides the generic "Esc to skip" hint (e.g. plan gate keeps planning). */
+  dialogEscHint?: string;
   dialogHasOptions?: boolean;
   /** Numbered keys the open dialog actually offers, e.g. `1/2`. */
   answerKeys?: string;
@@ -1713,7 +1721,7 @@ export function renderHint(view: StatusView, width: number): TuiLine {
             : tui('type answer · Enter to send'),
           priority: 1,
         },
-        { text: tui('Esc to skip'), priority: 2 }
+        { text: view.dialogEscHint ?? tui('Esc to skip'), priority: 2 }
       );
     } else {
       items.push(

@@ -15,6 +15,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const transcript = await load('dist/cli/tui/transcript.js');
 const renderer = await load('dist/cli/tui/renderer.js');
+const toolSummary = await load('dist/cli/tui/tool-summary.js');
 const statusLine = await load('dist/cli/status-line.js');
 const bridge = await load('dist/cli/tui/render-bridge.js');
 const markdown = await load('dist/cli/tui/markdown.js');
@@ -320,6 +321,45 @@ ok('a failed exec prints its error once (label + headline, not the same sentence
   assert.match(exit, /(?:Resume this session|继续本次会话)[:：]? ?moss --continue/);
 }
 ok('the inline exit hint says what `moss --continue` does');
+
+// 5c. B219: an empty search body ("No files found") is not "Found 1 match".
+{
+  const empty = toolSummary.summarizeToolCompletion(
+    'search_files',
+    { path: '.' },
+    'No files found',
+    false
+  );
+  assert.equal(empty.summary, 'No matches');
+  assert.doesNotMatch(empty.summary, /Found \d+ match/);
+  const one = toolSummary.summarizeToolCompletion(
+    'search_files',
+    { path: '.' },
+    'a.js:1: hit',
+    false
+  );
+  assert.match(one.summary, /Found 1 match/);
+}
+ok('an empty search summary says No matches, not Found 1 match');
+
+// 5d. B219: the plan gate's status hint matches its dialog footer (Esc keeps
+//     planning), instead of the generic "Esc to skip".
+{
+  const base = {
+    blocked: true,
+    dialogKind: 'question',
+    dialogHasOptions: true,
+    answerKeys: '1/2/3',
+    mode: 'plan',
+    running: false,
+  };
+  const custom = transcript.renderHint({ ...base, dialogEscHint: 'Esc keeps planning' }, 160).text;
+  assert.match(custom, /Esc keeps planning/);
+  assert.doesNotMatch(custom, /Esc to skip/);
+  const generic = transcript.renderHint(base, 160).text;
+  assert.match(generic, /Esc to skip/);
+}
+ok('the status row can say "Esc keeps planning" for the plan gate');
 
 // 6. B194: the status row labels each number instead of imploding.
 {

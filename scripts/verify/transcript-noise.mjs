@@ -75,7 +75,7 @@ ok('the mutation notice only fires for a file whose read body went stale');
       thinkingActive: true,
       tokensOut: 4800,
       queued: 0,
-      lastEventAt: now,
+      lastEventAt: now - 10_000,
     },
     120
   );
@@ -85,6 +85,43 @@ ok('the mutation notice only fires for a file whose read body went stale');
   assert.doesNotMatch(text, /570s\s+\d+s/);
   assert.doesNotMatch(text, /570s 5\d\ds/);
   assert.match(text, /4\.8k out/);
+  // B219: a wait verb only when the stream is actually quiet; recent events mean
+  // the model is producing (reasoning can arrive while `streaming` stays empty).
+  const fresh = transcript
+    .renderLive(
+      {
+        running: true,
+        startedAt: now - 60_000,
+        streaming: '',
+        thinking: 'working',
+        thinkingActive: true,
+        tokensOut: 900,
+        queued: 0,
+        lastEventAt: now,
+      },
+      120
+    )
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.doesNotMatch(fresh, /Waiting on the model/);
+  const stale = transcript
+    .renderLive(
+      {
+        running: true,
+        startedAt: now - 60_000,
+        streaming: '',
+        thinking: 'working',
+        thinkingActive: true,
+        tokensOut: 900,
+        queued: 0,
+        lastEventAt: now - 10_000,
+      },
+      120
+    )
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(stale, /Waiting on the model, 60s/);
+
   const short = transcript.renderLive(
     {
       running: true,

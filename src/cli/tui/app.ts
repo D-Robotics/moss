@@ -434,6 +434,8 @@ interface PendingDialog {
   optionAnswers?: string[];
   /** `multi_select` questions: digits are typed, only Enter answers. */
   freeTextEntry?: boolean;
+  /** Status-row Esc hint when it differs from the generic "Esc to skip". */
+  escHint?: string;
   /**
    * What the dialog was about (`Write(wordfreq/Makefile)`-style subject, else
    * the title). A bare `approval: yes` row floating under an unrelated block
@@ -1391,6 +1393,16 @@ export function TuiAppRoot({
         }
       }
       const runtimeSettled = await settleRuntime(halted);
+      if (halted) {
+        // B219: the Ctrl+C arm expired with the run; a lingering
+        // "press Ctrl+C again to quit" would describe a state that is gone.
+        if (quitTimerRef.current !== undefined) {
+          clearTimeout(quitTimerRef.current);
+          quitTimerRef.current = undefined;
+        }
+        setQuitArmed(false);
+        setStatusLine(undefined);
+      }
       if (runtimeSettled && startedAt !== undefined) appendTaskVerdictIfAny(startedAt);
       refreshComposerSuggestion();
       notifyAttention(halted ? tui('run interrupted') : tui('run finished'));
@@ -1736,6 +1748,7 @@ export function TuiAppRoot({
     const entry: PendingDialog = {
       kind: 'question',
       settled: false,
+      escHint: tui('Esc keeps planning'),
       resolve: (value) => {
         if (value === PROCEED_AUTO) {
           setCliInteractionMode('acceptEdits');
@@ -4068,6 +4081,9 @@ export function TuiAppRoot({
     ...(approval ? { dialogKind: pendingDialogRef.current?.kind } : {}),
     ...(approval && pendingDialogRef.current?.kind === 'question'
       ? { dialogHasOptions: approval.options.length > 0 }
+      : {}),
+    ...(approval && pendingDialogRef.current?.escHint
+      ? { dialogEscHint: pendingDialogRef.current.escHint }
       : {}),
     ...(approval ? { answerKeys: approval.options.map((option) => option.key).join('/') } : {}),
     tokens: running ? store.usage.runTokensOut : store.usage.tokensIn + store.usage.tokensOut,
