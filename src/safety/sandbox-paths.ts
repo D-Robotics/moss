@@ -132,13 +132,63 @@ export function resolveSandboxPath(params: {
   });
 }
 
+/**
+ * Resolve a not-yet-existing target to its real location: realpath the nearest
+ * existing ancestor and append the rest. macOS `/tmp` → `/private/tmp` is the
+ * canonical case (B91): a lexical check compares `/tmp/ws/x` against a root
+ * spelled `/private/tmp/ws` and refuses a write that is actually inside.
+ */
+async function realpathNearest(target: string): Promise<string> {
+  let current = target;
+  const suffix: string[] = [];
+  for (;;) {
+    try {
+      const real = await fs.realpath(current);
+      return suffix.length > 0 ? path.join(real, ...suffix.reverse()) : real;
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'ENOENT') throw err;
+      const parent = path.dirname(current);
+      if (parent === current) throw err;
+      suffix.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/** Lexical miss → retry once through realpath; a genuine escape still throws. */
+async function resolveSandboxPathAfterRealpath(
+  params: { filePath: string; cwd: string; root: string; extraRoots?: string[] },
+  originalError: unknown
+): Promise<{ resolved: string; relative: string; matchedRoot: string }> {
+  const candidate = resolveToCwd(params.filePath, params.cwd);
+  const realCandidate = await realpathNearest(candidate);
+  for (const root of [params.root, ...(params.extraRoots ?? [])]) {
+    let realRoot: string;
+    try {
+      realRoot = await fs.realpath(root);
+    } catch {
+      continue;
+    }
+    const relative = path.relative(realRoot, realCandidate);
+    if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) {
+      return { resolved: candidate, relative, matchedRoot: realRoot };
+    }
+  }
+  throw originalError;
+}
+
 export async function assertSandboxPath(params: {
   filePath: string;
   cwd: string;
   root: string;
   extraRoots?: string[];
 }): Promise<{ resolved: string; relative: string }> {
-  const resolved = resolveSandboxPath(params);
+  let resolved: { resolved: string; relative: string; matchedRoot: string };
+  try {
+    resolved = resolveSandboxPath(params);
+  } catch (err) {
+    resolved = await resolveSandboxPathAfterRealpath(params, err);
+  }
   await assertRootIsNotSymlink(resolved.matchedRoot);
   await assertNoSymlink(resolved.relative, resolved.matchedRoot);
 

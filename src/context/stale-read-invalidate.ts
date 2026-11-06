@@ -41,6 +41,13 @@ export function isFileMutationTool(toolName: string): boolean {
 const SHELL_WRITE_ACTION =
   /(?:sed\s+-i|perl\s+-pi|ruby\s+-pi|^\s*(?:cp|mv|rm|tee|truncate)\b|>\s*[^\s|]|>>\s*[^\s|])/m;
 
+/**
+ * Character devices and fd pseudo-paths. Writing them is real, but it cannot
+ * stale a workspace read: there is no file body to re-read.
+ */
+const SPECIAL_WRITE_TARGET =
+  /^(?:\/dev\/(?:null|stdout|stderr|tty|zero|random|urandom|full|console|fd\/[^/]+)|\/proc\/self\/fd\/[^/]+|\/dev\/pts\/[^/]+)$/;
+
 /** True when the command looks like a file rewrite (redirect, sed -i, cp, …). */
 export function shellCommandHasWriteAction(command: string): boolean {
   if (!command || !command.trim()) return false;
@@ -68,6 +75,10 @@ export function extractShellMutationPaths(command: string): string[] {
     if (!p || p.startsWith('-')) return;
     // Drop shell meta and URL-like tokens
     if (/[|;$`]/.test(p) || /^https?:/i.test(p)) return;
+    // `2>/dev/null` and friends redirect to a character device, not to a file
+    // whose read credit could go stale; naming it produced a bogus
+    // "shell file mutation … for: /dev/null" notice after every noisy command.
+    if (SPECIAL_WRITE_TARGET.test(normalizePathKey(p))) return;
     // Prefer path-like tokens
     if (!/[./]/.test(p) && !/\.\w{1,8}$/.test(p)) return;
     p = normalizePathKey(p);

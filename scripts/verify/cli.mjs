@@ -42,9 +42,11 @@ import { stage as tinyWindowCliBootStage } from './stages/tiny-window-cli-boot.m
 import { stage as tinyWindowDiagnosticsStage } from './stages/tiny-window-diagnostics.mjs';
 import { stage as tinyWindowTuiNoticeStage } from './stages/tiny-window-tui-notice.mjs';
 import { stage as tuiFinishStage } from './stages/tui-finish.mjs';
+import { stage as transcriptNoiseStage } from './stages/transcript-noise.mjs';
 import { stage as readImageStage } from './stages/read-image.mjs';
 import { stage as readPdfStage } from './stages/read-pdf.mjs';
 import { stage as osSandboxStage } from './stages/os-sandbox.mjs';
+import { stage as shellWriteSandboxStage } from './stages/shell-write-sandbox.mjs';
 import { stage as orgPolicyStage } from './stages/org-policy.mjs';
 import { stage as outputStyleStage } from './stages/output-style.mjs';
 import { stage as planEndStage } from './stages/plan-end.mjs';
@@ -144,9 +146,11 @@ const STAGES = new Map(
     tinyWindowDiagnosticsStage,
     tinyWindowTuiNoticeStage,
     tuiFinishStage,
+    transcriptNoiseStage,
     readImageStage,
     readPdfStage,
     osSandboxStage,
+    shellWriteSandboxStage,
     orgPolicyStage,
     outputStyleStage,
     planEndStage,
@@ -247,9 +251,11 @@ const FAST_GATE = [
   'tiny-window-diagnostics',
   'tiny-window-tui-notice',
   'tui-finish',
+  'transcript-noise',
   'read-image',
   'read-pdf',
   'os-sandbox',
+  'shell-write-sandbox',
   'org-policy',
   'output-style',
   'plan-end',

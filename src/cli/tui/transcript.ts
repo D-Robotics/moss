@@ -1043,11 +1043,15 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   } else {
     verb = runVerb(seconds);
   }
-  const showEllipsis = !view.toolLine && !verb.includes('等待') && !verb.includes('waited');
+  const waitVerb = verb.includes('等待') || verb.includes('waited');
+  const showEllipsis = !view.toolLine && !waitVerb;
+  // The wait verb already carries its own bucket ("Still reasoning, waited
+  // 570s"); appending the raw elapsed seconds again printed "570s 573s".
+  const showSeconds = !waitVerb;
   out.push(
     line(
       clip(
-        `${spinnerFrame(elapsedMs)} ${verb}${showEllipsis ? '…' : ''} ${seconds}s${tokens}${queued}`,
+        `${spinnerFrame(elapsedMs)} ${verb}${showEllipsis ? '…' : ''}${showSeconds ? ` ${seconds}s` : ''}${tokens}${queued}`,
         width
       ),
       {
