@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The command reference lists the session/inspection slashes too (B313)
+
+- `docs/cli-reference.md` named the daily slashes but omitted `/status`, `/usage`, `/context`, `/export [path]`,
+  `/rewind [seq]`, `/mcp` and `/hooks`; they are now documented with their one-line roles, and
+  `readme-parity` requires those names on the page.
+
+### 命令参考补上会话/巡检类斜杠命令（B313）
+
+- `docs/cli-reference.md` 列了日常斜杠命令，但漏掉 `/status`、`/usage`、`/context`、`/export [path]`、
+  `/rewind [seq]`、`/mcp`、`/hooks`；现在补上各自的一句话用途，`readme-parity` 也要求该页出现这些名字。
+
 ### `/status --verbose` separates registered tools from offered ones (B312)
 
 - One session showed `tools: 53` in `/status --verbose` and `34 declared` in `/context`; both were correct

@@ -34,7 +34,8 @@
 
 > `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback；`plugins` 现在是本地能力包（`moss plugins validate/install/list/remove`）。`moss <command> --help` 仍给出该子命令自己的用法。
 
-日常斜杠命令：`/model` `/compact` `/goal` `/plan` `/review` `/runs` `/capabilities` `/doctor` `/diff` `/resume` `/paste` `/rules` `/remember` `/skills` `/agents` `/todos` `/permissions` `/language` `/style` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/goal <条件>` 持续工作直到条件满足，`/goal clear` 取消。`/resume` 恢复已保存会话；`/tasks` 列出后台 shell 与子代理（`/jobs` `/bg` `/subs` 为旧别名）。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/goal`）。`/goal` 没带 `--accept` 时，从工作区已有测试入口（`package.json` test、Makefile、pytest、`go.mod`）给出验收候选，找不到就直说。`/stop`（别名 `/abort`）只停本会话启动的后台进程。隐藏的 `/task` 是 Task OS 入口（status / timeline / resume / view / verify），`/task verify` 不调模型，只取一次裁决。PASS 只能来自 verdict provider。
+日常斜杠命令：`/model` `/compact` `/goal` `/plan` `/review` `/runs` `/capabilities` `/doctor` `/diff` `/resume` `/paste` `/rules` `/remember` `/skills` `/agents` `/todos` `/permissions` `/language` `/style` `/clear` `/help`。
+会话与工件类：`/status`（当前模型/工作区/模式；`--verbose` 给全量诊断）、`/usage`（token 与 api 用时）、`/context`（上下文占用与预算）、`/export [path]`（把会话导出为 markdown，`-` 写 stdout）、`/rewind [seq]`（回退文件与对话到检查点，`/undo` 是最近一个）、`/mcp`（服务器状态与 prompt 模板）、`/hooks`（当前生效的钩子）。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/goal <条件>` 持续工作直到条件满足，`/goal clear` 取消。`/resume` 恢复已保存会话；`/tasks` 列出后台 shell 与子代理（`/jobs` `/bg` `/subs` 为旧别名）。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/goal`）。`/goal` 没带 `--accept` 时，从工作区已有测试入口（`package.json` test、Makefile、pytest、`go.mod`）给出验收候选，找不到就直说。`/stop`（别名 `/abort`）只停本会话启动的后台进程。隐藏的 `/task` 是 Task OS 入口（status / timeline / resume / view / verify），`/task verify` 不调模型，只取一次裁决。PASS 只能来自 verdict provider。
 
 常用 flag：
 
