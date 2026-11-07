@@ -1,0 +1,22 @@
+{
+  "id": "bpu-inference",
+  "title": "Run a BPU model inference on the NPU",
+  "sideEffect": "readonly",
+  "tier": "optional",
+  "maxTurns": 8,
+  "timeoutMs": 300000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Do not guess a host and do not ask for one.\n\nRun the BPU inference self-test that ships with the board: `cd /app/multimedia_samples/chip_base_test/01_cpu_bpu_ddr && bash models/HBDK3_MODEL_2K/run.sh`. The BPU part passes when the output contains `bpu0 test sucess`. A trailing `golden result ERROR` about a missing reference file is expected and acceptable — it is not a BPU failure.\n\nRecord evidence with record_evidence (include task_id): metric `bpu_test`, observed = `bpu0 test sucess` and nothing else. Clean up afterwards: `rm -rf /userdata/model-2k_*`.\n\nDo not reboot, reflash, or change any board configuration.\n\nNOTE: the acceptance command is executed by the bench harness AFTER your turn, with its own environment (device credentials included). Do NOT try to run it yourself, read the repo .env, or investigate how the harness injects environment — that path is blocked by design. Do the device work, verify the outcome with your own probe, record evidence, and finish.",
+  "prerequisites": [
+    "test -f /app/multimedia_samples/chip_base_test/01_cpu_bpu_ddr/models/HBDK3_MODEL_2K/run.sh"
+  ],
+  "setup": [],
+  "oracle": [],
+  "acceptance": ["echo bpu-accepted"],
+  "cleanup": ["rm -rf /userdata/model-2k_* 2>/dev/null || true"],
+  "evidence": [
+    {
+      "metric": "bpu_test",
+      "probe": "echo bpu-probe-done"
+    }
+  ]
+}
