@@ -240,6 +240,7 @@ export const ZH: Readonly<Record<string, string>> = {
   click: '点击',
   prefixes: '前缀',
   '  ! shell · / commands · @ files': '  ! 终端 · / 命令 · @ 文件',
+  '  ↑↓ move · Tab/Enter complete · Esc dismiss': '  ↑↓ 移动 · Tab/Enter 补全 · Esc 关闭',
   shortcuts: '快捷键',
   'all commands': '全部命令',
   'common commands': '常用命令',

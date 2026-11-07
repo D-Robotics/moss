@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The @-file palette completes with Enter and explains its keys (B308)
+
+- Typing `@` showed file rows with no footer, and pressing Enter sent the half-typed `@math` as a message
+  instead of completing it (Tab was the only completion key). Enter now completes the highlighted path like
+  Tab (a real TUI run shows the composer becoming `@math.js ` with nothing sent), and the palette ends with
+  `↑↓ move · Tab/Enter complete · Esc dismiss` (zh: `↑↓ 移动 · Tab/Enter 补全 · Esc 关闭`).
+
+### @ 文件面板：Enter 补全并说明按键（B308）
+
+- 输入 `@` 后只显示文件行、没有底部提示，而且按 Enter 会把半截的 `@math` 直接发出去（此前只有 Tab 能补全）。
+  现在 Enter 与 Tab 一样补全高亮路径（真实 TUI：输入框变成 `@math.js ` 且没有发送消息），面板底部显示
+  `↑↓ move · Tab/Enter complete · Esc dismiss`（中文：`↑↓ 移动 · Tab/Enter 补全 · Esc 关闭`）。
+
 ### Removing a capability pack leaves no empty scaffolding behind (B306)
 
 - `plugins install` created `.moss/config.json` (hooks) and `.moss/mcp.json`; `plugins remove` left

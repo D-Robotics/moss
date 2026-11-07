@@ -3558,9 +3558,9 @@ export function TuiAppRoot({
         );
         return;
       }
-      if (key.tab) {
-        // The reference completes the highlighted path into the composer and
-        // does NOT run anything.
+      if (key.tab || key.return) {
+        // B308: Tab (and Enter, what people actually press) completes the
+        // highlighted path into the composer and does NOT run anything.
         const entry = mentionRows[mentionSelection];
         if (entry && mentionToken) {
           const completed = completeMention(input, mentionToken, entry);

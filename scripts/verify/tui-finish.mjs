@@ -32,6 +32,7 @@ const appHelpers = await load('dist/cli/tui/app-helpers.js');
 const agentFiles = await load('dist/core/subagent/agent-file-loader.js');
 const permissionsPanel = await load('dist/cli/tui/permissions-panel.js');
 const compactCommand = await load('dist/cli/compact-command.js');
+const mentions = await load('dist/cli/tui/mentions.js');
 const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
 const interactionMode = await load('dist/cli/interaction-mode.js');
@@ -813,6 +814,35 @@ ok('a hook-ask approval is labelled as this-time, not session-wide');
   assert.equal(asked.status, 'unverified');
 }
 ok('an explanation about tests is not judged as an unverified claim');
+
+// 5x. B308: the @-file palette says how to choose a row, and Tab/Enter
+// completes the highlighted path instead of running the message.
+{
+  const value = 'look at @math';
+  const token = mentions.mentionTokenAt(value, value.length);
+  assert.ok(token, 'a word-boundary @ opens a mention token');
+  const menu = mentions
+    .renderMentionMenu(
+      [
+        { path: 'math.js', directory: false },
+        { path: 'src/', directory: true },
+      ],
+      { width: 80, selected: 0 }
+    )
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(menu, /@math\.js/);
+  assert.match(menu, /Tab\/Enter complete/);
+
+  const completed = mentions.completeMention(value, token, {
+    path: 'math.js',
+    directory: false,
+  });
+  assert.equal(completed.value, 'look at @math.js ');
+  const dir = mentions.completeMention(value, token, { path: 'src/', directory: true });
+  assert.equal(dir.value, 'look at @src/');
+}
+ok('the @-file palette documents completion and completes the highlighted path');
 
 // 6. B194: the status row labels each number instead of imploding.
 {
