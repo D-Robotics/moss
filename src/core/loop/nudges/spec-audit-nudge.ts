@@ -55,10 +55,13 @@ export function evaluateSpecAuditNudge(request: SpecAuditNudgeRequest): SpecAudi
   return {
     fire: true,
     correction:
-      '[System] This request cites documentation/spec/requirements as an authority. Before another source edit: ' +
-      'compare the task text, docs/comments, and locked tests, then choose the authority explicitly. ' +
-      'If the cited authority is missing from the workspace, do NOT write SPEC-AUDIT.md: ask the user for the exact ' +
-      'doc path or text in one short question and stop. Only if the docs exist and conflict with the task or are stale, ' +
-      'write SPEC-AUDIT.md and restore any premature source/doc edit. Keep the whole check to one or two sentences.',
+      '[System] This request mentions documentation/spec/requirements. Before another source edit: ' +
+      'compare the task text, docs/comments, and locked tests. ' +
+      'If the requirements contradict each other (no external doc needed), write SPEC-AUDIT.md in the workspace root ' +
+      '(exact name), change no source, and finish by stating the conflict — do NOT ask which requirement wins. ' +
+      'If the task cites a specific document that is missing from the workspace and the conflict cannot be judged without it, ' +
+      'ask for that doc path/text in one short question instead. ' +
+      'Only if the docs exist and conflict with the task or are stale, write SPEC-AUDIT.md and restore any premature edit. ' +
+      'Keep the whole check to one or two sentences.',
   };
 }

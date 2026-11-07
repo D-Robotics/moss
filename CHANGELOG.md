@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### The spec-audit nudge no longer tells the model to ask (B355)
+
+- `hard-spec-contradiction` kept scoring 2/3 even after the system prompt said "do not ask which requirement wins":
+  the injected `[System]` spec-audit nudge (fired after the first tool call) still said "if the cited authority
+  is missing, do NOT write SPEC-AUDIT.md — ask the user". The nudge now mirrors the rule: requirements that
+  contradict each other get `SPEC-AUDIT.md` with no source changes; only a missing _cited document_ triggers one
+  clarifying question. The task reruns **3/3 PASS** (5 turns), and the sibling
+  `hard-contradictory-validation` sanity run is 1/1.
+
+### spec-audit nudge 不再让模型"先问"（B355）
+
+- 即使系统提示已写"不要问哪条优先，报告就是交付物"，`hard-spec-contradiction` 仍只有 2/3：首次工具调用后注入的
+  `[System]` spec-audit nudge 仍在说"被引用权威缺失时不要写 SPEC-AUDIT.md——去问用户"。nudge 现在与主提示一致：
+  需求之间互相矛盾 → 写 `SPEC-AUDIT.md`、不改源码；只有"被引用的具体文档缺失"才问一次。该任务重跑 **3/3 PASS**
+  （5 回合），同族的 `hard-contradictory-validation` 抽查 1/1。
+
 ### Bench runs widen the first-chunk watchdog (B354)
 
 - The full-set samples=3 run lost `hard-wrong-fix-rejected` (0/3) to three 45s "no response from the model"

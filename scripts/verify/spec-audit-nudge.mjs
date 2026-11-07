@@ -76,8 +76,9 @@ const correction = evaluateSpecAuditNudge({
   totalToolCalls: 1,
   attempts: 0,
 }).correction;
-assert.match(correction ?? '', /do NOT write SPEC-AUDIT\.md/);
-assert.match(correction ?? '', /ask the user for the exact/);
+assert.match(correction ?? '', /write SPEC-AUDIT\.md in the workspace root/);
+assert.match(correction ?? '', /do NOT ask which requirement wins/);
+assert.match(correction ?? '', /ask for that doc path\/text in one short question/);
 ok('citation phrasing fires once; plain mentions and completed audits stay quiet');
 
 // 4. B258: the injected <turn-context> preamble (skill catalog here) must not
