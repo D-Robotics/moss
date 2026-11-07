@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Session search no longer matches the model's reasoning (B325)
+
+- `moss sessions search "The user says"` matched a session and printed the chain-of-thought phrase as the
+  snippet: search indexed `thinking`, so model-private reasoning leaked into results. Search now indexes only
+  user/assistant text and tool blocks; replies stay searchable
+  (`sessions search "export test"` still finds the turn).
+
+### 会话搜索不再命中模型推理（B325）
+
+- `moss sessions search "The user says"` 会命中会话并把思维链片段作为 snippet 打印：搜索把 `thinking` 也索引了，
+  模型私有推理泄漏到结果里。现在只索引用户/助手文本与工具块；回复仍可搜索
+  （`sessions search "export test"` 仍能找到该回合）。
+
 ### Every --json flag is discoverable from `--help` (B324)
 
 - `sessions export --json`, `auth status --json`, `trust list --json`, `uninstall --json`, `doctor --json`,

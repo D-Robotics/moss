@@ -328,6 +328,12 @@ try {
   assert.match(withThinking, /Shipped\./);
   assert.doesNotMatch(withThinking, /secret chain of thought|<summary>thinking/);
 
+  // B325: thinking is not searchable conversation (the snippet leaked it).
+  assert.deepEqual(await searchSessions(store, 'secret chain of thought'), []);
+  const shipped = (await searchSessions(store, 'Shipped'))[0];
+  assert.ok(shipped, 'the assistant reply stays searchable');
+  assert.doesNotMatch(shipped.snippet, /secret chain of thought/);
+
   // The JSON export is the tooling record: thinking kept, harness preambles out.
   const payload = buildSessionExportJson('s1', await store.loadMessages('s1'));
   assert.equal(payload.schema, 'moss_sessions_export.v1');

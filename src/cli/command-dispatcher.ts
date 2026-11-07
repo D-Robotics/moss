@@ -128,8 +128,12 @@ export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]
 
 /**
  * Flatten a message into a single searchable string (user/assistant text,
- * tool_use name + input, tool_result content, and thinking). Used by
- * `moss sessions search` to locate a past conversation by content.
+ * tool_use name + input, tool_result content). Used by `moss sessions search`
+ * to locate a past conversation by content.
+ *
+ * B325: model reasoning is not conversation — including it made a search for
+ * a phrase from the chain of thought return the session and print that phrase
+ * as the snippet.
  */
 function messageSearchableText(message: LLMMessage): string {
   let text = '';
@@ -146,9 +150,6 @@ function messageSearchableText(message: LLMMessage): string {
         text += `\n[tool_result] ${block.content}`;
       }
     }
-  }
-  if (Array.isArray(message.thinking)) {
-    text += '\n' + message.thinking.join('\n');
   }
   return text;
 }
