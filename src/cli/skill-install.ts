@@ -419,6 +419,8 @@ export function runSkillLock(argv: string[], ctx: SkillInstallContext): number {
     );
     return 1;
   }
-  ctx.out(`${String(names.length)} skill${names.length === 1 ? '' : 's'} match the lockfile.`);
+  ctx.out(
+    `${String(names.length)} skill${names.length === 1 ? '' : 's'} ${names.length === 1 ? 'matches' : 'match'} the lockfile.`
+  );
   return 0;
 }

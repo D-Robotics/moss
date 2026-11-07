@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Skill lock grammar and a real install→lock→drift round-trip (B304)
+
+- `skill lock` said `1 skill match the lockfile`; it now agrees in number
+  (`1 skill matches` / `N skills match`). The probe also pins the whole flow for real: local
+  `skill install <src> --workspace --yes` → `skill lock --workspace` is clean → editing the installed file
+  reports `DRIFT — sha256:… recorded, sha256:… on disk` and `1 skill drifted …`, exit 1.
+
+### Skill lock 语法修正 + 安装→锁定→漂移真实回归（B304）
+
+- `skill lock` 原来说 `1 skill match the lockfile`；现在按数一致（`1 skill matches` / `N skills match`）。
+  探针同时锁定完整流程：本地 `skill install <src> --workspace --yes` → `skill lock --workspace` 干净 →
+  修改安装后的文件 → `DRIFT — sha256:… recorded, sha256:… on disk` 与 `1 skill drifted …`，exit 1。
+
 ### `skill validate` explains a skipped skill instead of "no skill named" (B303)
 
 - `moss skill validate bad` said "no skill named \"bad\"" for a skill the catalog skips (missing

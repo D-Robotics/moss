@@ -191,6 +191,44 @@ assert.equal(missingFile.kind, 'skill', 'an unreadable body must still dispatch'
 assert.match(missingFile.prompt, /Read the skill body with the skill tool first/);
 ok('the user-only skill slash command inlines the body; ordinary skills keep the tool path');
 
+// B304: `skill install` + `skill lock` round-trip and singular grammar.
+{
+  const { captureProcess } = await import('./lib/proc.mjs');
+  const src = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-skill-src-'));
+  fs.writeFileSync(
+    path.join(src, 'SKILL.md'),
+    '---\nname: lock-probe\ndescription: Probe skill for lock checks\n---\n\nDo the probe.\n'
+  );
+  const cliEnv = {
+    ...process.env,
+    HOME: fakeHome,
+    MOSS_CONFIG_DIR: configDir,
+    MOSS_NO_RDK_DOCS: '1',
+    MOSS_NO_TUI: '1',
+    MOSS_LANG: 'en',
+    MOSS_TRUST_WORKSPACE: '1',
+  };
+  const runCli = (args) =>
+    captureProcess(process.execPath, [path.join(root, 'dist/cli.js'), ...args], {
+      cwd: workspace,
+      env: cliEnv,
+      timeoutMs: 60_000,
+    });
+  const install = await runCli(['skill', 'install', src, '--workspace', '--yes']);
+  assert.equal(install.status, 0, install.stderr);
+  assert.match(install.stdout, /installed lock-probe/);
+  const clean = await runCli(['skill', 'lock', '--workspace']);
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.match(clean.stdout, /1 skill matches the lockfile/);
+
+  const installed = path.join(skillsDir, 'lock-probe', 'SKILL.md');
+  fs.appendFileSync(installed, '\nlocal edit\n');
+  const drifted = await runCli(['skill', 'lock', '--workspace']);
+  assert.equal(drifted.status, 1, 'drift must exit 1');
+  assert.match(`${drifted.stdout}${drifted.stderr}`, /1 skill drifted from the lockfile/);
+}
+ok('skill install + lock round-trip, drift, and singular grammar');
+
 // B303: a skipped skill says which required frontmatter field is missing, and
 // `skill validate <name>` can now reach a skill the catalog skips.
 {
