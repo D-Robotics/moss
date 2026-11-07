@@ -2,7 +2,7 @@
 // Replaces 22 if-else branches in main() with a declarative routing table.
 
 import { isZhLocale, uiText } from './cli-locale.js';
-import { resumeUserText } from '../core/session/internal-transcript.js';
+import { resumeUserText, userTextWithoutTurnContext } from '../core/session/internal-transcript.js';
 import { resolveExportOutPath } from './export-path.js';
 import { formatSessionTimestamp } from './session-format.js';
 import type { LLMMessage } from '../core/llm/llm-provider.js';
@@ -151,6 +151,45 @@ function messageSearchableText(message: LLMMessage): string {
     text += '\n' + message.thinking.join('\n');
   }
   return text;
+}
+
+/**
+ * B323: `moss sessions export --json` — the raw conversation record (thinking
+ * included), for tooling; the markdown export stays shareable.
+ */
+export function buildSessionExportJson(
+  key: string,
+  messages: readonly LLMMessage[]
+): Record<string, unknown> {
+  // Keep harness preambles out of both formats (B252/B322); thinking stays
+  // here because this record is for tooling, not for sharing.
+  const exportContent = (message: LLMMessage): LLMMessage['content'] => {
+    if (message.role !== 'user') return message.content;
+    if (typeof message.content === 'string') {
+      return userTextWithoutTurnContext(message.content);
+    }
+    if (Array.isArray(message.content)) {
+      return message.content.map((block) =>
+        block.type === 'text' && typeof block.text === 'string'
+          ? { ...block, text: userTextWithoutTurnContext(block.text) }
+          : block
+      );
+    }
+    return message.content;
+  };
+  return {
+    schema: 'moss_sessions_export.v1',
+    key,
+    messageCount: messages.length,
+    exportableMessageCount: countExportableSessionMessages(messages),
+    messages: messages.map((message) => ({
+      role: message.role,
+      content: exportContent(message),
+      ...(Array.isArray(message.thinking) && message.thinking.length > 0
+        ? { thinking: message.thinking }
+        : {}),
+    })),
+  };
 }
 
 function safeStringify(value: unknown): string {
@@ -1084,6 +1123,10 @@ export const COMMANDS: Record<string, CommandConfig> = {
         });
         if (!messages) return;
         const markdown = renderSessionMarkdown(key, messages);
+        // B323: `--json` exports the raw record; the markdown stays shareable.
+        const jsonPayload = jsonOut
+          ? `${JSON.stringify(buildSessionExportJson(key, messages), null, 2)}\n`
+          : undefined;
         // `--out=<file>` and `--out <file>`; `--out=-` writes stdout.
         let outPath: string | null = null;
         for (let i = 1; i < ctx.commandArgs.length; i += 1) {
@@ -1097,7 +1140,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
         }
         if (outPath) {
           if (outPath === '-') {
-            process.stdout.write(markdown + '\n');
+            process.stdout.write((jsonPayload ?? markdown) + '\n');
             return;
           }
           const resolved = resolveExportOutPath(ctx.workspace ?? process.cwd(), outPath);
@@ -1108,7 +1151,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
           }
           const { writeFile } = await import('node:fs/promises');
           try {
-            await writeFile(resolved.absolute, markdown + '\n', 'utf8');
+            await writeFile(resolved.absolute, (jsonPayload ?? markdown) + '\n', 'utf8');
             console.log(
               `[sessions] Exported "${key}" to ${outPath} (${countExportableSessionMessages(messages)} message(s)).`
             );
@@ -1117,7 +1160,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
             process.exitCode = ExitCode.SESSION;
           }
         } else {
-          process.stdout.write(markdown + '\n');
+          process.stdout.write((jsonPayload ?? markdown) + '\n');
         }
         return;
       }

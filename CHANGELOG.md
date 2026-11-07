@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `sessions export --json` (B323)
+
+- `moss sessions export` was markdown-only, so tooling had to scrape or read the JSONL store. It now accepts
+  `--json` (and `--json --out=<file>`): `moss_sessions_export.v1` with `{key, messageCount,
+exportableMessageCount, messages:[{role, content, thinking?}]}` — thinking is kept for tooling, while
+  `<turn-context>`/harness preambles are stripped like the markdown export.
+
+### `sessions export --json`（B323）
+
+- `moss sessions export` 原来只有 markdown，工具只能抓文本或读 JSONL。现在接受 `--json`（以及
+  `--json --out=<file>`）：`moss_sessions_export.v1`，含 `{key, messageCount, exportableMessageCount,
+messages:[{role, content, thinking?}]}`——thinking 保留给工具，`<turn-context>`/harness 前缀与 markdown 一样被去掉。
+
 ### Markdown session export is the conversation, not the model's reasoning (B322)
 
 - `/export -` (and `moss sessions export`, which share the renderer) printed each reply's reasoning as a

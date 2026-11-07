@@ -265,9 +265,12 @@ try {
 // 8. B208: session export/search never show the injected turn context.
 {
   const { InMemorySessionStore } = await import(dist('core/session/session.js'));
-  const { countExportableSessionMessages, renderSessionMarkdown, searchSessions } = await import(
-    dist('cli/command-dispatcher.js')
-  );
+  const {
+    buildSessionExportJson,
+    countExportableSessionMessages,
+    renderSessionMarkdown,
+    searchSessions,
+  } = await import(dist('cli/command-dispatcher.js'));
   const preamble =
     'power export <turn-context>\n## Environment\n- Working directory: /tmp/x\n</turn-context>';
   const store = new InMemorySessionStore();
@@ -324,6 +327,19 @@ try {
   const withThinking = renderSessionMarkdown('s1', await store.loadMessages('s1'));
   assert.match(withThinking, /Shipped\./);
   assert.doesNotMatch(withThinking, /secret chain of thought|<summary>thinking/);
+
+  // The JSON export is the tooling record: thinking kept, harness preambles out.
+  const payload = buildSessionExportJson('s1', await store.loadMessages('s1'));
+  assert.equal(payload.schema, 'moss_sessions_export.v1');
+  const raw = JSON.stringify(payload);
+  assert.match(raw, /secret chain of thought/);
+  assert.doesNotMatch(raw, /<turn-context>|## Environment/);
+  assert.ok(
+    payload.messages.some(
+      (message) =>
+        message.role === 'user' && JSON.stringify(message.content).includes('power export')
+    )
+  );
   ok('session export/search strip internal [System] and [Steering] turns');
 }
 
