@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Artifacts and capabilities JSON join the schema envelope (B332)
+
+- `moss artifacts … --json` and the `moss tasks` alias printed bare arrays (`[]`), and `capabilities --json`
+  had no `schema` string. Artifacts now emit `moss_artifacts.v1` (`{kind, items}`) for every kind
+  (contracts/tasks/history/evidence/deployments/acceptance/device/failures, delegated included), and
+  `capabilities --json` starts with `moss_capabilities.v1` while keeping its `version: 1` payload.
+
+### artifacts 与 capabilities 的 JSON 也统一为 schema（B332）
+
+- `moss artifacts … --json` 与 `moss tasks` 别名输出裸数组（`[]`），`capabilities --json` 没有 `schema` 字段。
+  现在 artifacts 所有 kind（contracts/tasks/history/evidence/deployments/acceptance/device/failures，含委托路径）
+  输出 `moss_artifacts.v1`（`{kind, items}`）；`capabilities --json` 顶层以 `moss_capabilities.v1` 开头，
+  保留原有 `version: 1` 载荷。
+
 ### `/review` end-to-end, and `review list --json` has a schema (B331)
 
 - A real `/review` on a planted bug ran an independent read-only reviewer, recorded `verdict: FAIL`

@@ -95,6 +95,7 @@ try {
   const json = await cli(['capabilities', '--json']);
   assert.equal(json.status, 0, json.stderr);
   const snapshot = JSON.parse(json.stdout);
+  assert.equal(snapshot.schema, 'moss_capabilities.v1');
   assert.equal(snapshot.version, 1);
   assert.equal(snapshot.surfaces.length, 4);
   assert.ok(snapshot.tools.total >= 40, `tools ${snapshot.tools.total}`);

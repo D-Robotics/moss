@@ -119,6 +119,13 @@ export async function runArtifactsCommand(
   }
   const kind: Kind = requested === 'snapshots' ? 'tasks' : requested;
   const json = args.includes('--json');
+  // B332: one envelope for every kind, including the delegated `tasks` ones.
+  const emitArtifactsJson = (artifactKind: string, items: unknown): void => {
+    output(
+      'stdout',
+      `${JSON.stringify({ schema: 'moss_artifacts.v1', kind: artifactKind, items }, null, 2)}\n`
+    );
+  };
 
   if (DELEGATED.has(kind)) {
     try {
@@ -135,7 +142,7 @@ export async function runArtifactsCommand(
     const snapshots = await listTaskStateSnapshots(ctx.workspace);
     if (snapshots.length === 0) {
       if (json) {
-        output('stdout', '[]\n');
+        emitArtifactsJson(kind, []);
       } else {
         output('stdout', zh ? '此工作区没有任务。\n' : 'No tasks in this workspace.\n');
       }
@@ -145,7 +152,7 @@ export async function runArtifactsCommand(
       output(
         'stdout',
         json
-          ? `${JSON.stringify(snapshots, null, 2)}\n`
+          ? `${JSON.stringify({ schema: 'moss_artifacts.v1', kind: 'tasks', items: snapshots }, null, 2)}\n`
           : `${snapshots.map((snapshot) => `${snapshot.taskId}  ${snapshot.phase}  ${snapshot.goal}`).join('\n')}\n`
       );
       return 0;
@@ -158,7 +165,7 @@ export async function runArtifactsCommand(
           events: await listTaskEvents(ctx.workspace, snapshot.taskId),
         });
       }
-      output('stdout', `${JSON.stringify(histories, null, 2)}\n`);
+      emitArtifactsJson('history', histories);
       return 0;
     }
     const blocks: string[] = [];
@@ -173,7 +180,7 @@ export async function runArtifactsCommand(
   // failures
   const failures = await listFailures(ctx.workspace);
   if (json) {
-    output('stdout', `${JSON.stringify(failures, null, 2)}\n`);
+    emitArtifactsJson('failures', failures);
     return 0;
   }
   if (failures.length === 0) {

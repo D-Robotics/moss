@@ -145,6 +145,8 @@ ok('the language switch links both ways');
     'moss_uninstall.v1',
     'moss_doctor.v1',
     'moss_review_list.v1',
+    'moss_artifacts.v1',
+    'moss_capabilities.v1',
     'moss_skill_validate.v1',
     'moss_sessions_export.v1',
   ]) {

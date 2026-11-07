@@ -350,7 +350,10 @@ export async function runCapabilitiesCommand(
     return 2;
   }
   const configDir = ctx.configDir ?? resolveConfigDir();
-  const snapshot = collectCapabilities(ctx.workspace, configDir);
+  const snapshot = {
+    schema: 'moss_capabilities.v1' as const,
+    ...collectCapabilities(ctx.workspace, configDir),
+  };
   if (json) output('stdout', `${JSON.stringify(snapshot, null, 2)}\n`);
   else output('stdout', `${renderCapabilities(snapshot, zh, kind)}\n`);
   return 0;

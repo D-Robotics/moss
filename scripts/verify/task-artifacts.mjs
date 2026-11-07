@@ -101,17 +101,23 @@ try {
 
   // 6. B212: the advertised `--json` works for every kind, including the local
   //    ones and the global-flag-before-command spelling.
-  for (const args of [
-    ['artifacts', 'tasks', '--json'],
-    ['artifacts', 'history', '--json'],
-    ['artifacts', 'failures', '--json'],
-    ['--json', 'artifacts', 'evidence'],
+  for (const [expectedKind, args] of [
+    ['tasks', ['artifacts', 'tasks', '--json']],
+    ['tasks', ['artifacts', 'snapshots', '--json']],
+    ['history', ['artifacts', 'history', '--json']],
+    ['failures', ['artifacts', 'failures', '--json']],
+    ['evidence', ['--json', 'artifacts', 'evidence']],
+    ['contracts', ['artifacts', 'contracts', '--json']],
   ]) {
     const result = await cli(args);
     assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
-    assert.doesNotThrow(() => JSON.parse(result.stdout), `${args.join(' ')} must be JSON`);
+    const parsed = JSON.parse(result.stdout);
+    // B332: the envelope names the record kind; `tasks`/`tasks --json` share it.
+    assert.equal(parsed.schema, 'moss_artifacts.v1', `${args.join(' ')} schema`);
+    assert.equal(parsed.kind, expectedKind, `${args.join(' ')} kind`);
+    assert.ok(Array.isArray(parsed.items), `${args.join(' ')} items must be an array`);
   }
-  ok('artifacts --json returns JSON for every kind (both flag positions)');
+  ok('artifacts --json returns a moss_artifacts.v1 envelope for every kind');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

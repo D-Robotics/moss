@@ -100,6 +100,14 @@ function verdictWord(verdict: string): string {
   }
 }
 
+/**
+ * B332: artifacts/tasks JSON is one envelope so a consumer can tell what it
+ * read (the delegated kinds used to print bare arrays).
+ */
+function emitArtifactsJson(kind: string, items: unknown): void {
+  console.log(JSON.stringify({ schema: 'moss_artifacts.v1', kind, items }, null, 2));
+}
+
 export async function runTasksCommand(
   commandArgs: string[],
   workspace: string,
@@ -112,7 +120,7 @@ export async function runTasksCommand(
   if (sub === 'list') {
     const tasks = await listTaskRecords(workspace, 50);
     if (json) {
-      console.log(JSON.stringify(tasks, null, 2));
+      emitArtifactsJson('contracts', tasks);
       return;
     }
     if (tasks.length === 0) {
@@ -161,7 +169,7 @@ export async function runTasksCommand(
   if (sub === 'evidence') {
     const records = await listEvidenceRecords(workspace, 200);
     if (json) {
-      console.log(JSON.stringify(records, null, 2));
+      emitArtifactsJson('evidence', records);
       return;
     }
     if (records.length === 0) {
@@ -188,7 +196,7 @@ export async function runTasksCommand(
   if (sub === 'deployments') {
     const records = await listDeploymentRecords(workspace, 50);
     if (json) {
-      console.log(JSON.stringify(records, null, 2));
+      emitArtifactsJson('deployments', records);
       return;
     }
     if (records.length === 0) {
@@ -215,7 +223,7 @@ export async function runTasksCommand(
   if (sub === 'acceptance') {
     const verdicts = await listAcceptanceVerdicts(workspace, 500);
     if (json) {
-      console.log(JSON.stringify(verdicts, null, 2));
+      emitArtifactsJson('acceptance', verdicts);
       return;
     }
     if (verdicts.length === 0) {
@@ -252,7 +260,7 @@ export async function runTasksCommand(
     const target = resolveDefaultDeviceTarget();
     const connections = listDeviceConnections();
     if (json) {
-      console.log(JSON.stringify({ target, connections }, null, 2));
+      emitArtifactsJson('device', { target, connections });
       return;
     }
     if (!target) {
