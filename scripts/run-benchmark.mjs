@@ -321,6 +321,51 @@ function runCheck(task, workspace, canaryDir) {
   return { pass: r.status === 0, output: output.slice(-800) };
 }
 
+const BENCH_LOCK_PATH = path.join(os.tmpdir(), 'moss-bench.lock');
+
+function benchProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err && err.code === 'EPERM';
+  }
+}
+
+/**
+ * B340: `npm run bench` clean-builds first, so a second concurrent run removed
+ * dist/cli.js from under the first and every remaining task failed in 0.1s with
+ * "Cannot find module .../dist/cli.js". Refuse to start instead.
+ */
+function acquireBenchLock() {
+  const owner = () => {
+    try {
+      return Number.parseInt(fs.readFileSync(BENCH_LOCK_PATH, 'utf8').split('\n')[0] ?? '', 10);
+    } catch {
+      return Number.NaN;
+    }
+  };
+  const pid = owner();
+  if (Number.isInteger(pid) && pid > 1 && benchProcessAlive(pid) && pid !== process.pid) {
+    console.error(
+      `[bench] another bench run is in progress (pid ${pid}); wait for it to finish or delete ${BENCH_LOCK_PATH}`
+    );
+    return null;
+  }
+  fs.writeFileSync(BENCH_LOCK_PATH, `${process.pid}\n${new Date().toISOString()}\n`, {
+    mode: 0o600,
+  });
+  const release = () => {
+    try {
+      if (owner() === process.pid) fs.rmSync(BENCH_LOCK_PATH, { force: true });
+    } catch {
+      // The lock is advisory; a failed cleanup must not mask the run's result.
+    }
+  };
+  process.once('exit', release);
+  return release;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -454,7 +499,9 @@ async function main() {
             LANG: 'C',
             LC_ALL: 'C',
             MOSS_CONFIG_DIR: configDir,
-            MOSS_RUN_ID: `bench/${task.id}/${String(sample).padStart(2, '0')}`,
+            // B340: run ids are filesystem-safe flat names; slashes made the
+            // run ledger reject every bench run (`invalid run id: bench/...`).
+            MOSS_RUN_ID: `bench-${task.id}-${String(sample).padStart(2, '0')}`,
             MOSS_BENCH_RETRY_ATTEMPT: String(attempt),
             MOSS_SAFETY_MODE: 'workspace-write',
             MOSS_APPROVAL_POLICY: 'never',
@@ -833,8 +880,12 @@ function isDirect() {
 }
 
 if (isDirect()) {
-  main().catch((err) => {
-    console.error(`[bench] ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(2);
-  });
+  const releaseLock = acquireBenchLock();
+  if (!releaseLock) process.exit(2);
+  main()
+    .catch((err) => {
+      console.error(`[bench] ${err instanceof Error ? err.message : String(err)}`);
+      process.exitCode = 2;
+    })
+    .finally(releaseLock);
 }

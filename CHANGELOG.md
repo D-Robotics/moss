@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Benchmark harness: authority fixture, safe run ids, concurrent-run guard (B340)
+
+- `hard-contradictory-validation` expected `SPEC-AUDIT.md` while the agent was told to ask one question when the
+  cited security review is missing — and the fixture had no review file. The fixture now ships
+  `security-review.md` (with the contradictory requirements and "reviewer did not resolve"), so the intended
+  behavior is measurable; the task rerun PASSes with real deepseek-flash.
+- Bench run ids used `bench/<task>/<sample>`, which the run ledger rejects (`invalid run id`); they are now
+  `bench-<task>-<sample>`. A second concurrent `npm run bench` previously deleted `dist/cli.js` under the
+  first run (remaining tasks failed in 0.1s with "Cannot find module"); the runner now takes a pid lock and
+  refuses to start with a clear message (stale locks are reclaimed).
+
+### 基准测试工具：权威文件、合法 run id、并发保护（B340）
+
+- `hard-contradictory-validation` 期望 `SPEC-AUDIT.md`，但产品规则要求"被引用的安全评审缺失时先问一个问题"，
+  而夹具里确实没有该评审文件。夹具现补 `security-review.md`（含两条矛盾要求与"reviewer 未裁决"）；该任务用真实
+  deepseek-flash 重跑 PASS。
+- 基准 run id 原为 `bench/<task>/<sample>`，被 run ledger 拒绝（`invalid run id`）；现改为 `bench-<task>-<sample>`。
+  并发的第二个 `npm run bench` 原本会在第一个运行中删掉 `dist/cli.js`（后续任务 0.1s 失败 "Cannot find module"）；
+  现在 runner 用 pid 锁拒绝并发启动并给出清晰提示（陈旧锁自动回收）。
+
 ### The empty `/tasks` panel teaches both ways to fill it (B339)
 
 - `/tasks` showed `background shell: (none)` and `sub-agents: (none)` with no next step. When both are empty
