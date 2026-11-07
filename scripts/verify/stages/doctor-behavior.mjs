@@ -107,6 +107,29 @@ export const stage = {
       if (json.ok === false && jsonRun.status === 0) {
         return { ok: false, detail: 'doctor JSON says not ok but exited 0' };
       }
+      // B326: `ok` and the process exit code are one contract, in both directions.
+      if (json.ok === true && jsonRun.status !== 0) {
+        return { ok: false, detail: 'doctor JSON says ok but exited non-zero' };
+      }
+      if (json.checks.length === 0) {
+        return { ok: false, detail: 'doctor JSON has no checks' };
+      }
+      const allowed = new Set(['ok', 'warn', 'fail']);
+      const unknown = json.checks.filter((check) => !allowed.has(check.status));
+      if (unknown.length > 0) {
+        return {
+          ok: false,
+          detail: `doctor JSON statuses must be ok/warn/fail: ${JSON.stringify(unknown[0])}`,
+        };
+      }
+      // A failure only counts if the reported fail agrees with the exit code.
+      const failing = json.checks.filter((check) => check.status === 'fail').length > 0;
+      if (failing !== (jsonRun.status !== 0)) {
+        return {
+          ok: false,
+          detail: `doctor exits ${jsonRun.status} with ${failing ? 'a' : 'no'} fail check`,
+        };
+      }
       console.log(
         `[doctor-behavior] behavior block rendered in ${formatDuration(Date.now() - started)} (json ${json.checks.length} checks)`
       );

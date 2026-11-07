@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Doctor's JSON and exit code are one contract (B326)
+
+- `moss doctor --json` on a temp HOME without an API key really returns `ok:false` and exits 1 (auth `fail`).
+  The doctor stage now pins the whole contract in both directions: `ok` matches the exit code, checks are
+  non-empty, statuses are only `ok|warn|fail`, and a `fail` check agrees with a non-zero exit.
+
+### doctor 的 JSON 与退出码是同一契约（B326）
+
+- 临时 HOME 无 API key 时，`moss doctor --json` 真实返回 `ok:false` 且 exit 1（auth 为 `fail`）。doctor 阶段现在
+  双向锁定该契约：`ok` 与退出码一致、checks 非空、status 只能是 `ok|warn|fail`、有 `fail` 时退出码必须非零。
+
 ### Session search no longer matches the model's reasoning (B325)
 
 - `moss sessions search "The user says"` matched a session and printed the chain-of-thought phrase as the
