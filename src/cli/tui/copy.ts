@@ -514,6 +514,9 @@ export const ZH: Readonly<Record<string, string>> = {
   "  workspace-write confines Moss's own file tools.":
     '  `workspace-write` 只约束 Moss 自己的文件工具。',
   '  Shell commands run normally without an OS sandbox.': '  终端命令照常运行，没有操作系统沙箱。',
+  'no scoped rules': '没有作用域规则',
+  'add .moss/rules/<name>.md (workspace) or <config>/rules/<name>.md (user)':
+    '新建 .moss/rules/<名称>.md（工作区）或 <配置目录>/rules/<名称>.md（用户级）',
   '  no rules — {mode} decides; deny still wins everywhere':
     '  无规则 — 由 {mode} 决定；deny 在任何模式都优先',
   session: '会话',

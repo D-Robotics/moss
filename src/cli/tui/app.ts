@@ -2458,7 +2458,10 @@ export function TuiAppRoot({
         printBlock(
           tui('Rules'),
           rows.length === 0
-            ? [tui('no scoped rules'), tui('add .moss/rules/<name>.md')]
+            ? [
+                tui('no scoped rules'),
+                tui('add .moss/rules/<name>.md (workspace) or <config>/rules/<name>.md (user)'),
+              ]
             : rows
                 .map((row) => {
                   const globs = row.globs.length > 0 ? ` [${row.globs.join(', ')}]` : '';

@@ -95,8 +95,8 @@ export async function runRulesCommand(
   if (rows.length === 0) {
     console.error(
       uiText(
-        'No scoped rules found. Add .moss/rules/<name>.md (optional globs:/description: frontmatter).',
-        '未发现规则。新建 .moss/rules/<名称>.md（可选 globs:/description: frontmatter）。'
+        'No scoped rules found. Add .moss/rules/<name>.md (workspace) or <config dir>/rules/<name>.md (user); optional globs:/description: frontmatter.',
+        '未发现规则。新建 .moss/rules/<名称>.md（工作区）或 <配置目录>/rules/<名称>.md（用户级）；可选 globs:/description: frontmatter。'
       )
     );
     return 0;

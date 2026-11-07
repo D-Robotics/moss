@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The rules empty state names both scopes (B337)
+
+- `/rules` and `moss rules list` said only `.moss/rules/<name>.md`, although scoped rules also load from
+  `<config dir>/rules/` (user level). Both now name the workspace and user paths; the TUI lines are translated
+  in zh (`没有作用域规则` / `新建 …`), which they previously were not.
+
+### 规则空状态说明两个作用域（B337）
+
+- `/rules` 与 `moss rules list` 只提示 `.moss/rules/<name>.md`，但作用域规则也会从 `<配置目录>/rules/`（用户级）
+  加载。现在两处都写明工作区与用户级路径；TUI 两行补齐中文（此前中文界面显示英文）。
+
 ### The first help screen advertises the same verbs in both languages (B335)
 
 - `moss --help` (the brief view) had drifted: Chinese was missing `moss init` and `moss goal`, and neither
