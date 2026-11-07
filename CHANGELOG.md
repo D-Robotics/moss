@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Pricing keys can be unset again (B348)
+
+- B347 made `pricing.models` settable but `moss config unset` still rejected it — once set, the only way to
+  remove a rate was hand-editing the config file. `unset` now handles `pricing.models.<model>.<field>`,
+  `pricing.models.<model>` (drops the model; an empty pricing block disappears) and `pricing` (the whole block),
+  and the capabilities probe covers the set → unset → gone round-trip.
+
+### 价格键可以再次删除（B348）
+
+- B347 让 `pricing.models` 可设置，但 `moss config unset` 仍拒绝它——设置后只能手改配置文件才能去掉。现在 `unset`
+  支持 `pricing.models.<model>.<field>`、`pricing.models.<model>`（删该模型，空 pricing 块一并消失）与
+  `pricing`（整块），`capabilities` 探针覆盖 set → unset → 清空的完整往返。
+
 ### The cost hint is now actionable (B347)
 
 - `/usage` said `set pricing.models["<model>"] to show cost`, but `moss config set` rejected every pricing key

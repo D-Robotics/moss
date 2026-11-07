@@ -1710,6 +1710,31 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   } else if (key === 'agent.compaction.keepRecentTokens') {
     next.agent = { ...current.agent, compaction: { ...current.agent?.compaction } };
     delete next.agent.compaction?.keepRecentTokens;
+  } else if (key === 'pricing') {
+    delete next.pricing;
+  } else if (key.startsWith('pricing.models.')) {
+    // B348: a key you can set must be removable — `unset` rejected pricing and
+    // forced hand-editing the config file.
+    const rest = key.slice('pricing.models.'.length);
+    const dot = rest.lastIndexOf('.');
+    const model = rest === '' ? '' : dot > 0 ? rest.slice(0, dot) : rest;
+    const field = dot > 0 ? rest.slice(dot + 1) : '';
+    const models = { ...(current.pricing?.models ?? {}) };
+    const entry = model ? { ...(models[model] ?? {}) } : undefined;
+    if (!model || !entry || (field !== '' && !(field in entry))) {
+      print(supportedConfigKeys());
+      print(configHelpHint());
+      process.exitCode = 1;
+      return;
+    }
+    if (field === '') delete models[model];
+    else {
+      delete entry[field as keyof typeof entry];
+      if (Object.keys(entry).length === 0) delete models[model];
+      else models[model] = entry;
+    }
+    if (Object.keys(models).length === 0) delete next.pricing;
+    else next.pricing = { ...current.pricing, models };
   } else {
     print(supportedConfigKeys());
     print(configHelpHint());

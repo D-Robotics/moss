@@ -250,6 +250,17 @@ try {
     assert.equal(bad.status, 1);
     assert.match(bad.stderr, /non-negative number/);
 
+    // B348: anything settable must be removable.
+    const unsetField = await cli(['config', 'unset', 'pricing.models.probe-model.input']);
+    assert.equal(unsetField.status, 0, unsetField.stderr);
+    const clearedField = JSON.parse(await fs.readFile(path.join(configDir, 'config.json'), 'utf8'));
+    assert.equal(clearedField.pricing.models['probe-model'].input, undefined);
+    assert.equal(clearedField.pricing.models['probe-model'].currency, 'USD');
+    const unsetModel = await cli(['config', 'unset', 'pricing.models.probe-model']);
+    assert.equal(unsetModel.status, 0, unsetModel.stderr);
+    const cleared = JSON.parse(await fs.readFile(path.join(configDir, 'config.json'), 'utf8'));
+    assert.equal(cleared.pricing, undefined, 'unsetting the whole model removes the pricing block');
+
     const { unknownPriceMessage } = await import(
       pathToFileURL(path.join(root, 'dist/cli/model-pricing.js')).href
     );
