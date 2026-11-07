@@ -21,7 +21,7 @@ const root = path.resolve(import.meta.dirname, '..', '..');
 const load = async (relative) => import(pathToFileURL(path.join(root, 'dist', relative)).href);
 
 const { COMMANDS } = await load('cli/command-dispatcher.js');
-const { fullHelpLines } = await load('cli/help.js');
+const { briefHelpLines, fullHelpLines } = await load('cli/help.js');
 const { parseCliArgs } = await load('cli/args.js');
 
 const plain = (text) => text;
@@ -123,6 +123,22 @@ for (const alias of aliases) {
     failures.push(`"moss ${alias.typed}" still reports unknownCommand`);
   }
 }
+
+// B335: the brief `moss --help` is the first screen of the product. Both
+// locales must advertise the same verbs (zh was missing init/goal, and neither
+// showed a read path).
+const briefEn = briefHelpLines(colors, '/tmp/config.json', false).join('\n');
+const briefZh = briefHelpLines(colors, '/tmp/config.json', true).join('\n');
+for (const needle of ['moss setup', 'moss init', 'moss goal', 'moss capabilities']) {
+  for (const [locale, text] of [
+    ['en', briefEn],
+    ['zh', briefZh],
+  ]) {
+    if (!text.includes(needle)) failures.push(`brief ${locale} help is missing "${needle}"`);
+  }
+}
+if (!briefEn.includes('Most useful')) failures.push('brief en help lost its Most useful heading');
+if (!briefZh.includes('最常用')) failures.push('brief zh help lost its 最常用 heading');
 
 const result = { ok: failures.length === 0, failures, commands: Object.keys(COMMANDS).length };
 if (process.argv.includes('--json')) console.log(JSON.stringify(result));

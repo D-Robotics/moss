@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### The first help screen advertises the same verbs in both languages (B335)
+
+- `moss --help` (the brief view) had drifted: Chinese was missing `moss init` and `moss goal`, and neither
+  language showed a read path. Both now list setup → init → one-shot → goal → `moss capabilities` (what this
+  install can do), and `help-surface` fails if a locale loses one of them or its heading.
+
+### 首屏帮助中英文命令一致（B335）
+
+- `moss --help` 的简要视图出现漂移：中文缺 `moss init` 与 `moss goal`，两种语言都没有"看结果/看能力"的入口。
+  现在两边都列出 setup → init → 一次性 → goal → `moss capabilities`（当前安装能做什么），
+  `help-surface` 会在任一语言缺行或缺标题时失败。
+
 ### The command reference and the CLI can no longer drift apart (B334)
 
 - `readme-parity` now parses `KNOWN_COMMANDS` from `src/cli/args.ts` and requires every command to appear
