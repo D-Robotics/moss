@@ -558,29 +558,61 @@ export async function runPluginsCommand(
       fs.rmSync(target, { force: true });
       removed.push(file.path);
     }
+    let hooksRemoved = 0;
     if (record.hooks.length > 0) {
       const hooks = projectsHooks(options.workspaceDir);
       for (const entry of record.hooks) {
         const list = hooks[entry.event] ?? [];
         const index = list.findIndex((candidate) => sameJson(candidate, entry.hook));
-        if (index >= 0) list.splice(index, 1);
+        if (index >= 0) {
+          list.splice(index, 1);
+          hooksRemoved += 1;
+        }
       }
+      // B306: the pack created these files during install; leaving `hooks: []`
+      // behind made an empty config look user-authored.
+      const remaining = Object.fromEntries(
+        Object.entries(hooks).filter(([, list]) => Array.isArray(list) && list.length > 0)
+      );
       const configFile = path.join(options.workspaceDir, '.moss', 'config.json');
       const config = readJsonObject(configFile) ?? {};
-      writeJson(configFile, { ...config, hooks });
+      if (Object.keys(remaining).length > 0) writeJson(configFile, { ...config, hooks: remaining });
+      else {
+        delete (config as { hooks?: unknown }).hooks;
+        if (Object.keys(config).length > 0) writeJson(configFile, config);
+        else fs.rmSync(configFile, { force: true });
+      }
     }
+    let serversRemoved = 0;
     if (Object.keys(record.mcpServers).length > 0) {
       const servers = projectsMcpServers(options.workspaceDir);
       for (const [name, config] of Object.entries(record.mcpServers)) {
-        if (sameJson(servers[name], config)) delete servers[name];
+        if (sameJson(servers[name], config)) {
+          delete servers[name];
+          serversRemoved += 1;
+        }
       }
-      writeJson(path.join(options.workspaceDir, '.moss', 'mcp.json'), { mcpServers: servers });
+      const mcpFile = path.join(options.workspaceDir, '.moss', 'mcp.json');
+      if (Object.keys(servers).length > 0) writeJson(mcpFile, { mcpServers: servers });
+      else fs.rmSync(mcpFile, { force: true });
     }
     fs.rmSync(installedDir(options.workspaceDir, name), { recursive: true, force: true });
+    // B306: the pack registry directory itself is pack-managed; remove it when
+    // the last pack goes, instead of leaving an empty `.moss/plugins/`.
+    const registryDir = path.join(options.workspaceDir, '.moss', 'plugins');
+    try {
+      if (fs.readdirSync(registryDir).length === 0) fs.rmdirSync(registryDir);
+    } catch {
+      // Missing or unreadable: nothing to clean up.
+    }
     console.error(
       uiText(
-        `removed ${name}: ${String(removed.length)} file(s)`,
-        `已卸载 ${name}：${String(removed.length)} 个文件`
+        `removed ${name}: ${String(removed.length)} file(s)` +
+          (hooksRemoved > 0 ? `, ${String(hooksRemoved)} hook(s)` : '') +
+          (serversRemoved > 0 ? `, ${String(serversRemoved)} MCP server(s)` : ''),
+        `已卸载 ${name}：${String(removed.length)} 个文件` +
+          (hooksRemoved > 0 ? `、${String(hooksRemoved)} 条 hook` : '') +
+          (serversRemoved > 0 ? `、${String(serversRemoved)} 个 MCP 服务器` : '')
       )
     );
     for (const file of drifted) {

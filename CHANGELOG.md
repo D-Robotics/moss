@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Removing a capability pack leaves no empty scaffolding behind (B306)
+
+- `plugins install` created `.moss/config.json` (hooks) and `.moss/mcp.json`; `plugins remove` left
+  `"hooks": {"PreToolUse": []}` and `{"mcpServers": {}}` behind, plus an empty `.moss/plugins/`. Remove now
+  prunes empty hook events and containers, deletes the two files when nothing else is in them, removes the
+  pack registry directory when the last pack goes, and says what it took back
+  (`removed demo-pack: 1 file(s), 1 hook(s), 1 MCP server(s)`).
+
+### 卸载能力包不再留下空脚手架（B306）
+
+- `plugins install` 会创建 `.moss/config.json`（hooks）与 `.moss/mcp.json`；`plugins remove` 以前留下
+  `"hooks": {"PreToolUse": []}`、`{"mcpServers": {}}` 和一个空的 `.moss/plugins/`。现在会剪掉空 hook 事件与空容器，
+  两个文件在无其它内容时删除，最后一个包移除时删除 pack 注册目录，并说明收回了什么
+  （`removed demo-pack: 1 file(s), 1 hook(s), 1 MCP server(s)`）。
+
 ### `skill update` describes a content-only change correctly (B305)
 
 - A local update printed `sha256:41b40feb17a2 → sha256:db858b7329eb… · +0 -0 file(s)`: one hash had an
