@@ -759,6 +759,16 @@ ok('the permissions panel explains confinement only when the mode derives it');
   });
   assert.match(noSavings, /was not compacted/);
   assert.match(noSavings, /No context savings/);
+  // B319: small window, tiny conversation — compaction cannot shrink the prompt.
+  const below = compactCommand.formatCompactSessionResult({
+    compacted: false,
+    tokensAfter: 1_333,
+    keepRecentTokens: 4_915,
+    reason: 'below-keep-recent',
+  });
+  assert.match(below, /only ~1,333 tokens/);
+  assert.match(below, /below the 4,915 keep budget/);
+  assert.match(below, /system prompt and tool declarations/);
 }
 ok('compact says one line for an empty conversation');
 

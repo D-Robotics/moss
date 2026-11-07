@@ -462,8 +462,8 @@ export const ZH: Readonly<Record<string, string>> = {
   '◇ task {id} blocked — {reason} · /task resume {task}':
     '◇ 任务 {id} 受阻 — {reason} · /task resume {task}',
   'user decision required': '需要用户决策',
-  'context {pct}% full — auto-compact will trim older messages · /compact to do it now':
-    '上下文已用 {pct}% — 自动压缩将裁剪较早消息 · 立刻执行用 /compact',
+  'context {pct}% full — /compact now; small conversation? prompt+tools exceed the window → raise agent.contextTokens':
+    '上下文已用 {pct}% — 现在用 /compact；若对话很小，是提示词+工具超出窗口 → 请调大 agent.contextTokens',
   'interaction mode: {label}': '交互模式：{label}',
 
   // ── queue / steer control (app.ts) ─────────────────────────────────────

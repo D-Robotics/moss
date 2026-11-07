@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### A tiny window's `/compact` no-op explains itself (B319)
+
+- With `agent.contextTokens` smaller than the base prompt+tools, the live hint said `context 152% full — …
+/compact to do it now`, but `/compact` answered "No context savings" after checking only the conversation.
+  `compactSession` now reports why it was a no-op (`empty` / `below-keep-recent` / `no-savings`), and the
+  command says: `Conversation is only ~456 tokens (below the 3,686 keep budget) — compacting would not reduce
+the prompt; the system prompt and tool declarations are the rest.` The live hint is now
+  `context 152% full — /compact now; small conversation? prompt+tools exceed the window → raise
+agent.contextTokens`.
+
+### 小窗口的 `/compact` 无操作时会解释原因（B319）
+
+- 当 `agent.contextTokens` 比基础提示词+工具还小时，实时提示说 `context 152% full — … /compact to do it now`，
+  但 `/compact` 只检查对话后回答"No context savings"。现在 `compactSession` 返回无操作原因
+  （`empty` / `below-keep-recent` / `no-savings`），命令会说明：
+  `Conversation is only ~456 tokens (below the 3,686 keep budget) — compacting would not reduce the prompt;
+the system prompt and tool declarations are the rest.`；实时提示改为
+  `context 152% full — /compact now; small conversation? prompt+tools exceed the window → raise agent.contextTokens`。
+
 ### A compaction summary is harness context, not a user turn (B318)
 
 - A real compacted session was titled `The conversation history before this point was compacted into

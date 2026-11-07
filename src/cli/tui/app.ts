@@ -4324,7 +4324,7 @@ export function TuiAppRoot({
           line(
             clip(
               tui(
-                'context {pct}% full — auto-compact will trim older messages · /compact to do it now',
+                'context {pct}% full — /compact now; small conversation? prompt+tools exceed the window → raise agent.contextTokens',
                 { pct: contextPct }
               ),
               columns
