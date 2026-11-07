@@ -227,4 +227,35 @@ ok('the install page carries no internal ticket ids');
 }
 ok('the advertised probe count does not exceed the real stage count');
 
+// 12. B334: the command reference and the CLI must name the same commands.
+{
+  const args = read('src/cli/args.ts');
+  const block = /export const KNOWN_COMMANDS[^[]*\[([\s\S]*?)\];/.exec(args)?.[1] ?? '';
+  const known = [...block.matchAll(/'([a-z][a-z-]*)'/g)].map((match) => match[1]);
+  assert.ok(known.length >= 20, `parsed only ${known.length} known commands`);
+  // Rows escape the pipe (`moss resume\|fork`); flatten it so the alternative
+  // spellings are visible to the search.
+  const reference = read('docs/cli-reference.md').replace(/\\\|/g, '|');
+  // Removed subsystems are named so the error is documented, but they are not rows.
+  const removed = new Set(['migrate', 'web', 'agent']);
+  const missing = known.filter((command) =>
+    removed.has(command)
+      ? !new RegExp(`\`${command}\``).test(reference)
+      : !new RegExp(`moss [a-z|]*\\b${command}\\b`).test(reference)
+  );
+  assert.deepEqual(missing, [], `docs/cli-reference.md is missing: ${missing.join(', ')}`);
+  // The reverse direction catches stale rows: `moss run|status|tasks` are
+  // documented compatibility aliases, not KNOWN_COMMANDS entries.
+  const aliases = new Set(['run', 'status', 'tasks']);
+  const mentioned = [
+    ...new Set([...reference.matchAll(/`moss ([a-z][a-z-]*)/g)].map((match) => match[1])),
+  ].filter((word) => !known.includes(word) && !aliases.has(word));
+  assert.deepEqual(
+    mentioned,
+    [],
+    `docs/cli-reference.md names unknown commands: ${mentioned.join(', ')}`
+  );
+  ok(`cli-reference and KNOWN_COMMANDS agree (${known.length} commands + 3 aliases)`);
+}
+
 console.log(`[readme-parity] ${checks}/${checks} checks passed`);

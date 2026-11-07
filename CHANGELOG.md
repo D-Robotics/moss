@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The command reference and the CLI can no longer drift apart (B334)
+
+- `readme-parity` now parses `KNOWN_COMMANDS` from `src/cli/args.ts` and requires every command to appear
+  in `docs/cli-reference.md` (removed subsystems `migrate`/`web`/`agent` must at least be named), and rejects
+  doc rows that name an unknown command. The three documented compatibility aliases (`moss run` / `moss
+status` / `moss tasks`) are the only exceptions. Adding a command without a row is now a red gate.
+
+### 命令参考与 CLI 不再漂移（B334）
+
+- `readme-parity` 现在从 `src/cli/args.ts` 解析 `KNOWN_COMMANDS`，要求每个命令都出现在
+  `docs/cli-reference.md`（已移除的子系统 `migrate`/`web`/`agent` 至少要被点名），并拒绝文档里出现未知命令。
+  仅放行三个已文档化的兼容别名（`moss run` / `moss status` / `moss tasks`）。新增命令不写文档 = 红灯。
+
 ### `task timeline --json` is JSON (B333)
 
 - `moss task timeline --json` ignored the flag and printed the human timeline (or `No tasks in this
