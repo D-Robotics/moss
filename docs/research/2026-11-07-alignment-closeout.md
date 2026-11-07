@@ -35,19 +35,19 @@
 
 ## 4. 可验证性（门禁与证据）
 
-| 层           | 当前状态                                                         | 触发                         |
-| ------------ | ---------------------------------------------------------------- | ---------------------------- |
-| 本地交付门   | `npm run verify` PASS（近期 64–99s，负载相关）                   | 每次提交前                   |
-| CI 分片门    | 最近 30+ 次 push 全绿                                            | 每次 push                    |
-| 跨平台矩阵   | Deep verification 四腿（Ubuntu 22/24、macOS、Windows）+ 聚合全绿 | 每日/手动（B336）            |
-| 行为探针     | 100+ stage：TUI/CLI/JSON/评审/技能/bench 工具链                  | `npm run verify`             |
-| 能力基准     | 全量诊断 26/27（修复前）；hard-tier samples=3 **30/33 = 90.9%**  | `npm run bench`（B341/B344） |
-| 真实模型回归 | goal 修复、`/review` 评审、`/init` 起草与增量审查、bench         | 见各 B 证据段                |
+| 层           | 当前状态                                                                                                        | 触发                         |
+| ------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| 本地交付门   | `npm run verify` PASS（近期 64–99s，负载相关）                                                                  | 每次提交前                   |
+| CI 分片门    | 最近 30+ 次 push 全绿                                                                                           | 每次 push                    |
+| 跨平台矩阵   | Deep verification 四腿（Ubuntu 22/24、macOS、Windows）+ 聚合全绿                                                | 每日/手动（B336）            |
+| 行为探针     | 100+ stage：TUI/CLI/JSON/评审/技能/bench 工具链                                                                 | `npm run verify`             |
+| 能力基准     | 全量 samples=3：**74/80 scored = 92.5%**（hard 86.1 / easy 95.6 / weighted 88.9）；hard-tier 子集 30/33 = 90.9% | `npm run bench`（B344/B349） |
+| 真实模型回归 | goal 修复、`/review` 评审、`/init` 起草与增量审查、bench                                                        | 见各 B 证据段                |
 
 ## 5. 仍然真实的缺口（不粉饰）
 
 1. **Windows 行为面**：Deep 的 Windows leg 只跑 `static/build/smoke/examples`，行为探针在 Linux/macOS 全量跑。
-2. **bench 子集口径**：hard-tier 90.9% 是 11 个 hard 任务的 samples=3；全量 31 任务只有 samples=1 诊断，发布口径应在全量上跑 samples=3。
+2. **bench 口径与网关长尾**：全量 samples=3 已跑（74/80 = 92.5%），但 4/27 任务部分通过中有一半是网关 45s 无响应熔断（`hard-wrong-fix-rejected`、`long-horizon-refactor`），不是能力回退；4 个设备任务因缺 `MOSS_DEVICE_*` 未计分。
 3. **bench 观察到的模型波动**（非产品 bug 但会影响分数）：一次把 exec 当持久 shell（`cd ..` 写出 workspace）、一次在矛盾需求前选择提问而非 `SPEC-AUDIT.md`、一次用 exec 跑测试触发 verification gate 的 Unverified。
 4. **exec cwd 语义**：Moss 每次命令在 workspace 根执行（工具描述明确），与 Claude Code 的持久 cwd 不同；改动属设计级变更，冻结待评估。
 5. **设备能力**：真实板卡闭环（设备任务、物理验收）需要环境；bench 在缺 `MOSS_DEVICE_*` 时 SKIP。
@@ -60,7 +60,8 @@
 npm run check                       # 格式 + lint + typecheck
 npm run verify                      # 交付门（~60–90s）
 npm run bench -- --samples 1        # 全量诊断（31 任务）
-npm run bench -- --task hard- --samples 3 --label hard-s3   # hard-tier 发布口径
+npm run bench -- --samples 3 --label full-s3                 # 全量发布口径（31 任务 × 3）
+npm run bench -- --task hard- --samples 3 --label hard-s3   # hard-tier 子集
 moss goal "fix the failing test" --accept "npm test"          # 真实闭环
 moss review check                   # 评审门禁（0/1/2）
 gh workflow run "Deep verification" --ref main                # 跨平台矩阵
@@ -73,5 +74,5 @@ gh workflow run "Deep verification" --ref main                # 跨平台矩阵
 
 能力闭环、界面手感、命令完整度、机器可读面与验证体系已达到"可与最佳产品对照审计"的状态：
 真实模型闭环、真实 TUI 交互、独立评审、100+ 行为探针、CI 分片与跨平台夜间门禁全部有据可查。
-剩余缺口集中在平台覆盖（Windows 行为面）、bench 口径（全量 samples=3 / 设备任务）与少数
+剩余缺口集中在平台覆盖（Windows 行为面）、bench 网关长尾与设备任务、以及少数
 设计级语义（exec cwd），已在 backlog 中显式记录而非隐藏。
