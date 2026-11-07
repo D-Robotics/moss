@@ -429,4 +429,16 @@ try {
   ok('sessions list/search --json emit the shared schemas');
 }
 
+// 13. B318: auto-compaction summaries are harness context, not user turns.
+{
+  const { isInternalUserText, sessionTitleFromTexts } = await import(
+    dist('core/session/internal-transcript.js')
+  );
+  const { createCompactionSummaryMessage } = await import(dist('contracts/messages.js'));
+  const summary = createCompactionSummaryMessage('old turns summarized');
+  assert.equal(isInternalUserText(summary.content), true);
+  assert.equal(sessionTitleFromTexts([summary.content, 'write the essay']), 'write the essay');
+}
+ok('a compaction summary is internal: never a title or a replayed user turn');
+
 console.log(`[rewind-conversation] ${checks}/${checks} checks passed`);

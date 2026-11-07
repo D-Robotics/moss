@@ -4,6 +4,7 @@
  * session or replay a transcript skip these so internal mechanics stay off
  * the screen.
  */
+import { COMPACTION_SUMMARY_PREFIX } from '../../contracts/messages.js';
 
 const PHASE_MARK = '[task-phase:';
 
@@ -13,6 +14,13 @@ export function isInternalUserText(text: string): boolean {
   if (trimmed.startsWith('[System]')) return true;
   if (trimmed.startsWith(PHASE_MARK)) return true;
   if (trimmed.includes('<moss_working_context_checkpoint')) return true;
+  // B318: auto-compaction stores its summary as a user message; it is harness
+  // context, not something the user said (session titles/export/replay leaked it).
+  const compactionLead = COMPACTION_SUMMARY_PREFIX.slice(
+    0,
+    COMPACTION_SUMMARY_PREFIX.indexOf('\n\n')
+  );
+  if (compactionLead.length > 0 && trimmed.startsWith(compactionLead)) return true;
   return false;
 }
 

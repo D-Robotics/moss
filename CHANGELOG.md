@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### A compaction summary is harness context, not a user turn (B318)
+
+- A real compacted session was titled `The conversation history before this point was compacted into
+the following sum…` in the resume hint — the auto-compaction summary is stored as a user message and
+  leaked into titles/replay/export. `isInternalUserText` now treats it as internal (title falls back to a
+  real user turn or the session key), and the probe pins it.
+
+### Thinking-only stream notice is a debug diagnostic (B317)
+
+- The streaming branch still logged a maintainer sentence at warn level when a reasoning model streamed
+  only thinking (`host agent loop should surface a placeholder or retry…`), and the TUI printed it mid-run as
+  a transcript notice. It is now `log.debug` (same as the non-streaming ping fix).
+
+### 压缩摘要属于 harness 上下文，不是用户回合（B318）
+
+- 真实的已压缩会话在恢复提示里被命名为 `The conversation history before this point was compacted into the
+following sum…`——自动压缩摘要是以 user 消息存储的，泄漏到了标题/回放/导出。`isInternalUserText`
+  现在把它视为内部文本（标题回退到真实用户回合或 session key），探针已锁定。
+
+### 只有 thinking 的流式提示降为 debug 诊断（B317）
+
+- 流式分支在推理模型只输出 thinking 时仍用 warn 打维护者文案
+  （`host agent loop should surface a placeholder or retry…`），TUI 会把它当中途通知显示。现在与
+  非流式 ping 修复一致，降为 `log.debug`。
+
 ### `moss doctor --json` (B316)
 
 - The last read command without a machine-readable view now has one: `moss doctor --json` emits
