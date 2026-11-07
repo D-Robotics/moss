@@ -312,6 +312,15 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
       const found = loadSkillCatalog(dirs).find((skill) => skill.name === target);
       if (found) file = path.join(found.dir, 'SKILL.md');
       else {
+        // B303: an invalid skill is skipped by the catalog, so a bare name could
+        // not reach its own validation report. Try the conventional scoped
+        // locations before saying "no skill named".
+        const direct = dirs
+          .map((entry) => path.join(entry.dir, target, 'SKILL.md'))
+          .find((candidate) => fs.existsSync(candidate));
+        if (direct) file = direct;
+      }
+      if (!fs.existsSync(file)) {
         err(`moss skill validate: no skill named "${target}" in:`);
         for (const d of dirs) err(`  ${d.dir} (${d.scope})`);
         err('Pass a path instead if the skill lives somewhere else.');
@@ -325,6 +334,7 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
     const parsed = readSkillManifest(file, path.basename(path.dirname(file)), 'workspace');
     if (parsed.skip) {
       err(`moss skill validate: not a loadable skill (${parsed.skip.reason}): ${file}`);
+      if (parsed.skip.detail) err(`  ${parsed.skip.detail}`);
       for (const issue of parsed.issues) err(`  [${issue.code}] ${issue.message}`);
       return 1;
     }

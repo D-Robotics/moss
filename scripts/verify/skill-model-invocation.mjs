@@ -191,4 +191,24 @@ assert.equal(missingFile.kind, 'skill', 'an unreadable body must still dispatch'
 assert.match(missingFile.prompt, /Read the skill body with the skill tool first/);
 ok('the user-only skill slash command inlines the body; ordinary skills keep the tool path');
 
-console.log(`[skill-model-invocation] ${checks}/7 checks passed`);
+// B303: a skipped skill says which required frontmatter field is missing, and
+// `skill validate <name>` can now reach a skill the catalog skips.
+{
+  const badDir = path.join(skillsDir, 'missing-description');
+  fs.mkdirSync(badDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(badDir, 'SKILL.md'),
+    '---\nname: missing-description\n---\n\n# no description\n'
+  );
+  const parsed = registry.readSkillManifest(
+    path.join(badDir, 'SKILL.md'),
+    'missing-description',
+    'workspace'
+  );
+  assert.ok(parsed.skip, 'a skill without a description is skipped');
+  assert.equal(parsed.skip.reason, 'empty');
+  assert.match(parsed.skip.detail ?? '', /non-empty "description"/);
+}
+ok('a skipped skill names the missing frontmatter field');
+
+console.log(`[skill-model-invocation] ${checks}/${checks} checks passed`);

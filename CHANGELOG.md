@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### `skill validate` explains a skipped skill instead of "no skill named" (B303)
+
+- `moss skill validate bad` said "no skill named \"bad\"" for a skill the catalog skips (missing
+  description), and validating by path only said `not a loadable skill (empty)`. The skip now carries a
+  detail (`frontmatter needs a non-empty "description"`), and a bare name falls back to the conventional
+  scoped paths (`<scope>/<name>/SKILL.md`) before reporting "not found" — so an invalid skill reaches its
+  own validation report (exit 1, real reason).
+
+### `skill validate` 对被跳过的技能给出真实原因（B303）
+
+- 目录中被跳过的技能（缺 description）用 `moss skill validate bad` 会得到 "no skill named \"bad\""，
+  按路径验证也只有一句 `not a loadable skill (empty)`。现在跳过原因带 detail
+  （`frontmatter needs a non-empty "description"`），裸名字也会先尝试各作用域下的
+  `<scope>/<name>/SKILL.md`，再报"找不到"——无效技能因此能得到自己的验证报告（exit 1，真实原因）。
+
 ### `/doctor` no longer prints a maintainer warning above its panel (B301)
 
 - The model ping is a non-streaming call, and a reasoning model can legitimately return thinking-only; that

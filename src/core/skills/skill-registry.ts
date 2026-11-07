@@ -55,6 +55,8 @@ export type SkillSkipReason = 'placeholder' | 'empty' | 'invalid-name' | 'hidden
 export interface SkillSkip {
   file: string;
   reason: SkillSkipReason;
+  /** Human explanation when the reason alone is vague (`empty`). */
+  detail?: string;
 }
 
 /**
@@ -211,7 +213,16 @@ export function readSkillManifest(
   let description = (asString(parsed.fields.description) ?? '').trim();
   const reason = skillSkipReason(name, description);
   if (reason && reason !== 'invalid-name') {
-    return { skip: { file, reason }, issues };
+    // B303: `reason: empty` alone told the author nothing; say which required
+    // frontmatter field is missing.
+    const missing: string[] = [];
+    if (!name) missing.push('"name"');
+    if (!description) missing.push('"description"');
+    const detail =
+      reason === 'empty' && missing.length > 0
+        ? `frontmatter needs a non-empty ${missing.join(' and ')}`
+        : undefined;
+    return { skip: { file, reason, ...(detail ? { detail } : {}) }, issues };
   }
   if (!isSpecSkillName(name)) {
     issues.push({
