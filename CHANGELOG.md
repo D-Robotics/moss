@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### An empty `/compact` is one honest line (B295)
+
+- `/compact` on an empty conversation printed a three-line "not compacted / tokens after check: ~0 /
+  No context savings" report; it now says `Conversation is empty — nothing to compact yet.` A non-empty
+  conversation still gets the detailed no-savings report.
+
+### 空会话的 `/compact` 只给一行诚实结论（B295）
+
+- 空会话执行 `/compact` 原本打印三行"未压缩 / tokens after check: ~0 / 无节省空间"；现在只输出
+  `Conversation is empty — nothing to compact yet.`。非空会话仍保留详细报告。
+
 ### `/permissions` stops describing confinement in full mode (B294)
 
 - The panel printed "workspace-write confines Moss's own file tools" under `mode full`, where the derived

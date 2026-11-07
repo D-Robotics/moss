@@ -4,6 +4,9 @@ export function formatCompactSessionResult(
   result: Awaited<ReturnType<MossAgent['compactSession']>>
 ): string {
   if (!result.compacted) {
+    // B295: an empty conversation got a three-line "no savings" report; one
+    // honest line is the whole answer.
+    if (result.tokensAfter <= 0) return 'Conversation is empty — nothing to compact yet.';
     return [
       'Conversation context was not compacted; original history is unchanged.',
       `  tokens after check: ~${result.tokensAfter.toLocaleString()}`,

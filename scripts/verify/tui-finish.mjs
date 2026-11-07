@@ -31,6 +31,7 @@ const promptHistory = await load('dist/cli/tui/prompt-history.js');
 const appHelpers = await load('dist/cli/tui/app-helpers.js');
 const agentFiles = await load('dist/core/subagent/agent-file-loader.js');
 const permissionsPanel = await load('dist/cli/tui/permissions-panel.js');
+const compactCommand = await load('dist/cli/compact-command.js');
 const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
 const interactionMode = await load('dist/cli/interaction-mode.js');
@@ -738,6 +739,26 @@ ok('the agents panel pluralizes its footer');
   assert.match(plan, /no rules — plan decides/);
 }
 ok('the permissions panel explains confinement only when the mode derives it');
+
+// 5u. B295: compacting an empty conversation is one line, not a report.
+{
+  const empty = compactCommand.formatCompactSessionResult({
+    compacted: false,
+    tokensAfter: 0,
+    droppedMessages: 0,
+    summaryChars: 0,
+  });
+  assert.equal(empty, 'Conversation is empty — nothing to compact yet.');
+  const noSavings = compactCommand.formatCompactSessionResult({
+    compacted: false,
+    tokensAfter: 12_000,
+    droppedMessages: 0,
+    summaryChars: 0,
+  });
+  assert.match(noSavings, /was not compacted/);
+  assert.match(noSavings, /No context savings/);
+}
+ok('compact says one line for an empty conversation');
 
 // 6. B194: the status row labels each number instead of imploding.
 {
