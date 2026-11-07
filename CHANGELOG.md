@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Every --json flag is discoverable from `--help` (B324)
+
+- `sessions export --json`, `auth status --json`, `trust list --json`, `uninstall --json`, `doctor --json`,
+  `update --json` and `skill validate --json` worked but their `--help` pages did not mention them. The help
+  now lists each flag (with its schema name), and the capabilities probe fails if any of those seven commands
+  forgets `--json` again.
+
+### 每个 `--json` 都能从 `--help` 发现（B324）
+
+- `sessions export --json`、`auth status --json`、`trust list --json`、`uninstall --json`、`doctor --json`、
+  `update --json`、`skill validate --json` 都能用，但 `--help` 页没写。现在每个页面都列出该 flag（带 schema 名），
+  `capabilities` 探针会在七个命令中任何一个漏写 `--json` 时失败。
+
 ### `sessions export --json` (B323)
 
 - `moss sessions export` was markdown-only, so tooling had to scrape or read the JSONL store. It now accepts

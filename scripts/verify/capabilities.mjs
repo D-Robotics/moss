@@ -222,6 +222,17 @@ try {
   }
   ok('skill validate --json reports valid and not-found structurally');
 
+  // 2h. B324: a flag nobody can discover from --help is not shipped.
+  for (const command of ['sessions', 'auth', 'trust', 'uninstall', 'doctor', 'update', 'skill']) {
+    const help = await cli([command, '--help']);
+    assert.match(
+      `${help.stdout}${help.stderr}`,
+      /--json/,
+      `moss ${command} --help must mention --json`
+    );
+  }
+  ok('every JSON-capable command documents --json in its help');
+
   // 2d. B291: with the builtin rdk-docs auto-connected, /capabilities and
   // `mcp list` must name the same servers (they used different resolvers).
   {
