@@ -300,6 +300,7 @@ import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
 import {
   INTERACTION_MODE_CYCLE,
   nextInteractionMode,
+  approvalAnswerLabel,
   describeApproval,
   inkTextStyle,
   inkLineStyle,
@@ -418,13 +419,6 @@ function createStoreHandle(): StoreHandle {
   };
 }
 
-function approvalAnswerLabel(answer: CliApprovalAnswer): string {
-  if (answer === 'y') return tui('yes');
-  if (answer === 'a') return tui('yes (session)');
-  if (answer === 'amend') return tui('amend');
-  return tui('no');
-}
-
 interface PendingDialog {
   kind: 'approval' | 'question';
   /** Exactly-once guard: several exit paths can race to resolve the same dialog. */
@@ -444,6 +438,8 @@ interface PendingDialog {
    * told the user nothing; the commit row names what was decided.
    */
   label?: string;
+  /** Hook ask: `a` was relabeled "this time" and grants nothing. */
+  onceOnlyApproval?: boolean;
 }
 
 /** The shell tells the registry it is the TUI, so surface-specific copy can diverge later. */
@@ -952,7 +948,7 @@ export function TuiAppRoot({
           options.commit ??
           (pending.kind === 'question'
             ? `answer: ${value || 'skipped'}`
-            : `approval: ${approvalAnswerLabel(value as CliApprovalAnswer)}`);
+            : `approval: ${approvalAnswerLabel(value, pending.onceOnlyApproval === true)}`);
         appendRow(store, 'result', pending.label ? `${base} · ${pending.label}` : base);
         handle.notify();
       }
@@ -998,10 +994,14 @@ export function TuiAppRoot({
         runtime.setApprovalPending(true);
         notifyAttention(question ? 'question needs your answer' : 'approval needed');
         handle.notify();
+        const onceOnlyApproval =
+          !question &&
+          (view.options.find((option) => option.key === '2')?.label ?? '').includes('this time');
         const entry: PendingDialog = {
           kind: question ? 'question' : 'approval',
           resolve,
           settled: false,
+          ...(onceOnlyApproval ? { onceOnlyApproval: true } : {}),
           ...(question
             ? { optionAnswers: question.answers, freeTextEntry: question.multiSelect }
             : {}),

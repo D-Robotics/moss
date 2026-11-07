@@ -548,6 +548,18 @@ export function rewindScrollbackNote(droppedMessages: number | undefined): strin
 }
 
 /**
+ * B298: `a` means "don't ask again this session" for ordinary approvals, but for
+ * a PreToolUse hook ask the same key is relabeled "Yes, this time" and grants
+ * nothing — the commit row must say what the user actually chose.
+ */
+export function approvalAnswerLabel(answer: string, onceOnly = false): string {
+  if (answer === 'y') return tui('yes');
+  if (answer === 'a') return tui(onceOnly ? 'yes (this time)' : 'yes (session)');
+  if (answer === 'amend') return tui('amend');
+  return tui('no');
+}
+
+/**
  * B264: a resumed boot replays rows without saying so at the bottom; the
  * `[session] Resuming session:` line scrolls away, so the replay ends with one
  * short confirmation (the picker flow already prints the same shape).

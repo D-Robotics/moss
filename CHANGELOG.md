@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### A hook ask's "this time" choice is labelled as such (B298)
+
+- The PreToolUse-hook confirmation relabels option 2 to "Yes, this time (the hook will ask again next
+  time)" and grants nothing, but the transcript row said `approval: yes (session)` — the opposite promise.
+  It now says `approval: yes (this time)`. The full flow was also verified for real: the dialog names the
+  hook file and reason, the same hook asks again on the next call, and denying it shows
+  `failed — Blocked by PreToolUse hook confirmation …` plus an honest `Incomplete: a safety check refused
+an action`.
+
+### hook 确认的"仅这一次"选项在回执里如实标注（B298）
+
+- PreToolUse hook 确认框把选项 2 改名为 "Yes, this time（该钩子下次仍会要求确认）" 且不授予任何持久权限，
+  但对话回执行却写 `approval: yes (session)`——语义相反。现在显示 `approval: yes (this time)`。完整流程也做了
+  真实复核：对话框给出 hook 文件与原因；同一 hook 下次仍会再问；拒绝时显示
+  `failed — Blocked by PreToolUse hook confirmation …` 与诚实的 `Incomplete: a safety check refused an action`。
+
 ### The command reference documents the JSON schemas (B297)
 
 - `docs/cli-reference.md` now names the machine-readable shapes added this session: `sessions list/search`

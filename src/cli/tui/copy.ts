@@ -359,6 +359,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'type your answer below · Enter to send · Esc to skip': '在下方输入回答 · 回车 发送 · Esc 跳过',
   yes: '是',
   'yes (session)': '是（会话）',
+  'yes (this time)': '是（仅这一次）',
   amend: '补充说明',
   no: '否',
   now: '刚刚',

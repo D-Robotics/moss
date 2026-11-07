@@ -760,6 +760,15 @@ ok('the permissions panel explains confinement only when the mode derives it');
 }
 ok('compact says one line for an empty conversation');
 
+// 5v. B298: a hook ask's "this time" choice is not a session-wide grant.
+{
+  assert.equal(appHelpers.approvalAnswerLabel('a'), 'yes (session)');
+  assert.equal(appHelpers.approvalAnswerLabel('a', true), 'yes (this time)');
+  assert.equal(appHelpers.approvalAnswerLabel('y'), 'yes');
+  assert.equal(appHelpers.approvalAnswerLabel('n'), 'no');
+}
+ok('a hook-ask approval is labelled as this-time, not session-wide');
+
 // 6. B194: the status row labels each number instead of imploding.
 {
   const en = statusLine.formatStatusLine({
