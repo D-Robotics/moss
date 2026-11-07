@@ -8,14 +8,35 @@
 - **RoboGO 开发机 `moss-robot`**：RTX 5090 32GB / 24 vCPU / 192GB RAM / CUDA 12.8 / driver 570.195.03，SSH 走平台 authkey 跳板（120.48.90.140:2222）。镜像 `microduck-cloud-sim`。
 - **ASPIRE**（NVlabs）：clone 于开发机 `~/ASPIRE`，`.venv-libero` bootstrap 完成；pyroki(8116)/curobo(8118) 服务已起；**SAM3(8114) 阻塞在 gated `facebook/sam3` 的 HF token**（401）。
 
-## 已完成
+## 已完成（B368–B387）
 
-| 项                   | 结果                                                                                                                         |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| B368                 | 真机暴露 `moss device test` 打印结果后不退出（SSH 连接保活事件循环）；`finally disconnectAllDevices()` 修复，真机验证 exit 0 |
-| B369                 | 首次真机全量 device bench：**8/11 = 72.7%**（3 失败均超时）                                                                  |
-| B370                 | 根因修复（device_exec 后台范式 + guard 分类 + 任务 prompt 注明 harness 跑验收）；复跑 **11/11 = 100%**（falseSuccess 0）     |
-| ASPIRE adapter patch | `libero/adapter.py` 的 `not init_states`（numpy 数组真值歧义）→ `len()==0`；修后 doctor single_reset PASS、smoke 1/1 PASS    |
+| #        | 里程碑                                                                         |
+| -------- | ------------------------------------------------------------------------------ |
+| B368     | 真机暴露 `moss device test` SSH 挂起 → `finally disconnectAllDevices()` 修复   |
+| B369/370 | 真机全量 bench 8/11 → 11/11（device_exec 后台范式 + guard 分类 + prompt 注记） |
+| B371     | Moss goal → 真机 BPU 推理闭环（evidence `bpu0 test sucess · pass`，turns 1）   |
+| B372     | ASPIRE 运动栈 GPU 真跑（pyroki+curobo，program_ok=true，12 步）                |
+| B373     | Moss 编排 cap-harness 验证 + `aspire-libero` campaign 技能                     |
+| B374/375 | NPU 推理 + 性能（延迟/FPS）入正式基准                                          |
+| B376     | 全量 14 任务 100% + ASPIRE campaign 预初始化（10 任务就位）                    |
+| B377/379 | TROS ROS2 吞吐（520-600 FPS）+ MobileNetV2 图像分类全管线入基准                |
+| B380     | ros2-pubsub 双层根因：残留 publisher + pkill 自匹配（括号技巧修复）            |
+| **B381** | **最终全量真机基准：16 任务 15/15 = 100%**（falseSuccess=0，core 4/4）         |
+| B383     | 板驻 agent 模式：Moss 在 X5 上自驱 BPU（同套 CLI/工具/evidence 契约）          |
+| B384     | OE 工具链 hb_mapper 1.24.3 装通（绕过 20.04 检查 + 5 个依赖坑）                |
+| **B385** | **完整模型部署链闭环**：量化编译→板端部署→NPU 1247 FPS（builder 版本对上）     |
+| B386     | `rdk-model-deploy` 技能固化（六步工作流 + 基线表 + 规则）                      |
+| B387     | 跨机部署拓扑发现：云/板不互通；evidence 层如实暴露（可验证性生效）             |
+
+## 里程碑数字
+
+| 指标                               | 数值                                                                |
+| ---------------------------------- | ------------------------------------------------------------------- |
+| 真机基准                           | **16 任务 15/15 = 100%**（falseSuccess=0 · core 4/4 · 全部 1 turn） |
+| NPU 性能（我们编译的 MobileNetV1） | **1.58ms / 1247 FPS**                                               |
+| TROS MobileNetV2（预装）           | 1.6-1.8ms / 520-600 FPS                                             |
+| HBDK3 测试模型                     | 44ms / 45 FPS                                                       |
+| 基准维度                           | 巡检 4 + 变更回滚 5 + 网络 1 + ROS2 1 + NPU 2 + TROS AI 2 + 相机 1  |
 
 ## Moss 在开发机
 
