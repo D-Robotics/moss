@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `config show --json` includes the pricing block (B352)
+
+- B347/B348 made `pricing.models` settable and removable, but `config show --json` still omitted it (pricing is
+  a merged config-file surface, not one of the resolved CLI scalars). The JSON now carries `pricing` when any
+  rate is configured, so scripts can read back what they set.
+
+### `config show --json` 包含 pricing 块（B352）
+
+- B347/B348 让 `pricing.models` 可设可删，但 `config show --json` 仍不返回它（pricing 属于合并后的配置文件面，
+  不在 resolved CLI 标量里）。现在只要配置了费率，JSON 就带 `pricing`，脚本可以读回自己设置的内容。
+
 ### Pricing keys can be unset again (B348)
 
 - B347 made `pricing.models` settable but `moss config unset` still rejected it — once set, the only way to

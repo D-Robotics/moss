@@ -246,6 +246,13 @@ try {
     assert.equal(saved.pricing.models['probe-model'].input, 0.5);
     assert.equal(saved.pricing.models['probe-model'].currency, 'USD');
 
+    // B352: `config show --json` must include the pricing block it accepts.
+    const shown = await cli(['config', 'show', '--json']);
+    assert.equal(shown.status, 0, shown.stderr);
+    const shownJson = JSON.parse(shown.stdout);
+    assert.equal(shownJson.pricing.models['probe-model'].input, 0.5);
+    assert.equal(shownJson.pricing.models['probe-model'].currency, 'USD');
+
     const bad = await cli(['config', 'set', 'pricing.models.probe-model.input', 'abc']);
     assert.equal(bad.status, 1);
     assert.match(bad.stderr, /non-negative number/);

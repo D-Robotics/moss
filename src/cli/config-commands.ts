@@ -290,7 +290,13 @@ export function renderConfigJson(
   const loaded =
     config === undefined ? loadCliConfigFile(env, process.argv.slice(2), startDir) : undefined;
   const resolved = resolveCliConfig(env, config ?? loaded?.config, overrides, loaded);
-  return JSON.stringify(serializeResolvedConfig(resolved), null, 2);
+  const out = serializeResolvedConfig(resolved);
+  // B352: pricing is a config-file surface (merged user+project), not part of
+  // the resolved CLI scalars; without this `config show --json` omitted a key
+  // that `config set` accepts.
+  const pricing = (config ?? loaded?.config)?.pricing;
+  if (pricing && Object.keys(pricing.models ?? {}).length > 0) out.pricing = pricing;
+  return JSON.stringify(out, null, 2);
 }
 
 /** Short usage — printed on error paths; points at `moss config --help`. */
