@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `/status --verbose` separates registered tools from offered ones (B312)
+
+- One session showed `tools: 53` in `/status --verbose` and `34 declared` in `/context`; both were correct
+  (registered vs sent to the model) but with no label it read like a contradiction. The status line now says
+  `tools: 53 (34 offered to the model) (Workspace, …)`.
+
+### `/status --verbose` 区分"已注册"与"发给模型"的工具（B312）
+
+- 同一会话里 `/status --verbose` 显示 `tools: 53`，`/context` 显示 `34 declared`；两个数都对（注册 vs 发给模型），
+  但没有标注时看起来自相矛盾。状态行现在写 `tools: 53 (34 offered to the model) (Workspace, …)`。
+
 ### `/status --verbose` names explicit memory next to the tool-memory index (B311)
 
 - A project with two remembered facts showed `memory: 0 entries` in `/status --verbose` (that line counts the

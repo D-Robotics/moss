@@ -576,7 +576,15 @@ export function renderCliStatus(
     `  ${label(zh ? '记忆' : 'memory')} ${memoryCount} ${zh ? '条' : 'entries'}`,
     `  ${label('AGENTS.md')} ${agentsFacts} ${zh ? '条记忆' : agentsFacts === 1 ? 'fact' : 'facts'}`,
     `  ${label(zh ? '技能' : 'skills')} ${skillCount}`,
-    `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size}${zh ? '（' : ' ('}${toolGroups.map((g) => groupTitle(g.title)).join(zh ? '、' : ', ')}${zh ? '）' : ')'}`,
+    `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size}${
+      // B312: /context counts the declarations the model actually receives;
+      // /status counted every registered tool, so one session said 53 vs 34.
+      agent.offeredTools
+        ? zh
+          ? `（${agent.offeredTools().length} 个发给模型）`
+          : ` (${agent.offeredTools().length} offered to the model)`
+        : ''
+    }${zh ? '（' : ' ('}${toolGroups.map((g) => groupTitle(g.title)).join(zh ? '、' : ', ')}${zh ? '）' : ')'}`,
   ].join('\n');
 }
 
