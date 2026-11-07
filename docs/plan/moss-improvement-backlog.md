@@ -804,7 +804,8 @@ node scripts/verify/loop-watch-glob.mjs
 - 选 3（No）：回执 `approval: no`，工具结果 `failed — Blocked by PreToolUse hook confirmation: user denied exec. Hook: node .moss/ask-hook.cjs`，运行收尾 `Incomplete: a safety check refused an action; Blocked by: hook blocked exec: echo hook-third`。
 - 探针 `tui-finish` **33/33**：普通 a 为 `yes (session)`、onceOnly 时为 `yes (this time)`、y/n 不变。
 - 质量门：`npm run check` 绿；`npm run verify` PASS；CI 分片门禁。
-- 诚实缺口：Tab amend 路径未在本轮真实触发；hook ask 的 y/1 路径等价于 2（只放行一次）由代码与探针覆盖。
+- 追加真实复核（同日）：`Tab` 真实按键（JSON `\t`）→ 对话框显示 `1. Yes, and tell moss what to do next` 与 `Esc to cancel · Tab to amend`；回车后回执 `approval: amend · echo hook-amend`、状态行 `approved — type what moss should do next; your message is queued`、命令执行；随后输入 `Also say done.` 作为新回合被正常处理。
+- 诚实缺口：Esc-to-deny 仍无法通过终端工具稳定注入（单独 ESC 被 Ink 当作序列前缀等待）；deny 路径已用选项 3 覆盖。
 
 **B297 证据（2026-11-06，文档 + 探针）**：
 
