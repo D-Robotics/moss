@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `auth status --json` and `trust list --json` (B314)
+
+- Two read commands still printed prose to scripts that passed `--json`. `auth status --json` now emits
+  `moss_auth_status.v1` (the resolved provider/model/baseUrl/keys/config-path facts, `apiKeyConfigured`
+  only — no secret), and `trust list --json` emits `moss_trust_list.v1` (`{folders}`). Both are documented in
+  the command reference, and `readme-parity` guards the schema names.
+
+### `auth status --json` 与 `trust list --json`（B314）
+
+- 两个只读命令仍向传了 `--json` 的脚本打印散文。现在 `auth status --json` 输出 `moss_auth_status.v1`
+  （provider/model/baseUrl/key 配置/配置文件路径等解析结果，只给 `apiKeyConfigured` 不泄漏密钥），
+  `trust list --json` 输出 `moss_trust_list.v1`（`{folders}`）。命令参考已记录，`readme-parity` 守卫 schema 名。
+
 ### The command reference lists the session/inspection slashes too (B313)
 
 - `docs/cli-reference.md` named the daily slashes but omitted `/status`, `/usage`, `/context`, `/export [path]`,

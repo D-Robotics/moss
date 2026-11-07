@@ -25,6 +25,7 @@ import {
   type ConfigFile,
   parseReasoningBudget,
   REASONING_BUDGET_VALUES,
+  safeProcessCwd,
 } from './config.js';
 import { errorMessage } from '../errors.js';
 import { isZhLocale, parseLanguageSetting, uiText } from './cli-locale.js';
@@ -33,6 +34,23 @@ import { withoutSecret } from './config-snapshot.js';
 import { parsePermissionRuleSpec } from './permission-rules.js';
 import { parseCliInteractionMode } from './interaction-mode.js';
 import { untrustedFolderLine } from './workspace-trust.js';
+
+/**
+ * B314: `moss auth status --json` — the same resolved facts the human status
+ * prints, shaped for scripts (no secret: apiKeyConfigured only).
+ */
+export function renderAuthStatusJson(
+  env: NodeJS.ProcessEnv = process.env,
+  startDir = safeProcessCwd()
+): string {
+  const loaded = loadCliConfigFile(env, process.argv.slice(2), startDir);
+  const resolved = resolveCliConfig(env, loaded?.config, {}, loaded);
+  return `${JSON.stringify(
+    { ...serializeResolvedConfig(resolved), schema: 'moss_auth_status.v1' },
+    null,
+    2
+  )}\n`;
+}
 
 function serializeResolvedConfig(
   resolved: ReturnType<typeof resolveCliConfig>

@@ -713,7 +713,9 @@ export const COMMANDS: Record<string, CommandConfig> = {
     phase: CliPhase.None,
     handler: async (ctx) => {
       const { runTrustCommand } = await import('./trust-commands.js');
-      const code = await runTrustCommand(ctx.commandArgs);
+      const code = await runTrustCommand(ctx.commandArgs, {
+        json: ctx.argv.includes('--json'),
+      });
       if (code !== 0) process.exitCode = code;
     },
     description: 'List or remove trusted folders (user trust store)',
@@ -759,7 +761,12 @@ export const COMMANDS: Record<string, CommandConfig> = {
       const subCmd = ctx.commandArgs[0];
 
       if (subCmd === 'status') {
-        console.log(renderAuthStatus(undefined, process.env, ctx.fallbackStartDir));
+        if (ctx.argv.includes('--json')) {
+          const { renderAuthStatusJson } = await import('./config-commands.js');
+          console.log(renderAuthStatusJson(process.env, ctx.fallbackStartDir).trimEnd());
+        } else {
+          console.log(renderAuthStatus(undefined, process.env, ctx.fallbackStartDir));
+        }
         return;
       }
 

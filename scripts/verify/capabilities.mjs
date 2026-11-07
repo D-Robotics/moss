@@ -166,6 +166,27 @@ try {
   }
   ok('a long skill list is previewed instead of printed in full');
 
+  // 2e. B314: auth/trust expose the same facts to scripts.
+  {
+    const auth = await cli(['auth', 'status', '--json']);
+    assert.equal(auth.status, 0, auth.stderr);
+    const authJson = JSON.parse(auth.stdout);
+    assert.equal(authJson.schema, 'moss_auth_status.v1');
+    assert.equal(typeof authJson.model, 'string');
+    assert.ok(authJson.model.length > 0);
+    assert.equal(authJson.apiKeyConfigured, false, 'the fixture has no api key');
+
+    const trust = await cli(['trust', 'list', '--json']);
+    assert.equal(trust.status, 0, trust.stderr);
+    const trustJson = JSON.parse(trust.stdout);
+    assert.equal(trustJson.schema, 'moss_trust_list.v1');
+    assert.ok(
+      trustJson.folders.includes(await fs.realpath(ws)),
+      `trusted workspace missing from ${JSON.stringify(trustJson.folders)}`
+    );
+  }
+  ok('auth status / trust list emit JSON for scripts');
+
   // 2d. B291: with the builtin rdk-docs auto-connected, /capabilities and
   // `mcp list` must name the same servers (they used different resolvers).
   {
