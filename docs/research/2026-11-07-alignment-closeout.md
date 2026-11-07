@@ -35,20 +35,20 @@
 
 ## 4. 可验证性（门禁与证据）
 
-| 层           | 当前状态                                                                                                        | 触发                         |
-| ------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| 本地交付门   | `npm run verify` PASS（近期 64–99s，负载相关）                                                                  | 每次提交前                   |
-| CI 分片门    | 最近 30+ 次 push 全绿                                                                                           | 每次 push                    |
-| 跨平台矩阵   | Deep verification 四腿（Ubuntu 22/24、macOS、Windows）+ 聚合全绿                                                | 每日/手动（B336）            |
-| 行为探针     | 100+ stage：TUI/CLI/JSON/评审/技能/bench 工具链                                                                 | `npm run verify`             |
-| 能力基准     | 全量 samples=3：**74/80 scored = 92.5%**（hard 86.1 / easy 95.6 / weighted 88.9）；hard-tier 子集 30/33 = 90.9% | `npm run bench`（B344/B349） |
-| 真实模型回归 | goal 修复、`/review` 评审、`/init` 起草与增量审查、bench                                                        | 见各 B 证据段                |
+| 层           | 当前状态                                                                                                                             | 触发                         |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
+| 本地交付门   | `npm run verify` PASS（近期 64–99s，负载相关）                                                                                       | 每次提交前                   |
+| CI 分片门    | 最近 30+ 次 push 全绿                                                                                                                | 每次 push                    |
+| 跨平台矩阵   | Deep verification 四腿（Ubuntu 22/24、macOS、Windows）+ 聚合全绿                                                                     | 每日/手动（B336）            |
+| 行为探针     | 100+ stage：TUI/CLI/JSON/评审/技能/bench 工具链                                                                                      | `npm run verify`             |
+| 能力基准     | 全量 samples=3：**74/80 = 92.5%**（hard 86.1 / easy 95.6 / weighted 88.9）；hard-tier 复跑 **32/33 = 97%**，唯一缺口修复后该任务 3/3 | `npm run bench`（B349/B356） |
+| 真实模型回归 | goal 修复、`/review` 评审、`/init` 起草与增量审查、bench                                                                             | 见各 B 证据段                |
 
 ## 5. 仍然真实的缺口（不粉饰）
 
 1. **Windows 行为面**：Deep 的 Windows leg 只跑 `static/build/smoke/examples`，行为探针在 Linux/macOS 全量跑。
 2. **bench 口径与网关长尾**：全量 samples=3 已跑（74/80 = 92.5%），但 4/27 任务部分通过中有一半是网关 45s 无响应熔断（`hard-wrong-fix-rejected`、`long-horizon-refactor`），不是能力回退；4 个设备任务因缺 `MOSS_DEVICE_*` 未计分。
-3. **bench 观察到的模型波动**（非产品 bug 但会影响分数）：一次把 exec 当持久 shell（`cd ..` 写出 workspace）、一次在矛盾需求前选择提问而非 `SPEC-AUDIT.md`、一次用 exec 跑测试触发 verification gate 的 Unverified。
+3. **已定位并修复的 bench 波动**：exec cwd 语义误解（冻结待评估）、矛盾需求提问（B355 修 nudge）、exec 跑测试被判 Unverified（B356 让 `node test.js` 计入 test 检查）；剩余波动主要是网关长尾与模型偶发取舍。
 4. **exec cwd 语义**：Moss 每次命令在 workspace 根执行（工具描述明确），与 Claude Code 的持久 cwd 不同；改动属设计级变更，冻结待评估。
 5. **设备能力**：真实板卡闭环（设备任务、物理验收）需要环境；bench 在缺 `MOSS_DEVICE_*` 时 SKIP。
 6. **无法注入的按键**：Esc-to-deny、Ctrl+C 中断、ctrl+o 展开等控制键无法经终端工具验证，只能验证等价路径与渲染结果。
@@ -61,7 +61,7 @@ npm run check                       # 格式 + lint + typecheck
 npm run verify                      # 交付门（~60–90s）
 npm run bench -- --samples 1        # 全量诊断（31 任务）
 npm run bench -- --samples 3 --label full-s3                 # 全量发布口径（31 任务 × 3）
-npm run bench -- --task hard- --samples 3 --label hard-s3   # hard-tier 子集
+npm run bench -- --task hard- --samples 3 --label hard-s3c  # hard-tier 子集（B356 后 32/33）
 moss goal "fix the failing test" --accept "npm test"          # 真实闭环
 moss review check                   # 评审门禁（0/1/2）
 gh workflow run "Deep verification" --ref main                # 跨平台矩阵
