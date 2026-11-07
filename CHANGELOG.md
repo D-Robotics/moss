@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### The cost hint is now actionable (B347)
+
+- `/usage` said `set pricing.models["<model>"] to show cost`, but `moss config set` rejected every pricing key
+  and `moss config --help` did not mention it — the hint could not be followed. `config set` now accepts
+  `pricing.models.<model>.{input|output|cached|cacheWrite|currency}` (non-negative numbers, per 1M tokens;
+  USD/CNY), the key list and help document it, and the unpriced message names that exact command. A real run
+  after `config set …input 0.14 …output 0.28 …currency USD` shows `~$0.002562 (est.)` in the status line and
+  `cost ~$0.002562 (est.) · price source your config (pricing.models)` in `/usage`.
+
+### 费用提示现在真的可执行（B347）
+
+- `/usage` 原来提示 `set pricing.models["<model>"] to show cost`，但 `moss config set` 拒绝所有 pricing 键，
+  `moss config --help` 也没记录——提示无法照做。现在 `config set` 接受
+  `pricing.models.<model>.{input|output|cached|cacheWrite|currency}`（非负数字、每百万 token、USD/CNY），
+  键清单与帮助已记录，未定价提示直接给出该命令。真实运行：设置 input 0.14 / output 0.28 / USD 后，
+  状态栏显示 `~$0.002562 (est.)`，`/usage` 显示 `cost ~$0.002562 (est.) · price source your config (pricing.models)`。
+
 ### Bench runs survive a concurrent rebuild (B343)
 
 - Every bench task shells out to `dist/cli.js`, so running `npm run build` / `npm run verify` while a bench is

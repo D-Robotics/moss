@@ -627,6 +627,7 @@ export function renderConfigHelp(zh = false): string {
     '  moss config validate [--strict] [--json]',
     '  moss config set <provider|model|baseUrl|apiKey|apiKeyEnv> <value>              # model',
     '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|agent.*> <value>   # operational',
+    '  moss config set pricing.models.<model>.<input|output|cached|cacheWrite|currency> <value>   # cost display',
     '  moss config set <key>=<value> [<key>=<value>...]                               # batch',
     '  moss config set --project <key>=<value> [<key>=<value>...]',
     '  moss config set --project <key> <value>',
@@ -645,6 +646,7 @@ export function renderConfigHelp(zh = false): string {
     '  moss config init --project',
     '  moss config validate --strict',
     '  moss config set profile autonomous',
+    '  moss config set pricing.models.deepseek-flash@latest.input 0.14',
     '  moss config set provider openai-compatible',
     '  moss config set model <your-model>',
     '  moss config set baseUrl https://your-gateway.example   # /v1 is optional (https://host/v1 also works); /chat/completions is not needed',
@@ -1006,8 +1008,8 @@ function buildProjectConfigTemplate(): ConfigFile {
 
 function supportedConfigKeys(): string {
   return uiText(
-    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, permissions.osSandbox, outputStyle, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.supportsImages, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
-    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、outputStyle、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.supportsImages、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
+    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, permissions.osSandbox, outputStyle, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.supportsImages, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language; pricing (per 1M tokens): pricing.models.<model>.input, .output, .cached, .cacheWrite, .currency (USD|CNY)',
+    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、outputStyle、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.supportsImages、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language；价格（每百万 token）：pricing.models.<模型>.input、.output、.cached、.cacheWrite、.currency（USD|CNY）'
   );
 }
 
@@ -1446,6 +1448,46 @@ function applyConfigSetPair(
     } else {
       next.agent.compaction = { ...next.agent.compaction, keepRecentTokens: parsed.value };
     }
+  } else if (key.startsWith('pricing.models.')) {
+    // B347: `/usage` told people to set `pricing.models[...]`, but config set
+    // rejected the key — the hint was not actionable.
+    const rest = key.slice('pricing.models.'.length);
+    const dot = rest.lastIndexOf('.');
+    const model = dot > 0 ? rest.slice(0, dot) : '';
+    const field = dot > 0 ? rest.slice(dot + 1) : '';
+    const fields = new Set(['input', 'output', 'cached', 'cacheWrite', 'currency']);
+    if (!model || !fields.has(field)) {
+      return { ok: false, messages: [supportedConfigKeys(), configHelpHint()] };
+    }
+    const models = { ...(next.pricing?.models ?? {}) };
+    const entry = { ...(models[model] ?? {}) };
+    let amount = 0;
+    if (field === 'currency') {
+      const currency = value.trim().toUpperCase();
+      if (currency !== 'USD' && currency !== 'CNY') {
+        return { ok: false, messages: ['Supported pricing currency values: USD, CNY'] };
+      }
+      entry.currency = currency;
+    } else {
+      amount = Number(value.trim());
+      if (!Number.isFinite(amount) || amount < 0) {
+        return {
+          ok: false,
+          messages: [`${key} must be a non-negative number of currency units per 1M tokens`],
+        };
+      }
+      if (field === 'input') entry.input = amount;
+      else if (field === 'output') entry.output = amount;
+      else if (field === 'cached') entry.cached = amount;
+      else entry.cacheWrite = amount;
+    }
+    models[model] = entry;
+    next.pricing = { ...(next.pricing ?? {}), models };
+    messages.push(
+      `[config] pricing for ${model}: ${field} = ${
+        field === 'currency' ? String(entry.currency ?? '') : `${String(amount)} (per 1M tokens)`
+      }`
+    );
   } else {
     return {
       ok: false,

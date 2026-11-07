@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { captureProcess } from './lib/proc.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
@@ -233,6 +234,35 @@ try {
     );
   }
   ok('every JSON-capable command documents --json in its help');
+
+  // 2i. B347: the /usage cost hint must be actionable — `config set` has to
+  // accept pricing.models.<model>.<field>, and the unpriced message must name it.
+  {
+    const set = await cli(['config', 'set', 'pricing.models.probe-model.input', '0.5']);
+    assert.equal(set.status, 0, set.stderr);
+    const setCurrency = await cli(['config', 'set', 'pricing.models.probe-model.currency', 'USD']);
+    assert.equal(setCurrency.status, 0, setCurrency.stderr);
+    const saved = JSON.parse(await fs.readFile(path.join(configDir, 'config.json'), 'utf8'));
+    assert.equal(saved.pricing.models['probe-model'].input, 0.5);
+    assert.equal(saved.pricing.models['probe-model'].currency, 'USD');
+
+    const bad = await cli(['config', 'set', 'pricing.models.probe-model.input', 'abc']);
+    assert.equal(bad.status, 1);
+    assert.match(bad.stderr, /non-negative number/);
+
+    const { unknownPriceMessage } = await import(
+      pathToFileURL(path.join(root, 'dist/cli/model-pricing.js')).href
+    );
+    assert.match(
+      unknownPriceMessage('probe-model', false),
+      /moss config set pricing\.models\.probe-model\.input/
+    );
+    assert.match(
+      unknownPriceMessage('probe-model', true),
+      /moss config set pricing\.models\.probe-model\.input/
+    );
+  }
+  ok('pricing config set is real and the /usage hint names it');
 
   // 2d. B291: with the builtin rdk-docs auto-connected, /capabilities and
   // `mcp list` must name the same servers (they used different resolvers).
