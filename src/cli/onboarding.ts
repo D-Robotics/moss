@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { defaultSkillDirSpecs, loadSkillCatalog } from '../core/skills/skill-registry.js';
 import type { MossAgent } from '../core/index.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import {
@@ -143,14 +144,6 @@ function countJsonIndex(filePath: string): number {
     const raw = fs.readFileSync(filePath, 'utf-8');
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.length : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function countMarkdownFiles(dirPath: string): number {
-  try {
-    return fs.readdirSync(dirPath).filter((f) => f.endsWith('.md')).length;
   } catch {
     return 0;
   }
@@ -498,7 +491,9 @@ export function renderCliStatus(
 ): string {
   const rt = runtimeWithDefaults(runtime);
   const memoryCount = countJsonIndex(path.join(rt.runtimeDir, 'memory', 'index.json'));
-  const skillCount = countMarkdownFiles(path.join(rt.workspace, '.moss', 'skills'));
+  // B310: one discovery order for the number `/status` reports — the same
+  // helper the first screen and /capabilities use.
+  const skillCount = loadSkillCatalog(defaultSkillDirSpecs(rt.workspace, rt.configDir)).length;
   const sessionDir = path.join(rt.runtimeDir, 'sessions');
   const detailMode = resolveCliDetailMode();
   const toolGroups = groupTools(agent.tools.getAll()).filter((g) => g.enabled);

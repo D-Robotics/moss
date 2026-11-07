@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `/status --verbose` reports the same skill count as the first screen (B310)
+
+- The status report counted only markdown files directly under `.moss/skills`, so a real session said
+  `skills: 0` while the first screen and `/capabilities` said 19. It now uses `defaultSkillDirSpecs` (the
+  shared discovery order), so `/status --verbose` shows `skills: 19`.
+
+### `/status --verbose` 的技能数与首屏一致（B310）
+
+- 状态报告只数 `.moss/skills` 下的 markdown 文件，真实会话里显示 `skills: 0`，而首屏与 `/capabilities` 都是 19。
+  现在使用共享的 `defaultSkillDirSpecs`，`/status --verbose` 显示 `skills: 19`。
+
 ### The slash palette explains Tab vs Enter; shell mode verified (B309)
 
 - Typing `/` listed commands (and `… 33 more`) but said nothing about choosing one. The palette now ends with
