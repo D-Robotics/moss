@@ -2480,17 +2480,68 @@ export function TuiAppRoot({
           return;
         }
         const remember = await import('../remember-command.js');
-        const plan = remember.buildRememberPlan(options.workspaceDir ?? process.cwd(), fact);
-        printBlock(
-          tui('Remember'),
-          'error' in plan
-            ? [plan.error]
-            : [
-                ...remember.renderRememberPreview(plan).split('\n'),
-                '',
-                tui('this shell does not write; run `moss remember "<fact>"` to apply it.'),
-              ]
-        );
+        const workspaceDir = options.workspaceDir ?? process.cwd();
+        const plan = remember.buildRememberPlan(workspaceDir, fact);
+        if ('error' in plan) {
+          printBlock(tui('Remember'), [plan.error]);
+          return;
+        }
+        printBlock(tui('Remember'), remember.renderRememberPreview(plan).split('\n'));
+        if (!plan.changed) return;
+        // B321: writing memory should not require leaving the session; the
+        // preview above is the diff, and this dialog is the confirmation.
+        const WRITE = tui('Write it to AGENTS.md');
+        const CANCEL = tui('Cancel');
+        runtime.setApprovalPending(true);
+        handle.notify();
+        pendingDialogRef.current = {
+          kind: 'question',
+          settled: false,
+          escHint: tui('Esc cancels'),
+          resolve: (value) => {
+            if (value !== WRITE) {
+              appendRow(store, 'system', tui('cancelled — nothing written'));
+              handle.notify();
+              return;
+            }
+            const applied = remember.applyRememberPlan(plan);
+            if (!applied.ok) {
+              appendRow(store, 'error', applied.error);
+              handle.notify();
+              return;
+            }
+            let count = 0;
+            try {
+              count = remember.countRememberedFacts(
+                fs.readFileSync(path.join(workspaceDir, 'AGENTS.md'), 'utf8')
+              );
+            } catch {
+              count = 0;
+            }
+            appendRow(
+              store,
+              'system',
+              tui(
+                count === 1
+                  ? 'remembered — AGENTS.md now has {count} fact'
+                  : 'remembered — AGENTS.md now has {count} facts',
+                { count }
+              )
+            );
+            handle.notify();
+          },
+          optionAnswers: [WRITE, CANCEL],
+        };
+        setApproval({
+          title: tui('Remember'),
+          question: tui('Write this fact to AGENTS.md?'),
+          options: [
+            { key: '1', answer: 'y', label: WRITE },
+            { key: '2', answer: 'n', label: CANCEL },
+          ],
+          footer: tui('Enter writes · Esc cancels'),
+          cursor: 0,
+        });
         return;
       }
       if (text === '/resume' || text.startsWith('/resume ')) {

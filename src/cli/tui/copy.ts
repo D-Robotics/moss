@@ -342,6 +342,13 @@ export const ZH: Readonly<Record<string, string>> = {
   '  loading sessions…': '  正在加载会话…',
   '  earlier turns stay as scrollback; they are no longer in the conversation':
     '  上方回合只留在滚动区；已不在对话上下文里',
+  'Write it to AGENTS.md': '写入 AGENTS.md',
+  'Esc cancels': 'Esc 取消',
+  'Write this fact to AGENTS.md?': '把这条事实写入 AGENTS.md？',
+  'Enter writes · Esc cancels': 'Enter 写入 · Esc 取消',
+  'cancelled — nothing written': '已取消 — 未写入',
+  'remembered — AGENTS.md now has {count} fact': '已记住 — AGENTS.md 现有 {count} 条事实',
+  'remembered — AGENTS.md now has {count} facts': '已记住 — AGENTS.md 现有 {count} 条事实',
   'resumed “{label}” — replayed {count} row': '已恢复 “{label}” — 回放 {count} 行',
   'resumed “{label}” — replayed {count} rows': '已恢复 “{label}” — 回放 {count} 行',
   'work until a condition (or acceptance command) passes; /goal resume continues, /goal clear cancels':

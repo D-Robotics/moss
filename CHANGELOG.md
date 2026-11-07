@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### `/remember` writes from the TUI after a confirming dialog (B321)
+
+- In-session `/remember <fact>` only printed the preview and told the user to leave and run
+  `moss remember`. It now writes: the preview is the diff, then a dialog asks
+  `Write this fact to AGENTS.md?` (1 = write, 2 = cancel, Esc cancels); writing prints
+  `answer: Write it to AGENTS.md` + `remembered — AGENTS.md now has 3 facts`, cancelling leaves the file
+  untouched, and an already-present fact skips the dialog with `Already remembered in AGENTS.md`.
+
+### TUI 的 `/remember` 确认后直接写入（B321）
+
+- 会话内 `/remember <fact>` 原本只打印预览、让用户退出后跑 `moss remember`。现在会真正写入：预览就是 diff，
+  随后对话框问 `Write this fact to AGENTS.md?`（1 写入、2 取消、Esc 取消）；写入显示
+  `answer: Write it to AGENTS.md` + `remembered — AGENTS.md now has 3 facts`，取消不动文件，
+  已存在的事实跳过对话框并提示 `Already remembered in AGENTS.md`。
+
 ### `skill validate --json` (B320)
 
 - The last skill command without a machine-readable report now has one:
