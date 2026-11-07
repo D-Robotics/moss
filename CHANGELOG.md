@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `/doctor` no longer prints a maintainer warning above its panel (B301)
+
+- The model ping is a non-streaming call, and a reasoning model can legitimately return thinking-only; that
+  path logged a `warn` ("host should surface a placeholder via LLMResponse.thinking") which the TUI showed as
+  a stray `⎿` row above the Doctor block. It is now a debug diagnostic, so the panel starts with `⏺ Doctor`
+  and the ping still reports `ok … 1373ms`.
+
+### `/doctor` 面板上方不再出现维护者告警（B301）
+
+- 模型 ping 是非流式调用，推理模型合法地可能只返回 thinking；该路径用 `warn` 打了
+  "host should surface a placeholder via LLMResponse.thinking"，TUI 把它显示成 Doctor 块上方一行多余的 `⎿`。
+  现在降为 debug 诊断，面板从 `⏺ Doctor` 开始，ping 仍正常显示 `ok … 1373ms`。
+
 ### Explanatory requests are not verification asks (B300)
 
 - Follow-up to B299: "write a 4-line essay about how to check tests" matched the verification-request

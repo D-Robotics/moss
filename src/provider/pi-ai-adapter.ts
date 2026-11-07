@@ -238,7 +238,10 @@ export class PiAiLLMProvider implements LLMProvider {
     }
 
     if (thinkingChunks.length > 0 && content.length === 0) {
-      log.warn(
+      // B301: reasoning-only answers are legal for reasoning models (the doctor
+      // ping gets one). This is a diagnostic, not a user warning — at warn level
+      // the TUI showed a maintainer-facing sentence above the /doctor panel.
+      log.debug(
         'LLM completed (non-streaming) with only thinking content (no visible text, no tool_use); ' +
           'host should surface a placeholder via LLMResponse.thinking',
         {
