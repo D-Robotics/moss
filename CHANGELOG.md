@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### `skill update` describes a content-only change correctly (B305)
+
+- A local update printed `sha256:41b40feb17a2 → sha256:db858b7329eb… · +0 -0 file(s)`: one hash had an
+  ellipsis and the other did not, and "+0 -0 files" reads like nothing changed. It now shows both hashes the
+  same way and says `content changed (no files added or removed)` when the file set is unchanged; the
+  command also ends with `updated N skill(s)`. Without `--yes` it says which skill waits
+  (`re-run with --yes to apply …`).
+
+### `skill update` 正确描述"仅内容变化"（B305）
+
+- 本地更新原本打印 `sha256:41b40feb17a2 → sha256:db858b7329eb… · +0 -0 file(s)`：一个 hash 带省略号、另一个没有，
+  且 "+0 -0 files" 看起来像什么都没变。现在两侧 hash 截断方式一致，文件集合不变时显示
+  `content changed (no files added or removed)`；命令结尾给出 `updated N skill(s)`。不带 `--yes` 时会说明哪个技能
+  待应用（`re-run with --yes to apply …`）。
+
 ### Skill lock grammar and a real install→lock→drift round-trip (B304)
 
 - `skill lock` said `1 skill match the lockfile`; it now agrees in number

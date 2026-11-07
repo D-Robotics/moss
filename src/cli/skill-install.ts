@@ -348,10 +348,15 @@ export async function runSkillUpdate(argv: string[], ctx: SkillInstallContext): 
       const after = listTree(chosen.root);
       const added = after.filter((file) => !before.includes(file));
       const removed = before.filter((file) => !after.includes(file));
-      ctx.out(`${name}: update available from ${entry.source}`);
+      // B305: both hashes truncated the same way, and "+0 -0 file(s)" was
+      // wrong — the file set was unchanged while the content changed.
+      const fileSummary =
+        added.length === 0 && removed.length === 0
+          ? 'content changed (no files added or removed)'
+          : `+${String(added.length)} -${String(removed.length)} file(s)`;
+      ctx.out(`${name}: update from ${entry.source}`);
       ctx.out(
-        `  ${installed ? installed.hash.slice(0, 19) : '(missing)'} → ${next.hash.slice(0, 19)}… · ` +
-          `+${String(added.length)} -${String(removed.length)} file(s)`
+        `  ${installed ? installed.hash.slice(0, 19) : '(missing)'} → ${next.hash.slice(0, 19)} · ${fileSummary}`
       );
       for (const file of added.slice(0, 5)) ctx.out(`  + ${file}`);
       for (const file of removed.slice(0, 5)) ctx.out(`  - ${file}`);
@@ -374,7 +379,10 @@ export async function runSkillUpdate(argv: string[], ctx: SkillInstallContext): 
       };
       changed += 1;
     }
-    if (changed > 0) writeLock(ctx, scope, lock);
+    if (changed > 0) {
+      writeLock(ctx, scope, lock);
+      ctx.out(`updated ${String(changed)} skill${changed === 1 ? '' : 's'}`);
+    }
     return pending > 0 ? 1 : 0;
   } catch (err) {
     ctx.err(`moss skill update: ${err instanceof Error ? err.message : String(err)}`);

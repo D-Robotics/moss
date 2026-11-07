@@ -226,6 +226,23 @@ ok('the user-only skill slash command inlines the body; ordinary skills keep the
   const drifted = await runCli(['skill', 'lock', '--workspace']);
   assert.equal(drifted.status, 1, 'drift must exit 1');
   assert.match(`${drifted.stdout}${drifted.stderr}`, /1 skill drifted from the lockfile/);
+
+  // B305: a content-only update says so (not "+0 -0 files"), and without --yes
+  // it explains how to apply it.
+  fs.appendFileSync(path.join(src, 'SKILL.md'), '\nsource v2\n');
+  const needsYes = await runCli(['skill', 'update', '--workspace']);
+  assert.equal(needsYes.status, 1, 'an unapplied update exits 1');
+  assert.match(`${needsYes.stdout}${needsYes.stderr}`, /re-run with --yes to apply lock-probe/);
+
+  const update = await runCli(['skill', 'update', '--workspace', '--yes']);
+  assert.equal(update.status, 0, update.stderr);
+  assert.match(update.stdout, /lock-probe: update from/);
+  assert.match(update.stdout, /content changed \(no files added or removed\)/);
+  assert.doesNotMatch(update.stdout, /\+0 -0 file/);
+  assert.match(update.stdout, /updated 1 skill/);
+  const cleanAfter = await runCli(['skill', 'lock', '--workspace']);
+  assert.equal(cleanAfter.status, 0, cleanAfter.stderr);
+  assert.match(cleanAfter.stdout, /1 skill matches the lockfile/);
 }
 ok('skill install + lock round-trip, drift, and singular grammar');
 
