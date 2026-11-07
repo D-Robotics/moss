@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### `/review` end-to-end, and `review list --json` has a schema (B331)
+
+- A real `/review` on a planted bug ran an independent read-only reviewer, recorded `verdict: FAIL`
+  (1 critical, 0 important), printed the finding with `math.js:2` and a fix hint, stated it made no edits,
+  and wrote `.moss/review.jsonl`; `moss review check` then exited 1 with `repair attempt: 1 of 3`.
+  `moss review list --json` was the last read command returning a bare array; it now emits
+  `moss_review_list.v1` (`{total, limit, records}`), and the command reference + `readme-parity` name it.
+
+### `/review` 端到端，`review list --json` 有 schema（B331）
+
+- 在真实埋 bug 的工作区跑 `/review`：独立只读评审给出 `verdict: FAIL`（1 critical / 0 important），
+  列出 `math.js:2` 与修复提示，明确没有改文件，并写 `.moss/review.jsonl`；随后 `moss review check` exit 1，
+  输出 `repair attempt: 1 of 3`。
+  `moss review list --json` 是最后一个返回裸数组的只读命令，现在输出 `moss_review_list.v1`
+  （`{total, limit, records}`），命令参考与 `readme-parity` 已登记。
+
 ### The first-run provider picker says how to leave (B328)
 
 - A fresh TUI showed the blocking `Choose a model provider` picker with no way out documented (Esc has no
