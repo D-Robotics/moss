@@ -187,7 +187,10 @@ export function checksForCommand(command: string): VerificationCheck[] {
     /\b(?:npm\s+(?:run\s+)?test(?::\w+)?|npm\s+t|yarn\s+test|pnpm\s+test|node\s+--test|pytest|vitest|jest|mocha|go\s+test|cargo\s+test|make\s+test)\b/.test(
       command
     ) ||
-    /\bnode\s+\S*\.spec\.[cm]?js\b/.test(command)
+    /\bnode\s+\S*\.spec\.[cm]?js\b/.test(command) ||
+    // B356: small projects (and bench fixtures) run `node test.js` — a plain
+    // test file, not `--test`. It is still a real test run for the gate.
+    /\bnode\s+[^|;&\s]*test[^|;&\s]*\.[cm]?js\b/.test(command)
   ) {
     out.add('test');
   }

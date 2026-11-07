@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### `node test.js` counts as a test run for the completion gate (B356)
+
+- The gate mapped `npm test`, `node --test`, `pytest`, etc. to the `test` check, but not a plain
+  `node test.js` — the way small projects and the bench fixtures run tests. A model that verified with
+  `exec node test.js` was marked `Unverified: claimed checks passed, but no check was run: test`, and
+  `hard-wrong-fix-rejected` stayed 2/3. The command matcher now recognizes `node <...>test<...>.js`, the
+  system prompt also says to prefer `run_tests`, and the task reruns **3/3 PASS**. A hard-tier samples=3 run
+  first scored **32/33 = 97%** with only this task partial.
+
+### `node test.js` 也算一次测试运行（B356）
+
+- 完成门把 `npm test`、`node --test`、`pytest` 等映射到 `test` 检查，却没识别最简单的 `node test.js`——小项目和
+  bench 夹具常用它跑测试。模型用 `exec node test.js` 验证后会被判 `Unverified: claimed checks passed, but no check
+was run: test`，`hard-wrong-fix-rejected` 卡在 2/3。现在命令匹配器识别 `node <…>test<…>.js`，
+  系统提示也要求优先 `run_tests`；该任务重跑 **3/3 PASS**。此前一轮 hard-tier samples=3 为 **32/33 = 97%**（仅该任务部分通过）。
+
 ### The spec-audit nudge no longer tells the model to ask (B355)
 
 - `hard-spec-contradiction` kept scoring 2/3 even after the system prompt said "do not ask which requirement wins":
