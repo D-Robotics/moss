@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The MCP empty state teaches the command (B338)
+
+- The TUI `/mcp` panel only said `no MCP servers configured (.moss/mcp.json)`; the CLI and REPL already
+  suggested `moss mcp add`. The panel now shows `no MCP servers configured` + `add one: moss mcp add <name>
+<command> · or edit .moss/mcp.json (user: <config>/mcp.json)`, translated in zh, and the REPL line names the
+  user-level file too.
+
+### MCP 空状态给出命令（B338）
+
+- TUI `/mcp` 面板原只说 `no MCP servers configured (.moss/mcp.json)`，而 CLI/REPL 早就会提示 `moss mcp add`。
+  现在面板显示 `no MCP servers configured` + `add one: moss mcp add <name> <command> · or edit .moss/mcp.json
+(user: <config>/mcp.json)`（中文已译），REPL 行也补上用户级文件路径。
+
 ### The rules empty state names both scopes (B337)
 
 - `/rules` and `moss rules list` said only `.moss/rules/<name>.md`, although scoped rules also load from

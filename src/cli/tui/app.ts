@@ -1519,7 +1519,14 @@ export function TuiAppRoot({
       }
       if (command === 'mcp') {
         const servers = options.listMcpServers?.() ?? options.mcpServers ?? [];
-        if (servers.length === 0) return [tui('no MCP servers configured (.moss/mcp.json)')];
+        if (servers.length === 0) {
+          return [
+            tui('no MCP servers configured'),
+            tui(
+              'add one: moss mcp add <name> <command> · or edit .moss/mcp.json (user: <config>/mcp.json)'
+            ),
+          ];
+        }
         return servers.map((x) => formatMcpStatusLine(x));
       }
       if (command === 'subs') {

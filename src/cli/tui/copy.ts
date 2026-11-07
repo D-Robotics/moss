@@ -398,7 +398,9 @@ export const ZH: Readonly<Record<string, string>> = {
   'Interrupted — /goal resume to continue': '已中断',
   Interrupted: '已中断',
   'no saved sessions': '没有已保存的会话',
-  'no MCP servers configured (.moss/mcp.json)': '未配置 MCP 服务（.moss/mcp.json）',
+  'no MCP servers configured': '未配置 MCP 服务',
+  'add one: moss mcp add <name> <command> · or edit .moss/mcp.json (user: <config>/mcp.json)':
+    '添加：moss mcp add <名称> <命令> · 或编辑 .moss/mcp.json（用户级：<配置目录>/mcp.json）',
   'no sub-agent tasks': '没有子 agent 任务',
   'no background tasks running': '没有运行中的后台任务',
   '{connected}/{total} MCP servers connected': '已连接 {connected}/{total} 个 MCP 服务',
