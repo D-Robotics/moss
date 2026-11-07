@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Explanatory requests are not verification asks (B300)
+
+- Follow-up to B299: "write a 4-line essay about how to check tests" matched the verification-request
+  heuristic (`check … tests`), so prose in the essay could still mark the run unverified. Questions and
+  writing/explanation requests (`how…`, `why…`, `explain…`, `write…`, `如何/怎么/解释…`, trailing `?`) are no
+  longer treated as asks to verify; imperative asks ("run the tests", "fix the failing test and run npm
+  test", "跑一下测试") still are. Real re-run finishes with a clean `✻ worked for 2s`.
+
+### 解释类请求不算验证请求（B300）
+
+- 延续 B299："write a 4-line essay about how to check tests" 会命中验证请求启发式（`check … tests`），
+  文章里的句子仍可能把运行判成未验证。现在疑问句与写作/解释类请求（`how…`、`why…`、`explain…`、`write…`、
+  `如何/怎么/解释…`、结尾 `?`）不再算"要求验证"；命令式请求（`run the tests`、`fix … and run npm test`、
+  `跑一下测试`）仍然算。真实复跑收尾为干净的 `✻ worked for 2s`。
+
 ### An essay about tests is no longer "unverified" (B299)
 
 - A real "write a 400-line essay about software testing" run was marked

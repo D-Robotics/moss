@@ -777,6 +777,13 @@ ok('a hook-ask approval is labelled as this-time, not session-wide');
   );
   assert.equal(outcome.requestMentionsVerification('run the tests and tell me the result'), true);
   assert.equal(outcome.requestMentionsVerification('跑一下测试并告诉我结果'), true);
+  // B300: writing/explaining about verification is not an ask to verify.
+  assert.equal(
+    outcome.requestMentionsVerification('write an essay about how to check tests'),
+    false
+  );
+  assert.equal(outcome.requestMentionsVerification('how do I run the tests?'), false);
+  assert.equal(outcome.requestMentionsVerification('fix the failing test and run npm test'), true);
 
   const essayText =
     'The test passes, the system is wrong, and nobody noticed because the expected value was copied.';

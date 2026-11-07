@@ -48,6 +48,16 @@ export {
  */
 export function requestMentionsVerification(request: string | undefined): boolean {
   if (!request) return false;
+  // A question or a writing/explanation about verification ("how to check
+  // tests", "write an essay about running tests") does not oblige this run to
+  // prove anything; only an ask to actually verify does.
+  if (
+    /^\s*(?:how|why|what|which|when|explain|describe|write|summari[sz]e|draft|document)\b|^\s*(?:如何|怎么|为什么|解释|说明|写(?:一|个|篇)?)|[?？]\s*$/i.test(
+      request
+    )
+  ) {
+    return false;
+  }
   return /\b(?:run|rerun|re-run|check|verify|make)\b[^.\n。]{0,24}\b(?:tests?|checks?|lint|type[- ]?check|build|suite)\b|\ball\s+(?:the\s+)?tests?\b|(?:跑|运行|执行|检查|验证)[^。\n]{0,12}(?:测试|检查|构建)|全部(?:测试|检查)/i.test(
     request
   );
