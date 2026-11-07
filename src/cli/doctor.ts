@@ -164,6 +164,47 @@ export function fail(label: string, detail: string): string {
   return `  fail  ${label}${doctorSep()} ${detail}`;
 }
 
+export interface DoctorJsonCheck {
+  status: 'ok' | 'warn' | 'fail';
+  label: string;
+  detail: string;
+}
+
+export interface DoctorJsonReport {
+  schema: 'moss_doctor.v1';
+  ok: boolean;
+  checks: DoctorJsonCheck[];
+}
+
+/**
+ * B316: `moss doctor --json` — the rendered report is one `status  label: detail`
+ * line per check; expose the same facts structurally instead of making scripts
+ * scrape the human text.
+ */
+export function doctorReportToJson(report: string): DoctorJsonReport {
+  const checks: DoctorJsonCheck[] = [];
+  for (const line of report.split('\n')) {
+    const match = /^\s{2}(ok|warn|fail)\s{2,}(.+)$/.exec(line);
+    if (match) {
+      const status = match[1] as DoctorJsonCheck['status'];
+      const body = (match[2] ?? '').trim();
+      const separator = body.indexOf(': ');
+      checks.push(
+        separator >= 0
+          ? { status, label: body.slice(0, separator), detail: body.slice(separator + 2) }
+          : { status, label: body, detail: '' }
+      );
+      continue;
+    }
+    // Indented continuation lines belong to the previous check's detail.
+    const previous = checks[checks.length - 1];
+    if (previous && /^\s{4,}\S/.test(line)) {
+      previous.detail = `${previous.detail} ${line.trim()}`.trim();
+    }
+  }
+  return { schema: 'moss_doctor.v1', ok: !checks.some((check) => check.status === 'fail'), checks };
+}
+
 export function cliDoctorHasFailure(report: string): boolean {
   return report.split('\n').some((line) => line.startsWith('  fail '));
 }

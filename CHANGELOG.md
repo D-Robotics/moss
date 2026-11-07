@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `moss doctor --json` (B316)
+
+- The last read command without a machine-readable view now has one: `moss doctor --json` emits
+  `moss_doctor.v1` (`{ok, checks:[{status: ok|warn|fail, label, detail}]}`), parsed from the same rendered
+  report (`ok` iff no `fail`), and exits 1 when a `fail` is present. The doctor stage asserts the schema and
+  that the behavior checks (`images` / `review mode` / `verification gate`) appear in the JSON.
+
+### `moss doctor --json`（B316）
+
+- 最后一个没有机器可读视图的只读命令补齐：`moss doctor --json` 输出 `moss_doctor.v1`
+  （`{ok, checks:[{status: ok|warn|fail, label, detail}]}`），与人类报告同源（无 `fail` 则 `ok`），有 `fail` 时 exit 1。
+  doctor 阶段会断言 schema 与行为检查（`images` / `review mode` / `verification gate`）出现在 JSON 中。
+
 ### `update --json` and a read-only `uninstall --json` (B315)
 
 - `moss update --json` emits `moss_update.v1` (`{kind, root, commands, missingSource?}`) instead of a

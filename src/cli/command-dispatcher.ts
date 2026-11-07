@@ -864,7 +864,8 @@ export const COMMANDS: Record<string, CommandConfig> = {
       // the subcommand silently did nothing (renderCliDoctor was dead code).
       // Wire it now: build DoctorOptions from the resolved config + workspace
       // and print the report.
-      const { renderCliDoctor, cliDoctorHasFailure } = await import('./doctor.js');
+      const { renderCliDoctor, cliDoctorHasFailure, doctorReportToJson } =
+        await import('./doctor.js');
       const { resolveCliDetailMode } = await import('./output.js');
       const { getPackageVersion } = await import('./package-info.js');
       const path = await import('node:path');
@@ -881,6 +882,12 @@ export const COMMANDS: Record<string, CommandConfig> = {
         safetyMode: String(config.safetyMode),
         detailMode: resolveCliDetailMode(),
       });
+      if (ctx.argv.includes('--json')) {
+        const json = doctorReportToJson(report);
+        console.log(JSON.stringify(json, null, 2));
+        if (!json.ok) process.exitCode = 1;
+        return;
+      }
       console.error(report);
       if (cliDoctorHasFailure(report)) process.exitCode = 1;
     },

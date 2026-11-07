@@ -65,8 +65,50 @@ export const stage = {
           detail: `moss doctor missing: ${missing.join(' | ')}`,
         };
       }
+      // B316: the same facts are available structurally.
+      const jsonRun = await captureProcess(
+        process.execPath,
+        [path.join(context.root, 'dist', 'cli.js'), 'doctor', '--json'],
+        {
+          cwd: home,
+          env: {
+            ...process.env,
+            HOME: home,
+            MOSS_CONFIG_DIR: configDir,
+            MOSS_NO_RDK_DOCS: '1',
+            MOSS_VERIFICATION_GATE: '0',
+            MOSS_LANG: 'en',
+          },
+          timeoutMs: 90_000,
+        }
+      );
+      let json;
+      try {
+        json = JSON.parse(jsonRun.stdout);
+      } catch {
+        return { ok: false, detail: 'moss doctor --json did not print JSON' };
+      }
+      if (json.schema !== 'moss_doctor.v1' || !Array.isArray(json.checks)) {
+        return {
+          ok: false,
+          detail: `unexpected doctor JSON shape: ${jsonRun.stdout.slice(0, 200)}`,
+        };
+      }
+      const labels = new Set(json.checks.map((check) => check.label));
+      const missingJson = ['images', 'review mode', 'verification gate'].filter(
+        (label) => !labels.has(label)
+      );
+      if (missingJson.length > 0) {
+        return {
+          ok: false,
+          detail: `moss doctor --json missing checks: ${missingJson.join(' | ')}`,
+        };
+      }
+      if (json.ok === false && jsonRun.status === 0) {
+        return { ok: false, detail: 'doctor JSON says not ok but exited 0' };
+      }
       console.log(
-        `[doctor-behavior] behavior block rendered in ${formatDuration(Date.now() - started)}`
+        `[doctor-behavior] behavior block rendered in ${formatDuration(Date.now() - started)} (json ${json.checks.length} checks)`
       );
       return { ok: true };
     } finally {
