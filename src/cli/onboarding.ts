@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaultSkillDirSpecs, loadSkillCatalog } from '../core/skills/skill-registry.js';
+import { countRememberedFacts } from './remember-command.js';
 import type { MossAgent } from '../core/index.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import {
@@ -491,6 +492,16 @@ export function renderCliStatus(
 ): string {
   const rt = runtimeWithDefaults(runtime);
   const memoryCount = countJsonIndex(path.join(rt.runtimeDir, 'memory', 'index.json'));
+  // B311: the first screen counts explicit memory in AGENTS.md; /status showed
+  // only the tool-memory index, so a project with remembered facts read 0.
+  let agentsFacts = 0;
+  try {
+    agentsFacts = countRememberedFacts(
+      fs.readFileSync(path.join(rt.workspace, 'AGENTS.md'), 'utf8')
+    );
+  } catch {
+    agentsFacts = 0;
+  }
   // B310: one discovery order for the number `/status` reports — the same
   // helper the first screen and /capabilities use.
   const skillCount = loadSkillCatalog(defaultSkillDirSpecs(rt.workspace, rt.configDir)).length;
@@ -563,6 +574,7 @@ export function renderCliStatus(
     ]),
     `  ${label(zh ? '执行' : 'exec')} ${rt.execBackend}`,
     `  ${label(zh ? '记忆' : 'memory')} ${memoryCount} ${zh ? '条' : 'entries'}`,
+    `  ${label('AGENTS.md')} ${agentsFacts} ${zh ? '条记忆' : agentsFacts === 1 ? 'fact' : 'facts'}`,
     `  ${label(zh ? '技能' : 'skills')} ${skillCount}`,
     `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size}${zh ? '（' : ' ('}${toolGroups.map((g) => groupTitle(g.title)).join(zh ? '、' : ', ')}${zh ? '）' : ')'}`,
   ].join('\n');

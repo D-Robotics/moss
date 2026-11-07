@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `/status --verbose` names explicit memory next to the tool-memory index (B311)
+
+- A project with two remembered facts showed `memory: 0 entries` in `/status --verbose` (that line counts the
+  tool-memory index). The report now adds `AGENTS.md: 2 facts`, matching the first screen's
+  `AGENTS.md · 2 facts`, so the two kinds of memory are named instead of conflated.
+
+### `/status --verbose` 把显式记忆与工具记忆分开显示（B311）
+
+- 有两条 remembered facts 的项目在 `/status --verbose` 里只显示 `memory: 0 entries`（该行数的是工具记忆索引）。
+  现在额外显示 `AGENTS.md: 2 facts`，与首屏的 `AGENTS.md · 2 facts` 一致，两类记忆不再混为一谈。
+
 ### `/status --verbose` reports the same skill count as the first screen (B310)
 
 - The status report counted only markdown files directly under `.moss/skills`, so a real session said
