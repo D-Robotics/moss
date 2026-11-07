@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Keep agent and slide artifacts out of `git status` (B363)
+
+- This long session left two untracked directories in every `git status`: `.autopilot/` (agent evidence)
+  and `docs/assets/moss-core-architecture/` (9.7 MB slide assets produced by another session). Both are now
+  ignored, so the working tree is clean and neither can be staged by accident.
+
+### 把 agent 与幻灯片工件排除出 `git status`（B363）
+
+- 这次长会话让每次 `git status` 都带两个未跟踪目录：`.autopilot/`（代理证据）与
+  `docs/assets/moss-core-architecture/`（另一会话生成的 9.7MB 幻灯片素材）。两者现已加入 `.gitignore`，工作树保持干净，
+  也不会再被误提交。
+
 ### Final full-set bench: 80/81 (98.8%), and the last miss is fixed (B360/B361)
 
 - After the B355/B356 fixes, the full 31-task × 3-sample run scores **80/81 = 98.8%** (hard 97.2, easy 100,
