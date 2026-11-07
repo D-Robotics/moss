@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `skill validate --json` (B320)
+
+- The last skill command without a machine-readable report now has one:
+  `moss_skill_validate.v1` with `{ok, file, skill:{name,scope,dir,legacyName,descriptionChars,when,globs,
+resources,allowedTools,issues,evals}}` on success, or `{ok:false, error: skipped|not-found|missing-file|
+unparseable, …}` with the same exit codes as the human path (1 / 2).
+
+### `skill validate --json`（B320）
+
+- 最后一个没有机器可读报告的技能命令补齐：成功时输出 `moss_skill_validate.v1`
+  （`{ok, file, skill:{name,scope,dir,legacyName,descriptionChars,when,globs,resources,allowedTools,issues,evals}}`），
+  失败时输出 `{ok:false, error: skipped|not-found|missing-file|unparseable, …}`，退出码与人类路径一致（1 / 2）。
+
 ### A tiny window's `/compact` no-op explains itself (B319)
 
 - With `agent.contextTokens` smaller than the base prompt+tools, the live hint said `context 152% full — …

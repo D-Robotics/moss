@@ -291,8 +291,14 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
 
   if (sub === 'validate') {
     const target = argv[1];
+    // B320: editors/CI want the report structurally, not as prose.
+    const validateJson = ctx.json === true || argv.includes('--json');
+    const emitValidateJson = (payload: Record<string, unknown>): void => {
+      out(JSON.stringify({ schema: 'moss_skill_validate.v1', target: target ?? '', ...payload }));
+    };
     if (!target) {
-      err(renderSkillUsage(zh));
+      if (validateJson) emitValidateJson({ ok: false, error: 'no-target' });
+      else err(renderSkillUsage(zh));
       return 2;
     }
     const { readSkillManifest, loadSkillCatalog } =
@@ -321,27 +327,73 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
         if (direct) file = direct;
       }
       if (!fs.existsSync(file)) {
-        err(`moss skill validate: no skill named "${target}" in:`);
-        for (const d of dirs) err(`  ${d.dir} (${d.scope})`);
-        err('Pass a path instead if the skill lives somewhere else.');
+        if (validateJson) {
+          emitValidateJson({ ok: false, error: 'not-found', searched: dirs });
+        } else {
+          err(`moss skill validate: no skill named "${target}" in:`);
+          for (const d of dirs) err(`  ${d.dir} (${d.scope})`);
+          err('Pass a path instead if the skill lives somewhere else.');
+        }
         return 2;
       }
     }
     if (!fs.existsSync(file)) {
-      err(`moss skill validate: no SKILL.md at ${file}`);
+      if (validateJson) emitValidateJson({ ok: false, error: 'missing-file', file });
+      else err(`moss skill validate: no SKILL.md at ${file}`);
       return 2;
     }
     const parsed = readSkillManifest(file, path.basename(path.dirname(file)), 'workspace');
     if (parsed.skip) {
-      err(`moss skill validate: not a loadable skill (${parsed.skip.reason}): ${file}`);
-      if (parsed.skip.detail) err(`  ${parsed.skip.detail}`);
-      for (const issue of parsed.issues) err(`  [${issue.code}] ${issue.message}`);
+      if (validateJson) {
+        emitValidateJson({
+          ok: false,
+          error: 'skipped',
+          file,
+          skip: {
+            reason: parsed.skip.reason,
+            ...(parsed.skip.detail ? { detail: parsed.skip.detail } : {}),
+          },
+          issues: parsed.issues,
+        });
+      } else {
+        err(`moss skill validate: not a loadable skill (${parsed.skip.reason}): ${file}`);
+        if (parsed.skip.detail) err(`  ${parsed.skip.detail}`);
+        for (const issue of parsed.issues) err(`  [${issue.code}] ${issue.message}`);
+      }
       return 1;
     }
     const skill = parsed.manifest;
     if (!skill) {
-      err(`moss skill validate: could not parse ${file}`);
+      if (validateJson) emitValidateJson({ ok: false, error: 'unparseable', file });
+      else err(`moss skill validate: could not parse ${file}`);
       return 1;
+    }
+    if (validateJson) {
+      const { loadSkillEvals } = await import('../core/skills/skill-evals.js');
+      const evals = loadSkillEvals(skill.dir);
+      emitValidateJson({
+        ok: true,
+        file,
+        skill: {
+          name: skill.name,
+          scope: skill.scope,
+          dir: skill.dir,
+          legacyName: skill.legacy === true,
+          descriptionChars: skill.description.length,
+          when: skill.when ?? null,
+          globs: [...skill.globs],
+          resources: {
+            scripts: skill.resources.scripts.length,
+            references: skill.resources.references.length,
+            assets: skill.resources.assets.length,
+            evals: Boolean(skill.resources.evals),
+          },
+          allowedTools: [...skill.allowedTools],
+          issues: skill.issues,
+          evals: { cases: evals.cases.length },
+        },
+      });
+      return 0;
     }
     out(`${zh ? '技能' : 'skill'}: ${skill.name}`);
     out(`${zh ? '来源' : 'source'}: ${skill.scope} ${skill.dir}`);

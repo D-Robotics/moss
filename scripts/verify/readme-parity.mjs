@@ -144,6 +144,7 @@ ok('the language switch links both ways');
     'moss_update.v1',
     'moss_uninstall.v1',
     'moss_doctor.v1',
+    'moss_skill_validate.v1',
   ]) {
     assert.ok(ref.includes(required), `docs/cli-reference.md lost \`${required}\``);
   }

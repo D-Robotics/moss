@@ -205,6 +205,23 @@ try {
   }
   ok('update/uninstall JSON plans are structured and uninstall is read-only');
 
+  // 2g. B320: skill validate reports structurally too.
+  {
+    const valid = await cli(['skill', 'validate', 'alpha', '--json']);
+    assert.equal(valid.status, 0, valid.stderr);
+    const validJson = JSON.parse(valid.stdout);
+    assert.equal(validJson.schema, 'moss_skill_validate.v1');
+    assert.equal(validJson.ok, true);
+    assert.equal(validJson.skill.name, 'alpha');
+
+    const missing = await cli(['skill', 'validate', 'nope', '--json']);
+    assert.equal(missing.status, 2);
+    const missingJson = JSON.parse(missing.stdout);
+    assert.equal(missingJson.ok, false);
+    assert.equal(missingJson.error, 'not-found');
+  }
+  ok('skill validate --json reports valid and not-found structurally');
+
   // 2d. B291: with the builtin rdk-docs auto-connected, /capabilities and
   // `mcp list` must name the same servers (they used different resolvers).
   {
