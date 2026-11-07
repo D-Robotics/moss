@@ -769,6 +769,44 @@ ok('compact says one line for an empty conversation');
 }
 ok('a hook-ask approval is labelled as this-time, not session-wide');
 
+// 5w. B299: prose about tests is not a claim that this run verified anything.
+{
+  assert.equal(
+    outcome.requestMentionsVerification('write a 400-line essay about software testing'),
+    false
+  );
+  assert.equal(outcome.requestMentionsVerification('run the tests and tell me the result'), true);
+  assert.equal(outcome.requestMentionsVerification('跑一下测试并告诉我结果'), true);
+
+  const essayText =
+    'The test passes, the system is wrong, and nobody noticed because the expected value was copied.';
+  const essayTracker = outcome.createRunCompletionTracker();
+  const essay = outcome.resolveRunOutcome({
+    tracker: essayTracker,
+    finalText: essayText,
+    request: 'write a 400-line essay about software testing. no tools.',
+  });
+  assert.equal(essay.status, 'completed', essay.reason);
+
+  const claimTracker = outcome.createRunCompletionTracker();
+  claimTracker.lastStep = 'exec: node --test';
+  const claim = outcome.resolveRunOutcome({
+    tracker: claimTracker,
+    finalText: 'All tests pass (2/2).',
+    request: 'fix the failing test',
+  });
+  assert.match(claim.reason, /claimed checks passed/);
+
+  const askedTracker = outcome.createRunCompletionTracker();
+  const asked = outcome.resolveRunOutcome({
+    tracker: askedTracker,
+    finalText: 'All tests pass (2/2).',
+    request: 'run the tests and tell me the result',
+  });
+  assert.equal(asked.status, 'unverified');
+}
+ok('an explanation about tests is not judged as an unverified claim');
+
 // 6. B194: the status row labels each number instead of imploding.
 {
   const en = statusLine.formatStatusLine({

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### An essay about tests is no longer "unverified" (B299)
+
+- A real "write a 400-line essay about software testing" run was marked
+  `Unverified: claimed checks passed, but no check was run: test` because a sentence of the essay said
+  "The test passes…". Check-claims now only count when the run actually had a tool step or the request
+  asked for verification (`run/check/verify … tests/lint/build`, `跑测试`); an explanation or essay that
+  merely talks about tests stays `completed`.
+
+### 关于测试的文章不再被判成"未验证"（B299）
+
+- 真实 "write a 400-line essay about software testing" 运行被判
+  `Unverified: claimed checks passed, but no check was run: test`，原因只是文章里有一句
+  "The test passes…"。现在只有本次运行有工具步骤、或请求本身要求验证
+  （`run/check/verify … tests/lint/build`、`跑测试`）时才检测 check 声明；纯解释/文章保持 `completed`。
+
 ### A hook ask's "this time" choice is labelled as such (B298)
 
 - The PreToolUse-hook confirmation relabels option 2 to "Yes, this time (the hook will ask again next
