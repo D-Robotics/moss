@@ -738,7 +738,10 @@ export const COMMANDS: Record<string, CommandConfig> = {
     description: 'Print the upgrade command for this install (does not run it)',
     handler: async (ctx) => {
       const { runUpdateCommand } = await import('./update-command.js');
-      runUpdateCommand(undefined, ctx.commandArgs);
+      runUpdateCommand(undefined, [
+        ...ctx.commandArgs,
+        ...(ctx.argv.includes('--json') ? ['--json'] : []),
+      ]);
     },
   },
 
@@ -746,9 +749,9 @@ export const COMMANDS: Record<string, CommandConfig> = {
     name: 'uninstall',
     phase: CliPhase.None,
     description: 'Print removal paths and optionally delete the config directory',
-    handler: async () => {
+    handler: async (ctx) => {
       const { runUninstall } = await import('./uninstall.js');
-      await runUninstall();
+      await runUninstall({ ...(ctx.argv.includes('--json') ? { json: true } : {}) });
     },
   },
 

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `update --json` and a read-only `uninstall --json` (B315)
+
+- `moss update --json` emits `moss_update.v1` (`{kind, root, commands, missingSource?}`) instead of a
+  sentence, and `moss uninstall --json` emits `moss_uninstall.v1` with the exact paths it would touch —
+  and never deletes anything (`deletedConfig: false`, config dir untouched), so provisioning scripts can
+  inspect before acting.
+
+### `update --json` 与只读的 `uninstall --json`（B315）
+
+- `moss update --json` 输出 `moss_update.v1`（`{kind, root, commands, missingSource?}`）而不是一句说明；
+  `moss uninstall --json` 输出 `moss_uninstall.v1`，列出会触碰的精确路径，且**不删除任何东西**
+  （`deletedConfig: false`，配置目录保持不变），便于脚本先检查再行动。
+
 ### `auth status --json` and `trust list --json` (B314)
 
 - Two read commands still printed prose to scripts that passed `--json`. `auth status --json` now emits

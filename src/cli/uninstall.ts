@@ -23,6 +23,8 @@ export interface UninstallPlan {
 }
 
 export interface UninstallIo {
+  /** Print the plan as JSON and never delete anything (B315). */
+  json?: boolean;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   cwd?: string;
@@ -227,6 +229,31 @@ export async function runUninstall(io: UninstallIo = {}): Promise<{ deletedConfi
   const cwd = io.cwd ?? process.cwd();
   const log = io.log ?? ((line: string) => console.log(line));
   const plan = uninstallPlan(env, platform);
+  if (io.json === true) {
+    const refusal = configDirDeletionRefusal(plan.configDir, env, platform, cwd);
+    const listed =
+      !refusal && fs.existsSync(plan.configDir)
+        ? mossConfigDeletionList(plan.configDir, env)
+        : undefined;
+    log(
+      JSON.stringify(
+        {
+          schema: 'moss_uninstall.v1',
+          globalPackageCommand: plan.globalPackageCommand,
+          packageJsonPath: plan.packageJsonPath,
+          mossHome: plan.mossHome,
+          configDir: plan.configDir,
+          configDirExists: fs.existsSync(plan.configDir),
+          ...(refusal ? { refusal } : {}),
+          ...(listed && !('refusal' in listed) ? { willDelete: listed.paths } : {}),
+          deletedConfig: false,
+        },
+        null,
+        2
+      )
+    );
+    return { deletedConfig: false };
+  }
   log(renderUninstallPlan(plan));
 
   const refusal = configDirDeletionRefusal(plan.configDir, env, platform, cwd);

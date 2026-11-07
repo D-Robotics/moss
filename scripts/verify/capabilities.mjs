@@ -187,6 +187,24 @@ try {
   }
   ok('auth status / trust list emit JSON for scripts');
 
+  // 2f. B315: update/uninstall publish their plans; uninstall --json is read-only.
+  {
+    const update = await cli(['update', '--json']);
+    assert.equal(update.status, 0, update.stderr);
+    const updateJson = JSON.parse(update.stdout);
+    assert.equal(updateJson.schema, 'moss_update.v1');
+    assert.ok(Array.isArray(updateJson.commands) && updateJson.commands.length > 0);
+
+    const uninstall = await cli(['uninstall', '--json']);
+    assert.equal(uninstall.status, 0, uninstall.stderr);
+    const uninstallJson = JSON.parse(uninstall.stdout);
+    assert.equal(uninstallJson.schema, 'moss_uninstall.v1');
+    assert.equal(uninstallJson.deletedConfig, false);
+    assert.equal(uninstallJson.configDir, configDir);
+    await fs.access(configDir);
+  }
+  ok('update/uninstall JSON plans are structured and uninstall is read-only');
+
   // 2d. B291: with the builtin rdk-docs auto-connected, /capabilities and
   // `mcp list` must name the same servers (they used different resolvers).
   {

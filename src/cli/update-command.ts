@@ -145,6 +145,9 @@ export function parseUpdateArgs(args: readonly string[]): {
       dir = value;
       continue;
     }
+    // B315: the JSON mode is read by runUpdateCommand; the parser only needs to
+    // accept the flag instead of rejecting it as unknown.
+    if (arg === '--json') continue;
     return { error: { code: 'unknown', token: arg } };
   }
   return dir ? { dir } : {};
@@ -404,6 +407,24 @@ export function runUpdateCommand(
     cwd: process.cwd(),
     ...(sourceDir ? { sourceDir } : {}),
   });
+  if (args.includes('--json')) {
+    // B315: scripts get the method and the exact commands, never a sentence.
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          schema: 'moss_update.v1',
+          kind: advice.kind,
+          root: advice.root,
+          commands: [...advice.commands],
+          ...(advice.missingSource ? { missingSource: true } : {}),
+        },
+        null,
+        2
+      )}\n`
+    );
+    if (advice.missingSource) process.exitCode = ExitCode.USAGE;
+    return;
+  }
   process.stdout.write(`${renderUpdateAdvice(advice, zh)}\n`);
   if (advice.missingSource) process.exitCode = ExitCode.USAGE;
 }
