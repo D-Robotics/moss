@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Contradictory requirements are reported; only missing cited docs are asked about (B341)
+
+- A full diagnostic bench (31 tasks, 1 sample) scored 26/27 (hard 91.7, easy 100, weighted 94.1). The one FAIL,
+  `hard-spec-contradiction`, was behavioral: the model detected the conflict and asked which requirement wins
+  instead of writing `SPEC-AUDIT.md`, because the soft spec-audit nudge says "missing cited authority → ask".
+  The system prompt now draws the line explicitly: requirements that contradict each other are already
+  auditable — write `SPEC-AUDIT.md` and finish; ask once only when a specific cited document is missing from
+  the workspace. The task reruns PASS (5 turns) on real deepseek-flash.
+
+### 矛盾需求要报告；只有"被引用的文档缺失"才提问（B341）
+
+- 全量诊断 bench（31 任务 × 1 样本）得 26/27（hard 91.7、easy 100、weighted 94.1）。唯一 FAIL
+  `hard-spec-contradiction` 属行为问题：模型识别出冲突后选择了"问哪条优先"，而不是写 `SPEC-AUDIT.md`，
+  原因是软性 spec-audit nudge 写了"被引用权威缺失 → 提问"。系统提示词现在明确划线：**需求之间互相矛盾本身就是可审计的**
+  ——写 `SPEC-AUDIT.md` 并收尾；只有任务引用了工作区里不存在的具体文档时才问一次。该任务用真实
+  deepseek-flash 重跑 PASS（5 回合）。
+
 ### Benchmark harness: authority fixture, safe run ids, concurrent-run guard (B340)
 
 - `hard-contradictory-validation` expected `SPEC-AUDIT.md` while the agent was told to ask one question when the
