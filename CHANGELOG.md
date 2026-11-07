@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### One-shot `moss device test/fleet` exits instead of hanging on the SSH socket (B368)
+
+- With a real RDK X5 reachable, `moss device test rdk-x5` printed the full probe
+  (`MODEL|D-Robotics RDK X5 V1.0`, OS, cores, memory) and then **never returned**: the cached SSH
+  connection kept the event loop alive, so the command had to be killed. The CLI device handler now
+  releases connections with `disconnectAllDevices()` in a `finally`, so the same command exits 0
+  immediately. `moss device fleet info|resources --devices rdk-x5` verified on the real board as well.
+
+### 一次性 `moss device test/fleet` 不再因 SSH socket 挂住（B368）
+
+- 在真实 RDK X5 可连通的环境里，`moss device test rdk-x5` 打印完整探测结果
+  （`MODEL|D-Robotics RDK X5 V1.0`、OS、核数、内存）后**不退出**：缓存的 SSH 连接让事件循环一直活着，只能被杀掉。
+  CLI device handler 现在在 `finally` 里调用 `disconnectAllDevices()` 释放连接，同一条命令立即 exit 0。
+  `moss device fleet info|resources --devices rdk-x5` 也在真机上验证通过。
+
 ### Release tarball install verified (B365)
 
 - `npm pack` produces a 1.9 MB tarball (1113 files, `dist/` + bin included). Installing it into a temp global

@@ -697,10 +697,20 @@ export const COMMANDS: Record<string, CommandConfig> = {
         process.exitCode = ExitCode.USAGE;
         return;
       }
-      const code = await runDeviceCommand(ctx.commandArgs, {
-        workspaceDir: workspace,
-        json: ctx.argv.includes('--json'),
-      });
+      const { disconnectAllDevices } = await import('../device/device-registry.js');
+      let code = 0;
+      try {
+        code = await runDeviceCommand(ctx.commandArgs, {
+          workspaceDir: workspace,
+          json: ctx.argv.includes('--json'),
+        });
+      } finally {
+        // B368: a one-shot `moss device test/fleet` printed its result but the
+        // cached SSH connection kept the event loop alive — the command hung
+        // until killed. The REPL/TUI own the connection for their session;
+        // a CLI subcommand must release it before returning.
+        await disconnectAllDevices();
+      }
       if (code !== 0) process.exitCode = code;
     },
     description: 'Manage devices: add/list/remove/test (.moss/devices.json registry)',
