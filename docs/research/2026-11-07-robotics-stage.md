@@ -26,6 +26,11 @@
 - **Moss goal → X5 BPU 闭环**：真实 goal 驱动板上 `gen_I2004_ForTest2k_1x1088x2048x3.hbm` 推理，evidence `bpu_test -> bpu0 test sucess · pass`、`cleanup_done -> true · pass`，Task PASS exit 0 turns 1。
 - **ASPIRE 运动栈**：`motion_sanity.py`（pyroki+curobo）在 LIBERO `cap-harness run` → `program_ok=true · 12 steps · 0.6s`。
 
+## 最终真机基准（B381）
+
+16 任务全量串行：**15/15 = 100.0%**（falseSuccess=0 · core 4/4 · 全部 1 turn · camera 按缺硬件 SKIP）。
+维度：系统巡检 4 + 变更回滚 5 + 网络 1 + ROS2 1 + NPU 2 + TROS AI 2 + 相机 1。
+
 ## 阻塞与下一步
 
 1. **SAM3 HF token（等用户）**：gated `facebook/sam3`；拿到后 `supervise_services.sh --providers sam3,…` 即可全栈，再跑 LIBERO-Pro Goal-Swap 10 任务。
