@@ -20,6 +20,9 @@ const {
   formatAgo,
   welcomeComposerSuggestion,
 } = await import(pathToFileURL(path.join(root, 'dist/cli/onboarding.js')).href);
+const { renderFirstRunLines } = await import(
+  pathToFileURL(path.join(root, 'dist/cli/first-run.js')).href
+);
 
 let checks = 0;
 const ok = (name) => {
@@ -329,5 +332,15 @@ try {
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }
+
+// 20. B328: the blocking first-run provider picker says how to leave it.
+{
+  const providerView = { step: 'provider', offers: [], cursor: 0 };
+  const en = renderFirstRunLines(providerView, 'en').join('\n');
+  assert.match(en, /Ctrl\+C exits without saving\./);
+  const zh = renderFirstRunLines(providerView, 'zh').join('\n');
+  assert.match(zh, /Ctrl\+C 退出，不保存/);
+}
+ok('the provider picker names Ctrl+C as the exit');
 
 console.log(`[welcome-context] ${checks}/${checks} checks passed`);

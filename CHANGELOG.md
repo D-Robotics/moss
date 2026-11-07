@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The first-run provider picker says how to leave (B328)
+
+- A fresh TUI showed the blocking `Choose a model provider` picker with no way out documented (Esc has no
+  back target before a provider exists). It now ends with `Ctrl+C exits without saving.` (zh:
+  `Ctrl+C 退出，不保存。`); a first-run regression probe renders the view in both locales.
+
+### 首次运行的 provider 选择器说明如何退出（B328）
+
+- 全新 TUI 的 `Choose a model provider` 是阻塞选择器，却没有写退出方式（provider 未定前 Esc 无处可退）。现在末尾
+  显示 `Ctrl+C exits without saving.`（中文：`Ctrl+C 退出，不保存。`）；首次运行回归探针中英文各渲染一次。
+
 ### Doctor's JSON and exit code are one contract (B326)
 
 - `moss doctor --json` on a temp HOME without an API key really returns `ok:false` and exits 1 (auth `fail`).
