@@ -116,16 +116,9 @@ export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]
         }
       }
     }
-    if (Array.isArray(msg.thinking) && msg.thinking.length) {
-      lines.push(
-        '<details><summary>thinking</summary>',
-        '',
-        msg.thinking.join('\n'),
-        '',
-        '</details>',
-        ''
-      );
-    }
+    // B322: the markdown export is the shareable conversation (PR/CI); model
+    // reasoning stays out of it. `sessions export --format json` keeps the raw
+    // record for tooling.
   }
   return lines
     .join('\n')

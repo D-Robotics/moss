@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Markdown session export is the conversation, not the model's reasoning (B322)
+
+- `/export -` (and `moss sessions export`, which share the renderer) printed each reply's reasoning as a
+  `<details><summary>thinking</summary>` block. Exports go to PRs/CI where that is noise (and model-private);
+  the markdown now contains only user/assistant text and tool blocks. `--format json` still keeps the raw
+  record for tooling. Real TUI `/export -` shows only the two conversation blocks.
+
+### Markdown 会话导出只含对话，不含模型推理（B322）
+
+- `/export -`（与 `moss sessions export` 共用渲染器）会把每条回复的推理打印成
+  `<details><summary>thinking</summary>` 块。导出面向 PR/CI，这些是噪音（也是模型私有内容）；现在 markdown
+  只含用户/助手文本与工具块，`--format json` 仍保留原始记录。真实 TUI `/export -` 只剩两个对话块。
+
 ### `/remember` writes from the TUI after a confirming dialog (B321)
 
 - In-session `/remember <fact>` only printed the preview and told the user to leave and run

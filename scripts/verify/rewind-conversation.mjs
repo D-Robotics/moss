@@ -312,6 +312,18 @@ try {
   assert.match(internalMarkdown, /_3 message\(s\) · exported from moss\._/);
   assert.equal(countExportableSessionMessages(await store.loadMessages('s1')), 3);
   assert.deepEqual(await searchSessions(store, 'Long tool loop'), []);
+
+  // B322: model reasoning is not conversation; the markdown export is what a
+  // PR/CI reader sees, so thinking stays out of it.
+  await store.appendMessage('s1', {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Shipped.' }],
+    thinking: ['secret chain of thought'],
+    timestamp: Date.now(),
+  });
+  const withThinking = renderSessionMarkdown('s1', await store.loadMessages('s1'));
+  assert.match(withThinking, /Shipped\./);
+  assert.doesNotMatch(withThinking, /secret chain of thought|<summary>thinking/);
   ok('session export/search strip internal [System] and [Steering] turns');
 }
 
