@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Closeout audit records the delivery state (B364)
+
+- The alignment closeout now ends with a delivery-state table: 378 backlog records, 106 verify stages
+  (98 probe scripts), README 253/258 lines inside the page budget, full-set bench 80/81 = 98.8%,
+  CI and Deep verification green, clean working tree — plus the explicit environment/design boundaries
+  (Windows behavior leg, device tasks, gateway long tail, exec cwd semantics) that remain.
+
+### 收敛审计记录交付状态（B364）
+
+- 对齐 closeout 末尾新增交付状态表：378 条 backlog 记录、106 个 verify stage（98 个探针脚本）、
+  README 253/258 行（页内预算内）、全量 bench 80/81 = 98.8%、CI 与 Deep 门禁全绿、工作树干净；
+  并列出仍是环境/设计边界（Windows 行为腿、设备任务、网关长尾、exec cwd 语义）。
+
 ### Keep agent and slide artifacts out of `git status` (B363)
 
 - This long session left two untracked directories in every `git status`: `.autopilot/` (agent evidence)

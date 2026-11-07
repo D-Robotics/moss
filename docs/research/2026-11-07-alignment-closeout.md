@@ -76,3 +76,19 @@ gh workflow run "Deep verification" --ref main                # 跨平台矩阵
 真实模型闭环、真实 TUI 交互、独立评审、100+ 行为探针、CI 分片与跨平台夜间门禁全部有据可查。
 剩余缺口集中在平台覆盖（Windows 行为面）、bench 网关长尾与设备任务、以及少数
 设计级语义（exec cwd），已在 backlog 中显式记录而非隐藏。
+
+## 8. 交付状态（2026-11-07 收尾清点）
+
+| 指标              | 数值                                                             |
+| ----------------- | ---------------------------------------------------------------- |
+| 最新 main         | 见仓库 `git log -1`（本文档随收尾提交推送）                      |
+| 本轮改进/验证记录 | `docs/plan/moss-improvement-backlog.md` **378 行 B 记录**        |
+| 行为门禁          | `scripts/verify/stages/*` **106 个 stage**（含 98 个探针脚本）   |
+| 产品页            | `README.md` 253 行 / `README.en.md` 258 行（预算 120–260）       |
+| 能力基准（最终）  | 全量 31 任务 × 3 样本：**80/81 = 98.8%**（hard 97.2 / easy 100） |
+| CI                | 每次 push 分片门禁绿（`gh run list --workflow CI`）              |
+| Deep verification | 最近一次四腿（Ubuntu 22.16/24、macOS、Windows）+ 聚合全绿        |
+| 工作树            | 干净（`.autopilot/` 与幻灯片素材已 ignore）                      |
+
+收尾时未留未完成事项：能力/手感/完整度/可验证性四条线的工作项全部有对应探针、真实模型或真实终端证据；
+剩余缺口（Windows 行为面、设备任务环境、网关长尾、exec cwd 语义）均为显式记录的环境/设计边界，不是待办遗漏。
