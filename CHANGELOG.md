@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Final full-set bench: 80/81 (98.8%), and the last miss is fixed (B360/B361)
+
+- After the B355/B356 fixes, the full 31-task × 3-sample run scores **80/81 = 98.8%** (hard 97.2, easy 100,
+  weighted 98; harness flakes 0; 4 device tasks SKIP without `MOSS_DEVICE_*`). The only miss,
+  `hard-wrong-fix-rejected` #1, explained an unreproducible complaint in chat but skipped `SPEC-AUDIT.md`.
+  The system prompt now says an unreproducible complaint gets a `SPEC-AUDIT.md` report, not a chat-only
+  explanation; the task's rerun is **3/3 PASS**.
+
+### 最终全量 bench：80/81（98.8%），且最后一个缺口已修（B360/B361）
+
+- B355/B356 修复后，全量 31 任务 × 3 样本得分 **80/81 = 98.8%**（hard 97.2 / easy 100 / weighted 98；harness flakes 0；
+  4 个设备任务缺 `MOSS_DEVICE_*` 记 SKIP）。唯一失败 `hard-wrong-fix-rejected` #1 把"不可复现的投诉"只在聊天里解释、
+  没写 `SPEC-AUDIT.md`。系统提示现在明确：不可复现投诉要写 `SPEC-AUDIT.md` 报告，而不是只给聊天解释；该任务重跑
+  **3/3 PASS**。
+
 ### `node test.js` counts as a test run for the completion gate (B356)
 
 - The gate mapped `npm test`, `node --test`, `pytest`, etc. to the `test` check, but not a plain
