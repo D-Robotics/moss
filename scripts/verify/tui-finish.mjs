@@ -33,6 +33,7 @@ const agentFiles = await load('dist/core/subagent/agent-file-loader.js');
 const permissionsPanel = await load('dist/cli/tui/permissions-panel.js');
 const compactCommand = await load('dist/cli/compact-command.js');
 const mentions = await load('dist/cli/tui/mentions.js');
+const palette = await load('dist/cli/tui/palette.js');
 const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
 const interactionMode = await load('dist/cli/interaction-mode.js');
@@ -843,6 +844,27 @@ ok('an explanation about tests is not judged as an unverified claim');
   assert.equal(dir.value, 'look at @src/');
 }
 ok('the @-file palette documents completion and completes the highlighted path');
+
+// 5y. B309: the slash palette says how to pick a command (and where Tab/Enter
+// differ), including when it is windowed.
+{
+  const rows = [['/model', 'choose a model']];
+  const one = palette
+    .renderSlashPalette(rows, { width: 100, selected: 0, maxRows: 8 })
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(one, /\/model/);
+  assert.match(one, /Tab complete · Enter run · Esc dismiss/);
+
+  const many = Array.from({ length: 10 }, (_, index) => [`/cmd${index}`, 'probe']);
+  const windowed = palette
+    .renderSlashPalette(many, { width: 100, selected: 0, maxRows: 8 })
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(windowed, /… 2 more/);
+  assert.match(windowed, /Enter run/);
+}
+ok('the slash palette documents Tab (complete) vs Enter (run)');
 
 // 6. B194: the status row labels each number instead of imploding.
 {

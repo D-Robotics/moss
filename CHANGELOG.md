@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### The slash palette explains Tab vs Enter; shell mode verified (B309)
+
+- Typing `/` listed commands (and `… 33 more`) but said nothing about choosing one. The palette now ends with
+  `↑↓ move · Tab complete · Enter run · Esc dismiss` (zh: `↑↓ 移动 · Tab 补全 · Enter 执行 · Esc 关闭`), so the
+  important difference — Tab fills the name, Enter runs it — is visible.
+- Real TUI also verified `!` shell mode end to end: `!echo shell-mode-ok` runs without a model turn and prints
+  `shell-mode-ok`; a failing command shows `ls: … No such file or directory` plus `exit code 1`.
+
+### `/` 命令面板说明 Tab 与 Enter；shell 模式验证（B309）
+
+- 输入 `/` 只列命令（以及 `… 33 more`），没有任何选择提示。现在面板底部显示
+  `↑↓ move · Tab complete · Enter run · Esc dismiss`（中文：`↑↓ 移动 · Tab 补全 · Enter 执行 · Esc 关闭`），
+  让"Tab 只填名字、Enter 才执行"的区别可见。
+- 真实 TUI 同时验证了 `!` shell 模式：`!echo shell-mode-ok` 不经过模型、直接输出 `shell-mode-ok`；
+  失败命令显示 `ls: … No such file or directory` 与 `exit code 1`。
+
 ### The @-file palette completes with Enter and explains its keys (B308)
 
 - Typing `@` showed file rows with no footer, and pressing Enter sent the half-typed `@math` as a message
