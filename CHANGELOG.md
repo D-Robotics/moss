@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### README names the user-configurable price path (B353)
+
+- The README said an estimated cost appears "when the gateway has a known price"; B347/B348 also allow
+  `pricing.models` in config. Both pages now say "known price **or you configured `pricing.models`** — never an
+  invented one", matching what the ledger and `/usage` actually do.
+
+### README 说明费用也可以由用户配置（B353）
+
+- README 原写"网关有公开价时带估算费用"；B347/B348 也支持在配置里设 `pricing.models`。中英两页现在写
+  "网关有公开价、或你在 `pricing.models` 配置了费率时"带估算费用，并保留"无价就不编造"，与账本/`/usage` 行为一致。
+
 ### `config show --json` includes the pricing block (B352)
 
 - B347/B348 made `pricing.models` settable and removable, but `config show --json` still omitted it (pricing is
