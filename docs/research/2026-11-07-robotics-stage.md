@@ -21,6 +21,11 @@
 
 - 源码部署 `~/moss`，`moss --version` v0.31.0 正常；headless `-p` 真实模型回复验证通过；网关配置在 `~/moss-team`（不入库）。
 
+## 里程碑补充（B371/B372）
+
+- **Moss goal → X5 BPU 闭环**：真实 goal 驱动板上 `gen_I2004_ForTest2k_1x1088x2048x3.hbm` 推理，evidence `bpu_test -> bpu0 test sucess · pass`、`cleanup_done -> true · pass`，Task PASS exit 0 turns 1。
+- **ASPIRE 运动栈**：`motion_sanity.py`（pyroki+curobo）在 LIBERO `cap-harness run` → `program_ok=true · 12 steps · 0.6s`。
+
 ## 阻塞与下一步
 
 1. **SAM3 HF token（等用户）**：gated `facebook/sam3`；拿到后 `supervise_services.sh --providers sam3,…` 即可全栈，再跑 LIBERO-Pro Goal-Swap 10 任务。

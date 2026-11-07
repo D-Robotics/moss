@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Moss goal drives a BPU inference on the real X5; ASPIRE motion stack verified (B371/B372)
+
+- A real `moss goal` run on the RDK X5 executed the board's BPU test
+  (`gen_I2004_ForTest2k_1x1088x2048x3.hbm`), recorded evidence `bpu_test -> bpu0 test sucess | pass` and
+  `cleanup_done -> true | pass`, and finished PASS in one turn (exit 0). A model attempt to write device
+  credentials into `.env` was correctly blocked by the protected-path policy mid-run.
+- On the RoboGO 5090, a motion-only program (open gripper, pyroki+curobo lift, close gripper) ran through
+  `cap-harness run` in LIBERO: `program_ok=true`, 12 steps, clean completion — the sim/IK/trajectory chain
+  works; only SAM3 perception awaits the gated HF token.
+
+### Moss goal 驱动真机 BPU 推理；ASPIRE 运动栈验证（B371/B372）
+
+- 真实 `moss goal` 在 RDK X5 上执行板上 BPU 测试（`gen_I2004_ForTest2k_1x1088x2048x3.hbm`），记录证据
+  `bpu_test -> bpu0 test sucess | pass` 与 `cleanup_done -> true | pass`，单回合 PASS（exit 0）。模型中途试图把
+  设备凭据写进 `.env` 被保护路径策略正确拦截。
+- RoboGO 5090 上，纯运动程序（开爪→pyroki/curobo 提升→闭爪）经 `cap-harness run` 在 LIBERO 执行：
+  `program_ok=true`、12 步、干净收尾——仿真/IK/轨迹链路全通；仅 SAM3 感知等待 gated HF token。
+
 ### Real RDK X5 device bench: 8/11 → 11/11 (B369/B370)
 
 - The first full real-board bench (`--target real`, RDK X5) scored 8/11 = 72.7%. All three failures shared one
