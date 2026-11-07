@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Release tarball install verified (B365)
+
+- `npm pack` produces a 1.9 MB tarball (1113 files, `dist/` + bin included). Installing it into a temp global
+  prefix and running the installed `moss` works: `--version` (with build stamp), `--help`, `capabilities`
+  all run with a fresh HOME/config; the model-less headless run exits 3 with the setup hint as designed.
+  No packaging regression from this cycle's additions.
+
+### 发布 tarball 安装验证（B365）
+
+- `npm pack` 产出 1.9 MB tarball（1113 个文件，含 `dist/` 与 bin）。装进临时全局前缀后，安装出的 `moss`
+  可正常执行：`--version`（带 build stamp）、`--help`、`capabilities` 在全新 HOME/config 下都能跑；
+  无模型配置的 headless 运行按设计 exit 3 并给出 setup 提示。本轮新增文件未造成打包回归。
+
 ### Closeout audit records the delivery state (B364)
 
 - The alignment closeout now ends with a delivery-state table: 378 backlog records, 106 verify stages
