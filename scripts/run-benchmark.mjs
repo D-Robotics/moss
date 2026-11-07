@@ -30,7 +30,10 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const benchRoot = path.join(repoRoot, 'bench');
 const tasksRoot = path.join(benchRoot, 'tasks');
 const resultsRoot = path.join(benchRoot, 'results');
-const CLI_ENTRY = process.env.MOSS_BENCH_CLI ?? path.join(repoRoot, 'dist', 'cli.js');
+const EXPLICIT_CLI_ENTRY = process.env.MOSS_BENCH_CLI;
+// B343: snapshot dist at start; a concurrent `npm run build`/`verify` in the
+// repo must not pull the CLI out from under a running bench.
+let CLI_ENTRY = EXPLICIT_CLI_ENTRY ?? path.join(repoRoot, 'dist', 'cli.js');
 const CHECK_TIMEOUT_MS = 90_000;
 const KILL_GRACE_MS = 5_000;
 
@@ -366,7 +369,38 @@ function acquireBenchLock() {
   return release;
 }
 
+/**
+ * B343: copy dist/ into an ignored directory under node_modules (so bare
+ * imports still resolve from the repo) and point the runner at that copy.
+ * `npm run bench` itself runs `build --clean` first, which is exactly how two
+ * overlapping commands used to produce a page of 0.1s "Cannot find module"
+ * failures.
+ */
+function snapshotCliEntry() {
+  if (EXPLICIT_CLI_ENTRY) return;
+  const source = path.join(repoRoot, 'dist');
+  if (!fs.existsSync(path.join(source, 'cli.js'))) return;
+  const target = path.join(repoRoot, 'node_modules', `.bench-cli-${String(process.pid)}`);
+  fs.rmSync(target, { recursive: true, force: true });
+  // Keep the relative layout the build expects (`dist/cli.js` resolves
+  // `../../bin/node-version-message.cjs`, package info reads package.json).
+  fs.cpSync(source, path.join(target, 'dist'), { recursive: true });
+  const binDir = path.join(repoRoot, 'bin');
+  if (fs.existsSync(binDir)) fs.cpSync(binDir, path.join(target, 'bin'), { recursive: true });
+  fs.copyFileSync(path.join(repoRoot, 'package.json'), path.join(target, 'package.json'));
+  CLI_ENTRY = path.join(target, 'dist', 'cli.js');
+  const cleanup = () => {
+    try {
+      fs.rmSync(target, { recursive: true, force: true });
+    } catch {
+      // Ignored: this copy is a cache, not a result.
+    }
+  };
+  process.once('exit', cleanup);
+}
+
 async function main() {
+  snapshotCliEntry();
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     console.log(usage());

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Bench runs survive a concurrent rebuild (B343)
+
+- Every bench task shells out to `dist/cli.js`, so running `npm run build` / `npm run verify` while a bench is
+  running wiped the CLI and turned the remaining tasks into 0.1s "Cannot find module" failures (it produced a
+  false 51.5% hard-tier score). The runner now snapshots `dist/` (+ `bin/` and `package.json` for the relative
+  layout) into an ignored `node_modules/.bench-cli-<pid>` directory and runs the snapshot; a real concurrent
+  `npm run build` no longer changes the result, and the snapshot is removed on exit.
+
+### 基准运行不再被并发构建打断（B343）
+
+- 每个 bench 任务都调用 `dist/cli.js`；运行中执行 `npm run build` / `npm run verify` 会把 CLI 清掉，剩余任务
+  变成 0.1s 的 "Cannot find module" 假失败（曾产生 51.5% 的假 hard-tier 分数）。现在 runner 启动时把 `dist/`
+  （以及相对布局需要的 `bin/`、`package.json`）快照到被忽略的 `node_modules/.bench-cli-<pid>`，用快照运行；
+  实测并发 `npm run build` 不再影响结果，退出时自动清理。
+
 ### Tool rows show the full result, not the SSE preview (B342)
 
 - The TUI built every tool-completion row from `event.result`, which is the SSE **preview** (truncated to a
