@@ -136,7 +136,9 @@ assert.equal(
   'a long description is truncated with an ellipsis'
 );
 assert.equal(commands.compactSkillDescription('short'), 'short');
-const summary = list.split('\n').find((line) => line.includes('skill(s); catalog')) ?? '';
+const summary =
+  list.split('\n').find((line) => line.includes('; catalog') && /skill(s)?; catalog/.test(line)) ??
+  '';
 assert.ok(summary.length > 0, 'catalog budget summary must be printed');
 // The budget number must equal the model-visible catalog, not all four skills.
 const expected = catalogModule.renderSkillCatalog(filtered).stats.renderedChars;

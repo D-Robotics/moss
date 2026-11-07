@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Pluralization sweep: no literal `(s)` in skill/replay footers (B293)
+
+- `moss skill list` said `1 skill(s); catalog …` and a resume confirmation said `replayed 1 row(s)`; both now
+  inflect (`1 skill` / `N skills`, `1 row` / `N rows`). The lockfile messages (“N skill(s) match/drifted”) and
+  a dead `({count} skill(s) · load with the skill tool)` copy key were cleaned up in the same pass.
+
+### 复数化清理：技能/回放页脚不再出现字面 `(s)`（B293）
+
+- `moss skill list` 原本 `1 skill(s); catalog …`，恢复确认原本 `replayed 1 row(s)`；现在按数量变格
+  （`1 skill` / `N skills`，`1 row` / `N rows`）。同一轮还清理了 lockfile 文案（`N skill(s) match/drifted`）
+  与一条已无调用点的 `({count} skill(s) · load with the skill tool)` copy key。
+
 ### `/agents` pluralizes its footer; agents/hooks counts agree across panels (B292)
 
 - The `/agents` footer said `1 file agent(s)`; it now says `1 file agent` / `N file agents`

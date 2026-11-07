@@ -557,7 +557,12 @@ export function resumeReplayNotice(sessionKey: string, replayRows: number, title
   // B279: the session key alone says nothing about what was resumed; a short
   // title is what makes the confirmation recognizable.
   const label = clipped.length > 48 ? `${clipped.slice(0, 47).trimEnd()}…` : clipped || sessionKey;
-  return tui('resumed “{label}” — replayed {count} row(s)', { label, count: replayRows });
+  return tui(
+    replayRows === 1
+      ? 'resumed “{label}” — replayed {count} row'
+      : 'resumed “{label}” — replayed {count} rows',
+    { label, count: replayRows }
+  );
 }
 
 /** One `HH:MM:SS role: snippet…` line for a conversation-log JSONL entry. */

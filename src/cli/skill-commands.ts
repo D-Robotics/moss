@@ -215,7 +215,7 @@ export async function renderSkillsList(
   lines.push(
     zh
       ? `\n共 ${summary.count} 个技能；目录 ${summary.catalogChars}/${summary.budgetChars} 字符（策略 ${summary.strategy}，无预算上限时 ${summary.uncappedChars} 字符）。会话内用技能工具加载；\`user-only\` 技能仅用户可用（disable-model-invocation），不占目录字符。`
-      : `\n${summary.count} skill(s); catalog ${summary.catalogChars}/${summary.budgetChars} chars (strategy ${summary.strategy}, ${summary.uncappedChars} without a budget). Load one in-session with the skill tool. \`user-only\` skills are user-invocable only (disable-model-invocation) and never cost catalog chars.`
+      : `\n${summary.count} skill${summary.count === 1 ? '' : 's'}; catalog ${summary.catalogChars}/${summary.budgetChars} chars (strategy ${summary.strategy}, ${summary.uncappedChars} without a budget). Load one in-session with the skill tool. \`user-only\` skills are user-invocable only (disable-model-invocation) and never cost catalog chars.`
   );
   return lines.join('\n');
 }

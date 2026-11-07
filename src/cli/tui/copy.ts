@@ -339,7 +339,8 @@ export const ZH: Readonly<Record<string, string>> = {
   '  loading sessions…': '  正在加载会话…',
   '  earlier turns stay as scrollback; they are no longer in the conversation':
     '  上方回合只留在滚动区；已不在对话上下文里',
-  'resumed “{label}” — replayed {count} row(s)': '已恢复 “{label}” — 回放 {count} 行',
+  'resumed “{label}” — replayed {count} row': '已恢复 “{label}” — 回放 {count} 行',
+  'resumed “{label}” — replayed {count} rows': '已恢复 “{label}” — 回放 {count} 行',
   'work until a condition (or acceptance command) passes; /goal resume continues, /goal clear cancels':
     '持续工作直到条件（或验收命令）通过；`/goal resume` 继续，`/goal clear` 取消',
   'enter plan mode; with a description, start planning immediately':
@@ -566,7 +567,6 @@ export const ZH: Readonly<Record<string, string>> = {
   'background shell:': '后台 shell：',
   'sub-agents:': '子 agent：',
   'no skills found': '未找到技能',
-  '  ({count} skill(s) · load with the skill tool)': '  （{count} 个技能 · 用技能工具加载）',
   'restored checkpoint {seq}: {detail}': '已恢复检查点 {seq}：{detail}',
   'rewind to {seq} failed': '回退到 {seq} 失败',
   'no hooks configured — add a "hooks" object to the config file:':

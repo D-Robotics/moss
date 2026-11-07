@@ -414,9 +414,11 @@ export function runSkillLock(argv: string[], ctx: SkillInstallContext): number {
     }
   }
   if (drift > 0) {
-    ctx.err(`${String(drift)} skill(s) drifted from the lockfile; reinstall or update explicitly.`);
+    ctx.err(
+      `${String(drift)} skill${drift === 1 ? '' : 's'} drifted from the lockfile; reinstall or update explicitly.`
+    );
     return 1;
   }
-  ctx.out(`${String(names.length)} skill(s) match the lockfile.`);
+  ctx.out(`${String(names.length)} skill${names.length === 1 ? '' : 's'} match the lockfile.`);
   return 0;
 }
