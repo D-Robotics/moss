@@ -673,7 +673,13 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       if (abortNotice) noteInterrupt(store);
       // Trailing `[moss]` lines are their own rows. Leaving them on the result
       // hides them: compact mode keeps only the first three result lines.
-      const peeled = splitTrailingMossNotices(event.result ?? '');
+      //
+      // B342: `result` is the SSE preview (truncated to a short body); the full
+      // tool result is `content`. Summarizing the preview made `read_file` say
+      // "Read 13 lines" for a 46-line file, and ctrl+o could never reveal the
+      // rest because the row body was already cut.
+      const toolBody = event.content ?? event.result ?? '';
+      const peeled = splitTrailingMossNotices(toolBody);
       const completion = summarizeToolCompletion(
         event.toolName,
         input,

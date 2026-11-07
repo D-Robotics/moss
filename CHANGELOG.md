@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Tool rows show the full result, not the SSE preview (B342)
+
+- The TUI built every tool-completion row from `event.result`, which is the SSE **preview** (truncated to a
+  short body), instead of `event.content`, the full result. A real 46-line `AGENTS.md` read displayed
+  `Read 13 lines`, and ctrl+o could never reveal the rest because the row body was already cut. The row now
+  uses `content` when present: the same read shows `Read 46 lines` and keeps all 46 lines.
+
+### 工具行展示完整结果，而非 SSE 预览（B342）
+
+- TUI 的每个工具完成行都取自 `event.result`（SSE **预览**，已被截成短 body），而不是完整结果 `event.content`。
+  真实的 46 行 `AGENTS.md` 读取显示为 `Read 13 lines`，且 ctrl+o 也无法展开——因为行 body 早已被截断。现在优先使用
+  `content`：同一次读取显示 `Read 46 lines`，并保留全部 46 行。
+
 ### Contradictory requirements are reported; only missing cited docs are asked about (B341)
 
 - A full diagnostic bench (31 tasks, 1 sample) scored 26/27 (hard 91.7, easy 100, weighted 94.1). The one FAIL,

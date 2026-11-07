@@ -37,7 +37,6 @@ const palette = await load('dist/cli/tui/palette.js');
 const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
 const interactionMode = await load('dist/cli/interaction-mode.js');
-const bridge = await load('dist/cli/tui/render-bridge.js');
 const markdown = await load('dist/cli/tui/markdown.js');
 const outcome = await load('dist/cli/run-outcome.js');
 
@@ -110,7 +109,7 @@ ok('the checklist collapses when the run ends (open items are disclosed)');
     nextId: 1,
     contextWarned: false,
   };
-  bridge.beginRun(store);
+  renderBridge.beginRun(store);
   assert.deepEqual(store.todos, [], 'a new prompt must not inherit the old checklist');
   assert.equal(store.run.running, true);
 }
@@ -875,6 +874,35 @@ ok('the @-file palette documents completion and completes the highlighted path')
   assert.match(windowed, /Enter run/);
 }
 ok('the slash palette documents Tab (complete) vs Enter (run)');
+
+// 5z. B342: a tool row must render the full result, not the SSE preview.
+{
+  const store = renderBridge.createTuiStore();
+  renderBridge.beginRun(store);
+  renderBridge.applyAgentEvent(store, {
+    type: 'tool_start',
+    toolName: 'read_file',
+    toolCallId: 'call-b342',
+    input: { path: 'AGENTS.md' },
+  });
+  const full = Array.from({ length: 46 }, (_, index) => `${index + 1}\tline ${index + 1}`).join(
+    '\n'
+  );
+  const preview = full.split('\n').slice(0, 3).join('\n');
+  renderBridge.applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'read_file',
+    toolCallId: 'call-b342',
+    result: preview,
+    content: full,
+    isError: false,
+    durationMs: 12,
+  });
+  const row = store.rows.at(-1);
+  assert.match(row.tool.summary, /Read 46 lines/);
+  assert.equal(row.text.split('\n').length, 46);
+}
+ok('a tool row summarizes and keeps the full result, not the truncated SSE preview');
 
 // 6. B194: the status row labels each number instead of imploding.
 {
