@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Bench runs widen the first-chunk watchdog (B354)
+
+- The full-set samples=3 run lost `hard-wrong-fix-rejected` (0/3) to three 45s "no response from the model"
+  stalls after tool calls. The bench runner now sets `MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS=120000` per task
+  (overridable via `MOSS_BENCH_FIRST_CHUNK_TIMEOUT_MS`), so a slow gateway long tail is not scored as a
+  capability failure; only zero-turn samples are still retried/excluded as harness flakes.
+
+### bench 放宽首包看门狗（B354）
+
+- 全量 samples=3 运行中 `hard-wrong-fix-rejected`（0/3）是三次"工具调用后 45s 无模型响应"的网关停顿所致。bench runner
+- 现在为每个任务设 `MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS=120000`（可用 `MOSS_BENCH_FIRST_CHUNK_TIMEOUT_MS` 覆盖），
+- 慢网关长尾不再被记成能力失败；仍只有零回合样本按 `harness_flake` 重跑/排除。
+
 ### README names the user-configurable price path (B353)
 
 - The README said an estimated cost appears "when the gateway has a known price"; B347/B348 also allow

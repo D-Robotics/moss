@@ -536,6 +536,13 @@ async function main() {
             // B340: run ids are filesystem-safe flat names; slashes made the
             // run ledger reject every bench run (`invalid run id: bench/...`).
             MOSS_RUN_ID: `bench-${task.id}-${String(sample).padStart(2, '0')}`,
+            // B354: the default 45s first-chunk watchdog turned gateway long
+            // tails into "Incomplete" samples (hard-wrong-fix-rejected 0/3 in
+            // full-s3 was three 45s stalls after a tool call). Bench runs may
+            // legitimately wait for a slow first chunk after tool output; keep
+            // the watchdog but with a bench-sized budget (override per run).
+            MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS:
+              process.env.MOSS_BENCH_FIRST_CHUNK_TIMEOUT_MS ?? '120000',
             MOSS_BENCH_RETRY_ATTEMPT: String(attempt),
             MOSS_SAFETY_MODE: 'workspace-write',
             MOSS_APPROVAL_POLICY: 'never',
