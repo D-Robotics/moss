@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### The empty `/tasks` panel teaches both ways to fill it (B339)
+
+- `/tasks` showed `background shell: (none)` and `sub-agents: (none)` with no next step. When both are empty
+  it now adds `start: !<command> runs it in the background of this session` and `or ask Moss to launch a
+subagent for parallel work` (zh translated), so the panel doubles as the feature's own introduction.
+
+### 空的 `/tasks` 面板教用户两种启动方式（B339）
+
+- `/tasks` 只显示 `background shell: (none)` 与 `sub-agents: (none)`，没有下一步。两者都空时新增
+  `start: !<command> runs it in the background of this session` 与
+  `or ask Moss to launch a subagent for parallel work`（中文已译），面板本身成为功能介绍。
+
 ### The MCP empty state teaches the command (B338)
 
 - The TUI `/mcp` panel only said `no MCP servers configured (.moss/mcp.json)`; the CLI and REPL already

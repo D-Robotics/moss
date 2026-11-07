@@ -581,6 +581,8 @@ export const ZH: Readonly<Record<string, string>> = {
   // `tui('signal')` is substituted in *both* locales, so the key must exist.
   signal: '信号',
   'background shell:': '后台 shell：',
+  'start: !<command> runs it in the background of this session': '开始：!<命令> 在本会话后台运行',
+  'or ask Moss to launch a subagent for parallel work': '或让 Moss 启动子代理并行处理',
   'sub-agents:': '子 agent：',
   'no skills found': '未找到技能',
   'restored checkpoint {seq}: {detail}': '已恢复检查点 {seq}：{detail}',
