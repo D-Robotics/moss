@@ -1,0 +1,26 @@
+{
+  "id": "bpu-perf",
+  "title": "Benchmark NPU inference latency and FPS",
+  "sideEffect": "readonly",
+  "tier": "optional",
+  "maxTurns": 8,
+  "timeoutMs": 300000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Do not guess a host and do not ask for one.\n\nBenchmark the NPU with the board's shipped test model:\n`hrt_model_exec perf --model_file /app/multimedia_samples/chip_base_test/01_cpu_bpu_ddr/models/HBDK3_MODEL_2K/x5/gen_I2004_ForTest2k_1x1088x2048x3.hbm --thread_num 2`\n\nIt prints `Average latency is: X ms` and `Frame rate is: Y FPS` after 200 frames.\nRecord TWO evidence rows with record_evidence (include task_id): metric `bpu_avg_latency_ms` with observed = the X value, and metric `bpu_fps` with observed = the Y value. Expected: latency under 100 ms and FPS above 10.\n\nDo not reboot, reflash, or change any board configuration.\n\nNOTE: the acceptance command is executed by the bench harness AFTER your turn, with its own environment (device credentials included). Do NOT try to run it yourself, read the repo .env, or investigate how the harness injects environment — that path is blocked by design. Do the device work, verify the outcome with your own probe, record evidence, and finish.",
+  "prerequisites": [
+    "command -v hrt_model_exec >/dev/null && test -f /app/multimedia_samples/chip_base_test/01_cpu_bpu_ddr/models/HBDK3_MODEL_2K/x5/gen_I2004_ForTest2k_1x1088x2048x3.hbm"
+  ],
+  "setup": [],
+  "oracle": [],
+  "acceptance": ["echo bpu-perf-accepted"],
+  "cleanup": [],
+  "evidence": [
+    {
+      "metric": "bpu_avg_latency_ms",
+      "probe": "echo bpu-perf-probe"
+    },
+    {
+      "metric": "bpu_fps",
+      "probe": "echo bpu-perf-probe"
+    }
+  ]
+}
