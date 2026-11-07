@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### The command reference documents the JSON schemas (B297)
+
+- `docs/cli-reference.md` now names the machine-readable shapes added this session: `sessions list/search`
+  (`moss_sessions_list.v1` / `moss_sessions_search.v1`), `skill list --json` (`moss_skill_list.v1`), and
+  `mcp/device list --json` (`moss_mcp_list.v1` / `moss_devices_list.v1`). `readme-parity` requires those
+  four schema names on the page, so a future “simplification” cannot silently drop the script contract.
+
+### 命令参考补上 JSON schema 说明（B297）
+
+- `docs/cli-reference.md` 现在写明本会话新增的机器可读形状：`sessions list/search`
+  （`moss_sessions_list.v1` / `moss_sessions_search.v1`）、`skill list --json`（`moss_skill_list.v1`）、
+  `mcp/device list --json`（`moss_mcp_list.v1` / `moss_devices_list.v1`）。`readme-parity` 要求该页出现这四个
+  schema 名，避免以后"简化"时静默丢掉脚本契约。
+
 ### An empty `/compact` is one honest line (B295)
 
 - `/compact` on an empty conversation printed a three-line "not compacted / tokens after check: ~0 /
