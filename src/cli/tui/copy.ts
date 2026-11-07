@@ -503,8 +503,8 @@ export const ZH: Readonly<Record<string, string>> = {
   "  workspace-write confines Moss's own file tools.":
     '  `workspace-write` 只约束 Moss 自己的文件工具。',
   '  Shell commands run normally without an OS sandbox.': '  终端命令照常运行，没有操作系统沙箱。',
-  '  no rules — full allows tools; deny still wins everywhere':
-    '  无规则 — full 放行工具；deny 在任何模式都优先',
+  '  no rules — {mode} decides; deny still wins everywhere':
+    '  无规则 — 由 {mode} 决定；deny 在任何模式都优先',
   session: '会话',
   '  ↑↓ select · d remove session rule · Esc close': '  ↑↓ 选择 · d 删除会话规则 · Esc 关闭',
   '  add   /permissions add deny "exec(rm *)"': '  添加  /permissions add deny "exec(rm *)"',

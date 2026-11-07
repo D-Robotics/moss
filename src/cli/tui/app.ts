@@ -4370,6 +4370,7 @@ export function TuiAppRoot({
       ? renderPermissionsPanel({
           width: columns,
           mode: formatCliInteractionModeLabel(interactionMode, isTuiZh()),
+          modeKey: interactionMode,
           rules: permissionPanelRules(),
           cursor: permissionCursor,
         })

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### `/permissions` stops describing confinement in full mode (B294)
+
+- The panel printed "workspace-write confines Moss's own file tools" under `mode full`, where the derived
+  safety mode is `full` — the current session looked confined when it was not. The two limitation lines now
+  appear only for modes that derive `workspace-write` (manual / acceptEdits / plan), and the no-rules line
+  names the current mode (`no rules — full decides` / `… plan decides`) instead of always saying "full".
+
+### `/permissions` 在 full 模式下不再描述沙箱限制（B294）
+
+- 面板在 `mode full` 下也打印 "workspace-write confines Moss's own file tools"，而 full 派生的安全模式是
+  `full`——当前会话看起来被限制了，其实没有。现在两行限制只在派生 `workspace-write` 的模式
+  （manual / acceptEdits / plan）显示；无规则行也改用当前模式名（`no rules — full decides` / `… plan decides`），
+  不再一律写 "full"。
+
 ### Pluralization sweep: no literal `(s)` in skill/replay footers (B293)
 
 - `moss skill list` said `1 skill(s); catalog …` and a resume confirmation said `replayed 1 row(s)`; both now

@@ -30,6 +30,7 @@ const toolSummary = await load('dist/cli/tui/tool-summary.js');
 const promptHistory = await load('dist/cli/tui/prompt-history.js');
 const appHelpers = await load('dist/cli/tui/app-helpers.js');
 const agentFiles = await load('dist/core/subagent/agent-file-loader.js');
+const permissionsPanel = await load('dist/cli/tui/permissions-panel.js');
 const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
 const interactionMode = await load('dist/cli/interaction-mode.js');
@@ -720,6 +721,23 @@ ok('a successful steer is reported as steered, not queued');
   assert.match(two, /2 file agents$/m);
 }
 ok('the agents panel pluralizes its footer');
+
+// 5t. B294: the /permissions panel only explains workspace-write confinement
+// when the mode actually derives it (not under full).
+{
+  const text = (modeKey, mode) =>
+    permissionsPanel
+      .renderPermissionsPanel({ width: 120, mode, modeKey, rules: [], cursor: 0 })
+      .map((entry) => entry.text)
+      .join('\n');
+  const full = text('full', 'full');
+  assert.doesNotMatch(full, /workspace-write confines/);
+  assert.match(full, /no rules — full decides; deny still wins everywhere/);
+  const plan = text('plan', 'plan');
+  assert.match(plan, /workspace-write confines/);
+  assert.match(plan, /no rules — plan decides/);
+}
+ok('the permissions panel explains confinement only when the mode derives it');
 
 // 6. B194: the status row labels each number instead of imploding.
 {
