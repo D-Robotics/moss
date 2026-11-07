@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### `task timeline --json` is JSON (B333)
+
+- `moss task timeline --json` ignored the flag and printed the human timeline (or `No tasks in this
+workspace.`), although the command reference already promised `--json` on `status/timeline`. It now emits
+  `moss_task_timeline.v1` (`{taskId, phase, events}`; `taskId: null, events: []` when the workspace has no
+  task), and the probe pins both the filled and empty shapes.
+
+### `task timeline --json` 输出 JSON（B333）
+
+- `moss task timeline --json` 忽略该 flag，仍打印人类时间线（或 `No tasks in this workspace.`），而命令参考早已写着
+  `status/timeline` 支持 `--json`。现在输出 `moss_task_timeline.v1`（`{taskId, phase, events}`；空工作区为
+  `taskId: null, events: []`），探针同时锁定有数据/空数据两种形状。
+
 ### Artifacts and capabilities JSON join the schema envelope (B332)
 
 - `moss artifacts … --json` and the `moss tasks` alias printed bare arrays (`[]`), and `capabilities --json`

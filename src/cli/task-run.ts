@@ -1050,16 +1050,41 @@ export async function runTaskCommand(
   }
 
   if (sub === 'timeline') {
+    const json = ctx.outputJson === true || commandArgs.includes('--json');
     const rawTarget = commandArgs[1];
     const snapshot =
       rawTarget && rawTarget !== 'latest'
         ? await getTaskStateSnapshot(ctx.workspace, rawTarget)
         : await latestSnapshot(ctx.workspace);
     if (!snapshot) {
-      output('stdout', zh ? '本工作区尚无任务。\n' : 'No tasks in this workspace.\n');
+      if (json) {
+        // B333: --json must stay JSON even when there is nothing to show.
+        output(
+          'stdout',
+          `${JSON.stringify({ schema: 'moss_task_timeline.v1', taskId: null, events: [] }, null, 2)}\n`
+        );
+      } else {
+        output('stdout', zh ? '本工作区尚无任务。\n' : 'No tasks in this workspace.\n');
+      }
       return 0;
     }
     const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
+    if (json) {
+      output(
+        'stdout',
+        `${JSON.stringify(
+          {
+            schema: 'moss_task_timeline.v1',
+            taskId: snapshot.taskId,
+            phase: snapshot.phase,
+            events,
+          },
+          null,
+          2
+        )}\n`
+      );
+      return 0;
+    }
     output('stdout', formatTaskTimeline(buildTaskTimeline(events)) + '\n');
     return 0;
   }

@@ -283,7 +283,14 @@ assert.equal(latestJson.taskId, live.taskId);
 const latestTimeline = await runCli(['task', 'timeline', 'latest']);
 assert.equal(latestTimeline.status, 0, latestTimeline.stderr);
 assert.match(latestTimeline.stdout, /Task created/);
-ok('task status/timeline accept `latest`');
+// B333: `--json` must be JSON on this path too (it used to print the human text).
+const latestTimelineJson = JSON.parse(
+  (await runCli(['task', 'timeline', 'latest', '--json'])).stdout
+);
+assert.equal(latestTimelineJson.schema, 'moss_task_timeline.v1');
+assert.equal(latestTimelineJson.taskId, live.taskId);
+assert.ok(Array.isArray(latestTimelineJson.events) && latestTimelineJson.events.length > 0);
+ok('task status/timeline accept `latest` (timeline --json included)');
 
 // 9. B280: verify/resume accept `latest`; resume with no id means newest
 // resumable, and an empty workspace says so instead of leaking a usage error.
@@ -295,6 +302,10 @@ assert.match(
   'verify latest explains why it could not pass'
 );
 cwd = emptyWorkspace;
+const emptyTimeline = JSON.parse((await runCli(['task', 'timeline', 'latest', '--json'])).stdout);
+assert.equal(emptyTimeline.schema, 'moss_task_timeline.v1');
+assert.equal(emptyTimeline.taskId, null);
+assert.deepEqual(emptyTimeline.events, []);
 const resumeEmpty = await runCli(['task', 'resume']);
 assert.equal(resumeEmpty.status, 2);
 assert.match(resumeEmpty.stderr, /no resumable task/);
