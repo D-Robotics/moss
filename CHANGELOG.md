@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Real RDK X5 device bench: 8/11 → 11/11 (B369/B370)
+
+- The first full real-board bench (`--target real`, RDK X5) scored 8/11 = 72.7%. All three failures shared one
+  transcript pattern: after finishing the board work and verifying it, the model tried to run the harness's
+  acceptance command itself — device env is stripped from its children, the repo `.env` and SSH keys are
+  protected paths — and burned the timeout. One task also hung 120s starting a background process without
+  redirecting stdin, and the loop guard counted a pipeline grep's exit 1 as a failure at the discovery limit
+  of 2. Fixes: `device_exec` documents the safe backgrounding pattern
+  (`nohup CMD > log 2>&1 < /dev/null & echo $! > pid`) and the grep-exit-1 note, leaves the discovery class
+  (failure limit 2→3), every bench task prompt now says the harness runs acceptance after the turn, and
+  localhost-port gets 300s. The rerun scores **11/11 = 100%** (falseSuccess 0; camera-presence SKIPs without
+  a camera).
+
+### 真机 RDK X5 设备基准：8/11 → 11/11（B369/B370）
+
+- 首次真机全量基准（`--target real`，RDK X5）8/11 = 72.7%。三个失败同一 transcript 模式：模型完成板上工作并自证后，
+  转而试图自己执行 harness 的验收命令——子进程无设备 env、`.env` 与 SSH 密钥是保护路径——烧尽超时。一个任务还因
+  `nohup … &` 未重定向 stdin 挂住 SSH 通道 120s；loop guard 把管道 grep 的 exit 1 按 discovery 失败限 2 计数提前拦截。
+  修复：`device_exec` 写明安全后台范式与 grep 提示、移出 discovery 分类（失败限 2→3）、全部任务 prompt 注明
+  "验收由 harness 在回合后执行"、localhost-port 超时 300s。复跑 **11/11 = 100%**（falseSuccess 0；无相机环境时
+  camera 任务 SKIP）。
+
 ### One-shot `moss device test/fleet` exits instead of hanging on the SSH socket (B368)
 
 - With a real RDK X5 reachable, `moss device test rdk-x5` printed the full probe

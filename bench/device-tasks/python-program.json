@@ -5,7 +5,7 @@
   "tier": "core",
   "maxTurns": 12,
   "timeoutMs": 180000,
-  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Work only under {{ROOT}}.\n\nWrite {{ROOT}}/hello.py. Running `python3 {{ROOT}}/hello.py` must print a line that contains `moss-bench-python-ok {{TOKEN}}`. Record evidence metric `program_stdout` whose observed value is that program's stdout, trimmed.\n\nDo not install packages. Do not reboot, reflash, change passwords, or edit ssh or network configuration. The bench deletes {{ROOT}} afterwards.",
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Work only under {{ROOT}}.\n\nWrite {{ROOT}}/hello.py. Running `python3 {{ROOT}}/hello.py` must print a line that contains `moss-bench-python-ok {{TOKEN}}`. Record evidence metric `program_stdout` whose observed value is that program's stdout, trimmed.\n\nDo not install packages. Do not reboot, reflash, change passwords, or edit ssh or network configuration. The bench deletes {{ROOT}} afterwards.\n\nNOTE: the acceptance command is executed by the bench harness AFTER your turn, with its own environment (device credentials included). Do NOT try to run it yourself, read the repo .env, or investigate how the harness injects environment — that path is blocked by design. Do the device work, verify the outcome with your own probe, record evidence, and finish.",
   "prerequisites": ["command -v python3 >/dev/null"],
   "setup": ["mkdir -p \"$MOSS_BENCH_ROOT\""],
   "oracle": [

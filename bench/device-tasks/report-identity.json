@@ -5,11 +5,16 @@
   "tier": "core",
   "maxTurns": 8,
   "timeoutMs": 180000,
-  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Do not guess a host and do not ask for one.\n\nCall device_info, or device_exec with the command `hostname`. Record evidence with record_evidence (include task_id): metric `hostname`, observed = the trimmed hostname and nothing else.\n\nDo not change the board. Do not reboot, reflash, change passwords, or edit ssh or network configuration.",
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Do not guess a host and do not ask for one.\n\nCall device_info, or device_exec with the command `hostname`. Record evidence with record_evidence (include task_id): metric `hostname`, observed = the trimmed hostname and nothing else.\n\nDo not change the board. Do not reboot, reflash, change passwords, or edit ssh or network configuration.\n\nNOTE: the acceptance command is executed by the bench harness AFTER your turn, with its own environment (device credentials included). Do NOT try to run it yourself, read the repo .env, or investigate how the harness injects environment — that path is blocked by design. Do the device work, verify the outcome with your own probe, record evidence, and finish.",
   "prerequisites": [],
   "setup": [],
   "oracle": [],
   "acceptance": ["hostname >/dev/null"],
   "cleanup": [],
-  "evidence": [{ "metric": "hostname", "probe": "hostname" }]
+  "evidence": [
+    {
+      "metric": "hostname",
+      "probe": "hostname"
+    }
+  ]
 }
