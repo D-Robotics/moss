@@ -41,6 +41,16 @@ All patterns were discovered by Moss on the real benchmark and verified with
    object bottom is just above the target surface, open, retract.
 4. Wide bowls: the plate/pan target needs x-y centering within the target radius.
 
+## Drawer closing (verified x3, after place-inside)
+
+After placing an object inside an open drawer: lift the arm clear, then with
+the gripper CLOSED, push the drawer's front panel from its robot-side face
+along -slide_axis (opposite of the opening pull). Waypoints: above the panel
+face, contact on the face, sustained push until drawer qpos returns to ~0.
+Budget matters: open + grasp + place can consume ~700 of the 1000-tick
+horizon — keep early phases lean (coarser tolerances, fewer waypoints) so the
+close push has ~250 ticks. Verify qpos ≈ 0 at the end.
+
 ## Button press (verified t7)
 
 Approach above the button, descend to contact, hold; verify the button joint qpos
