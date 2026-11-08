@@ -102,6 +102,16 @@ introspect (bodies/joints/AABB) → phase plan with per-phase tick budget
 (phase, ticks used, key state) → env._check_success() print → screenshots.
 SOLVED siblings are templates: adapt them, don't start from scratch.
 
+## Measure before you move (verified s4)
+
+Before writing any motion for a new task, dump the ground truth in one shot:
+every body's world AND robot_base position, every joint's qpos/range, and each
+body's local AABB (loop geoms by `geom_bodyid`). Two failed s4 attempts died on
+a 0.15 m frame error that this dump would have caught in one line — the bowl
+origin sat at base z 0.1506 while the solver assumed table level. Use the
+printed numbers as the targets verbatim, and re-check intermediate waypoints
+against them.
+
 ## Frame rule (the #1 failure)
 
 Robot poses must be in robot_base frame: `p_base = p_world − body_xpos(robot0_base)`.
