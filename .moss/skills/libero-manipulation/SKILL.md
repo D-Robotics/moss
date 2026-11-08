@@ -82,6 +82,26 @@ direction keeping contact (monitor the object's body_xpos each step). Release
 contact only inside the goal region. Expect iterations: pushing is sensitive to
 contact height (push at rim height, not above).
 
+## Failure-mode debug taxonomy (ASPIRE-style: fix the mode, not the symptom)
+
+Every retry must name the failure mode it fixes. Classify before retrying:
+
+| Symptom | Mode | Fix |
+| --- | --- | --- |
+| IK fail / unreachable | frame mix or out-of-workspace | recompute in robot_base frame; check reach radius |
+| gripper closes, object stays | contact geometry miss | descend lower; approach from the unobstructed side; hook behind bars |
+| carry works, object drops mid-transit | grip force/surface | re-grasp at a lower point; slower waypoints |
+| object placed, success False | placement on walls / wrong region | cavity rule: walk geoms, place below rim, center x-y |
+| drawer qpos stuck at 0 during pull | fingers not hooked | push past the bar before closing (snap-grasp) |
+| horizon exhausted (t≈1000) | step budget | coarser tolerances, fewer waypoints, merge phases |
+
+## Solver template (proven scaffold)
+
+introspect (bodies/joints/AABB) → phase plan with per-phase tick budget
+(sum ≤ 700, reserve 300 for verification+fixes) → execute phases with prints
+(phase, ticks used, key state) → env._check_success() print → screenshots.
+SOLVED siblings are templates: adapt them, don't start from scratch.
+
 ## Frame rule (the #1 failure)
 
 Robot poses must be in robot_base frame: `p_base = p_world − body_xpos(robot0_base)`.
