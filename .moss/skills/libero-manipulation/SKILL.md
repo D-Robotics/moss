@@ -51,6 +51,24 @@ Budget matters: open + grasp + place can consume ~700 of the 1000-tick
 horizon — keep early phases lean (coarser tolerances, fewer waypoints) so the
 close push has ~250 ticks. Verify qpos ≈ 0 at the end.
 
+## General placement rule (cavities, compartments, open containers)
+
+Never guess a placement target from the task sentence. Walk the target body's
+geom tree (the `body_aabb` pattern from t8) to find the CAVITY: the region
+between the container's walls, below its rim. Place the carried object so its
+bottom is BELOW the rim top (inside) and its center matches the cavity center
+in x-y. A placement that rests ON the walls fails even when x-y is right.
+For tall cavities (caddy compartments, drawers), descend until the object
+bottom clears the wall top by the object height, then release.
+
+## General grasp rule (match the thin axis)
+
+Books, plates, trays: find the object's AABB, identify the THIN axis, approach
+so the finger separation axis is perpendicular to it (pinch the two large
+faces). Tall objects (bottles): descend onto the neck. Wide bowls: rim pinch
+on the unobstructed side. When a carry works but placement fails, the grasp
+is fine — fix only the target.
+
 ## Button press (verified t7)
 
 Approach above the button, descend to contact, hold; verify the button joint qpos
