@@ -4,7 +4,7 @@
 判定标准：LIBERO 官方 `env.check_success()`，全部独立复现 · 感知：真值 sim 状态（oracle）
 运动栈：pyroki IK + curobo 轨迹（与 ASPIRE 相同）
 
-## 总分：**39/40 = 97.5%**（B401 x4 裸提示攻克后更新）
+## 总分：**40/40 = 100%**（B411 s4 几何工具+精确测量攻克后更新）
 
 | Suite          | 成绩             | 成功任务             | 失败任务                                     |
 | -------------- | ---------------- | -------------------- | -------------------------------------------- |
@@ -39,3 +39,11 @@
 - 运动栈相同（pyroki/curobo）；感知为真值 oracle（SAM3 访问被 Meta 拒绝）
 - ASPIRE 论文口径为 SAM3 视觉感知 + held-out seeds；本成绩为 oracle 上限口径
 - 40 任务同源（LIBERO 官方 benchmark 任务集）
+
+## 最终清点（B412，2026-11-09）
+
+- **40/40 = 100%**：libero_goal 10/10 · libero_object 10/10 · libero_spatial 10/10 · libero_10 10/10
+- 每个任务：Moss 自主解题（goal 驱动）→ 官方 `env.check_success()` 判定 → solver 独立复现 → initial/final 截图
+- s4 关键推进：`geo_tool.py` 真值几何 dumper（BODY world/base、JOINT qpos/range、AABB）修正了 0.15m 坐标系错误；
+  实测碗 origin base (0.745,-0.143,0.151)、rim 0.2066、顶抽屉初始已开 88%、抽屉沿仅比碗 rim 高 5mm
+- s4 最终：碗放到盘上 dxy=0.0109（1cm 精度），`check_success=True`
