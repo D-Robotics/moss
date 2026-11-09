@@ -75,3 +75,26 @@ Lessons:
 - **Report protocols separately.** Single-session autonomous, seeded iteration,
   and N-run means are different measurements; mixing them is how benchmark
   claims become dishonest.
+
+## Policy tasks score the MEAN over hidden episodes — optimize robustness, not best case
+
+Verified on RLE-Bench task07 (bin clearing, closed-loop policy: RGB-D + joint
+state + wrist F/T in, joint targets + magnet command out):
+
+- The score is the mean over **eight hidden pile episodes** of
+  `0.3·perfect + 0.35·clear_curve + 0.2·min(tp/10,1) + 0.15·perfect·min(tp/15,1)
+  − 0.03·floor_drops − 0.05·damage − 0.05·bin_hits`.
+- One submitted 486-line policy (depth height-map + 20 Hz damped-least-squares
+  IK servo + F/T contact termination + quasi-static payload estimate) scored
+  **0.2026** with episodes ranging 0.0 to 0.923: one episode cleared 100% while
+  several collapsed. A single brilliant episode is worth almost nothing.
+- Practical rules for policy tasks:
+  1. Optimize the **worst pile**, not the average: hidden piles occlude parts and
+     create edge cases (part under the rim, part on part, part out of reach).
+  2. Prefer **recovery loops** over perfect plans: re-scan after a failed grab,
+     retry with a different approach axis, and never let one stuck part abort
+     the episode (the clock keeps running).
+  3. Keep per-tick compute bounded (the official harness budgets policy wall
+     time): a policy that only works when it can think for 100 ms/step fails.
+  4. Score probes: report per-episode scores from the local dev runner, and
+     treat variance, not the mean, as the metric to reduce.
