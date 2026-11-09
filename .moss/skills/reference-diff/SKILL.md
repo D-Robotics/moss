@@ -46,7 +46,26 @@ checkpoints alone.
 ## Why this matters (verified on RLE-Bench task08)
 
 An operator doing this diff by hand found the two fixes that moved a score from
-0.402 to 0.6386 (arm-mount height ⇒ static margin; diagonal mecanum pairing ⇒
+0.402 to 0.6386 (arm-mount height => static margin; diagonal mecanum pairing =>
 validity). The tool surfaces the same class of findings mechanically — including
 ones a hand diff missed (a missing free joint, a missing payload body, wheel
 motor gains 12 vs 8) — so the agent can do this diagnosis itself.
+
+**Verified end-to-end with the agent driving:** on task08, an iteration that was
+given ONLY the tool and the reference artifacts (no operator diagnosis) called
+`refdiff.py xml` six times, reasoned "the real divergence is the chassis ...
+refdiff shows the mount offset at x=+0.04", adopted the reference frame/mount/
+actuator settings, and scored **0.7603 — above the reference solution's 0.7564**
+(all validity gates 1.0, static margin 1.0, all five dynamic scenarios 1.0, S7
+0.75). Two iterations earlier the same agent, still being hand-fed findings,
+sat at 0.6386. The capability is what closed the last 0.12.
+
+## Rules for using it honestly
+
+- The diff is evidence, not authority: a reference can be wrong for your
+  constraints (mass budget, printable stock, hidden-test invariants). Read the
+  delta, check it against the public harness, then decide.
+- Rank by what a checkpoint actually measures: use `refdiff report` first, then
+  `refdiff xml` for the elements that feed that checkpoint.
+- Never copy an element the reference has if the public rules forbid it or the
+  harness rejects it — re-verify locally after adopting anything.
