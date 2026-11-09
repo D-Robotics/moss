@@ -1,6 +1,6 @@
 # Moss 物理闭环 · PPT 讲稿与素材清单
 
-> 配套文件：`moss-physical-closed-loop.pptx`（7 页，可直接演示）
+> 配套文件：`moss-physical-closed-loop.pptx`（10 页，可直接演示；含 7 个 GIF 动图页/动画）
 > 全部素材在 `assets/`，文字为本页可直接粘贴的讲稿。
 
 ## 第 1 页 · 封面
@@ -84,3 +84,31 @@
 | `assets/04-libero-before-after.png`     | LIBERO 前后对比九宫格（1597×416） |
 | `assets/05-architecture-comparison.png` | 架构对比表（1760×960）            |
 | `moss-physical-closed-loop.pptx`        | 7 页演示文稿                      |
+
+## GIF 动图素材（`assets/gifs/`）
+
+| 文件                   | 内容                                              | 帧数 |
+| ---------------------- | ------------------------------------------------- | ---- |
+| `t0-drawer.gif`        | 开中层抽屉（完整拉出动作）                        | 136  |
+| `t3-drawer-bowl.gif`   | 复合任务：开顶层抽屉 → 放碗                       | 72   |
+| `t5-push-plate.gif`    | 连续接触推盘子                                    | 39   |
+| `s4-in-drawer.gif`     | 抽屉内取碗（最难任务）                            | 32   |
+| `x5-book-caddy.gif`    | 书放入收纳格                                      | 51   |
+| `t8-bowl-plate.gif`    | 碗放到盘上                                        | 42   |
+| `rle-task08-robot.gif` | RLE task08 Moss 设计平台姿态循环（verifier 渲染） | 4    |
+
+> GIF 由真实仿真执行逐帧捕获（每 8 步 1 帧，agentview 相机），不是示意图。
+
+## 第 7 页 · 物理闭环在动（GIF 动图页）
+
+6 个 LIBERO 任务的真实执行 GIF——开抽屉、复合任务、推盘、腔内取碗、书入收纳格、放碗。
+讲法：这一页给观众"看到物理世界真的在动"——每个 GIF 都是 Moss 写出的 solver 在官方仿真里的实际执行。
+
+## 第 8 页 · Skill 沉淀（图：`06-skill-accumulation.png`）
+
+三段式：① 任务经验（LIBERO 40 / RLE 双任务 / RDK 真机 / 失败诊断）→ ② 蒸馏为技能（9 条，带验证证据）→ ③ 复用与复利（LIBERO 后期 solver 8-9 秒/任务；RLE 10 轮 +59%；diff 能力迁到 agent）。
+
+## 第 9 页 · RLE-Bench 机器人设计渲染（官方 verifier 出图）
+
+`assets/rle/robot_stow.png`（收纳）、`robot_extended.png`（伸展）、`robot_integration.png`（集成）+ 姿态动画 GIF。
+讲法：这是 Moss 从零设计的三臂共用移动平台——官方 verifier 用 MuJoCo 渲染出的真实模型，不是概念图。
