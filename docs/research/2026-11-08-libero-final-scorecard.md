@@ -49,3 +49,15 @@
 - s4 关键推进：`geo_tool.py` 真值几何 dumper（BODY world/base、JOINT qpos/range、AABB）修正了 0.15m 坐标系错误；
   实测碗 origin base (0.745,-0.143,0.151)、rim 0.2066、顶抽屉初始已开 88%、抽屉沿仅比碗 rim 高 5mm
 - s4 最终：碗放到盘上 dxy=0.0109（1cm 精度），`check_success=True`
+
+## 全量复现审计（2026-11-09，B430）
+
+独立重跑全部 40 个 solver（每任务从零启动，官方 `_check_success()` 判定）：
+
+```
+AUDIT_RESULT pass=40 fail=0
+```
+
+- goal 10/10 · object 10/10 · spatial 10/10 · libero_10 10/10
+- 审计脚本：`/root/libero-ws/audit2.sh`（逐目录执行 solve.py，抓取 SUCCESS 行）
+- 说明：这是"成绩可复现"的直接证据——不是历史日志摘录，而是本次全部重跑。
