@@ -27,7 +27,7 @@ export interface ExecuteLlmTurnParams {
   apiKey?: string;
   temperature?: number;
   reasoning?: ThinkingLevel;
-  reasoningBudget?: 'off' | 'adaptive' | 'high';
+  reasoningBudget?: 'off' | 'adaptive' | 'high' | 'max';
   modelTiers?: ModelTiers;
   maxLLMRetries?: number;
   topP?: number;
@@ -138,7 +138,9 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
   // a clean run keeps the configured level.
   const budget = params.reasoningBudget ?? 'adaptive';
   let effectiveReasoning = reasoning;
-  if (budget === 'high') {
+  if (budget === 'max') {
+    effectiveReasoning = 'max';
+  } else if (budget === 'high') {
     effectiveReasoning = 'high';
   } else if (budget === 'adaptive') {
     const underPressure =

@@ -435,7 +435,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_REVIEW_MODE (off|manual|auto; overrides config review.mode)',
       'MOSS_VERIFICATION_GATE (0|false|off disables the L1 completion gate)',
       'MOSS_OUTPUT_STYLE (default|explanatory|learning; changes voice, not the engineering rules)',
-      'MOSS_REASONING_BUDGET (off|adaptive|high; overrides config agent.reasoningBudget)',
+      'MOSS_REASONING_BUDGET (off|adaptive|high|max; overrides config agent.reasoningBudget)',
       'MOSS_MODEL_BALANCED',
       'MOSS_MODEL_CHEAP',
       'MOSS_MODEL_STRONG',
@@ -536,8 +536,8 @@ const ENV_GROUP_ZH: Record<string, string> = {
 
 const ENV_NOTE_ZH: Record<string, string> = {
   'internal worker credential forwarding; never persisted': '内部执行进程的凭据传递；不持久化',
-  'off|adaptive|high; overrides config agent.reasoningBudget':
-    'off|adaptive|high；优先于配置 agent.reasoningBudget',
+  'off|adaptive|high|max; overrides config agent.reasoningBudget':
+    'off|adaptive|high|max；优先于配置 agent.reasoningBudget',
   'process env only; a project .env cannot set this': '仅进程环境；项目 .env 不能设置',
   'process env or --config-file; a project .env cannot set this':
     '进程环境或 --config-file；项目 .env 不能设置',
@@ -669,7 +669,7 @@ export function renderConfigHelp(zh = false): string {
     '  # (default true). false makes read_image explain the limitation instead of',
     '  # attaching an image the provider would drop or reject.',
     '  moss config set agent.supportsImages false',
-    '  # agent.reasoningBudget — Moss adaptive-reasoning knob (off|adaptive|high).',
+    '  # agent.reasoningBudget — Moss adaptive-reasoning knob (off|adaptive|high|max).',
     '  # high forces reasoning=high on outbound calls; adaptive may escalate to high under',
     "  # verify/turn-error pressure; off means do NOT escalate (keeps the model's own",
     '  # reasoning level — it does not disable provider-native thinking).',
