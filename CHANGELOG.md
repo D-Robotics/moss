@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### fix(safety): workspace-internal `cd` no longer disables the root exemption (B443)
+
+- A command that changed directory twice but stayed inside the workspace
+  (`cd /workspace/dev && python gen.py && cd /workspace && python -c "…"`) was
+  refused in `-p` runs as "deleting an ancestor of the workspace": the O127 rule
+  counted both `cd` builtins and dropped the workspace-root cd exemption, after
+  which the root itself was treated as a protected ancestor-delete. In benchmark
+  containers this blocked ordinary runs (observed across RLE-Bench sessions).
+- Fix: directory changes that resolve inside the workspace no longer count
+  against the exemption. Escapes (`cd ~`, bare `cd`, `cd /`) still count, and
+  `rm -rf <workspace>` / `rm -rf ~/.ssh` remain blocked. Verified by direct
+  before/after runs of `findShellProtectedWrites` on four normal commands and
+  three escape commands.
+
 ### Moss goal drives a BPU inference on the real X5; ASPIRE motion stack verified (B371/B372)
 
 - A real `moss goal` run on the RDK X5 executed the board's BPU test
