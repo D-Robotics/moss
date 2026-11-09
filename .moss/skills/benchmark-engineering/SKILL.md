@@ -48,3 +48,30 @@ when: solving engineering-style robotics benchmarks (RLE-Bench, LIBERO, sim desi
 An oracle/reference run is a legitimate baseline: score it first to see what the
 benchmark considers achievable, then attribute the agent-vs-oracle gap per
 checkpoint (structure / stability / control / payload) before iterating.
+
+## Autonomy beats hand-feeding (verified on RLE-Bench task08 + task09)
+
+A single autonomous session given only (a) the task spec, (b) a generic
+reference-diff tool, and (c) the task's public reference artifacts, with NO
+hand-written diagnostics and NO seeded previous artifacts, scored:
+
+| task | hand-fed iteration (best) | autonomous single session | official same-model harness |
+| --- | --- | --- | --- |
+| RLE-Bench task08 (mobile base design) | 0.7603 | **0.5673** | 0.3886 (Claude Code, 16-run mean) |
+| RLE-Bench task09 (GELLO co-design) | 0.3121 (hand-fed first run) | **0.6125** | 0.4578 (Claude Code, 16-run mean) |
+
+Lessons:
+- **Encode diagnosis as a tool, not as hints.** A generic differ
+  (`refdiff.py xml|report`) the agent runs itself outperformed a human-written
+  findings list: the agent found the chassis-stock and mount-offset deltas that
+  the hand diff had missed and beat the reference solution on task08.
+- **Never seed a previous best artifact into a scored run.** Seeding hides the
+  agent's real capability and contaminates the score's meaning. Iterate in the
+  open, or report the seeded number as a separate protocol.
+- **Keep the preamble task-agnostic.** Task-specific guidance only teaches one
+  task; a task-agnostic preamble (read the spec, deliver per the spec layout,
+  use the differ, verify with the public harness, respect the budget) transfers
+  across task families.
+- **Report protocols separately.** Single-session autonomous, seeded iteration,
+  and N-run means are different measurements; mixing them is how benchmark
+  claims become dishonest.
