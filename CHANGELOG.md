@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### fix(safety): script scans naming the workspace root no longer read as ancestor deletes (B446)
+
+- A heredoc/python script run from a workspace subdirectory
+  (`cd /workspace/work && python - <<'EOF' …`) could be refused as "deleting an
+  ancestor of the workspace" when the indirect-write scan resolved a relative
+  write to the workspace root itself.
+- Fix: `deletesProtectedAncestor` now only matches a STRICT ancestor; deleting
+  the workspace root itself is still blocked, but via an explicit destructive-
+  head check (rm/rmdir/mv/del/rd/remove-item/move-item). Writes and scripts that
+  merely name the root are allowed.
+- Verified matrix (findShellProtectedWrites): heredoc in ws subdir allowed,
+  cd-combination allowed, delete ws subdir allowed; delete ws root, delete
+  ~/.ssh, delete /tmp (ancestor), and escape-then-ssh-delete all blocked.
+
 ### fix(safety): workspace-internal `cd` no longer disables the root exemption (B443)
 
 - A command that changed directory twice but stayed inside the workspace

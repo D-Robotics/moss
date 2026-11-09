@@ -268,7 +268,12 @@ function deletesProtectedAncestor(
   for (const dir of normalisedConfigDirs(ctx)) anchors.push([dir, 'moss-config']);
   for (const candidate of candidates) {
     for (const [anchor, category] of anchors) {
-      if (isUnder(anchor, candidate)) return { category, resolved: candidate };
+      // Strict ancestor only: a write target that IS the workspace root (a script
+      // scan resolving relative writes against cwd) is not "deleting an ancestor".
+      // Deleting the root itself is handled explicitly for destructive commands.
+      if (candidate !== norm(anchor) && isUnder(anchor, candidate)) {
+        return { category, resolved: candidate };
+      }
     }
   }
   return undefined;
@@ -1279,6 +1284,29 @@ export function findShellProtectedWrites(
           operation: 'shell',
         });
       }
+    }
+  }
+
+  // O152: deleting/moving the workspace root itself is still a destructive
+  // no-go in -p (it takes the project and its .git with it), but only for a
+  // destructive head — ordinary writes/scripts naming the root are fine.
+  if (destructiveCommand && ctx.workspaceRoot) {
+    const rootReal = norm(realOrResolved(ctx.workspaceRoot));
+    const exact = new Set<string>([rootReal]);
+    for (const target of targets) {
+      if (norm(realOrResolved(path.resolve(ctx.cwd, target))) === rootReal) exact.add(rootReal);
+    }
+    const rootWord = command
+      .split(/[\s'"`;&|()<>]+/)
+      .map((w) => path.resolve(ctx.cwd, w))
+      .find((abs) => norm(realOrResolved(abs)) === rootReal);
+    if (rootWord && exact.has(rootReal)) {
+      hits.push({
+        raw: displayPath(rootWord, ctx),
+        resolved: rootWord,
+        category: 'git',
+        operation: 'shell',
+      });
     }
   }
 
