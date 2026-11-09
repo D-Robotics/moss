@@ -98,3 +98,34 @@ state + wrist F/T in, joint targets + magnet command out):
      time): a policy that only works when it can think for 100 ms/step fails.
   4. Score probes: report per-episode scores from the local dev runner, and
      treat variance, not the mean, as the metric to reduce.
+
+## Session-to-session variance is a strategy, not noise (task07 evidence)
+
+RLE-Bench task07 (bin-clearing policy), same model, same protocol, three
+independent sessions: **0.2026 → 0.5904 → 0.6386**. The first session shipped a
+policy that collapsed on most hidden piles; the later sessions shipped policies
+that cleared 5 of 8 episodes at 0.90+. Same agent, same budget.
+
+Practical consequences:
+- **For policy tasks, a single session is a sample, not a result.** Report the
+  distribution (mean/best) or you will publish a misleading number in either
+  direction.
+- **A weak first attempt is worth replacing, not patching.** When the score is
+  near-zero with high variance, a fresh session that redesigns the approach
+  (rather than tweaking constants) moved the score 3x.
+- **Keep the artifact of the best attempt.** Score is computed from the submitted
+  artifact; preserving `policy.py` from a strong session is free upside.
+
+## Audit which protocol you actually ran (hard-learned)
+
+Two numbers that looked like "agent capability" were not:
+- reference-assisted runs (the task's public reference solution copied into the
+  agent workspace) scored 0.64-0.77 on RLE design tasks; the same agent without
+  it scored 0.20-0.50.
+- operator-written hints during iteration produced 0.76 on task08; the generic
+  autonomous preamble produced 0.50.
+
+Before quoting any score: state (1) what the agent could see, (2) how many
+runs, (3) whether a reference solution was present. A protocol audit like
+`refdiff xml my_robot.xml reference/robot.xml` proves whether the submission is
+actually a copy of the reference — run it before claiming an architecture win.
