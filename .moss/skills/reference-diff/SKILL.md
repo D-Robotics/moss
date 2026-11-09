@@ -69,3 +69,22 @@ sat at 0.6386. The capability is what closed the last 0.12.
   `refdiff xml` for the elements that feed that checkpoint.
 - Never copy an element the reference has if the public rules forbid it or the
   harness rejects it — re-verify locally after adopting anything.
+
+## Audit which protocol you actually ran
+
+A score is only meaningful together with what the agent could see. On RLE-Bench
+the same agent/protocol scored **0.64-0.77** with the task's public reference
+solution present in the workspace and **0.20-0.50** without it. Two habits:
+
+1. **Check whether a submission is a copy.** `refdiff xml my.xml reference.xml`
+   with zero structural deltas means the agent reproduced the reference design;
+   any remaining gain is in the controller, not the design. State that.
+2. **Label runs by protocol**: official (no reference), reference-assisted
+   (reference present), and operator-guided iterations are three different
+   measurements. Never put them in one ranking, and say how many runs each
+   number covers (the official leaderboard averages 16).
+
+Verified on task08: the 0.7689 run's `robot.xml` was structurally identical to
+the reference (279 vs 279 elements, zero attribute deltas) with only S7 pick /
+payload +0.0833 each — i.e. "copy the public design, beat its controller", which
+is a legitimate result only when labelled that way.
