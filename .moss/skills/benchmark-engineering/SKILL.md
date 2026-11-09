@@ -129,3 +129,21 @@ Before quoting any score: state (1) what the agent could see, (2) how many
 runs, (3) whether a reference solution was present. A protocol audit like
 `refdiff xml my_robot.xml reference/robot.xml` proves whether the submission is
 actually a copy of the reference — run it before claiming an architecture win.
+
+## Match the thinking budget to the task type (verified on RLE-Bench)
+
+Same agent, same model, same protocol — only the reasoning budget changed:
+
+| task type | reasoning off (gateway) | reasoning max (official endpoint) | which wins |
+| --- | --- | --- | --- |
+| co-design / parameter derivation (task09) | 0.1988 | **0.2884 / 0.4247 / 0.4114** (mean 0.375) | **max** (+88% over the off run) |
+| closed-loop policy (task07) | **0.2026 / 0.5904 / 0.6386** | 0.032 (all 8 episodes 0.015-0.045) | **off** (max collapsed the policy) |
+| mobile-base design (task08) | 0.496 | 0.4394 / 0.2911 | inconclusive; same band |
+
+Why: derivation tasks convert extra reasoning into equations/parameters
+(gravity compensation, spring fitting). Policy tasks convert extra reasoning
+into fewer, slower attempts — and policy quality comes from the number of
+attempt-and-replace cycles, not from a deeper single step. Default: reasoning
+off for policy tasks, max for design/derivation tasks; verify per task instead
+of assuming.
+
