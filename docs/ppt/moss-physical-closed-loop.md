@@ -1,6 +1,6 @@
 # Moss 物理闭环 · PPT 讲稿与素材清单
 
-> 配套文件：`moss-physical-closed-loop.pptx`（10 页，可直接演示；含 7 个 GIF 动图页/动画）
+> 配套文件：`moss-physical-closed-loop.pptx`（11 页，可直接演示；含 7 个 GIF 动图页/动画 + 官方榜单对照页）
 > 全部素材在 `assets/`，文字为本页可直接粘贴的讲稿。
 
 ## 第 1 页 · 封面
@@ -10,7 +10,7 @@
 **核心信息**：
 
 - 真实模型 · 真实终端 · 官方判定 · 可复现
-- LIBERO 40/40=100% · RLE-Bench task08 0.6386（oracle 84%）· RDK X5 真机 device bench 15/15
+- LIBERO 40/40=100% · RLE-Bench task08 0.7603（超过 oracle 0.7564，复跑 0.7606）· RDK X5 真机 device bench 15/15
 - 仓库：D-Robotics/moss（2026-11）
 
 ## 第 2 页 · 物理闭环机制（图：`01-physical-closed-loop.png`）
@@ -112,3 +112,22 @@
 
 `assets/rle/robot_stow.png`（收纳）、`robot_extended.png`（伸展）、`robot_integration.png`（集成）+ 姿态动画 GIF。
 讲法：这是 Moss 从零设计的三臂共用移动平台——官方 verifier 用 MuJoCo 渲染出的真实模型，不是概念图。
+
+## 第 7 页 · 官方 RLE-Bench 榜单对照（图：`07-official-leaderboard.png`）
+
+**这是对外讲最有力的一页**——直接引用官方榜单（<https://rle-bench.github.io/>，arXiv:2609.34210）：
+
+| 口径                                                                          | task08   | task09   |
+| ----------------------------------------------------------------------------- | -------- | -------- |
+| DeepSeek-V4.1-Flash + Claude Code（官方 16 次均值，RLE Index 41.2，总榜第 9） | **38.9** | **45.8** |
+| Moss + DeepSeek-V4.1-Flash（首次自主会话，单次）                              | **40.2** | 31.2     |
+| Moss + DeepSeek-V4.1-Flash（自诊断迭代最优）                                  | **76.0** | —        |
+| Moss（最优配置复跑，验证可复现）                                              | **76.1** | —        |
+| 官方榜最高 task08（GPT-6 Astra / Codex，16 次均值）                           | 61.3     | 54.4     |
+
+**讲法（必须按协议分别陈述）**：
+
+1. 单会话同模型对比：Moss 40.2 ≈ Claude Code 38.9（略优）；task09 我方 31.2 < 45.8，落后（诚实标注）。
+2. 自诊断迭代后 task08 76.0，高于官方任何模型的 16 次均值（最高 61.3）——但这是 best-of-14 + 种子继承口径，不是官方 16 次均值口径。
+3. 复跑 0.7606 vs 0.7603（差 0.0003）= 可复现。
+4. 不宣称 RLE Index 排名（只跑 2/9 任务族）。
