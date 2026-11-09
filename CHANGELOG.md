@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### feat(tools): indentation-tolerant edit_file matching (B452)
+
+- `edit_file`/`multi_edit` gained a fifth match mode, `indent`: a UNIQUE window
+  of consecutive lines whose leading/trailing whitespace is stripped matches,
+  and the replacement is re-indented to the matched block's depth. Models
+  routinely send `old_string` copied from a different nesting depth; exact,
+  quote, trailing-whitespace and CRLF modes all missed it, wasting the turn on
+  an edit-thrash retry.
+- The mode only fires when the window is unique — ambiguous matches still return
+  the same "not unique" error and nothing is written.
+- Verified: wrong-depth block now edits and keeps the surrounding indentation;
+  exact/trailing-ws modes unchanged; ambiguous `return` still refused.
+
 ### fix(safety): script scans naming the workspace root no longer read as ancestor deletes (B446)
 
 - A heredoc/python script run from a workspace subdirectory
