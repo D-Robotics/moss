@@ -57,3 +57,24 @@ RLE-Index 是四工作流等权均值；本机只跑了 9 族中可 CPU 执行�
 
 - 服务器 `/root/RLE-Bench/`：`rlebench/agents/moss.py`（adapter）、`jobs/task08`、`jobs/task09`（每轮 result/report）、`best-task08-*.{xml,py}`（最优种子）
 - Harbor 报告：`jobs/task08/moss/*/task08__*/verifier/report.json`（19 checkpoints 全量）
+
+## task07（料箱清理，策略类）首轮结果与诊断
+
+**官方 verifier：reward 0.2026**（8 个隐藏 episode 的均值）
+
+| episode    | 0     | 1     | 2         | 3     | 4     | 5     | 6     | 7     |
+| ---------- | ----- | ----- | --------- | ----- | ----- | ----- | ----- | ----- |
+| score      | 0.277 | 0.085 | **0.923** | 0.092 | 0.142 | 0.058 | 0.042 | 0.0   |
+| clear_frac | 0.875 | 0.625 | **1.00**  | 0.714 | 0.714 | 0.308 | 0.385 | 0.143 |
+
+汇总：mean clear_frac 0.5955、speed_merit 0.3601、floor_drops 2、damage 2、policy_faults 0。
+
+**对照官方榜单（16 次均值）**：Claude Opus 5.5 0.912 / DeepSeek-V4.1-Flash+Claude Code **0.645** / 最低 0.229。
+因此 task07 是 Moss 当前**明确弱项**（0.2026 vs 0.645）。
+
+**Moss 提交的策略**（486 行，工程完整）：标定 overhead depth → 10mm 网格中值高度图（拒绝机械臂/工具像素）；
+20Hz 闭环笛卡尔伺服（实测关节 FK → 阻尼最小二乘 IK）；磁铁全程通电、以腕部 F/T 接触残差终止下降；
+准静态抬升测载荷（单支架 3.03N）→ 一次一个送进 14cm 巢、抬到 0.375m 越过箱沿。
+
+**方差诊断**：一轮清空 100%（0.923）而多轮近 0 → 单点脆弱（深堆遮挡/邻件碰撞导致某几轮连锁失败）。
+这符合策略类任务的本质：感知-决策闭环在分布外堆型上失效，不是设计问题。
