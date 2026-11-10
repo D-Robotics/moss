@@ -76,3 +76,14 @@
 | 判定 | 官方 `smoke_results/*.json` + `eval_result/**/_result.json`                                                                                                     |
 | 证据 | [`robodojo/2026-11-10-moss-robodojo-report.md`](./robodojo/2026-11-10-moss-robodojo-report.md)（Moss 本人撰写）；环境验证 `pass=14 warn=3 fail=0`               |
 | 复现 | 机器 `cd /root/RoboDojo && xvfb-run -a bash scripts/robodojo.sh smoke --policy-dir XPolicyLab/policy/Pi_0 --ckpt <abs ckpt> --policy-env uv --only stack_bowls` |
+
+## 4. 完成率（Moss 驱动 vs 操作者）
+
+| 口径                                     | 结果                                                   |
+| ---------------------------------------- | ------------------------------------------------------ |
+| A. Moss 驱动执行率（已跑范围内由谁执行） | 67 / 67 = 100%                                         |
+| B. 官方任务集覆盖率（跑过 / 官方总量）   | 67 / 115 = 58%（RoboDojo 差 48 个，全量 sweep 进行中） |
+| C. 技能与产品交付（操作者蒸馏/修复）     | 21 / 21 = 100%                                         |
+
+证据与口径说明：[`2026-11-10-moss-completion-rate.md`](./2026-11-10-moss-completion-rate.md)；
+RoboDojo 全量 sweep 的实时进度在机器 `~/.moss/sweep/results.tsv`（Moss 自建）。
