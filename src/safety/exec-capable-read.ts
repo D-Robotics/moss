@@ -266,6 +266,25 @@ export function splitRawSegments(command: string): string[] {
 }
 
 /** Raw words of a segment, quotes/escapes kept (`g"it"` stays one word). */
+/**
+ * O152 r7: a here-doc shell (`bash <<'EOF' … EOF`) keeps its script text inside
+ * the command this harness receives, so "the script is on stdin and I cannot
+ * see it" does not hold. Refusing it broke ordinary workspace work inside git
+ * repositories. The body is still scanned word by word; a protected-path marker
+ * keeps the strict path.
+ */
+function hasInlineHeredoc(text: string): boolean {
+  return /<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?/.test(text);
+}
+
+/**
+ * Markers that keep a here-doc on the strict path. The body is not parsed as a
+ * script, so a visible here-doc that names secrets/config is still a read of a
+ * protected path (`bash <<EOF; cat ~/.ssh/id_rsa; EOF`).
+ */
+const HEREDOC_SENSITIVE =
+  /(?:^|[\s'"`=(])(?:~|\$HOME)?\/?\.(?:ssh|git|env|moss|aws|gnupg|netrc|npmrc|pypirc|docker|kube)(?:[/\s'"`)]|$)|id_(?:rsa|ed25519|ecdsa|dsa)\b|credentials\b/i;
+
 function rawWords(segment: string): string[] {
   const out: string[] = [];
   let cur = '';
@@ -1161,7 +1180,9 @@ export function findExecCapableForms(
       // (`curl … | sh`, here-doc, `< file`) is not visible here.
       const prevHead = si > 0 ? headOf(simples[si - 1]?.[0]) : '';
       const viaRedirect = args.some((w) => /^\d*</.test(w));
-      if (viaRedirect || (prevHead !== 'echo' && prevHead !== 'printf')) {
+      const segmentText = rawSegments[si] ?? '';
+      const visibleHeredoc = hasInlineHeredoc(segmentText) && !HEREDOC_SENSITIVE.test(command);
+      if (!visibleHeredoc && (viaRedirect || (prevHead !== 'echo' && prevHead !== 'printf'))) {
         uncertain('shell reads stdin', si);
       }
     } else if (inner !== undefined) {

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### fix(safety): visible here-doc shells are no longer "invisible stdin" (B461)
+
+- `cd <repo> && bash <<'EOF' … EOF` inside a git repository was refused as
+  "shell reads stdin would run an external program over a protected path":
+  the detector saw a shell reading its script from stdin and assumed the text
+  was invisible. The harness receives the here-doc body inside the command, so
+  that assumption is wrong for inline here-docs.
+- A segment that carries an inline here-doc is now treated as visible. The
+  strict path still applies when the command names a sensitive marker
+  (`~/.ssh`, `.env`, `.git`, credentials, …), and `bash < file` /
+  `curl … | bash` remain blocked.
+- Verified: inline here-doc allowed; redirect-from-file blocked; foreign pipe
+  into bash blocked; here-doc reading `~/.ssh/id_rsa` blocked.
+
 ### fix(safety): bare-root targets and destructive escapes (B458)
 
 - Inline code containing the string `'/'` (e.g. `python3 -c "print('/'.join(…))"`)
