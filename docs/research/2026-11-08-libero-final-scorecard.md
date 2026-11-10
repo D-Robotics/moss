@@ -50,12 +50,13 @@
   实测碗 origin base (0.745,-0.143,0.151)、rim 0.2066、顶抽屉初始已开 88%、抽屉沿仅比碗 rim 高 5mm
 - s4 最终：碗放到盘上 dxy=0.0109（1cm 精度），`check_success=True`
 
-## 全量复现审计（2026-11-09，B430）
+## 全量复现审计（两次独立，B430/B455）
 
 独立重跑全部 40 个 solver（每任务从零启动，官方 `_check_success()` 判定）：
 
 ```
-AUDIT_RESULT pass=40 fail=0
+AUDIT_RESULT pass=40 fail=0   # 第一次（2026-11-09）
+AUDIT_RESULT pass=40 fail=0   # 第二次独立审计（2026-11-10）
 ```
 
 - goal 10/10 · object 10/10 · spatial 10/10 · libero_10 10/10
