@@ -324,3 +324,185 @@ round-1 smoke (§3) through the same code path.
 - 4 episodes is a small sample; the native count is `eval_nums: 50` per task. No scoring/reward logic
   was modified, and no checkpoint or dataset was downloaded (`df -h /` showed ~28 GB free before the run).
 - GPU load stayed ~20.6 GB / 32 GB with no CUDA OOM.
+
+---
+
+## 9. Full-coverage sweep
+
+Round 3 closes the coverage gap: every runnable RoboDojo task gets a measured success rate on the
+same policy, checkpoint, action space and transport as §3–§8.
+
+- Policy: Pi_0, ckpt `RoboDojo-sim-arx_x5-joint-2/59999`, `arx_x5`, `action_type=joint`
+  (resolved from `XPolicyLab/policy/Pi_0/deploy.yml`), `--policy-env uv`, headless `xvfb-run`.
+- Episodes per task: `--eval-num 3` (3 layouts, seed 0).
+- Driver: `.moss/sweep/driver.sh` — one task per `robodojo.sh benchmark --only <task>` invocation,
+  run in its own tracked process group, 5400 s per-task watchdog, resumable via `.moss/sweep/results.tsv`.
+  Each finished task appends one row to that TSV; this section is generated from it.
+- Ground truth for every SR below is the task's own
+  `eval_result/RoboDojo/<task>/Pi_0/arx_x5/.../_result.json`, never the wrapper exit code.
+- Coverage progress log: `.moss/sweep/driver.log`, per-task console logs `.moss/sweep/logs/<dim>__<task>.log`.
+
+### 9.1 Task inventory and coverage accounting
+
+`bash scripts/robodojo.sh dimensions` reports **54 runnable tasks** across five dimensions:
+
+| Dimension      |            Runnable configs |
+| :------------- | --------------------------: |
+| generalization | 24 (12 base + 12 `_random`) |
+| memory         |                           6 |
+| precision      |                           8 |
+| long-horizon   |                           8 |
+| open           |                           8 |
+| **Total**      |                      **54** |
+
+Already measured before this round (6 tasks, see §3–§8):
+
+| Task                            | Dimension      | Episodes |    **SR** | Source |
+| :------------------------------ | :------------- | -------: | --------: | :----- |
+| `stack_bowls`                   | generalization |        1 | **100 %** | §3     |
+| `build_tower`                   | precision      |        3 | **0.0 %** | §4     |
+| `deposit_coin`                  | precision      |        5 | **0.0 %** | §4     |
+| `fasten_screws`                 | precision      |        1 | **0.0 %** | §4     |
+| `arrange_largest_number`        | generalization |        3 | **0.0 %** | §8     |
+| `arrange_largest_number_random` | generalization |        3 | **0.0 %** | §8     |
+
+Pending list for this round (**48 tasks**):
+
+| Dimension      | Pending tasks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |  Count |
+| :------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -----: |
+| generalization | `fold_clothes`, `fold_clothes_random`, `hang_mugs`, `hang_mugs_random`, `make_toast`, `make_toast_random`, `pack_objects_into_box`, `pack_objects_into_box_random`, `pour_liquid_into_cup`, `pour_liquid_into_cup_random`, `push_T`, `push_T_random`, `sort_nesting_dolls_by_size`, `sort_nesting_dolls_by_size_random`, `stack_blocks`, `stack_blocks_random`, `stack_bowls_random`, `store_laptop_and_headphones`, `store_laptop_and_headphones_random`, `sweep_blocks`, `sweep_blocks_random` |     21 |
+| memory         | `cover_blocks`, `imitate_sorting_sequence`, `match_and_pick_from_conveyor`, `press_by_number`, `swap_T`, `swap_blocks`                                                                                                                                                                                                                                                                                                                                                                           |      6 |
+| precision      | `insert_key`, `insert_tubes`, `play_Xylophone`, `plug_in_charger`, `pour_balls_into_vase`                                                                                                                                                                                                                                                                                                                                                                                                        |      5 |
+| long-horizon   | `classify_objects`, `fill_egg_holder`, `fill_pen_holder`, `make_kong`, `organize_table`, `play_stacking_toy`, `play_tic_tac_toe`, `put_bottles_into_dustbin`                                                                                                                                                                                                                                                                                                                                     |      8 |
+| open           | `align_blocks`, `classify_objects_by_language`, `general_pickup`, `pick_from_conveyor_by_image`, `pour_by_language`, `solve_equation`, `stack_blocks_by_language`, `store_tools_in_toolbox`                                                                                                                                                                                                                                                                                                      |      8 |
+| **Total**      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | **48** |
+
+### 9.2 Per-task results (generated from `.moss/sweep/results.tsv` + each `_result.json`)
+
+<!-- SWEEP_AUTO_START -->
+
+**Coverage: 54/54 tasks measured (100.0 %) · 160 episodes · 7 successes · overall SR 4.4 %** (rendered 2026-11-10T14:27:05Z)
+
+**Dimension summary** (computed from the rows above; no values are estimated)
+
+| Dimension        | Tasks measured | Episodes | Successes |    **SR** |
+| :--------------- | -------------: | -------: | --------: | --------: |
+| generalization   |             24 |       70 |         6 | **8.6 %** |
+| precision        |              8 |       24 |         0 | **0.0 %** |
+| memory           |              6 |       18 |         0 | **0.0 %** |
+| long-horizon     |              8 |       24 |         1 | **4.2 %** |
+| open             |              8 |       24 |         0 | **0.0 %** |
+| **All measured** |         **54** |  **160** |     **7** | **4.4 %** |
+
+_Every SR above is read from the task's own `eval_result/RoboDojo/<task>/Pi_0/arx_x5/.../_result.json` (`success_rate`, `eval_time`, `score`), never from a wrapper exit code. Rows marked \_queued_ have no result yet and are excluded from the counts.\_
+
+**generalization**
+
+| Task                                 | Episodes | Successes |      **SR** |             Score | Wall clock | Source      |
+| :----------------------------------- | -------: | --------: | ----------: | ----------------: | ---------: | :---------- |
+| `arrange_largest_number`             |        3 |         0 |   **0.0 %** |               0.0 |          — | §8          |
+| `arrange_largest_number_random`      |        3 |         0 |   **0.0 %** |               0.0 |          — | §8          |
+| `fold_clothes`                       |        3 |         3 | **100.0 %** |             100.0 |      276 s | sweep       |
+| `fold_clothes_random`                |        3 |         0 |   **0.0 %** | 6.666666666666667 |      501 s | sweep       |
+| `hang_mugs`                          |        3 |         0 |   **0.0 %** |               0.0 |      451 s | sweep       |
+| `hang_mugs_random`                   |        3 |         0 |   **0.0 %** |               0.0 |      571 s | sweep       |
+| `make_toast`                         |        3 |         0 |   **0.0 %** |               0.0 |      992 s | sweep       |
+| `make_toast_random`                  |        3 |         0 |   **0.0 %** |               0.0 |      613 s | sweep       |
+| `pack_objects_into_box`              |        3 |         0 |   **0.0 %** |               0.0 |      642 s | sweep       |
+| `pack_objects_into_box_random`       |        3 |         0 |   **0.0 %** |               0.0 |      710 s | sweep       |
+| `pour_liquid_into_cup`               |        3 |         2 |  **66.7 %** | 66.66666666666666 |      258 s | sweep       |
+| `pour_liquid_into_cup_random`        |        3 |         0 |   **0.0 %** |               0.0 |      444 s | sweep       |
+| `push_T`                             |        3 |         0 |   **0.0 %** |               0.0 |      298 s | sweep       |
+| `push_T_random`                      |        3 |         0 |   **0.0 %** |               0.0 |      368 s | sweep       |
+| `sort_nesting_dolls_by_size`         |        3 |         0 |   **0.0 %** |               0.0 |      533 s | sweep       |
+| `sort_nesting_dolls_by_size_random`  |        3 |         0 |   **0.0 %** |               0.0 |      717 s | sweep       |
+| `stack_blocks`                       |        3 |         0 |   **0.0 %** |               5.0 |      309 s | sweep       |
+| `stack_blocks_random`                |        3 |         0 |   **0.0 %** |               0.0 |      391 s | sweep       |
+| `stack_bowls`                        |        1 |         1 | **100.0 %** |             100.0 |          — | §3          |
+| `stack_bowls_random`                 |        3 |         0 |   **0.0 %** |               0.0 |      496 s | sweep       |
+| `store_laptop_and_headphones`        |        3 |         0 |   **0.0 %** |               0.0 |      398 s | sweep       |
+| `store_laptop_and_headphones_random` |        3 |         0 |   **0.0 %** |               0.0 |      444 s | sweep       |
+| `sweep_blocks`                       |        3 |         0 |   **0.0 %** |               0.0 |      534 s | sweep       |
+| `sweep_blocks_random`                |        3 |         0 |   **0.0 %** |               0.0 |      589 s | sweep       |
+| **generalization subtotal**          |   **70** |     **6** |   **8.6 %** |                 — |          — | 24/24 tasks |
+
+**precision**
+
+| Task                   | Episodes | Successes |    **SR** | Score | Wall clock | Source    |
+| :--------------------- | -------: | --------: | --------: | ----: | ---------: | :-------- |
+| `build_tower`          |        3 |         0 | **0.0 %** |  20.0 |          — | §4        |
+| `deposit_coin`         |        5 |         0 | **0.0 %** |   0.0 |          — | §4        |
+| `fasten_screws`        |        1 |         0 | **0.0 %** |   0.0 |          — | §4        |
+| `insert_key`           |        3 |         0 | **0.0 %** |   0.0 |      221 s | sweep     |
+| `insert_tubes`         |        3 |         0 | **0.0 %** |   0.0 |      307 s | sweep     |
+| `play_Xylophone`       |        3 |         0 | **0.0 %** |   0.0 |      310 s | sweep     |
+| `plug_in_charger`      |        3 |         0 | **0.0 %** |   0.0 |      250 s | sweep     |
+| `pour_balls_into_vase` |        3 |         0 | **0.0 %** |   0.0 |      413 s | sweep     |
+| **precision subtotal** |   **24** |     **0** | **0.0 %** |     — |          — | 8/8 tasks |
+
+**memory**
+
+| Task                           | Episodes | Successes |    **SR** |              Score | Wall clock | Source    |
+| :----------------------------- | -------: | --------: | --------: | -----------------: | ---------: | :-------- |
+| `cover_blocks`                 |        3 |         0 | **0.0 %** |  8.333333333333332 |      467 s | sweep     |
+| `imitate_sorting_sequence`     |        3 |         0 | **0.0 %** | 1.6666666666666667 |      827 s | sweep     |
+| `match_and_pick_from_conveyor` |        3 |         0 | **0.0 %** |                0.0 |      416 s | sweep     |
+| `press_by_number`              |        3 |         0 | **0.0 %** |                0.0 |      255 s | sweep     |
+| `swap_T`                       |        3 |         0 | **0.0 %** |                0.0 |      245 s | sweep     |
+| `swap_blocks`                  |        3 |         0 | **0.0 %** |                0.0 |      350 s | sweep     |
+| **memory subtotal**            |   **18** |     **0** | **0.0 %** |                  — |          — | 6/6 tasks |
+
+**long-horizon**
+
+| Task                       | Episodes | Successes |     **SR** |              Score | Wall clock | Source    |
+| :------------------------- | -------: | --------: | ---------: | -----------------: | ---------: | :-------- |
+| `classify_objects`         |        3 |         0 |  **0.0 %** |                0.0 |      570 s | sweep     |
+| `fill_egg_holder`          |        3 |         0 |  **0.0 %** |                0.0 |      374 s | sweep     |
+| `fill_pen_holder`          |        3 |         0 |  **0.0 %** | 11.666666666666666 |      650 s | sweep     |
+| `make_kong`                |        3 |         0 |  **0.0 %** |                0.0 |      377 s | sweep     |
+| `organize_table`           |        3 |         0 |  **0.0 %** |                0.0 |      523 s | sweep     |
+| `play_stacking_toy`        |        3 |         0 |  **0.0 %** |                0.0 |      574 s | sweep     |
+| `play_tic_tac_toe`         |        3 |         0 |  **0.0 %** | 3.3333333333333335 |      972 s | sweep     |
+| `put_bottles_into_dustbin` |        3 |         1 | **33.3 %** |               45.0 |      333 s | sweep     |
+| **long-horizon subtotal**  |   **24** |     **1** |  **4.2 %** |                  — |          — | 8/8 tasks |
+
+**open**
+
+| Task                           | Episodes | Successes |    **SR** | Score | Wall clock | Source    |
+| :----------------------------- | -------: | --------: | --------: | ----: | ---------: | :-------- |
+| `align_blocks`                 |        3 |         0 | **0.0 %** |   0.0 |      142 s | sweep     |
+| `classify_objects_by_language` |        3 |         0 | **0.0 %** |   0.0 |      575 s | sweep     |
+| `general_pickup`               |        3 |         0 | **0.0 %** |   0.0 |      235 s | sweep     |
+| `pick_from_conveyor_by_image`  |        3 |         0 | **0.0 %** |   0.0 |      422 s | sweep     |
+| `pour_by_language`             |        3 |         0 | **0.0 %** |   0.0 |      664 s | sweep     |
+| `solve_equation`               |        3 |         0 | **0.0 %** |   0.0 |      250 s | sweep     |
+| `stack_blocks_by_language`     |        3 |         0 | **0.0 %** |   0.0 |      244 s | sweep     |
+| `store_tools_in_toolbox`       |        3 |         0 | **0.0 %** |   0.0 |      469 s | sweep     |
+| **open subtotal**              |   **24** |     **0** | **0.0 %** |     — |          — | 8/8 tasks |
+
+**Method (identical for every row above)**
+
+- Policy `Pi_0`, checkpoint `RoboDojo-sim-arx_x5-joint-2/59999`, robot `arx_x5`, `action_type=joint` (resolved from `XPolicyLab/policy/Pi_0/deploy.yml`), `--policy-env uv`, headless via `xvfb-run -a -s "-screen 0 1920x1080x24"`.
+- 3 episodes per task (`--eval-num 3`, seed 0, layouts 0-2). Per-episode step budget is the task's own `step_lim`; there is no per-episode timeout, so a task either terminates normally or is terminated by the 5400 s per-task watchdog.
+- One `robodojo.sh benchmark --only <task>` invocation per task, driven by `.moss/sweep/driver.sh`. Per-task isolation keeps one hanging task from taking the sweep down; `results.tsv` makes the run resumable and already-finished tasks are skipped on restart.
+- SR = `success_rate` from the task's own `_result.json`, episodes = its `eval_time`, score = its `score` (partial progress, not a success indicator). The wrapper exit code is recorded but never used as a success signal.
+
+**Limitations (read before quoting a single number)**
+
+- **3 episodes is a small sample.** The benchmark's native count is `eval_nums: 50` per task (`task/RoboDojo/config/_task.yml`). A per-task 0 % on 3 episodes bounds the true success probability only loosely: treat it as a capability signal, not a precise estimate.
+- **A 0 % row is not a harness failure.** The same code path scored `stack_bowls` at SR 1.0 (§3), and several tasks return non-zero partial scores (e.g. `cover_blocks` 8.33, `fill_pen_holder` 11.67), so reward and success detection do produce differentiated signal.
+- **Some rows come from earlier rounds with other episode counts** (`stack_bowls` 1 episode in §3; `build_tower` 3, `deposit_coin` 5, `fasten_screws` 1 in §4). They are kept for coverage accounting and labelled with their source section rather than re-run.
+- Garment tasks (`fold_clothes*`, `hang_mugs*`, `make_toast*`) are markedly slower per episode than rigid-body tasks; the wall-clock column reflects that.
+- No scoring, reward, `env/`, `task/`, or policy code was modified for this sweep.
+
+**Reproduce**
+
+```bash
+cd /root/RoboDojo
+bash .moss/sweep/driver.sh        # resumable; finished tasks are skipped
+python3 .moss/sweep/render.py     # regenerate this section from results.tsv + _result.json
+```
+
+Per-task console logs and raw stores: `.moss/sweep/logs/<dimension>__<task>.log`, `.moss/sweep/results.tsv`, `.moss/sweep/render.log`.
+
+<!-- SWEEP_AUTO_END -->
