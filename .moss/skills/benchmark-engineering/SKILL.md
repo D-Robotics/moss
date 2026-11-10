@@ -166,3 +166,22 @@ Rules:
 3. **Report the two buckets separately.** "Capability scores: 0.20/0.41/0.59/0.64"
    and "harness failures: 2 runs (artifact delivery, since fixed)" is honest;
    averaging a 0.0 that came from a blocked edit into the capability mean is not.
+
+## Isaac-Sim benchmarks (RoboDojo): three failure modes that look like "the policy is bad"
+
+Verified on RoboDojo 5.1 / RTX 5090 / headless. Each of these produced a hung or
+zero-scoring run until fixed; none is a scoring-logic problem.
+
+| symptom | real cause | fix |
+| --- | --- | --- |
+| `Killed` after ~35 min, rc 137, CPU 99% with no progress; log filled with `zenity: not found` | Carbonite crash reporter shells out to `zenity` on SIGSEGV, fails, and returns to the faulting instruction — an infinite spin | disable it: `ROBODOJO_KIT_ARGS="--/crashreporter/enabled=false"` (the launcher must actually forward the variable) |
+| RTX renderer never initialises; `Failed to load MDL-SDK`; every shader fails; `HydraEngine rtx failed creating scene renderer` | `libGLU.so.1` absent, so `libneuray.so` cannot load | `apt-get install -y libglu1-mesa` |
+| `operands could not be broadcast together with shapes (16,) (14,)` in the policy normaliser | action space mismatch: launcher defaulted to `ee` (16-d) while the checkpoint is joint (14-d) | derive `action_type` from the policy `deploy.yml` instead of a hardcoded default |
+
+Headless display: run under `xvfb-run -a -s "-screen 0 1920x1080x24"` so GLFW has
+a windowing context.
+
+Tell a capability zero from a harness zero: run the smoke task first. If smoke
+scores SR 1.0 through the same pipeline, a later 0% is a policy result, not a
+broken harness — and check for a graded partial score (e.g. 20.0 with SR 0.0),
+which proves the reward machinery is producing differentiated signal.

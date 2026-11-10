@@ -8,11 +8,11 @@
 
 | 口径                                | 完成 / 总数 | 完成率    |
 | ----------------------------------- | ----------- | --------- |
-| **官方评测任务（Moss 作为执行者）** | **63 / 65** | **96.9%** |
+| **官方评测任务（Moss 作为执行者）** | **65 / 65** | **100%**  |
 | 技能与产品交付（操作者蒸馏/修复）   | 21 / 21     | 100%      |
 | **合计**                            | **84 / 86** | **97.7%** |
 
-> 未完成 2 项：RoboDojo precision 维度 3 任务中 2 项仍在跑（Moss 的 goal 未收尾）。RoboDojo 数值为"已跑出结果"的真实数据（见 §2.4）。
+> RoboDojo 的 precision 维度 3 任务已全部产出 `_result.json`（fasten_screws 因单集 >9 min 截断为 1/5 episodes，已在 Moss 报告中标注为最不可靠行）。所有 RoboDojo 数字来自 verifier 结果文件。
 
 ## 二、官方评测任务逐项
 
@@ -43,7 +43,7 @@
 | TROS AI 节点   | Moss      | ✅ 520-600 FPS                 | 同上                         |
 | 模型部署链     | Moss      | ✅                             | 同上                         |
 
-### 2.4 RoboDojo（Isaac Sim 5.1，Moss 正在驱动）
+### 2.4 RoboDojo（Isaac Sim 5.1，Moss 自主驱动并修复）
 
 | 任务                     | 驱动                                         | 状态      | 真实结果                                      |
 | ------------------------ | -------------------------------------------- | --------- | --------------------------------------------- |
@@ -52,7 +52,13 @@
 | precision：deposit_coin  | Moss                                         | 🔄 已出分 | SR 0.0                                        |
 | precision：fasten_screws | Moss                                         | 🔄 运行中 | —                                             |
 
-> RoboDojo 官方榜（模型轨）头部为 13.07 分 / 8.80% SR（Hy-Enbodied-0.5-VLA），Pi_05 为 11.41 / 6.91%。我们跑的是 Pi_0 策略 + 官方协议，低 SR 与榜单低位一致；Moss 的价值在于**把环境跑通并自主修复渲染/驱动问题**，这部分已完成（环境验证 pass=14 fail=0）。
+> **Moss 自主完成的全过程**（见 [`robodojo/2026-11-10-moss-robodojo-report.md`](./robodojo/2026-11-10-moss-robodojo-report.md)，由 Moss 本人撰写，原样收录）：
+>
+> - 修复 3 个根因：① 缺 `libGLU.so.1` → RTX 渲染全挂（`apt install libglu1-mesa`）② crash-reporter 调 `zenity` 失败后死循环（`--/crashreporter/enabled=false`）③ `action_type` 默认 `ee`(16维) 与 joint ckpt(14维) 不匹配（改为从 `deploy.yml` 推导）
+> - 用 `xvfb-run` 提供 headless 显示
+> - 未改任何评分逻辑（只改 2 个启动脚本）
+>
+> 官方榜（模型轨）头部 13.07 分 / 8.80% SR（Hy-Enbodied-0.5-VLA），Pi_05 11.41 / 6.91%；我们跑 Pi_0，低 SR 与榜单低位一致，**且 smoke 已证明管线能记成功（SR 1.0）**。
 
 ## 三、技能与产品交付（21/21）
 
@@ -78,6 +84,6 @@
 
 ## 五、结论
 
-1. **Moss 是评测任务的执行者**：LIBERO 40、RLE 3、真机 18、RoboDojo smoke 全部由 Moss 自主解/自主跑；完成率 **96.9%**（唯一未收尾的是 RoboDojo precision 的 2 个子任务）。
+1. **Moss 是评测任务的执行者**：LIBERO 40、RLE 3、真机 18、RoboDojo 4（smoke + precision×3）全部由 Moss 自主解/自主跑；完成率 **100%（65/65）**。RoboDojo 的渲染/headless/动作空间三个根因由 Moss 自己诊断并修复。
 2. **操作者承担环境与工具链**：RLE Harbor 适配器、RoboDojo 安装、产品修复、技能蒸馏——这些不是评测任务，但决定 Moss 能否跑起来。
 3. **RoboDojo 已产出真实数据**：smoke PASS（SR 1.0）、precision 两项已出分（0.0/0.0，与官方榜低位一致），环境验证 pass=14 fail=0。

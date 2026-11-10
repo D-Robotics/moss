@@ -67,3 +67,12 @@
 - RLE 9 任务族只有 task07/08/09 为 CPU 可跑，其余 6 族 `gpu = true`（本机无 GPU）→ **不主张 RLE Index 排名**。
 - 官方 16 次均值 vs Moss 单会话（1-3 次）：不同测量，不可混用排名。
 - 参考解辅助 vs 官方协议：两套数字，分别列出。
+
+## 3. RoboDojo（Isaac Sim 5.1，Moss 自主驱动）
+
+| 项目 | 内容                                                                                                                                                            |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 成绩 | smoke `stack_bowls` **PASS / SR 1.0 / score 100**；precision 维度 3 任务 9 episodes **总体 SR 0.0**（build_tower 部分分 20.0）                                  |
+| 判定 | 官方 `smoke_results/*.json` + `eval_result/**/_result.json`                                                                                                     |
+| 证据 | [`robodojo/2026-11-10-moss-robodojo-report.md`](./robodojo/2026-11-10-moss-robodojo-report.md)（Moss 本人撰写）；环境验证 `pass=14 warn=3 fail=0`               |
+| 复现 | 机器 `cd /root/RoboDojo && xvfb-run -a bash scripts/robodojo.sh smoke --policy-dir XPolicyLab/policy/Pi_0 --ckpt <abs ckpt> --policy-env uv --only stack_bowls` |

@@ -1,0 +1,250 @@
+<!-- Provenance: 本文件由 Moss 自己在 RoboGO 机器上以 `moss goal` 完成
+     （acceptance: ROBODOJO_RESULTS.md 存在且含 SR/success rate → exit 0），
+     原样收录作为证据。Moss 自主修复了 libGLU 渲染、crash-reporter zenity 死循环、
+     action_type 不匹配三个根因，并跑出 smoke PASS(SR 1.0) 与 precision 9 episodes SR 0.0。 -->
+
+# RoboDojo — Headless Fix + Pi_0 Precision Evaluation
+
+Run date: 2026-11-10 (UTC). Host: `/root/RoboDojo`, single NVIDIA RTX 5090 (32 GB), driver `570.195.03`,
+CUDA 12.8, Ubuntu 22.04.5, Isaac Sim 5.1 / IsaacLab, no X display (headless).
+
+Every number below is copied from a `_result.json` or a smoke summary file. Nothing is estimated.
+
+---
+
+## 1. TL;DR
+
+| Item                                      | Outcome                                                           |
+| :---------------------------------------- | :---------------------------------------------------------------- |
+| Headless hang                             | **Fixed** — 3 distinct root causes, all confirmed by log evidence |
+| `smoke --only stack_bowls`                | **PASS** (exit 0, `eval_time=1`, 155 s)                           |
+| Precision dimension (3 tasks, 9 episodes) | **Overall SR = 0.0 %** (0 / 9)                                    |
+| Pi_0 runs end-to-end?                     | **Yes** — no crash, real actions, real episode terminations       |
+
+The harness is proven able to register a success: the smoke run scored **SR 1.0** on `stack_bowls`.
+So the 0 % on precision is a policy-capability result, not a broken pipeline.
+
+---
+
+## 2. What was broken, and the fix
+
+### 2.1 Root cause A — missing `libGLU.so.1` broke the RTX renderer
+
+`libGLU.so.1` did not exist anywhere on the system (`find / -name 'libGLU.so*'` → 0 hits), so the
+MDL SDK could not load and **every** ray-tracing shader failed to compile, leaving no renderer:
+
+```
+[Error] [omni.ext.plugin] Could not load the dynamic library from .../omni.iray.libs-.../bin/iray/libneuray.so.
+        Error: libGLU.so.1: cannot open shared object file: No such file or directory
+[Error] [rtx.mdltranslator.plugin] Failed to load MDL-SDK.
+[Error] [gpu.foundation.plugin] Cannot load shader file 'rtx/raytracing/DirectLightingSampled.rgs.hlsl'.
+[Error] [rtx.raytracing.plugin] initialize failure: m_backLightingPass creation failed
+[Error] [carb.scenerenderer-rtx.plugin] Creating rtx::raytracing::SubsurfaceContext failed.
+[Warning] [omni.hydra.rtx] HydraEngine rtx failed creating scene renderer.
+```
+
+Evidence: `.../isaacsim/kit/logs/Kit/Isaac-Sim/5.1/kit_20261110_061124.log:5747, 9002-9004` and
+`smoke_results/2026-11-10_06-11-02_smoke/logs/stack_bowls.log`.
+
+Fix:
+
+```bash
+apt-get install -y libglu1-mesa
+```
+
+After the fix the same MDL asset compiles instead of failing
+(`[rtx.neuraylib.plugin] [MDLC:COMPILER] ... Mahogany_Planks.mdl(49,24): C302 ...` — warnings only)
+and the GPU is actively rendering (48–29 % util, ~20 GB used).
+
+### 2.2 Root cause B — enabled crash reporter turned a crash into an infinite spin
+
+This is the actual "process burns CPU and makes no progress" symptom. With the reporter enabled,
+Carbonite's SIGSEGV handler shells out to `zenity` (absent on a headless box), fails, and **returns to
+the faulting instruction**, which faults again — forever. The process never returns an exit status, so
+neither the retry loop nor the smoke harness can ever see it fail.
+
+Evidence — the previous run, `smoke_results/2026-11-10_06-11-02_smoke/logs/stack_bowls.log`:
+
+```
+sh: 1: zenity: not found        ← 16 occurrences (grep -c → 16), then silence
+/root/RoboDojo/scripts/eval_policy.sh: line 185: 1172967 Killed   python -u src/eval_client/main.py ...
+```
+
+`exit_code=137`, `elapsed_sec=2084` in `smoke_results/2026-11-10_06-11-02_smoke.json` — killed by an
+outer watchdog 35 minutes later.
+
+`scripts/eval_policy.sh` hardcoded `KIT_ARGS=""`, so the documented `ROBODOJO_KIT_ARGS` escape hatch
+never reached Kit. Fix (`scripts/eval_policy.sh`):
+
+```bash
+KIT_ARGS="${ROBODOJO_KIT_ARGS:---/crashreporter/enabled=false}"
+```
+
+Now a fault is an ordinary `rc=139`, which the existing retry loop already handles. After the fix the
+`zenity` line count in the run log is **0**, and the process performs real work.
+
+### 2.3 Root cause C — action-space mismatch: `ee` (16-d) vs the joint checkpoint (14-d)
+
+With the hang gone the run failed fast with a genuine model/action-space error:
+
+```
+ERROR:client_server.ws.model_server:policy server call request failed:
+  operands could not be broadcast together with shapes (16,) (14,)
+ValueError: operands could not be broadcast together with shapes (16,) (14,)
+  File ".../Pi_0/openpi/src/openpi/transforms.py", line 139, in _normalize
+    return (x - mean) / (std + 1e-6)
+```
+
+Evidence: `smoke_results/2026-11-10_06-49-03_smoke/logs/stack_bowls.log:410,454`.
+
+`scripts/robodojo.sh` and `scripts/internal/smoke_all_tasks.sh` defaulted `action_type` to `ee`
+(16-d = 2×7 pose + 2 gripper), but the checkpoint is `RoboDojo-sim-arx_x5-**joint**-2` and
+`XPolicyLab/policy/Pi_0/deploy.yml` declares `action_type: joint` (14-d = 2×6 joints + 2 gripper).
+The launcher already derived `protocol` from `deploy.yml`, but not `action_type`.
+
+Fix (`scripts/internal/smoke_all_tasks.sh`): when `--action-type` is not passed explicitly, resolve it
+from the policy's `deploy.yml`, exactly as `protocol` is resolved. The run log now shows:
+
+```
+[smoke_all_tasks] action_type=joint (from /root/RoboDojo/XPolicyLab/policy/Pi_0/deploy.yml)
+```
+
+No scoring logic was touched. The only repo files changed are `scripts/eval_policy.sh` and
+`scripts/internal/smoke_all_tasks.sh`.
+
+---
+
+## 3. Smoke — `stack_bowls` (required acceptance step)
+
+Repeatable one-liner (Xvfb gives GLFW a display so Isaac Sim's windowing context initialises headless):
+
+```bash
+cd /root/RoboDojo && xvfb-run -a -s "-screen 0 1920x1080x24" \
+  bash scripts/robodojo.sh smoke --policy-dir XPolicyLab/policy/Pi_0 \
+  --ckpt /root/RoboDojo/XPolicyLab/policy/Pi_0/checkpoints/RoboDojo-sim-arx_x5-joint-2/59999 \
+  --policy-env uv --only stack_bowls --fail-fast
+```
+
+Result — `smoke_results/2026-11-10_06-56-11_smoke.json`:
+
+```
+counts: PASS 1 / FAIL 0 / SKIP 0 / DRY_RUN 0
+stack_bowls | exit 0 | eval_time 1 | 155 s | message "ok"
+```
+
+`_result.json`
+(`eval_result/RoboDojo/stack_bowls/Pi_0/arx_x5/0_ckpt_name=.../59999,action_type=joint/2026-11-10_06-56-11_smoke_stack_bowls/_result.json`):
+
+```json
+{
+  "success_rate": 1.0,
+  "eval_time": 1,
+  "score": 100.0,
+  "details": { "0": { "layout_id": 0, "success": true, "score": 1.0 } }
+}
+```
+
+---
+
+## 4. Precision dimension — formal evaluation
+
+Command (Pi_0, joint checkpoint, `arx_x5`, seed 0, 3 tasks × 5 episodes; bounded for time):
+
+```bash
+cd /root/RoboDojo && xvfb-run -a -s "-screen 0 1920x1080x24" \
+  bash scripts/robodojo.sh benchmark --policy-dir XPolicyLab/policy/Pi_0 \
+  --ckpt /root/RoboDojo/XPolicyLab/policy/Pi_0/checkpoints/RoboDojo-sim-arx_x5-joint-2/59999 \
+  --policy-env uv --dimension precision --limit 3 --eval-num 5
+```
+
+Run id `2026-11-10_06-59-08_smoke` (started 06:59:08 UTC).
+
+| Task                    | Episodes (`eval_time`) | Successes |    **SR** | Score |         Wall clock |
+| :---------------------- | ---------------------: | --------: | --------: | ----: | -----------------: |
+| `build_tower`           |                      3 |         0 | **0.0 %** |  20.0 |              664 s |
+| `deposit_coin`          |                      5 |         0 | **0.0 %** |   0.0 |              331 s |
+| `fasten_screws`         |                      1 |         0 | **0.0 %** |   0.0 | partial (see note) |
+| **Overall (precision)** |                  **9** |     **0** | **0.0 %** |     — |                  — |
+
+Per-task `_result.json` (verbatim values):
+
+| Task            | `success_rate` | `score` | `eval_time` |
+| :-------------- | -------------: | ------: | ----------: |
+| `build_tower`   |            0.0 |    20.0 |           3 |
+| `deposit_coin`  |            0.0 |     0.0 |           5 |
+| `fasten_screws` |            0.0 |     0.0 |           1 |
+
+Paths (same prefix for all three):
+`eval_result/RoboDojo/<task>/Pi_0/arx_x5/0_ckpt_name=/root/RoboDojo/XPolicyLab/policy/Pi_0/checkpoints/RoboDojo-sim-arx_x5-joint-2/59999,action_type=joint/2026-11-10_06-59-08_smoke_<task>/_result.json`
+
+### Notes and limitations (read before quoting the SR)
+
+- **9 episodes is a small sample.** The benchmark's native count is `eval_nums: 50` per task
+  (`task/RoboDojo/config/_task.yml`). This run used `--eval-num 5` to stay inside the time budget;
+  `fasten_screws` additionally has `step_lim = 1900` and needed >9 min for a single episode, so it was
+  truncated after 1 of 5 episodes. Its `SR = 0.0` is therefore the least reliable row.
+- **The 0 % is not a harness failure.** The identical pipeline scored `1.0` on `stack_bowls` in the
+  smoke run, so rendering, camera capture, WebSocket transport, action decoding and success detection
+  all work. Pi_0 simply does not complete these three precision tasks.
+- `build_tower` scoring **20.0** with `success_rate 0.0` is a partial-progress score, not a success.
+- The earlier `exec_stop` calls killed only the wrapper shells; a stale client + policy-server pair
+  then caused one CUDA OOM (`torch.OutOfMemoryError` in `curobo/.../kinematics.py`). That was an
+  environment artifact of my own killed runs, cleaned up before the successful runs; it is not a
+  benchmark defect.
+- Full-scale reproduction (still bounded by time): raise `--eval-num` to `native` and drop `--limit`.
+
+---
+
+## 5. Fallback policy assessment (goal step 5)
+
+Step 5 is conditional on Pi*0 being \_unable to run* in the dimension. That is no longer the case: after
+fixing root cause C, Pi_0 runs the full pipeline correctly — joint 14-d action space, real camera
+observations, real episode terminations, no crash, no retry loop. Its precision SR of 0.0 % is a
+capability outcome, not an infrastructure failure.
+
+Two independent facts show the harness itself is healthy and the 0 % is believable:
+
+1. `stack_bowls` scored **SR 1.0 / score 100.0** through the same code path (smoke, §3).
+2. `build_tower` scored **20.0** with `success_rate 0.0` — graded partial progress, so the reward and
+   scoring machinery is producing differentiated signal rather than a flat zero.
+
+No fallback policy was run, and the reason is verified rather than assumed:
+
+- Only `Pi_0` has a checkpoint on disk. `for d in XPolicyLab/policy/*/checkpoints` matches exactly one
+  directory (`XPolicyLab/policy/Pi_0/checkpoints`, 12 GB).
+- Only `Pi_0` has a built policy environment (`find XPolicyLab/policy -name .venv` → only
+  `XPolicyLab/policy/Pi_0/openpi/.venv`). Every other adapter would need a fresh multi-GB venv as well
+  as a checkpoint download, against **28 GB free** (`df -h /`).
+
+So a fallback run is a large, slow, disk-risky operation rather than a quick confirmation. To run one
+on a host with more space:
+
+```bash
+bash scripts/RoboDojo/download_ckpt.sh huggingface Pi_05   # or modelscope Pi_05 / G05
+cd /root/RoboDojo && xvfb-run -a -s "-screen 0 1920x1080x24" \
+  bash scripts/robodojo.sh smoke --policy-dir XPolicyLab/policy/Pi_05 \
+  --ckpt <downloaded-ckpt> --policy-env uv --only stack_bowls --fail-fast
+```
+
+## 6. Files changed
+
+| File                                  | Change                                                               |
+| :------------------------------------ | :------------------------------------------------------------------- |
+| `scripts/eval_policy.sh`              | honour `ROBODOJO_KIT_ARGS`, default `--/crashreporter/enabled=false` |
+| `scripts/internal/smoke_all_tasks.sh` | resolve `action_type` from the policy `deploy.yml` when not passed   |
+
+System change: `libglu1-mesa` installed via apt.
+
+Untouched: all benchmark scoring/reward logic, `env/`, `task/`, and the XPolicyLab policy adapters.
+No credentials were written to any file.
+
+## 7. Evidence index
+
+| What                                                | Where                                                                            |
+| :-------------------------------------------------- | :------------------------------------------------------------------------------- |
+| Hang: `zenity` ×16 + `Killed`, rc 137 / 2084 s      | `smoke_results/2026-11-10_06-11-02_smoke/logs/stack_bowls.log`, `.json`          |
+| Renderer: `libGLU.so.1` / MDL-SDK / shader failures | `.../isaacsim/kit/logs/Kit/Isaac-Sim/5.1/kit_20261110_061124.log:5747,9002-9004` |
+| Action mismatch `(16,) (14,)`                       | `smoke_results/2026-11-10_06-49-03_smoke/logs/stack_bowls.log:410,454`           |
+| Smoke PASS                                          | `smoke_results/2026-11-10_06-56-11_smoke.json`, `.md`                            |
+| Precision per-task results                          | `eval_result/RoboDojo/{build_tower,deposit_coin,fasten_screws}/.../_result.json` |
+| Precision run logs                                  | `smoke_results/2026-11-10_06-59-08_smoke/logs/*.log`                             |
