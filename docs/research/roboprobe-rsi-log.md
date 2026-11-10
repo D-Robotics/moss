@@ -104,3 +104,23 @@ Isaac 首帧更容易失败/长时间等待。已确认这些服务在被我清�
 1. 等 GPU 决策（串行化/重启/新机器）→ 恢复渲染；
 2. 用 `rsi_runner.sh` 跑第一个 L3 deepseek 基线小样本（1 task × 1 episode），产出 `_result.json` + 首张 L3 截图；
 3. 进入 RSI：Moss 分析轨迹 → 改 prompt/tool/记忆/预算 → 复跑 → 账本记录 SR/Score。
+
+## Iteration 4 — 渲染阻塞排查到底（2026-11-11 04:45）
+
+本轮把除了"重启"以外的所有软件路径都试过了，结论收敛为**设备级 RTX 状态需要重启**。
+
+| 试验                                                                                                    | 结果                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 应用 RoboProbe 的 **untiled 相机补丁**（`task_env.py` 打补丁 + `untiled_capture_manager.py`）           | Kit 日志中 tiled `HydraTexture ... camera_prim_view_tiled` 计数 = 0（补丁生效），**但首帧仍卡在 `SimulationContext.render`** |
+| **不走 Xvfb**（headless EGL，`unset DISPLAY`）                                                          | 同样卡在首帧                                                                                                                 |
+| GPU 完全空闲（`nvidia-smi` = 1 MiB，无任何 compute apps）                                               | 同样卡在首帧                                                                                                                 |
+| 清 `/dev/shm` 残留 Carbonite 段（76 个 stale `carb-RStringInternals-*`；空间本来就没满）                | 同样卡在首帧                                                                                                                 |
+| **`git stash` 全部 4 个已跟踪补丁**（task_env / eval_policy / smoke_all_tasks / main.py 回到 pristine） | 同样卡在首帧                                                                                                                 |
+| 清 6 个僵尸 Xvfb + X lock                                                                               | 同样卡在首帧                                                                                                                 |
+
+与正常态的唯一区别：**今晨 08:00–14:27 的成功运行之后，Isaac 进程被强杀过十余次**（调试 L3 适配器期间）。
+最小 Isaac / IsaacLab / 相机测试都通过，只有"完整场景首帧"卡住 → 判定为 **RTX/CUDA-Vulkan 层面的进程外状态损坏**，
+软件侧无法复位（`nvidia-smi --gpu-reset` 返回 "not supported"，容器无 `modprobe`）。
+
+**唯一剩余动作：重启 5090 机器**（见 Iteration 2 的 A/B/C）。重启后：先跑 Pi_0 `stack_bowls` 对照 →
+恢复渲染 → `rsi_runner.sh` 跑 L3 deepseek 基线小样本 → 出首张 L3 截图。
