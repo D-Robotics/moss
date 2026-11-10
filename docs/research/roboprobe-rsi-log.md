@@ -124,3 +124,52 @@ Isaac 首帧更容易失败/长时间等待。已确认这些服务在被我清�
 
 **唯一剩余动作：重启 5090 机器**（见 Iteration 2 的 A/B/C）。重启后：先跑 Pi_0 `stack_bowls` 对照 →
 恢复渲染 → `rsi_runner.sh` 跑 L3 deepseek 基线小样本 → 出首张 L3 截图。
+
+## Iteration 5 — "重启"不可用；lavapipe 软渲染的发现与边界（2026-11-11 05:35）
+
+### 5.1 重启被容器权限挡住
+
+```
+$ reboot -f
+Failed to reboot: Operation not permitted
+$ capsh --print | grep cap_sys_boot
+!cap_sys_boot
+```
+
+`shutdown -r now` → "Failed to talk to init daemon"；`nvidia-smi --gpu-reset` → "not supported"。
+**本环境没有 `cap_sys_boot`、没有 init daemon，我无法从容器内重启机器** → 这一步只能由用户在云控制台或宿主机完成。
+
+### 5.2 软件 Vulkan（lavapipe）路线：能绕过 RTX 挂点，但引入新问题
+
+装 `mesa-vulkan-drivers` 并 `VK_ICD_FILENAMES=lvp_icd.x86_64.json`（CPU 软渲染）后：
+
+| 阶段                                                           | 结果                                                                                                                                           |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Isaac 启动 + 场景构建                                          | ✅ 不再卡在 RTX 首帧（**证明挂点确实在 RTX/Vulkan 渲染侧**）                                                                                   |
+| 相机采集                                                       | tiled 路径过了；untiled 路径报 `_resize_data_for_overscan` 的 `None - None`（replicator 读 `/rtx/dataWindowNDC/*` 得 None，因为 RTX 未初始化） |
+| 加 `--/rtx/dataWindow/fitOutputToDataWindow=true` + NDC 显式值 | ✅ `[render_sync] zero-delay Kit settings active` 出现（渲染同步生效）                                                                         |
+| 继续推进                                                       | 又出现 Kit 的 `zenity` 对话框（hang watchdog）→ 进程停住                                                                                       |
+
+结论：lavapipe 让"RTX 挂"变成"CPU 软渲染极慢 + Kit watchdog 触发"，每帧可能数十秒，
+单 episode 成本过高（不是 50-episode cell 的可行路线）；且 watchdog 需要额外关掉才可能推进。
+
+### 5.3 因此进入阻塞（需要用户侧动作）
+
+**阻塞条件（连续 4 轮：Iteration 2–5）**：共享 5090 机器（`120.48.90.140`）的 RTX/Vulkan 进程外状态损坏，
+完整场景首帧死锁；本容器无 `cap_sys_boot`/init daemon，无法重启；lavapipe 软渲染不具可行性。
+**解除方式（任一）**：
+
+1. 在**云控制台/宿主机重启该 ECS 实例**（最干净；机器上所有作业已停、21G 着色器缓存保留）；
+2. 或给我另一台有 GPU 的机器（同镜像或可装 Isaac Sim 5.1）；
+3. 或明确允许我独占该机器（暂停并行会话的 LIBERO-Pro/DeepSWE 作业）后重启。
+
+重启后执行顺序（都已就绪）：
+
+```bash
+# 1) 渲染对照（预期出现 _result.json 与可解码 mp4）
+bash /tmp/ctrl_pi0.sh
+# 2) L3 deepseek 小样本（1 task × 1 episode）
+bash /tmp/rp_run.sh           # /tmp/rp_l3_lvp.sh 去掉 VK_ICD 两行即恢复 GPU 渲染
+# 3) RSI 迭代账本
+bash docs/bench/roboprobe/rsi_runner.sh --id it1-general_pickup --task general_pickup --episodes 1 --planner deepseek
+```
