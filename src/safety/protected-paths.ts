@@ -279,6 +279,15 @@ function deletesProtectedAncestor(
   return undefined;
 }
 
+/**
+ * True when the command contains a destructive file head (rm/mv/...). A resolved
+ * target of exactly `/` is only meaningful for those; for ordinary commands it is
+ * a detector artifact (inline code doing `'/'.join(...)`, a trailing-slash prefix).
+ */
+function isDestructiveFileCommand(command: string): boolean {
+  return /(?:^|[;&|]\s*)(?:rm|rmdir|mv|del|rd|remove-item|move-item)\b/i.test(command);
+}
+
 // ── shell (policy only; detection lives behind detectShellWriteTargets) ─
 
 /** Protected names as they may appear in a command we could not fully parse. */
@@ -1124,8 +1133,10 @@ function execCapableHits(command: string, ctx: ProtectedPathContext): ProtectedP
   }
   const isBareCdRoot = (abs: string): boolean =>
     cdTargets.has(abs) && isWorkspaceRootPath(abs, ctx);
+  const destructive = isDestructiveFileCommand(command);
   const consider = (raw: string, form: string, uncertain?: boolean) => {
     const abs = path.resolve(ctx.cwd, raw || '.');
+    if (!destructive && norm(abs) === '/') return;
     // O152 r5 C: structural "uncertain" forms apply inside a git repository
     // only (the cwd, a `-C` dir or operand, or one of their ancestors).
     if (uncertain) {
@@ -1236,10 +1247,17 @@ export function findShellProtectedWrites(
   );
   const rootWriteTargetExempt = (target: string): boolean =>
     !destructiveCommand && isWorkspaceRootPath(target, ctx);
+  // A resolved target of exactly `/` is a detector artifact for ordinary
+  // commands (inline code doing `'/'.join(...)`, a trailing-slash path prefix).
+  // Writing the filesystem root is not a thing; only destructive heads keep it.
+  const isBareRootTarget = (target: string): boolean =>
+    !destructiveCommand && norm(path.resolve(ctx.cwd, target)) === '/';
   for (const target of targets) {
     const hit =
       classifyProtectedPath(target, ctx) ??
-      (rootWriteTargetExempt(target) ? undefined : deletesProtectedAncestor(target, ctx));
+      (rootWriteTargetExempt(target) || isBareRootTarget(target)
+        ? undefined
+        : deletesProtectedAncestor(target, ctx));
     if (!hit || seen.has(hit.resolved)) continue;
     seen.add(hit.resolved);
     hits.push({
@@ -1285,9 +1303,19 @@ export function findShellProtectedWrites(
       // `ls -la <root>`) besides that single cd is not a delete of its .git.
       const isReadOnlyRoot = !isCd && isWorkspaceRootPath(m, ctx) && rootReadOnly();
       const isScriptArg = scriptArgs.has(path.resolve(ctx.cwd, m));
+      // A bare `/` mentioned by inline code (`print('/')`) is not a write target
+      // for ordinary commands; destructive heads keep the ancestor rule, and so
+      // does any command that cd's outside the workspace (cwd no longer
+      // describes where the relative operand lands).
+      const isBareRootMention =
+        !isDestructiveFileCommand(command) &&
+        directoryChangesLeavingWorkspace(command, ctx) === 0 &&
+        norm(path.resolve(ctx.cwd, m)) === '/';
       const hit =
         classifyProtectedPath(m, ctx) ??
-        (isCd || isReadOnlyRoot || isScriptArg ? undefined : deletesProtectedAncestor(m, ctx));
+        (isCd || isReadOnlyRoot || isScriptArg || isBareRootMention
+          ? undefined
+          : deletesProtectedAncestor(m, ctx));
       if (!hit || seen.has(hit.resolved)) continue;
       seen.add(hit.resolved);
       hits.push({
@@ -1318,25 +1346,22 @@ export function findShellProtectedWrites(
   }
 
   // O152: deleting/moving the workspace root itself is still a destructive
-  // no-go in -p (it takes the project and its .git with it), but only for a
-  // destructive head — ordinary writes/scripts naming the root are fine.
+  // no-go in -p (it takes the project and its .git with it), but only when a
+  // detected target actually IS the root — a `cd <root> && rm -rf sub` must not
+  // be caught by the cd operand.
   if (destructiveCommand && ctx.workspaceRoot) {
     const rootReal = norm(realOrResolved(ctx.workspaceRoot));
-    const exact = new Set<string>([rootReal]);
     for (const target of targets) {
-      if (norm(realOrResolved(path.resolve(ctx.cwd, target))) === rootReal) exact.add(rootReal);
-    }
-    const rootWord = command
-      .split(/[\s'"`;&|()<>]+/)
-      .map((w) => path.resolve(ctx.cwd, w))
-      .find((abs) => norm(realOrResolved(abs)) === rootReal);
-    if (rootWord && exact.has(rootReal)) {
-      hits.push({
-        raw: displayPath(rootWord, ctx),
-        resolved: rootWord,
-        category: 'git',
-        operation: 'shell',
-      });
+      const abs = path.resolve(ctx.cwd, target);
+      if (norm(realOrResolved(abs)) === rootReal) {
+        hits.push({
+          raw: displayPath(abs, ctx),
+          resolved: abs,
+          category: 'git',
+          operation: 'shell',
+        });
+        break;
+      }
     }
   }
 
@@ -1365,7 +1390,9 @@ export function findShellProtectedWrites(
   )) {
     const hit =
       classifyProtectedPath(finding.raw, ctx) ??
-      (rootWriteTargetExempt(finding.raw) ? undefined : deletesProtectedAncestor(finding.raw, ctx));
+      (rootWriteTargetExempt(finding.raw) || isBareRootTarget(finding.raw)
+        ? undefined
+        : deletesProtectedAncestor(finding.raw, ctx));
     if (!hit) continue;
     const key = hit.resolved;
     if (seen.has(key)) {
@@ -1380,6 +1407,22 @@ export function findShellProtectedWrites(
       category: hit.category,
       operation: 'shell',
       source: finding.source,
+    });
+  }
+
+  // A destructive head after a cd that left the workspace: the relative operand
+  // no longer describes where it lands (`cd / && rm -rf root` targets /root).
+  // Ask once instead of guessing; commands that stay inside are unaffected.
+  if (
+    hits.length === 0 &&
+    isDestructiveFileCommand(command) &&
+    directoryChangesLeavingWorkspace(command, ctx) > 0
+  ) {
+    hits.push({
+      raw: command.trim().slice(0, 80),
+      resolved: '/',
+      category: 'unresolved',
+      operation: 'shell',
     });
   }
 

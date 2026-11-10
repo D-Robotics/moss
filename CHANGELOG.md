@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### fix(safety): bare-root targets and destructive escapes (B458)
+
+- Inline code containing the string `'/'` (e.g. `python3 -c "print('/'.join(…))"`)
+  was reported as writing the filesystem root and refused: a mention of `/`
+  resolved through the ancestor rule to "SSH keys and config". This blocked real
+  benchmark work (a `sed -i … && python3 -c …` command lost the run's artifacts).
+- A resolved or mentioned target of exactly `/` is now a detector artifact for
+  ordinary commands; destructive heads (`rm`/`mv`/…) keep the ancestor rule, and
+  so does any command that cd's outside the workspace.
+- Also fixed: `cd <workspace> && rm -rf <subdir>` was caught by the workspace-root
+  delete gate through the cd operand; the gate now checks only detected targets.
+- Safety preserved: `rm -rf /`, `rm -rf <workspace>`, `rm -rf ~/.ssh`,
+  `python3 -c` path-joining into `.ssh`, `.env` reads, and a destructive command
+  after a cd that left the workspace all remain blocked.
+
 ### fix(safety): workspace heredoc interpreters no longer refused (B453)
 
 - `cd <workspace>/dev && python - <<'EOF' … EOF` is the normal shape of
