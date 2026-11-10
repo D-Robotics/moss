@@ -8,11 +8,7 @@ const THINK_BLOCK_RE = /<(thinking|redacted_thinking|think)>[\s\S]*?<\/\1>/gi;
 const UNTERMINATED_THINK_BLOCK_RE = /<(?:thinking|redacted_thinking|think)>[\s\S]*$/i;
 const STRAY_THINK_CLOSE_RE = /<\/(?:thinking|redacted_thinking|think)>/gi;
 
-const OPEN_KEEP = Math.max(1, ...THINK_TAG_DEFS.map((d) => d.open.length - 1));
-
-function closeKeepFor(close: string): number {
-  return Math.max(1, close.length - 1);
-}
+const OPEN_TAGS = THINK_TAG_DEFS.map((def) => def.open);
 
 function asciiLowerCode(c: number): number {
   return c >= 65 && c <= 90 ? c + 32 : c;
@@ -31,6 +27,20 @@ function findInsensitive(haystack: string, needle: string): number {
     if (j === nlen) return i;
   }
   return -1;
+}
+
+/** Only a suffix that could still become an inline tag needs lookahead. */
+function incompleteTagLength(text: string, tags: readonly string[]): number {
+  const at = text.lastIndexOf('<');
+  if (at === -1) return 0;
+  const length = text.length - at;
+  for (const tag of tags) {
+    if (length >= tag.length) continue;
+    let i = 0;
+    while (i < length && asciiLowerCode(text.charCodeAt(at + i)) === tag.charCodeAt(i)) i += 1;
+    if (i === length) return length;
+  }
+  return 0;
 }
 
 export type InlineThinkingRouter = {
@@ -71,10 +81,9 @@ export function createInlineThinkingRouter(): InlineThinkingRouter {
           }
         }
         if (bestIdx === -1) {
-          if (carry.length > OPEN_KEEP) {
-            emitMsg(carry.slice(0, carry.length - OPEN_KEEP));
-            carry = carry.slice(carry.length - OPEN_KEEP);
-          }
+          const safeEnd = carry.length - incompleteTagLength(carry, OPEN_TAGS);
+          emitMsg(carry.slice(0, safeEnd));
+          carry = carry.slice(safeEnd);
           break;
         }
         if (bestIdx > 0) emitMsg(carry.slice(0, bestIdx));
@@ -85,11 +94,9 @@ export function createInlineThinkingRouter(): InlineThinkingRouter {
       }
       const c = findInsensitive(carry, activeClose);
       if (c === -1) {
-        const ck = closeKeepFor(activeClose);
-        if (carry.length > ck) {
-          emitThink(carry.slice(0, carry.length - ck));
-          carry = carry.slice(carry.length - ck);
-        }
+        const safeEnd = carry.length - incompleteTagLength(carry, [activeClose]);
+        emitThink(carry.slice(0, safeEnd));
+        carry = carry.slice(safeEnd);
         break;
       }
       if (c > 0) emitThink(carry.slice(0, c));
@@ -113,12 +120,7 @@ export function createInlineThinkingRouter(): InlineThinkingRouter {
     end() {
       const thinking: string[] = [];
       const message: string[] = [];
-      if (!carry) return { thinking, message };
-      if (inThinking) {
-        if (carry) thinking.push(carry);
-      } else if (carry) {
-        message.push(carry);
-      }
+      if (carry) (inThinking ? thinking : message).push(carry);
       carry = '';
       inThinking = false;
       activeClose = '';

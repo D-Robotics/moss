@@ -5,7 +5,7 @@
  *
  * `redactEgress` is bound by the facade. This module does not import it.
  */
-import { knownSecretPrefixCut } from './known-secrets.js';
+import { createKnownSecretStreamCut, knownSecretPrefixCut } from './known-secrets.js';
 import { callRedactEgress } from './redact-bind.js';
 import { OPEN_SECRET_PREFIX, REDACTED, SECRET_FIELD_SOURCE } from './redact-patterns.js';
 import { unclosedPrivateKeyLineStart } from './redact-pem.js';
@@ -101,6 +101,103 @@ export function createStreamingTextRedactor(): {
       raw = '';
       emitted = '';
     },
+  };
+}
+
+// A word at the end of a chunk could still become a provider key or an
+// assignment. Credential words also introduce patterns that reach across
+// whitespace. Keep those words and structured syntax on the full-text path.
+const CREDENTIAL_WORD = new RegExp(
+  `(?:${SECRET_FIELD_SOURCE}|passwordvalue|pwd|pass|auth|sig|accountkey|sharedaccesskey)$|eyJ|AKIA|AIza`,
+  'i'
+);
+const PROSE_SYMBOL =
+  /[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D.,!?;:'"()[\]#*，。！？、；：“”‘’（）《》…—–]/uy;
+const PROSE_BREAK = /^[ \t\r\n.,!?;:'"()[\]#*]|^[^\x00-\x7f]/u;
+
+/**
+ * Stream confirmed plain prose before a newline. An ambiguous suffix stays
+ * pending for whole-text redaction, including PEM and quoted continuations.
+ * Tool and command output keep the ordinary line-oriented redactor.
+ */
+export function createAssistantTextRedactor() {
+  const word = /[A-Za-z0-9]+/y;
+  // Each writer has its own cursor. Sticky regex state must not be shared
+  // across overlapping runs.
+  const symbol = new RegExp(PROSE_SYMBOL);
+  let raw = '';
+  let scanned = 0;
+  let proseEnd = 0;
+  let emitted = 0;
+  let held = false;
+  let cutKnownSecrets: ReturnType<typeof createKnownSecretStreamCut> | undefined;
+
+  const reset = () => {
+    raw = '';
+    scanned = proseEnd = emitted = 0;
+    held = false;
+    cutKnownSecrets = undefined;
+  };
+
+  const advance = () => {
+    while (!held && scanned < raw.length) {
+      const char = raw.charAt(scanned);
+      if (/\s/u.test(char)) {
+        // The settled answer can trim leading whitespace. Preserve the
+        // canonical bytes by settling a leading-indented reply as a whole.
+        if (scanned === 0) {
+          held = true;
+          return;
+        }
+        scanned += 1;
+        continue;
+      }
+      word.lastIndex = scanned;
+      const token = word.exec(raw);
+      if (token) {
+        if (word.lastIndex === raw.length) return;
+        const delimiter = raw.charAt(word.lastIndex);
+        if (delimiter === ':' && word.lastIndex + 1 === raw.length) return;
+        held = CREDENTIAL_WORD.test(token[0]) || !PROSE_BREAK.test(delimiter);
+        if (held) return;
+        if (delimiter === ':' && !/\s/u.test(raw.charAt(word.lastIndex + 1))) {
+          held = true;
+          return;
+        }
+        scanned = word.lastIndex;
+      } else {
+        // A provider can split an astral code point across deltas.
+        if (scanned + 1 === raw.length && /[\uD800-\uDBFF]/.test(char)) return;
+        if (char === ':' && scanned + 1 === raw.length) return;
+        symbol.lastIndex = scanned;
+        if (!symbol.test(raw) || (char === ':' && !/\s/u.test(raw.charAt(scanned + 1)))) {
+          held = true;
+          return;
+        }
+        scanned = symbol.lastIndex;
+      }
+      proseEnd = scanned;
+    }
+  };
+
+  return {
+    push(chunk: string): string {
+      raw += chunk;
+      advance();
+      if (proseEnd <= emitted) return '';
+      cutKnownSecrets ??= createKnownSecretStreamCut();
+      const candidate = raw.slice(emitted, proseEnd);
+      const delta = candidate.slice(0, cutKnownSecrets(candidate));
+      emitted += delta.length;
+      return delta;
+    },
+    flush(finalText = raw): string {
+      const settled = callRedactEgress(finalText);
+      const delta = settled.startsWith(raw.slice(0, emitted)) ? settled.slice(emitted) : '';
+      reset();
+      return delta;
+    },
+    reset,
   };
 }
 

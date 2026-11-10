@@ -323,6 +323,7 @@ export async function processLlmResponse(
     type: 'message_end',
     message: assistantMsg,
     text: stitchedAssistantText.trim() ? stitchedAssistantText : visibleAssistantText,
+    ...(streamStopReason ? { stopReason: streamStopReason } : {}),
   });
 
   const toolsForNudge = resolveToolsForRun();

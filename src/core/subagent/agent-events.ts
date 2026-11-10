@@ -30,7 +30,7 @@ type MiniAgentEventPayload =
   | { type: 'turn_end'; turn: number; stopReason?: string; totalToolCalls?: number }
   | { type: 'message_start'; message: Message }
   | { type: 'message_delta'; delta: string }
-  | { type: 'message_end'; message: Message; text: string }
+  | { type: 'message_end'; message: Message; text: string; stopReason?: string }
   | { type: 'thinking_delta'; delta: string }
   | { type: 'tool_execution_start'; toolCallId: string; toolName: string; args: unknown }
   | {
