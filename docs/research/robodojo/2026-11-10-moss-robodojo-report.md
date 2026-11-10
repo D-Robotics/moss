@@ -248,3 +248,79 @@ No credentials were written to any file.
 | Smoke PASS                                          | `smoke_results/2026-11-10_06-56-11_smoke.json`, `.md`                            |
 | Precision per-task results                          | `eval_result/RoboDojo/{build_tower,deposit_coin,fasten_screws}/.../_result.json` |
 | Precision run logs                                  | `smoke_results/2026-11-10_06-59-08_smoke/logs/*.log`                             |
+
+---
+
+## 8. Generalization dimension（round 2）
+
+Second capability dimension, same host, same policy and same method as §3–4: Pi_0,
+`RoboDojo-sim-arx_x5-joint-2/59999`, `arx_x5`, `--policy-env uv`, headless via `xvfb-run`.
+Run date 2026-11-10, run id **`2026-11-10_07-34-08_smoke`**.
+
+```bash
+cd /root/RoboDojo && xvfb-run -a -s "-screen 0 1920x1080x24" \
+  bash scripts/robodojo.sh benchmark --policy-dir XPolicyLab/policy/Pi_0 \
+  --ckpt /root/RoboDojo/XPolicyLab/policy/Pi_0/checkpoints/RoboDojo-sim-arx_x5-joint-2/59999 \
+  --policy-env uv --dimension generalization --limit 2 --eval-num 3
+```
+
+`action_type=joint` was again resolved from `deploy.yml`
+(`[smoke_all_tasks] action_type=joint (from .../Pi_0/deploy.yml)`).
+The `generalization` dimension contains **24 runnable configs** (12 base + 12 `_random`,
+`bash scripts/robodojo.sh dimensions`). `--limit 2` takes the first two after sorting, which is the
+base/random pair below.
+
+### 8.1 Results (verbatim from `_result.json`)
+
+| Task                            | Episodes (`eval_time`) | Successes |    **SR** | Score |         Wall clock |
+| :------------------------------ | ---------------------: | --------: | --------: | ----: | -----------------: |
+| `arrange_largest_number`        |                      3 |         0 | **0.0 %** |   0.0 |              519 s |
+| `arrange_largest_number_random` |       1 (of 3 planned) |         0 | **0.0 %** |   0.0 | partial (see §8.3) |
+| **Overall (generalization)**    |                  **4** |     **0** | **0.0 %** |     — |                  — |
+
+Per-task `_result.json` (verbatim values, both files contain only `success: false` layouts):
+
+| Task                            | `success_rate` | `score` | `eval_time` |
+| :------------------------------ | -------------: | ------: | ----------: |
+| `arrange_largest_number`        |            0.0 |     0.0 |           3 |
+| `arrange_largest_number_random` |            0.0 |     0.0 |           1 |
+
+Smoke summary row for the completed task (`smoke_results/2026-11-10_07-34-08_smoke.json`):
+
+```
+arrange_largest_number | PASS | exit 0 | eval_time 3 | elapsed_sec 519 | message "ok"
+```
+
+Task-1 run log ends with `Success nums: 0, Fail nums: 3` and `[robodojo eval] wall_clock=519s`
+(`smoke_results/2026-11-10_07-34-08_smoke/logs/arrange_largest_number.log`).
+
+Paths (same prefix for both tasks):
+`eval_result/RoboDojo/<task>/Pi_0/arx_x5/0_ckpt_name=/root/RoboDojo/XPolicyLab/policy/Pi_0/checkpoints/RoboDojo-sim-arx_x5-joint-2/59999,action_type=joint/2026-11-10_07-34-08_smoke_<task>/_result.json`
+
+### 8.2 Comparison with precision (§4)
+
+| Dimension           | Tasks | Episodes | Successes |    **SR** | Avg. wall clock / episode |
+| :------------------ | ----: | -------: | --------: | --------: | ------------------------: |
+| Precision (§4)      |     3 |        9 |         0 | **0.0 %** |                    ~110 s |
+| Generalization (§8) |     2 |        4 |         0 | **0.0 %** |      ~130 s (task 1 only) |
+
+Both dimensions are 0.0 % on the same checkpoint, action space and transport. Generalization adds no
+layout-dependent signal at this sample size: the standard layout (`0/3`) and the randomized layout
+(`0/1`) both fail. The harness is still able to score a success — `stack_bowls` scored **SR 1.0** in the
+round-1 smoke (§3) through the same code path.
+
+### 8.3 Notes and limitations
+
+- **Task 2 is truncated, not failed.** `arrange_largest_number_random` completed **1 of 3** episodes.
+  The benchmark wrapper was stopped mid-task when the monitoring shell call timed out and its process
+  group was terminated; the task log therefore freezes during the next episode setup (last event
+  `2026-11-10T07:48:21Z`) and no second row was written to the smoke summary. The task log contains
+  **0** matches for `Traceback`, `Killed`, `zenity`, shader or `libGLU` errors, and the harness recorded
+  no FAIL row. The cause is orchestration (my own monitoring call), not the task, assets or policy.
+  Its `SR = 0.0 %` covers one real episode and is the least reliable row here.
+  To complete 3/3, rerun the same command with `--only arrange_largest_number_random`.
+- `arrange_largest_number` has `step_lim = 1050`; all 3 episodes ran to the step limit and terminated
+  normally (no per-episode timeout), so no task needed skipping as long-horizon.
+- 4 episodes is a small sample; the native count is `eval_nums: 50` per task. No scoring/reward logic
+  was modified, and no checkpoint or dataset was downloaded (`df -h /` showed ~28 GB free before the run).
+- GPU load stayed ~20.6 GB / 32 GB with no CUDA OOM.
