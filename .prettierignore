@@ -30,3 +30,6 @@ tmp/
 *.jsonl
 .rsi/frozen.txt
 .rsi/runs/
+
+# RoboProbe RSI shell helpers (no prettier parser for sh)
+docs/bench/roboprobe/*.sh

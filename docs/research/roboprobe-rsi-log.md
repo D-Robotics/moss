@@ -69,3 +69,38 @@ Isaac 首帧更容易失败/长时间等待。已确认这些服务在被我清�
   选定后：先跑 Pi_0 对照确认渲染恢复（判据 `_result.json` + 视频），再跑 L3 deepseek 基线并抓首张 episode 截图。
 
 **本轮截图**：仍无（渲染未完成，不伪造）。
+
+## Iteration 3 — RSI 基础设施 + 首批真实截图（2026-11-11 04:10）
+
+渲染阻塞仍未解（需重启 GPU 机器，见 Iteration 2 的 A/B/C 决策），本轮先把 **RSI 循环的骨架** 和
+**真实画面证据** 落地，使 GPU 一恢复就能产出可提交数据。
+
+### 3.1 新增可复现脚本
+
+| 脚本                                                                             | 作用                                                                                                                                                |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs/bench/roboprobe/rsi_runner.sh`](../bench/roboprobe/rsi_runner.sh)         | 一轮 RSI：跑官方 eval → 从该任务自己的 `_result.json` 取 episodes/SR/score → 抽帧 → 追加账本；**拿不到 `_result.json` 时记为 harness 失败，不编分** |
+| [`docs/bench/roboprobe/extract_frames.sh`](../bench/roboprobe/extract_frames.sh) | 从 episode mp4 抽 1/5/9 秒三帧，压缩为 JPEG 存 `docs/assets/roboprobe/<iteration>/`，并打印来源路径                                                 |
+| `docs/research/roboprobe-rsi-ledger.tsv`（运行时生成）                           | 逐轮账本：iteration / planner / task / layouts / episodes / successes / SR / score / wall / frames                                                  |
+
+### 3.2 抽帧流程已验证（用今早 model-track sweep 的真实 episode 视频）
+
+今早 54 任务 sweep 留下了 **486 个真实 episode 视频**（Pi_0 模型轨，非 L3 harness）。用它们验证抽帧与
+证据留档流程，帧已入库（`docs/assets/roboprobe/`）：
+
+| 任务                          | 结果                                         | 帧                                               |
+| ----------------------------- | -------------------------------------------- | ------------------------------------------------ |
+| `fold_clothes`                | 该 episode **success**（SR 100% 的任务之一） | `fold_t1.jpg` / `fold_t5.jpg` / `fold_t9.jpg`    |
+| `stack_bowls_random`          | fail                                         | `bowls_t1.jpg` / `bowls_t5.jpg` / `bowls_t9.jpg` |
+| `pour_liquid_into_cup_random` | fail                                         | `pour_t1.jpg` / `pour_t5.jpg` / `pour_t9.jpg`    |
+
+![fold_clothes 成功 episode（t=5s）](../assets/roboprobe/fold_t5.jpg)
+
+> 口径说明：这三组帧来自**模型轨**（Pi_0），只用于验证"视频→截图→入库"的证据流程与展示仿真场景；
+> **L3/Moss harness 的截图要等渲染恢复后才有**，两者不混用。
+
+### 3.3 下一轮
+
+1. 等 GPU 决策（串行化/重启/新机器）→ 恢复渲染；
+2. 用 `rsi_runner.sh` 跑第一个 L3 deepseek 基线小样本（1 task × 1 episode），产出 `_result.json` + 首张 L3 截图；
+3. 进入 RSI：Moss 分析轨迹 → 改 prompt/tool/记忆/预算 → 复跑 → 账本记录 SR/Score。
