@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.32.0 (2026-11-10)
+
+First npm release since 0.26.1. The log below is the rolling-main history that
+accumulated under `Unreleased` — the in-repo 0.27–0.31 milestones, which were
+never published, plus the 0.32 tools and safety work. Highlights since 0.26.1:
+optional native Super-agent coordination, live-interaction permissions,
+`reasoning_effort` / max thinking level (B439), indentation-tolerant
+`edit_file` matching (B452), and five safety-gate fixes that stop normal
+benchmark workspaces from being refused (B443/B446/B453/B458/B461). Version,
+gate and packaging evidence is recorded in `docs/release-policy.md`.
+
+首个 0.26.1 之后的 npm 发布。以下是此前压在 `Unreleased` 下的滚动 main 历史：
+从未发布的仓内 0.27–0.31 里程碑，以及 0.32 的工具与安全修复。0.26.1 以来的
+重点包括：可选的原生 Super-agent 协调、实时交互权限、`reasoning_effort` /
+最大思考档位（B439）、缩进容错的 `edit_file` 匹配（B452），以及五个让正常
+benchmark 工作区被拒的安全门修复（B443/B446/B453/B458/B461）。版本、门禁与
+打包证据记录在 `docs/release-policy.md`。
+
 ### fix(safety): visible here-doc shells are no longer "invisible stdin" (B461)
 
 - `cd <repo> && bash <<'EOF' … EOF` inside a git repository was refused as
