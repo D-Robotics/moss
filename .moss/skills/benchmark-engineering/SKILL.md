@@ -147,3 +147,22 @@ attempt-and-replace cycles, not from a deeper single step. Default: reasoning
 off for policy tasks, max for design/derivation tasks; verify per task instead
 of assuming.
 
+## Separate harness failures from capability failures
+
+A 0.0 on a scored run usually means the artifacts never arrived, not that the
+agent's work was wrong. Verified on RLE-Bench: two of six task07 runs and one
+task08 run scored 0.0 with `errors: ["policy.py missing"]` / `robot.xml missing`
+because a shell command was refused by the protected-path policy mid-run and the
+repeated-failure guard stopped the agent before it delivered.
+
+Rules:
+1. **Before interpreting a score, read `errors` and the artifact listing.** If
+   the artifacts are missing, the number measures tooling friction, not the
+   agent's plan.
+2. **Fix the friction, then re-run.** Four protected-path false positives (`cd`
+   counting, script scans naming the workspace root, heredoc interpreters,
+   bare-root `/` mentions) were found and fixed this way; the fixed-package runs
+   deliver artifacts normally.
+3. **Report the two buckets separately.** "Capability scores: 0.20/0.41/0.59/0.64"
+   and "harness failures: 2 runs (artifact delivery, since fixed)" is honest;
+   averaging a 0.0 that came from a blocked edit into the capability mean is not.
