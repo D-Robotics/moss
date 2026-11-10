@@ -173,3 +173,36 @@ bash /tmp/rp_run.sh           # /tmp/rp_l3_lvp.sh 去掉 VK_ICD 两行即恢复 
 # 3) RSI 迭代账本
 bash docs/bench/roboprobe/rsi_runner.sh --id it1-general_pickup --task general_pickup --episodes 1 --planner deepseek
 ```
+
+## Iteration 6 — GPU 争用 + 守候脚本；确认 RTX 首帧仍死锁（2026-11-11 06:05）
+
+### 6.1 机器现状：GPU 被并行会话占满
+
+```
+nvidia-smi → 31 785 MiB / 32 607 MiB used
+  sam3 4.4 GB + curobo 0.6 GB + graspnet 0.5 GB   ← 并行会话的 LIBERO-Pro 服务
+  Pi_0 policy server 10.1 GB                     ← 我们旧 control 的残留（已清）
+```
+
+→ 之前多轮"渲染挂起"里至少有一部分是**显存被占满**；已清理我们自己的残留（Pi_0 server、旧 eval client），
+现在的占用只剩并行会话的 ASPIRE 服务（~5.5 GB）。
+
+### 6.2 新增守候脚本（无人值守自动开跑，不杀别人作业）
+
+`/tmp/wait_and_run.sh`：每 60 s 查 `nvidia-smi` 空闲显存，低于阈值（默认 8 GB）就启动 L3 deepseek 基线；
+带 6 小时 deadline。已实测能自动触发（`[wait] GPU free (6366MB) → launch L3 baseline`）。
+
+### 6.3 仍失败的两次尝试（都在首帧渲染处停住）
+
+| 尝试                                                                                   | 结果                                                                                                                                                     |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| lavapipe（CPU 软渲染）+ tiled + dataWindow 修复参数                                    | 出现 `[render_sync] zero-delay Kit settings active; one delivered frame per capture`，但 Kit hang watchdog 每 2 分钟触发一次（CPU 渲染太慢），进程不前进 |
+| **GPU/RTX + tiled + dataWindow 修复参数**（GPU 只剩并行会话 5.5 GB，Isaac 分到 16 GB） | 同样在 env 创建后停住，`zenity`（watchdog 对话框）×2，GPU 0% util                                                                                        |
+
+结论不变：**RTX 完整场景首帧在拿到 GPU 后仍然死锁**，与显存、相机路径、GL/Vulkan 包、补丁、Xvfb 均无关；
+lavapipe 可绕过但太慢。**唯一出路仍是重启机器（或换机），而容器内无 `cap_sys_boot`。**
+
+### 6.4 决策
+
+按目标策略，阻塞条件已连续 5 轮（Iteration 2–6）未解除，且解除动作只能由用户侧完成，
+故将目标标记为 **blocked**，并把解除清单与"恢复后执行顺序"写入上一节。用户解除后 resume 即可继续。
