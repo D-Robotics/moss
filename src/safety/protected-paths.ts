@@ -1172,10 +1172,40 @@ function execCapableHits(command: string, ctx: ProtectedPathContext): ProtectedP
   return hits;
 }
 
+/**
+ * O152 r6: a heredoc-fed interpreter run from inside the workspace
+ * (`python - <<'EOF' … EOF`) is the normal shape of benchmark/dev work. The
+ * indirect-write scan cannot always resolve its targets, which used to refuse
+ * the whole command in -p mode even when the script only touches the workspace.
+ * Allow it when the cwd is inside the workspace AND neither the command nor the
+ * heredoc body mentions a protected path marker; any mention keeps the normal
+ * (blocking) path, and an escape (`cd ~`, `cd /`) is not this shape.
+ */
+function isWorkspaceHeredocInterpreter(command: string, ctx: ProtectedPathContext): boolean {
+  const root = ctx.workspaceRoot;
+  if (!root) return false;
+  const rootReal = norm(realOrResolved(root));
+  const cwdReal = norm(realOrResolved(ctx.cwd));
+  if (cwdReal !== rootReal && !isUnder(cwdReal, rootReal)) return false;
+  // heredoc-fed interpreter heads only
+  if (
+    !/(?:^|[;&|(]\s*)(?:python3?|node|deno|bun|bash|sh|zsh|perl|ruby)\b[^\n]*<<-?\s*['"]?[A-Za-z_]+/.test(
+      command
+    )
+  ) {
+    return false;
+  }
+  // a directory change out of the workspace is not this shape
+  if (directoryChangesLeavingWorkspace(command, ctx) > 0) return false;
+  // any protected marker in the command or its heredoc body keeps the strict path
+  return !PROTECTED_TEXT.test(command);
+}
+
 export function findShellProtectedWrites(
   command: string,
   ctx: ProtectedPathContext
 ): ProtectedPathHit[] {
+  if (isWorkspaceHeredocInterpreter(command, ctx)) return [];
   const detect = ctx.shellWriteTargets ?? detectShellWriteTargets;
   const winForm = windowsSeparatorForm(command, ctx);
   // O151 (Windows): analyse the pwsh/cmd separator form first (its paths are

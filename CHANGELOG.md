@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### fix(safety): workspace heredoc interpreters no longer refused (B453)
+
+- `cd <workspace>/dev && python - <<'EOF' … EOF` is the normal shape of
+  benchmark/dev work, but the indirect-write scan cannot always resolve its
+  targets and `-p` runs refused the whole command as "shell / is a protected
+  path". This was the most common remaining friction in long sessions.
+- New allowance: a heredoc-fed interpreter whose cwd is inside the workspace and
+  whose command + heredoc body contain NO protected-path marker is allowed.
+  Any mention of `.ssh` / `.env` / `.git` / Moss config keeps the strict
+  blocking path, and a `cd` that leaves the workspace is not this shape.
+- Verified: workspace heredoc allowed; heredoc reading `/root/.ssh/id_rsa`
+  blocked; heredoc mentioning `/root/.env` blocked.
+
 ### feat(tools): indentation-tolerant edit_file matching (B452)
 
 - `edit_file`/`multi_edit` gained a fifth match mode, `indent`: a UNIQUE window
