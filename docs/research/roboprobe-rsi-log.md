@@ -39,3 +39,33 @@
 3. 之后进入 RSI：Moss 跑 → 分析轨迹 → 改 harness（prompt/tool/memory/预算）→ 再跑 → 记录每轮 SR/Score。
 
 **本轮截图**：`docs/assets/roboprobe/` 暂无（有效截图需要 episode 画面；不伪造）。
+
+## Iteration 2 — 根因收敛：着色器缓存 + GPU 争用（2026-11-11 03:30）
+
+**决定性对照实验（排除代码因素）**：
+
+1. 用 `git checkout-index` 造了 **干净 checkout**（`/root/RD-clean`，未带任何我们的补丁）→ Pi_0 `stack_bowls`
+   对照**同样**卡在 `SimulationContext.render` ⇒ 与我们的代码改动无关。
+2. 最小 Isaac 脚本：`SimulationApp` + 20 次 `app.update()` → **APP_UPDATES_OK**（基础渲染正常）。
+3. IsaacLab `SimulationContext.render()` ×5 → **ISAACLAB_RENDER_OK**（<0.1s）。
+4. **相机 render product**：`rep.create.camera` + `rep.create_render_product` + `orchestrator.step` ×3 →
+   **CAMERA_STEP_OK**（1.8s/step）⇒ 相机管线本身正常。
+5. 但 RoboDojo `EvalEnv.setup_scene` 的 `for _ in range(10): self.render()` 卡住：CPU 146–190%、
+   GPU 分配 ~26 GB 但 0% 利用率。此时 `/root/.cache/ov`（RTX/Kit 着色器与纹理缓存）**从 0 增长到 21 G**。
+
+**根因 1（自己造成）**：昨天为给 RoboDojo sweep 腾磁盘，执行过 `rm -rf /root/.cache/ov/*`，
+删掉了 RTX 着色器缓存。该场景（双机械臂 + 全部材质）首帧需要重编译海量着色器，CPU 满载、GPU 空转，
+看起来就像"挂死"；3–4 分钟的等待窗口太短。
+
+**根因 2（并行会话）**：并行会话的 LIBERO-Pro 战役在后台**不断重新拉起** ASPIRE provider 服务
+（sam3 4.4 GB / graspnet 0.5 GB / curobo 0.6 GB），与 RoboDojo 争用同一块 5090；GPU 显存逼近上限时
+Isaac 首帧更容易失败/长时间等待。已确认这些服务在被我清理后会再次出现（有 supervisor 重启）。
+
+**下一步（需要你决策其一）**：
+
+- (A) **串行化 GPU**：暂停并行会话的 LIBERO-Pro loop，RoboProbe 独占 GPU 跑（最干净）；
+- (B) **重启 5090 机器**（两个战役都停后），清掉驱动/显存状态，并保留 21 G 着色器缓存；
+- (C) 再给一台 GPU 机器跑 RoboProbe。
+  选定后：先跑 Pi_0 对照确认渲染恢复（判据 `_result.json` + 视频），再跑 L3 deepseek 基线并抓首张 episode 截图。
+
+**本轮截图**：仍无（渲染未完成，不伪造）。
