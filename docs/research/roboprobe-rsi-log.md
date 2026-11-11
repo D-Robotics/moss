@@ -339,3 +339,44 @@ lavapipe 可绕过但太慢。**唯一出路仍是重启机器（或换机），
 1. 用 **`EVAL_SEED=0..4`** 跑 5 个独立 layout（每次 eval-num 1），得到真实 SR 估计；
 2. 从失败 transcript 提炼第一个 RSI 改动（候选：把"give_up"门槛提高、在接近阶段强制毫米级增量、
    要求每次 move_eef 前先读一次同侧腕相机）——**改完再跑同一组 layout 对比**。
+
+## Iteration 10 — RSI 第一轮：从 transcript 提炼改进 + 干净 A/B 方案（2026-11-11 13:05）
+
+### 10.1 数据（来自已捕获的 transcript，全部为真实运行）
+
+对 `/tmp/l3trace/*/l3_inspect_transcript.json` 做逐 call 分析：
+
+**成功那次（4 次调用，SR 1.0）的动作序列**：
+
+1. `move_eef`：pitch-90 水平移动到剪刀上方 `(0.375, -0.03)`
+2. `move_eef`：一次旋转到 pitch 0（俯视）
+3. `move_eef`：垂直下降到 `(0.386, 0.0, 0.7725)` 并夹紧
+4. `move_eef`：保持夹紧、垂直抬升 → **官方判定成功**
+
+**失败那次（21 次调用、give_up）的典型坏模式**：
+连续 5–7 次"只改腕部角度"的试探（`probing the reachable wrist range`、`testing whether 40 deg pitch is still inside`），
+最后诊断移动也失败后放弃。腕部 pitch 统计：被接受的 0/12/20/30/45/90°，被拒的 0/10/20/25/30/32/40°——
+**同一角度在不同位置可过可拒**，说明"原地二分搜索角度"注定浪费预算。
+
+### 10.2 设计的改进（prompt 级，不改评分逻辑）
+
+在 adapter 的 `docs.py`（模型可见的操作说明书）追加 **REACHABILITY AND APPROACH RECIPE**：
+
+- 可达性取决于**位置**不只是腕角；被拒后**先换位置**，不要原地扫角度；
+- 给出在本配置下验证过的四步抓取序列（水平接近 → 一次俯冲旋转 → 垂直下降夹紧 → 保持夹紧抬升）；
+- 旋转被拒时移动 5–10 cm 重试一次；**最多一次姿态重试**，禁止连续两次以上只改腕角；
+- `give_up` 只在完成一次完整接近尝试并重试失败后使用。
+
+补丁已写好并在两台副本上验证可加载；**为保证干净的 A/B，本轮先回滚**，用原始 docs 跑基线。
+
+### 10.3 运行可靠性改进（必要）
+
+首帧 RTX 死锁是**间歇性**的（同脚本 seed0 成功、seed1 卡死）。新增 `/tmp/run_seeds_retry.sh`：
+每 seed 启动后 150 s 内没有 `env0 step` 就判定首帧死锁 → 杀进程树 → **同 seed 自动重试（最多 2 次）**。
+本轮用它在跑 **baseline（原始 docs）× EVAL_SEED 0–4**；基线完成后打上 10.2 补丁，用同一组 seed 跑 **treatment**，
+以 SR 对比作为第一次 RSI 的增益证据。
+
+### 10.4 当前状态
+
+- baseline runner 运行中：seed0 的 episode 已到 `step 161/200`（60 次 LLM 调用预算下 episode 更长，~17 min/集）。
+- 已有基线参考：layout 0 上 6 次尝试 1 次成功（16.7%）；官方 cell 需 50 episodes，后续会以 EVAL_SEED 并集扩展。
