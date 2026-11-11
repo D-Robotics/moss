@@ -291,3 +291,12 @@ lavapipe 可绕过但太慢。**唯一出路仍是重启机器（或换机），
 2. 若稳定，扩到官方 cell（25 + 25 random，约 12 小时，可夜间跑）；
 3. 同时开始 RSI：从 transcript（`/tmp/l3trace/*/l3_inspect_transcript.json`，含每次调用与动作）
    提炼 prompt/tool/预算 改进。
+
+### 8.5 批量尝试状态（诚实记录）
+
+为拿首个 SR 估计，起了两次 **`--eval-num 5` 批量**（同任务 layout 0，seed 0）。两次都在 Isaac 首帧渲染处停住
+（0 步进、GPU 分配 ~16 GB 但 0% 利用率、`zenity` watchdog 反复出现），与单 episode 成功时的条件差异是：
+**并行会话的 ASPIRE 服务持续占用 ~5.5 GB GPU**，叠加 Isaac 的 ~16 GB 后接近上限，RTX 首帧偶发死锁。
+
+处置：已清理本会话所有 eval/policy 进程（GPU 回到 5.5 GB，只剩并行会话服务）。
+下一轮在 GPU 更空闲的窗口重试批量；单 episode 成功证据（SR 1.0、4 次调用、9 帧截图）不受影响。
