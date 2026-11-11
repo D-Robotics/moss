@@ -111,6 +111,12 @@ for (const reason of ['error', 'aborted_by_user', 'output_limit']) {
   assert.equal(interrupted.getResult({ finalText: partialValue }).response, 'Visible sentence.');
 }
 
+const rejected = createMossAgentLoopEventAdapter();
+rejected.onMiniEvent({ type: 'turn_start', turn: 1 });
+rejected.onMiniEvent({ type: 'message_delta', delta: 'Visible sentence. ' + known.slice(0, 3) });
+const ended = rejected.onMiniEvent({ type: 'turn_end', turn: 1, stopReason: 'end_turn' });
+assert.ok(ended.every((event) => event.type !== 'text_delta'));
+
 const punctuation = createAssistantTextRedactor();
 const first = punctuation.push('Here is a story: It begins — ');
 const second = punctuation.push('with a smile 😊 and a quiet day.');

@@ -233,18 +233,18 @@ export function createMossAgentLoopEventAdapter(
             incomingStopReason ?? (stopReason === 'unknown' && response ? 'end_turn' : stopReason);
           stopReason = resolvedStopReason;
           const interrupted = isInterruptedOutput(resolvedStopReason) || options?.isAborted?.();
-          if (interrupted) textRedactor.reset();
-          const pending =
-            interrupted || continuingOutput || isOutputLimitStopReason(resolvedStopReason)
-              ? []
-              : publish(textRedactor.flush());
+          // Only message_end settles held text. A rejected completion also
+          // ends a turn, but its pending bytes have no publication boundary.
+          if (interrupted || (!continuingOutput && !isOutputLimitStopReason(resolvedStopReason))) {
+            textRedactor.reset();
+          }
           const endEvent: MossAgentEvent = {
             type: 'turn_end',
             turn: event.turn,
             stopReason: resolvedStopReason,
             ...(event.totalToolCalls !== undefined ? { totalToolCalls: event.totalToolCalls } : {}),
           };
-          return [...pending, endEvent];
+          return [endEvent];
         }
         case 'turn_transition':
           stopReason = normalizePublicStopReason(event.reason);
