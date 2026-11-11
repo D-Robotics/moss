@@ -503,3 +503,30 @@ Treatment 逐次：0.0 / 1.0 / 1.0 / 1.0 / 1.0 / 0.0 —— 与 baseline 完全�
 官方 cell 需要 50 episodes；若每个 episode 都重启 Isaac（~5 min 启动）成本过高。
 正在验证 `--eval-num 3` 且 `ROBODOJO_NUM_ENVS=1` 是否能**单进程串行跑 3 集**（一次启动），
 若成立，50-episode cell 可从 ~12 小时压到 ~4 小时。结果见下一轮。
+
+### 12.5 关键效率发现：多集可单进程串行
+
+`--eval-num 3` + `ROBODOJO_NUM_ENVS=1` 实测：
+
+```
+Number of environments: 1
+Success nums: 1, Fail nums: 0      ← 第 1 集成功
+Number of environments: 1
+Success nums: 2, Fail nums: 0      ← 第 2 集成功
+Number of environments: 1
+Success nums: 2, Fail nums: 1      ← 第 3 集失败
+[robodojo eval] wall_clock=1196s
+```
+
+- **单进程、单 env、串行 3 集**，无需每次重启 Isaac；
+- 3 集共 1196 s ≈ **~6.7 分钟/集（含一次性启动）**，其中 2/3 成功；
+- 推算 50 集官方 cell ≈ **4.5–5 小时**（可夜间跑），而非此前估算的 12 小时。
+
+这也是对上一轮"批量会开 5 个并行 env 导致首帧死锁"的修正：**用 `eval-num` 换集数、用 `ROBODOJO_NUM_ENVS=1`
+锁单 env**，就能既批量串行又不触发多 env 渲染压力。
+
+### 12.6 官方 cell 启动
+
+已回滚中性 prompt 补丁（`docs.py` 恢复 git 原始版本，确认无 `_RSI_APPROACH_RECIPE`），
+启动 **`general_pickup` × 50 episodes 单进程 cell**（`/tmp/cell50.sh`，60 次 LLM 预算/集），
+预计 4.5–5 小时。完成后将给出该任务的官方口径 SR/Score（逐 episode `_result.json` 会累积到同一 run 目录）。
