@@ -561,3 +561,21 @@ RoboProbe 契约明确允许改 memory/image-history policy →
 
 官方 cell（`general_pickup` × 50 episodes，单进程）在跑：第 1 集成功，第 2 集因 LLM 调用较多而变长
 （预期待定 ~8-12 分钟/集）。cell 结束后再做第 2 次改动的 A/B，避免同时占用 GPU 干扰。
+
+### 13.3 官方 cell 中间数据（进行中，真实 `_result.json`）
+
+run `2026-11-11_07-52-07`（general_pickup × 50 集，单进程）：
+
+|           layout | 结果         |           score |
+| ---------------: | ------------ | --------------: |
+|                0 | ✅ success   |             1.0 |
+|                1 | ❌ fail      |             0.0 |
+|                2 | ❌ fail      |             0.0 |
+| **累计（3/50）** | **SR 33.3%** | **Score 33.33** |
+
+**这是 cell 的中间值，不是最终值**（还有 47 集在跑，预计约 8 小时）。值得注意：仅前 3 集就已经
+高于目标基线 22%（SR），但样本太小、且 cell 只覆盖 `general_pickup` 一个任务，不能当作最终成绩。
+
+cell episode 0 的成功帧已入库：`docs/assets/roboprobe/cell50-general-pickup/`（head + 双腕 × t=1/3/5s）。
+
+![cell episode 0 成功帧（head t=3s）](../assets/roboprobe/cell50-general-pickup/cell50_head_t3.jpg)
