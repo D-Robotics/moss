@@ -5,3 +5,9 @@ it3-general_pickup-l0	deepseek	general_pickup	0	1	0	0.0000	0.00	803	-	give_up af
 it4-general_pickup-l0	deepseek	general_pickup	0	1	0	0.0000	0.00	379	-	12 calls, no success
 it5-general_pickup-l0	deepseek	general_pickup	0	1	0	0.0000	0.00	518	-	21 calls, give_up
 it6-general_pickup-l0	deepseek	general_pickup	0	1	0	0.0000	0.00	~600	-	29 calls, no success (result dir shared by resume manifest; see notes)
+baseline60-r1	deepseek	general_pickup	0	1	1	1.0000	100.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_04-23-52; llm_calls=14
+baseline60-r2	deepseek	general_pickup	0	1	1	1.0000	100.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_04-44-13; llm_calls=23
+baseline60-r3	deepseek	general_pickup	0	1	1	1.0000	100.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-02-01; llm_calls=22
+baseline60-r4	deepseek	general_pickup	0	1	0	0.0000	0.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-16-03
+baseline60-r5	deepseek	general_pickup	0	1	1	1.0000	100.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-22-30
+baseline60-r6	deepseek	general_pickup	0	1	0	0.0000	0.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-36-03

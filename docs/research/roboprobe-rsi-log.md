@@ -380,3 +380,40 @@ lavapipe 可绕过但太慢。**唯一出路仍是重启机器（或换机），
 
 - baseline runner 运行中：seed0 的 episode 已到 `step 161/200`（60 次 LLM 调用预算下 episode 更长，~17 min/集）。
 - 已有基线参考：layout 0 上 6 次尝试 1 次成功（16.7%）；官方 cell 需 50 episodes，后续会以 EVAL_SEED 并集扩展。
+
+## Iteration 11 — Baseline 完成（原始 docs，layout 0 重复 6 次：4/6 = 66.7%）（2026-11-11 14:10）
+
+### 11.1 方法修正（诚实记录）
+
+上一轮以为 `EVAL_SEED` 会换 layout，实测**不换**：所有 run 的 trace 都是 `layout-0`，结果目录也一直是
+`0_ckpt_name=sim,action_type=joint`（每 run 独立时间戳子目录）。所以本轮把这 6 次运行当作
+**"同一 layout 重复试验"** 的方差测量，而不是"5 个不同 layout"。
+
+### 11.2 Baseline（原始 docs，60 次 LLM 调用预算，layout 0）
+
+| run      | 官方 SR | LLM 调用 |
+| -------- | ------- | -------: |
+| 04-23-52 | ✅ 1.0  |       14 |
+| 04-44-13 | ✅ 1.0  |       23 |
+| 05-02-01 | ✅ 1.0  |       22 |
+| 05-16-03 | ❌ 0.0  |        — |
+| 05-22-30 | ✅ 1.0  |        — |
+| 05-36-03 | ❌ 0.0  |        — |
+
+**baseline：4 / 6 = 66.7%（layout 0，60 次预算）**。
+
+另附 4 次小预算（4 次调用）历史：02-25 失败（预算耗尽）、02-43 **成功（仅 4 次调用）**、02-44 失败（give_up）、
+03-28 失败（12 次调用）——说明**预算给足后成功率明显上升**（4 次预算 1/4 vs 60 次预算 4/6）。
+
+### 11.3 Treatment 已启动
+
+按 Iteration 10 设计的 **REACHABILITY AND APPROACH RECIPE** 补丁已应用到两份 adapter 副本
+（`docs.py` 中 grep 到 1 处 APPROACH RECIPE）。treatment runner 已启动：
+同样的 layout 0、60 次预算、6 个 seed 标签（0–5），**唯一变量 = 新 prompt**。
+卡死自动重试仍生效（baseline 阶段 seed4 曾重试 2 次后成功）。
+
+### 11.4 对比口径
+
+- baseline：4/6 = 66.7%（原始 docs）
+- treatment：pending（同条件 6 次）
+- 报告时会同时给出 calls 分布与 give_up 次数，避免用单个数字掩盖方差。
