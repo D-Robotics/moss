@@ -417,3 +417,19 @@ lavapipe 可绕过但太慢。**唯一出路仍是重启机器（或换机），
 - baseline：4/6 = 66.7%（原始 docs）
 - treatment：pending（同条件 6 次）
 - 报告时会同时给出 calls 分布与 give_up 次数，避免用单个数字掩盖方差。
+
+### 11.5 Treatment 首跑踩坑与修复（诚实记录）
+
+第一版 prompt 补丁用 `s.index('"""')` 定位 f-string 结尾，结果把方案文本插到了字符串**外面**，
+`docs.py` 变成 `SyntaxError` → treatment 的前 20 分钟全在"首帧无进展→重试"，没有产出任何数据。
+
+修复方式：从 git 恢复原始 `docs.py`，改为在**文件末尾**追加独立常量再拼接到 `ARX_X5_EEF_DOCS`：
+
+```python
+_RSI_APPROACH_RECIPE = """..."""
+ARX_X5_EEF_DOCS = ARX_X5_EEF_DOCS + _RSI_APPROACH_RECIPE
+```
+
+（这样不动原 f-string，语法风险最小；已用 `python -c "import docs"` 在包上下文里确认可加载。）
+
+treatment runner 已重启；首个完成 run（06-35-07）为 SR 0.0（14 次调用）。其余 5 个 seed 仍在跑。
