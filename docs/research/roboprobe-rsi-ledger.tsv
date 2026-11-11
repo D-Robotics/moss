@@ -11,3 +11,4 @@ baseline60-r3	deepseek	general_pickup	0	1	1	1.0000	100.00	~	docs/assets/roboprob
 baseline60-r4	deepseek	general_pickup	0	1	0	0.0000	0.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-16-03
 baseline60-r5	deepseek	general_pickup	0	1	1	1.0000	100.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-22-30
 baseline60-r6	deepseek	general_pickup	0	1	0	0.0000	0.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-36-03
+cell50-partial	deepseek	general_pickup	0-6	50	1	0.0200	2.00	~	docs/assets/roboprobe/cell50-general-pickup	aborted at 7/50 (1 win) to run iteration-2; per-episode details in run 2026-11-11_07-52-07

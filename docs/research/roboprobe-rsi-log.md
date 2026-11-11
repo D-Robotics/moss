@@ -579,3 +579,50 @@ run `2026-11-11_07-52-07`（general_pickup × 50 集，单进程）：
 cell episode 0 的成功帧已入库：`docs/assets/roboprobe/cell50-general-pickup/`（head + 双腕 × t=1/3/5s）。
 
 ![cell episode 0 成功帧（head t=3s）](../assets/roboprobe/cell50-general-pickup/cell50_head_t3.jpg)
+
+## Iteration 14 — cell 失败根因：抬升后"收回手臂"丢分（RSI 第 2 次改动）（2026-11-11 17:30）
+
+### 14.1 官方 cell 部分结果（已主动中止，7/50）
+
+run `2026-11-11_07-52-07`，每集官方 `_result.json` 都在同一 run 目录累积：
+
+| layout | 指令（官方）                                  | 调用 | 结果                                                                               |
+| -----: | --------------------------------------------- | ---: | ---------------------------------------------------------------------------------- |
+|      0 | Pick up the mint green scissors by 10 cm.     |   14 | ✅                                                                                 |
+|      1 | Pick up the lavender plastic shovel by 10 cm. |   18 | ❌ give_up（扁平铲子夹不住）                                                       |
+|      2 | Pick up the conch shell by 10 cm.             |   18 | ❌ give_up（步数用完）                                                             |
+|  **3** | Pick up the white toy car by 10 cm.           |   27 | ❌ **"gripped … and lifted" 后把手臂收回起始位**                                   |
+|  **4** | Pick up the blue race toy car by 10 cm.       |   18 | ❌ **"Car is lifted and held; returning the right arm to its episode-start pose"** |
+|      5 | Pick up the mint green alarm clock by 10 cm.  |   14 | ❌ give_up（夹爪在钟旁边）                                                         |
+|      6 | Pick up the noodle cup by 10 cm.              |   15 | ❌ 夹爪高了 ~7 cm                                                                  |
+|      7 | Pick up the black power bank by 10 cm.        |   19 | ✅                                                                                 |
+
+**关键对比**：两次成功（0、7）都没有"收回手臂"；layout 3、4 **已经夹起并抬升成功**，却因为在抬升后
+把手臂移回起始位而判失败——收回动作把持物降到 10 cm 高度以下，直接放弃合格姿态。
+
+### 14.2 RSI 第 2 次改动（已部署，A/B 进行中）
+
+在 `docs.py` 追加 **AFTER A SUCCESSFUL LIFT** 规则：
+
+> 抓起并抬升到要求高度后**保持该抬升姿态**；不要把手臂收回起始位（收回会降低持物高度、放弃任务合格条件）；
+> 保持夹爪闭合指令与抬升高度直到 episode 结束。
+
+安全追加方式（避免上一轮 f-string 插错位置的坑）：
+
+```python
+_RSI_HOLD_RULE = """..."""
+ARX_X5_EEF_DOCS = ARX_X5_EEF_DOCS + _RSI_HOLD_RULE
+```
+
+### 14.3 A/B 设计
+
+- 基线：cell 的 layout 0–4（5 集，1 胜 → 20%）
+- treatment：`rsi_batch.sh --id it2-hold-general_pickup-5ep --task general_pickup --episodes 5 --calls 60`
+  （同 5 个 layout、同预算、同 planner；唯一变量 = hold 规则）
+- 判据：layout 3、4（两辆玩具车）是否由 fail 翻为 success；以及整体 5 集成功数。
+
+### 14.4 中止 cell 的说明
+
+原 50 集 cell 在 7/50 时主动中止（从 ~13 min/集推算需 ~9.3 h，期间会占满 GPU，无法做迭代）。
+中止不等于失败：已评分 7 集的数据完整保留（`_result.json` + 视频 + transcript）。
+改用"小批 A/B → 确认改进 → 再跑完整 50 集"的顺序，避免在明显有策略 bug 时烧 9 小时。
