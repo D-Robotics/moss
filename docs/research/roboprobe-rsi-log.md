@@ -206,3 +206,52 @@ lavapipe 可绕过但太慢。**唯一出路仍是重启机器（或换机），
 
 按目标策略，阻塞条件已连续 5 轮（Iteration 2–6）未解除，且解除动作只能由用户侧完成，
 故将目标标记为 **blocked**，并把解除清单与"恢复后执行顺序"写入上一节。用户解除后 resume 即可继续。
+
+## Iteration 7 — 🎉 渲染打通，第一个真实 L3 episode（2026-11-11 10:45）
+
+### 7.1 根因：Vulkan ICD 指向被我早前改错 + mesa 的 ICD 污染
+
+排查中发现 `/usr/share/vulkan/icd.d/nvidia_icd.json` 里 `library_path` 被改成了 **`libGLX_nvidia.so.0`**
+（Iteration 3 试验时改的），而 morning 正常态用的是 **`libEGL_nvidia.so.0`**；同时装 `mesa-vulkan-drivers`
+后目录里多出 **lavapipe / intel / radeon / virtio** 五个 ICD（共 6 个），RTX 在枚举/选设备时死锁。
+
+修复：
+
+```bash
+# nvidia_icd.json: libEGL_nvidia.so.0（RoboProbe/RoboDojo 文档明确：EGL，不是 GLX）
+# 其余 5 个 ICD 移到 /root/icd-others/
+# 运行脚本里显式 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
+```
+
+**结果：Isaac 首次在完整场景渲染成功，仿真开始步进**（`env0 step: 1/200 …`），
+`[render_sync] zero-delay Kit settings active; one delivered frame per capture` 稳定工作。
+
+### 7.2 第一个真实 L3 episode（deepseek 规划，官方评分器）
+
+| 项            | 值                                                                                                                                                      |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 任务 / layout | `general_pickup` / layout 0                                                                                                                             |
+| planner       | **deepseek（deepseek-flash，reasoning=max）**                                                                                                           |
+| 结果          | `_result.json`: **success_rate 0.0 / score 0.0 / eval_time 1**                                                                                          |
+| 墙钟          | 841 s（含 ~5 min Isaac 启动）                                                                                                                           |
+| Agent 行为    | `[L3 inspect] policy give_up: LLM call budget exhausted` ← **deepseek 被调用 4 次后预算耗尽**（我把 `L3_INSPECT_MAX_LLM_CALLS` 设成了 4，官方默认 170） |
+| 视频          | `episode_0000000_cam_{head,left_wrist,right_wrist}_fail.mp4` 三段真实 episode 视频                                                                      |
+
+**结论：L3 harness + deepseek + 官方评分器已端到端打通**。分数 0 是预算设置导致的 agent 提前 give_up，
+不是管线故障（同一条管线在 7.3 会以 60 次预算重跑）。
+
+### 7.3 首批 L3 真实截图（已入库）
+
+从 episode 视频抽帧（head + 双腕相机，t=1s / 3s）：
+
+![L3 general_pickup 场景（head 相机 t=1s）](../assets/roboprobe/it1-l3-deepseek/cam_head_t1.jpg)
+
+- `docs/assets/roboprobe/it1-l3-deepseek/cam_head_t1.jpg`（双臂 + 桌面物体全景）
+- `docs/assets/roboprobe/it1-l3-deepseek/cam_head_t3.jpg`
+- `cam_left_wrist_t1/t3.jpg`、`cam_right_wrist_t1/t3.jpg`
+
+### 7.4 账本与下一轮
+
+`docs/research/roboprobe-rsi-ledger.tsv` 已记录 **it1**（SR 0.0，原因：LLM 预算 4 耗尽）。
+下一轮（it2）：`L3_INSPECT_MAX_LLM_CALLS=60`、`L3_INSPECT_TRACE_DIR=/tmp/l3trace`（保留完整 transcript），
+同一任务先拿到 agent 真正尝试后的分数，再按 RSI 迭代改进 prompt/tool/预算。

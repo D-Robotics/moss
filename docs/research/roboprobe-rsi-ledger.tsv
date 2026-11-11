@@ -1,0 +1,2 @@
+iteration	planner	task	layouts	episodes	successes	sr	score	wall_s	frames	notes
+it1-general_pickup-l0	deepseek	general_pickup	0	1	0	0.0000	0.00	841	docs/assets/roboprobe/it1-l3-deepseek	budget=4 LLM calls -> give_up (budget exhausted); render pipeline OK after ICD fix
