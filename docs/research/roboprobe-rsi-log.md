@@ -626,3 +626,42 @@ ARX_X5_EEF_DOCS = ARX_X5_EEF_DOCS + _RSI_HOLD_RULE
 原 50 集 cell 在 7/50 时主动中止（从 ~13 min/集推算需 ~9.3 h，期间会占满 GPU，无法做迭代）。
 中止不等于失败：已评分 7 集的数据完整保留（`_result.json` + 视频 + transcript）。
 改用"小批 A/B → 确认改进 → 再跑完整 50 集"的顺序，避免在明显有策略 bug 时烧 9 小时。
+
+### 14.5 Iteration-2 A/B 中期：hold 规则对 layout 3 无效，但暴露了真正瓶颈
+
+it2 批次（新 run `2026-11-11_09-29-14`，hold 规则生效）逐 layout：
+
+| layout | 任务     | 基线（cell） | treatment（hold） |
+| -----: | -------- | ------------ | ----------------- |
+|      0 | 剪刀     | ✅           | ✅                |
+|      1 | 扁铲     | ❌           | ❌                |
+|      2 | 海螺     | ❌           | ❌                |
+|      3 | 白玩具车 | ❌           | ❌（**未翻盘**）  |
+|      4 | 蓝赛车   | ❌           | （跑中）          |
+
+**layout 3 的 transcript 显示真正瓶颈**（与 hold 规则无关）：
+
+```
+"Gripper stopped at 0.36 instead of 0, so the car body is between the jaws; lift 12cm"
+"the car slipped from the jaws during the lift, so the previous grip caught only the roof"
+"Arm refuses to go lower than z=0.813; the car's body is between the open jaws"
+"Gripper read 0.00 (closed empty) just above the car's roof"
+→ 最后因 200 env steps 用尽失败
+```
+
+三个具体障碍：
+
+1. **z 下限**：该姿态下 planner 拒绝 `z < 0.813`，而车体更低 → 反复"下不去"；
+2. **roll 未归零**：wrist roll 偏斜导致夹爪夹到车顶而不是车身；
+3. **每步 waypoints 太多**：一次 `move_eef` 会播几十个 waypoint，200 env steps 很快耗尽，
+   来不及多轮"降-看-调"。
+
+### 14.6 Iteration 3 候选（motion stack，契约允许）
+
+RoboProbe 明确允许改 motion planning/execution。针对上面 3 点：
+
+- **限制单次调用播放的 waypoint 数**（例如 ≤10），把 200 env steps 摊到更多"执行-观测"循环里；
+- 在 adapter 里对低矮物体强制 **先 roll=0、再下降**的两段式执行；
+- 若 `z` 被拒，自动改走 **pitch 20-45° 的斜向接近**（而不是反复请求更低 z）。
+
+这些是代码级改动，需要单独 A/B，避免与 hold 规则混淆（hold 保留，因为对 layout 0/7 无副作用）。
