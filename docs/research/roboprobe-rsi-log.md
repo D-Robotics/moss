@@ -665,3 +665,34 @@ RoboProbe 明确允许改 motion planning/execution。针对上面 3 点：
 - 若 `z` 被拒，自动改走 **pitch 20-45° 的斜向接近**（而不是反复请求更低 z）。
 
 这些是代码级改动，需要单独 A/B，避免与 hold 规则混淆（hold 保留，因为对 layout 0/7 无副作用）。
+
+## Iteration 15 — Iteration-2 结论（hold 规则中性）与 Iteration-3 就绪（2026-11-11 19:30）
+
+### 15.1 Iteration-2 A/B 最终（5 集，同 layout 0–4，60 次预算）
+
+| 臂                                        | 成功 / 总数 | SR  |
+| ----------------------------------------- | ----------- | --- |
+| 基线（cell run `07-52-07` 的 layout 0–4） | 1 / 5       | 20% |
+| Treatment（AFTER A SUCCESSFUL LIFT）      | 1 / 5       | 20% |
+
+逐 layout 完全一致（0 ✅、1 ❌、2 ❌、3 ❌、4 ❌）。
+**结论：hold 规则中性** —— 它防住的"抬升后收回手臂"确实会丢分，但在这 5 个 layout 上不是决定性因素
+（layout 3/4 的失败发生在抓取阶段，还没走到"已抬升"）。补丁已回滚。
+
+### 15.2 Iteration-3 补丁已就绪（未应用）
+
+`docs/bench/roboprobe/patches/it3-waypoint-chunk.py`：
+
+- 把 `_arm_steps` 改名 `_arm_steps_uncapped`，插入 wrapper 以 `L3_INSPECT_MAX_ARM_STEPS`（默认 12）封顶；
+- 依据：layout-3 transcript 里单次 `move_eef` 播放 60–126 个 waypoint，迅速烧掉 200 env steps，
+  导致"降-看-调"闭环没有余量；失败收尾原话 `Only 3 env steps remain` / `Ran out of env steps (12 left)`。
+- 应用/回滚一条命令，且**必须在 cell 跑完后**应用（policy server 启动时导入模块，运行中改文件不生效）。
+
+### 15.3 新的 50 集 cell 已启动（正式测量）
+
+上一轮中止的 cell 只到 7/50。现在以**原始 docs**（iterations 1/2 均中性的配置）重跑完整 50 集：
+
+- run `2026-11-11_10-44-50`，`--eval-num 50`，`ROBODOJO_NUM_ENVS=1`，60 次预算
+- 看护脚本已接上（15 分钟无步进即杀进程并用 resume 续跑）
+- 中间数据（3/50）：**2 胜 1 负 = 66.7%**，其中 layout 1（扁铲）这次成功——说明**同 layout 跨 episode 存在方差**
+  （初始位姿/物体摆放随 episode 变化），这也是为什么必须用 50 集而非 5 集来定成绩。
