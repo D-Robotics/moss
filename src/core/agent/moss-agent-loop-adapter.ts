@@ -71,6 +71,7 @@ export interface MossAgentLoopEventAdapterOptions {
   isAborted?: () => boolean;
 
   contextTokens?: number;
+  normalizeLeadingWhitespace?: boolean;
 }
 
 export function createMossAgentLoopEventAdapter(
@@ -78,7 +79,9 @@ export function createMossAgentLoopEventAdapter(
 ): MossAgentLoopEventAdapter {
   let response = '';
   let publishedResponse = '';
-  const textRedactor = createAssistantTextRedactor();
+  const textRedactor = createAssistantTextRedactor({
+    normalizeLeadingWhitespace: options?.normalizeLeadingWhitespace !== false,
+  });
   let continuingOutput = false;
   const thinking: string[] = [];
   const toolCalls: ToolCall[] = [];

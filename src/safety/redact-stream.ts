@@ -112,30 +112,34 @@ const CREDENTIAL_WORD = new RegExp(
   'i'
 );
 const PROSE_SYMBOL =
-  /[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D.,!?;:'"()[\]#*，。！？、；：“”‘’（）《》…—–]/uy;
-const PROSE_BREAK = /^[ \t\r\n.,!?;:'"()[\]#*]|^[^\x00-\x7f]/u;
+  /[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D.,!?;'"()[\]{}#*`，。！？、；：“”‘’（）《》…—–]/uy;
+const PROSE_BREAK = /^[ \t\r\n.,!?;'"()[\]{}#*`]|^[^\x00-\x7f]/u;
+const ATOM_BREAK = /^[\s'"`()\[\]{};,!]/u;
 
 /**
- * Stream confirmed plain prose before a newline. An ambiguous suffix stays
- * pending for whole-text redaction, including PEM and quoted continuations.
+ * Publish stable prose and completed ordinary code/path atoms. Credential
+ * contexts and unresolved command syntax remain pending for full redaction.
  * Tool and command output keep the ordinary line-oriented redactor.
  */
-export function createAssistantTextRedactor() {
-  const word = /[A-Za-z0-9]+/y;
-  // Each writer has its own cursor. Sticky regex state must not be shared
-  // across overlapping runs.
+export function createAssistantTextRedactor(
+  options: { normalizeLeadingWhitespace?: boolean } = {}
+) {
+  const atom = /[A-Za-z0-9_$/\\:=@?&%+#~-][A-Za-z0-9_$./\\:=@?&%+#~-]*/y;
   const symbol = new RegExp(PROSE_SYMBOL);
   let raw = '';
   let scanned = 0;
   let proseEnd = 0;
   let emitted = 0;
   let held = false;
+  let leading = options.normalizeLeadingWhitespace === true;
+  let structured = false;
   let cutKnownSecrets: ReturnType<typeof createKnownSecretStreamCut> | undefined;
 
   const reset = () => {
     raw = '';
     scanned = proseEnd = emitted = 0;
-    held = false;
+    held = structured = false;
+    leading = options.normalizeLeadingWhitespace === true;
     cutKnownSecrets = undefined;
   };
 
@@ -143,37 +147,51 @@ export function createAssistantTextRedactor() {
     while (!held && scanned < raw.length) {
       const char = raw.charAt(scanned);
       if (/\s/u.test(char)) {
-        // The settled answer can trim leading whitespace. Preserve the
-        // canonical bytes by settling a leading-indented reply as a whole.
-        if (scanned === 0) {
+        scanned += 1;
+        continue;
+      }
+      // A Markdown bullet or quote can still introduce a PEM diff line.
+      if ((char === '-' || char === '>') && /\s/u.test(raw.charAt(scanned + 1))) {
+        const body = raw.slice(scanned + 1).search(/\S/u);
+        if (body === -1) return;
+        if (raw.charAt(scanned + 1 + body) === '-') {
           held = true;
           return;
         }
         scanned += 1;
+        proseEnd = scanned;
         continue;
       }
-      word.lastIndex = scanned;
-      const token = word.exec(raw);
+      atom.lastIndex = scanned;
+      const token = atom.exec(raw);
       if (token) {
-        if (word.lastIndex === raw.length) return;
-        const delimiter = raw.charAt(word.lastIndex);
-        if (delimiter === ':' && word.lastIndex + 1 === raw.length) return;
-        held = CREDENTIAL_WORD.test(token[0]) || !PROSE_BREAK.test(delimiter);
-        if (held) return;
-        if (delimiter === ':' && !/\s/u.test(raw.charAt(word.lastIndex + 1))) {
+        let value = token[0];
+        if (atom.lastIndex === raw.length) {
+          if (!value.endsWith('.') || /[:/\\]/.test(value)) return;
+          value = value.slice(0, -1);
+          atom.lastIndex -= 1;
+        }
+        const delimiter = raw.charAt(atom.lastIndex);
+        const words = value.match(/[A-Za-z0-9_]+/g) ?? [];
+        const contextual =
+          CREDENTIAL_WORD.test(value) || words.some((word) => CREDENTIAL_WORD.test(word));
+        const flag = value.startsWith('-') && !/^-\d/.test(value);
+        const url = value.includes('://');
+        // A URL password can include non-ASCII text and punctuation. Only
+        // actual URL/argv terminators make such an atom complete.
+        const boundary = url ? ATOM_BREAK.test(delimiter) : PROSE_BREAK.test(delimiter);
+        if (contextual || flag) {
           held = true;
           return;
         }
-        scanned = word.lastIndex;
+        if (!boundary) return;
+        structured ||= /[^A-Za-z0-9]/.test(value);
+        scanned = atom.lastIndex;
       } else {
-        // A provider can split an astral code point across deltas.
         if (scanned + 1 === raw.length && /[\uD800-\uDBFF]/.test(char)) return;
-        if (char === ':' && scanned + 1 === raw.length) return;
         symbol.lastIndex = scanned;
-        if (!symbol.test(raw) || (char === ':' && !/\s/u.test(raw.charAt(scanned + 1)))) {
-          held = true;
-          return;
-        }
+        if (!symbol.test(raw)) return;
+        structured ||= char === '`' || char === '{' || char === '}';
         scanned = symbol.lastIndex;
       }
       proseEnd = scanned;
@@ -182,9 +200,21 @@ export function createAssistantTextRedactor() {
 
   return {
     push(chunk: string): string {
+      if (leading) {
+        chunk = chunk.trimStart();
+        if (!chunk) return '';
+        leading = false;
+      }
       raw += chunk;
       advance();
       if (proseEnd <= emitted) return '';
+      const prefix = raw.slice(0, proseEnd);
+      // Structured atoms must also agree with the authoritative batch
+      // redactor before their original bytes can enter an append-only stream.
+      if (structured && callRedactEgress(prefix) !== prefix) {
+        held = true;
+        return '';
+      }
       cutKnownSecrets ??= createKnownSecretStreamCut();
       const candidate = raw.slice(emitted, proseEnd);
       const delta = candidate.slice(0, cutKnownSecrets(candidate));
@@ -192,7 +222,8 @@ export function createAssistantTextRedactor() {
       return delta;
     },
     flush(finalText = raw): string {
-      const settled = callRedactEgress(finalText);
+      const canonical = options.normalizeLeadingWhitespace ? finalText.trimStart() : finalText;
+      const settled = callRedactEgress(canonical);
       const delta = settled.startsWith(raw.slice(0, emitted)) ? settled.slice(emitted) : '';
       reset();
       return delta;

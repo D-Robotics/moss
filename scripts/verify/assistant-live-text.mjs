@@ -29,6 +29,16 @@ const cases = [
   'Plain prose.\npassword="start\n  continued\n  closed"',
   'Plain prose. authorization : Bearer authorization',
   'Here is a story: a quiet day — with a smile 😊.',
+  '第一行是 `name=stream-check`，表示名称。\n\n第二行是 `status=ready`，表示已经准备好。',
+  'RDK-X5 /tmp/stream-check.txt C:\\work\\sample.txt name=stream-check count=42 status=ready.',
+  '- RDK-X5 状态正常。\n- 第二个条目正常。',
+  '```text\nname=stream-check\nstatus=ready\n```\n代码说明继续输出。',
+  '普通路径 https://example.test/docs 之后继续写作。',
+  '普通输出路径为 /tmp/stream-check/result.txt。针对 RDK-X5 继续说明。',
+  '\n\n  原始前导空白用于校验纯脱敏函数的原文一致性。',
+  'name=stream-check status=ready password="full credential sample"',
+  'name=stream-check ' + known,
+  'name=stream-check ' + JSON.stringify(known).slice(1, -1),
   'Plain prose. password samplevalue machine localhost',
   'Plain prose. sshpass -p samplevalue ssh demo',
   'Plain prose. https://username:sample1234@example.test',
@@ -117,6 +127,28 @@ rejected.onMiniEvent({ type: 'message_delta', delta: 'Visible sentence. ' + know
 const ended = rejected.onMiniEvent({ type: 'turn_end', turn: 1, stopReason: 'end_turn' });
 assert.ok(ended.every((event) => event.type !== 'text_delta'));
 
+const formatted = createAssistantTextRedactor();
+assert.equal(
+  formatted.push('第一行是 `name=stream-check`，表示名称。'),
+  '第一行是 `name=stream-check`，表示名称。'
+);
+assert.equal(
+  formatted.push('\n\n第二行是 `status=ready`，表示已经准备好。'),
+  '\n\n第二行是 `status=ready`，表示已经准备好。'
+);
+assert.equal(
+  formatted.push('普通输出路径为 /tmp/stream-check/result.txt。针对 RDK-X5 继续说明。'),
+  '普通输出路径为 /tmp/stream-check/result.txt。针对 RDK-X5 继续说明。'
+);
+assert.equal(formatted.flush(), '');
+
+const normalized = createMossAgentLoopEventAdapter();
+normalized.onMiniEvent({ type: 'turn_start', turn: 1 });
+assert.deepEqual(normalized.onMiniEvent({ type: 'message_delta', delta: '\n\n   ' }), []);
+const resumed = normalized.onMiniEvent({ type: 'message_delta', delta: '正常正文继续输出。' });
+assert.equal(resumed.map((event) => event.delta ?? '').join(''), '正常正文继续输出。');
+assert.deepEqual(normalized.onMiniEvent({ type: 'message_end', text: '正常正文继续输出。' }), []);
+
 const punctuation = createAssistantTextRedactor();
 const first = punctuation.push('Here is a story: It begins — ');
 const second = punctuation.push('with a smile 😊 and a quiet day.');
@@ -187,3 +219,72 @@ try {
 } finally {
   await agent.close();
 }
+
+async function verifyFormattedReply(buffered, continuation) {
+  const pieces = continuation
+    ? [['   这是第一部分， '], [' 这是续写的第二部分。']]
+    : [
+        [
+          '\n\n   ',
+          '第一行是 `name=stream-check`，表示名称。',
+          '\n\n第二行是 `status=ready`，表示已经准备好。',
+        ],
+      ];
+  let request = 0;
+  let modelFinished = false;
+  const formattedProvider = {
+    id: 'formatted-reply',
+    displayName: 'Formatted reply fixture',
+    capabilities: { streaming: true },
+    async complete() {
+      throw new Error('Expected streaming');
+    },
+    async stream(_options, emit) {
+      const index = request++;
+      for (const text of pieces[index]) {
+        emit({ type: 'content_block_delta', text });
+        await delay(50);
+      }
+      modelFinished = request === pieces.length;
+      return {
+        stopReason: request < pieces.length ? 'max_tokens' : 'end_turn',
+        content: [{ type: 'text', text: pieces[index].join('') }],
+      };
+    },
+  };
+  const formattedAgent = new MossAgent({
+    llmProvider: formattedProvider,
+    sessionStore: new InMemorySessionStore(),
+    domainPrompt: false,
+    enableSteering: false,
+    enableFollowUpGuard: false,
+    bufferAssistantUntilComplete: buffered,
+  });
+  try {
+    let text = '';
+    let finalResponse;
+    let live = 0;
+    for await (const event of formattedAgent.streamChat('formatted', 'Write a short story.', {
+      toolFilter: () => false,
+    })) {
+      if (event.type === 'text_delta') {
+        text += event.delta;
+        if (!modelFinished && event.delta) live += 1;
+      }
+      if (event.type === 'done') finalResponse = event.result.response;
+    }
+    const raw = pieces.flat().join('');
+    const expected = continuation ? (buffered ? raw : raw.trimStart()) : raw.trim();
+    assert.equal(text, expected);
+    assert.equal(finalResponse, expected);
+    if (!buffered && !continuation) assert.ok(live >= 2);
+  } finally {
+    await formattedAgent.close();
+  }
+}
+await verifyFormattedReply(false, false);
+await verifyFormattedReply(false, true);
+await verifyFormattedReply(true, true);
+console.log(
+  '[assistant-live-text] formatted prose, leading whitespace and buffered/live continuations passed'
+);
