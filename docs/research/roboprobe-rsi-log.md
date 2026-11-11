@@ -530,3 +530,34 @@ Success nums: 2, Fail nums: 1      ← 第 3 集失败
 已回滚中性 prompt 补丁（`docs.py` 恢复 git 原始版本，确认无 `_RSI_APPROACH_RECIPE`），
 启动 **`general_pickup` × 50 episodes 单进程 cell**（`/tmp/cell50.sh`，60 次 LLM 预算/集），
 预计 4.5–5 小时。完成后将给出该任务的官方口径 SR/Score（逐 episode `_result.json` 会累积到同一 run 目录）。
+
+## Iteration 13 — 失败模式分类学（为 RSI 第 2 次改动定向）（2026-11-11 16:15）
+
+对 3 个失败 transcript 的末段逐 call 分析，失败可分成三类：
+
+| 类别                    | 证据（transcript 原文）                                                                                                                                                         | 含义                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| **A. 抓取滑脱**         | `"The scissors could be pinched at table level but repeatedly slipped out of the jaws"`；`"Gripper stalled at 0.62, indicating the scissor handle loop is held"` → 随后再夹仍滑 | 细薄把手（剪刀柄）夹持不稳，抬升时滑掉     |
+| **B. 步数预算耗尽**     | `"Only 5 env steps remain"`、`"Ran out of env steps (12 left)"`                                                                                                                 | 200 step 的 episode 内，试探动作吃掉了步数 |
+| **C. 规划器可达性失败** | `"right arm pose unreachable (planner status: Fail)"` 连续两次（z 抬升 16 cm / 9.5 cm）                                                                                         | 抬升目标超出可达域，浪费两次调用           |
+
+**一个值得注意的反例**：`06-35-07` 已经 `"The scissors are held with full grip"` 并抬升 12.5 cm，
+之后却回到 home 位置并最终判失败——说明"夹住并抬升"后**返回/保持阶段的处理**也可能丢分
+（该任务要求物体留在成品姿态）。
+
+### 13.1 定向出的 RSI 第 2 次改动（配置级，零代码风险）
+
+**图像历史策略**：当前默认 `L3_INSPECT_KEEP_ALL_IMAGES=0` + `L3_INSPECT_IMAGE_HORIZON=2`，
+即模型每轮只看到最近 2 帧。滑脱类失败（A）本质是"抬升后没有及时看到物体已滑出夹爪"。
+RoboProbe 契约明确允许改 memory/image-history policy →
+**A/B：`L3_INSPECT_KEEP_ALL_IMAGES=1`（保留全历史图像） vs 默认**，其他条件完全不变。
+
+次要候选（若 A 无效）：
+
+- 在 tool result 里**强制附带双腕相机**（要求每步都看到夹爪相对物体）；
+- 抬升改为**两步小抬 + 每步重新夹紧**（成功案例正是"保持夹紧抬升"）。
+
+### 13.2 当前运行
+
+官方 cell（`general_pickup` × 50 episodes，单进程）在跑：第 1 集成功，第 2 集因 LLM 调用较多而变长
+（预期待定 ~8-12 分钟/集）。cell 结束后再做第 2 次改动的 A/B，避免同时占用 GPU 干扰。
