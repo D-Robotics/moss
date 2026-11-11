@@ -255,3 +255,39 @@ lavapipe 可绕过但太慢。**唯一出路仍是重启机器（或换机），
 `docs/research/roboprobe-rsi-ledger.tsv` 已记录 **it1**（SR 0.0，原因：LLM 预算 4 耗尽）。
 下一轮（it2）：`L3_INSPECT_MAX_LLM_CALLS=60`、`L3_INSPECT_TRACE_DIR=/tmp/l3trace`（保留完整 transcript），
 同一任务先拿到 agent 真正尝试后的分数，再按 RSI 迭代改进 prompt/tool/预算。
+
+## Iteration 8 — 🥇 第一个真实成功 episode（SR 1.0）（2026-11-11 11:05）
+
+### 8.1 成绩（官方评分器判定）
+
+| run                   | planner                  | 任务 / layout             |     LLM 调用 | `_result.json`                                   | 判定               |
+| --------------------- | ------------------------ | ------------------------- | -----------: | ------------------------------------------------ | ------------------ |
+| `2026-11-11_02-43-48` | **deepseek-flash (max)** | general_pickup / layout 0 |        **4** | `success_rate 1.0`, `score 100.0`, `eval_time 1` | ✅ **成功**        |
+| `2026-11-11_02-44-04` | 同上                     | 同上                      | 4（预算 60） | `success_rate 0.0`                               | ❌ agent `give_up` |
+| `2026-11-11_02-25-51` | 同上                     | 同上                      |  4（预算 4） | `success_rate 0.0`                               | ❌ 预算耗尽        |
+
+任务指令：**"Pick up the mint green scissors by 10 cm."** —— deepseek-flash 在 L3 Inspect EEF harness 中
+**用 4 次工具调用**完成了抓取，官方 RoboDojo 评分器给出 `official_success: [true]`。
+
+这证明整条链路真实可用：`Moss 生态的评测骨架 + deepseek-flash + RoboProbe 官方 L3 harness + 官方评分器`。
+
+### 8.2 成功 episode 截图（已入库）
+
+![成功 episode：右臂接近薄荷绿剪刀（head 相机 t=4s）](../assets/roboprobe/it2-l3-deepseek-success/cam_head_t4.jpg)
+
+- `docs/assets/roboprobe/it2-l3-deepseek-success/`：head/左腕/右腕 × t=1/2/4s 共 9 帧
+- 失败对照仍在 `docs/assets/roboprobe/it1-l3-deepseek/`
+
+### 8.3 与基线对比的初步观察
+
+- 论文里 **DeepSeek-Flash 全 42 任务 420 episodes 平均 SR 1.92%**（10 eps/task）。
+- 我们**单任务单 episode** 目前 1 成功 / 3 次尝试（同任务 layout 0）。样本太小，不能宣称超过基线；
+  但已出现"4 次调用即成功"的正例，值得用官方 cell（50 episodes）去放大。
+- 记入账本 `docs/research/roboprobe-rsi-ledger.tsv`（it1/it2/it3）。
+
+### 8.4 下一轮
+
+1. 跑 **同一任务 5 episodes** 小批量 → 得到首个 SR 估计与方差；
+2. 若稳定，扩到官方 cell（25 + 25 random，约 12 小时，可夜间跑）；
+3. 同时开始 RSI：从 transcript（`/tmp/l3trace/*/l3_inspect_transcript.json`，含每次调用与动作）
+   提炼 prompt/tool/预算 改进。
