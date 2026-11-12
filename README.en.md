@@ -249,7 +249,7 @@ sandbox by default (optional seatbelt / bubblewrap) — see [Safety & privacy](d
 ## Documentation
 
 - [Install & runtime](docs/install.md) · [Safety & privacy](docs/safety.md) · [CLI & config reference](docs/cli-reference.md)
-- [RDK board deps](docs/rdk-board-deps.md) · [Capability layer (MCP / device / skill)](docs/capability-layer.md)
+- [RDK board deps](docs/rdk-board-deps.md) · [Capability layer (MCP / device / skill)](docs/capability-layer.md) · [SDK tool continuation](docs/tool-continuation.md)
 - [AGENTS.md](AGENTS.md) (engineering contract) · [CHANGELOG](CHANGELOG.md) · [Release policy](docs/release-policy.md)
 - [CLI parity baseline vs Claude Code / codex](docs/cli-parity/) · [Design records](docs/superpowers/plans/)
 

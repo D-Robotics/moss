@@ -374,6 +374,7 @@ export interface ChatOptions {
 }
 
 export interface ChatResult {
+  suspendedTool?: import('../tools/tool-suspension.js').SuspendedToolCall;
   harnessAdapter?: HarnessAdapterReceipt;
 
   response: string;
@@ -501,6 +502,7 @@ export type MossAgentEvent =
 export type InternalContentBlock = Pick<
   ContentBlock,
   | 'type'
+  | 'continuation'
   | 'text'
   | 'data'
   | 'mimeType'
@@ -540,6 +542,7 @@ export function fromSessionMessages(msgs: Message[]): InternalMessage[] {
         ? m.content
         : m.content.map((b) => ({
             type: b.type,
+            ...(b.continuation ? { continuation: b.continuation } : {}),
             ...(b.text !== undefined ? { text: b.text } : {}),
             ...(b.data !== undefined ? { data: b.data } : {}),
             ...(b.mimeType !== undefined ? { mimeType: b.mimeType } : {}),
