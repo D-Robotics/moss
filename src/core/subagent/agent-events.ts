@@ -49,7 +49,13 @@ type MiniAgentEventPayload =
       /** O152 F9b: structured L3 post-run result (not parsed from text). */
       protectedPathChanges?: ProtectedPathChangeReport[];
     }
-  | { type: 'tool_execution_progress'; toolCallId: string; toolName: string; elapsed_sec: number }
+  | {
+      type: 'tool_execution_progress';
+      toolCallId: string;
+      toolName: string;
+      elapsed_sec: number;
+      chunk?: string;
+    }
   | { type: 'tool_skipped'; toolCallId: string; toolName: string }
   | { type: 'tool_approval_request'; toolCallId: string; toolName: string; args: unknown }
   | {

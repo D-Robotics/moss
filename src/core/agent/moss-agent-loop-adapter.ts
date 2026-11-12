@@ -188,6 +188,7 @@ export function createMossAgentLoopEventAdapter(
               toolCallId: event.toolCallId,
               toolName: event.toolName,
               elapsedSec: event.elapsed_sec,
+              ...(event.chunk !== undefined ? { chunk: event.chunk } : {}),
             },
           ];
         case 'tool_execution_end': {

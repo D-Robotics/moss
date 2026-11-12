@@ -15,6 +15,7 @@ import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js
 import { MossError, ErrorCode, errorMessage, isMossError, wrapAsMoss } from '../../errors.js';
 import { isEffectiveUiZh } from '../../utils/ui-language.js';
 import type { DenialClass } from '../../contracts/tool-denial.js';
+import { createStreamingTextRedactor } from '../../safety/redact-stream.js';
 
 /**
  * O88: text the model (and the tool row) gets when approval is refused. It
@@ -623,6 +624,25 @@ async function executeOneToolCallInner(
 
       structuredBlocks = undefined;
       const timeoutAbortCtrl = new AbortController();
+      const outputRedactor = createStreamingTextRedactor();
+      let outputOpen = true;
+      const publishOutput = (chunk: string) => {
+        if (
+          !chunk ||
+          !outputOpen ||
+          effectiveAbortSignal.aborted ||
+          timeoutAbortCtrl.signal.aborted
+        )
+          return;
+        deps.push({
+          type: 'tool_execution_progress',
+          toolCallId: call.id,
+          toolName: call.name,
+          elapsed_sec: Math.round((Date.now() - startMs) / 1000),
+          chunk,
+        });
+        callToolCtx.onToolOutput?.(chunk);
+      };
 
       try {
         const toolTimeoutPromise = new Promise<never>(
@@ -648,6 +668,9 @@ async function executeOneToolCallInner(
         const attemptCtx: ToolContext = {
           ...callToolCtx,
           abortSignal: attemptSignal,
+          onToolOutput: (chunk) => {
+            if (outputOpen && !attemptSignal.aborted) publishOutput(outputRedactor.push(chunk));
+          },
           markResultError: () => {
             structuralError = true;
           },
@@ -719,6 +742,7 @@ async function executeOneToolCallInner(
             });
           }
         }
+        if (!attemptSignal.aborted) publishOutput(outputRedactor.flush());
       } catch (err) {
         const rawMessage = errorMessage(err);
         const userAborted = deps.abortSignal.aborted || !!perToolAbortSignal?.aborted;
@@ -791,6 +815,10 @@ async function executeOneToolCallInner(
         }
         attemptErrFlag = true;
       } finally {
+        // Late callbacks from timed-out or retried tools cannot publish into
+        // the next attempt. Only normal completion settles a partial line.
+        outputOpen = false;
+        outputRedactor.reset();
         if (timeoutHandle) clearTimeout(timeoutHandle);
         if (heartbeatHandle) clearInterval(heartbeatHandle);
       }
