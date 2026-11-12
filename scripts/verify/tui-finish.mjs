@@ -11,16 +11,32 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// B284: the nightly Windows leg reported only "probe exited 1: …", because the
+// verify runner keeps the LAST stderr line. Print the crash as one line so the
+// next nightly names the failing check.
+for (const signal of ['uncaughtException', 'unhandledRejection']) {
+  process.on(signal, (error) => {
+    const text = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    console.error(`[tui-finish] ${signal}: ${text.replace(/\n/g, ' ⏎ ')}`);
+    process.exit(1);
+  });
+}
+
 const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, relative)).href);
 const transcript = await load('dist/cli/tui/transcript.js');
 const renderer = await load('dist/cli/tui/renderer.js');
 const toolSummary = await load('dist/cli/tui/tool-summary.js');
 const promptHistory = await load('dist/cli/tui/prompt-history.js');
+const appHelpers = await load('dist/cli/tui/app-helpers.js');
+const agentFiles = await load('dist/core/subagent/agent-file-loader.js');
+const permissionsPanel = await load('dist/cli/tui/permissions-panel.js');
+const compactCommand = await load('dist/cli/compact-command.js');
+const mentions = await load('dist/cli/tui/mentions.js');
+const palette = await load('dist/cli/tui/palette.js');
 const renderBridge = await load('dist/cli/tui/render-bridge.js');
 const statusLine = await load('dist/cli/status-line.js');
 const interactionMode = await load('dist/cli/interaction-mode.js');
-const bridge = await load('dist/cli/tui/render-bridge.js');
 const markdown = await load('dist/cli/tui/markdown.js');
 const outcome = await load('dist/cli/run-outcome.js');
 
@@ -93,7 +109,7 @@ ok('the checklist collapses when the run ends (open items are disclosed)');
     nextId: 1,
     contextWarned: false,
   };
-  bridge.beginRun(store);
+  renderBridge.beginRun(store);
   assert.deepEqual(store.todos, [], 'a new prompt must not inherit the old checklist');
   assert.equal(store.run.running, true);
 }
@@ -515,6 +531,378 @@ ok('two fresh answer blocks: the earlier one folds, the latest stays full');
   );
 }
 ok('a duplicated leading result line is dropped, not repeated under the headline');
+
+// 5k. B256: the boot resume picker says it is loading instead of "no matching
+// session" for its first frames.
+{
+  const loading = appHelpers
+    .renderSessionPicker('', [], 0, 120, 8, { loading: true })
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(loading, /loading sessions/);
+  assert.doesNotMatch(loading, /no matching session/);
+  const empty = appHelpers
+    .renderSessionPicker('', [], 0, 120, 8)
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(empty, /no matching session/);
+}
+ok('the resume picker shows a loading line, then the empty line');
+
+// 5l. B257: an undo that dropped conversation turns says the scrollback above is
+// stale (rows cannot be retracted from the terminal).
+{
+  const note = appHelpers.rewindScrollbackNote(3).join('\n');
+  assert.match(note, /earlier turns stay as scrollback/);
+  assert.deepEqual(appHelpers.rewindScrollbackNote(0), []);
+  assert.deepEqual(appHelpers.rewindScrollbackNote(undefined), []);
+}
+ok('undo after dropping turns notes that the scrollback is no longer in context');
+
+// 5m. B259: a folded narration line says how to expand; provider errors carry
+// the endpoint/error code; a failed run says "failed", not "worked".
+{
+  const longNarration = {
+    id: 41,
+    kind: 'assistant',
+    text: 'Authority: the locked test is the contract here. '.repeat(8),
+    progress: true,
+  };
+  const foldedLong = transcript
+    .renderTranscriptRow(longNarration, 80)
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(foldedLong, /ctrl\+o/, 'a truncated folded narration points at ctrl+o');
+  const foldedShort = transcript
+    .renderTranscriptRow({ id: 42, kind: 'assistant', text: 'short note', progress: true }, 80)
+    .map((line) => line.text)
+    .join('\n');
+  assert.doesNotMatch(foldedShort, /ctrl\+o/);
+
+  const raw = 'TypeError: fetch failed at https://api.example/v1 (cause ECONNREFUSED)';
+  const suffix = renderBridge.errorDetailSuffix(raw, 'Could not connect. Check the base URL.');
+  assert.match(suffix, /ECONNREFUSED/);
+  assert.match(suffix, /https:\/\/api\.example\/v1/);
+  assert.equal(
+    renderBridge.errorDetailSuffix(raw, 'failed (ECONNREFUSED · https://api.example/v1)'),
+    ''
+  );
+  assert.equal(renderBridge.errorDetailSuffix(undefined, 'x'), '');
+
+  const failedSummary = transcript
+    .renderRunSummary(1_000, false, 120, { input: 1, output: 1 }, new Date(), '', true)
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(failedSummary, /failed after 1s/);
+  assert.doesNotMatch(failedSummary, /worked for/);
+  const okSummary = transcript
+    .renderRunSummary(1_000, false, 120, { input: 1, output: 1 }, new Date(), '')
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(okSummary, /worked for 1s/);
+}
+ok('folded narration, provider error details and failed-run summary are honest');
+
+// 5n. B259 (network): a connection failure names the endpoint it tried.
+{
+  const store = renderBridge.createTuiStore();
+  store.run.baseUrl = 'http://127.0.0.1:9/v1';
+  renderBridge.applyAgentEvent(store, {
+    type: 'error',
+    error: 'fetch failed',
+    retriable: true,
+    errorSurface: {
+      category: 'network',
+      userMessage: 'Could not connect. Check the base URL and your network, then retry.',
+      actions: [],
+      silent: false,
+      retryable: true,
+    },
+  });
+  const errorRow = store.rows.find((row) => row.kind === 'error');
+  assert.ok(errorRow, 'an error row is written');
+  assert.match(errorRow.text, /http:\/\/127\.0\.0\.1:9\/v1/);
+  assert.equal(store.run.lastError !== undefined, true);
+}
+ok('a network error row names the base URL and marks the run failed');
+
+// 5o. B261: a narrow status bar shows the directory name, not a mid-truncated
+// path; the Chinese full-mode label does not double up ("完全访问已开启").
+{
+  const narrow = transcript.renderStatusRight(
+    {
+      statusFields: statusLine.DEFAULT_STATUS_LINE_FIELDS,
+      model: 'm',
+      cwd: '/tmp/very/long/path/ux4-ws',
+      tokensIn: 1_000,
+      tokensOut: 20,
+    },
+    60
+  ).text;
+  assert.match(narrow, /ux4-ws/);
+  assert.doesNotMatch(narrow, /…vate|very\/long/);
+  const wide = transcript.renderStatusRight(
+    {
+      statusFields: statusLine.DEFAULT_STATUS_LINE_FIELDS,
+      model: 'm',
+      cwd: '/tmp/very/long/path/ux4-ws',
+    },
+    160
+  ).text;
+  assert.match(wide, /\/tmp\/very\/long\/path\/ux4-ws/);
+
+  const copy = await load('dist/cli/tui/copy.js');
+  copy.setTuiLocale(true);
+  assert.equal(copy.tui('⏵⏵ {label} mode on', { label: '完全访问' }), '⏵⏵ 完全访问');
+  copy.setTuiLocale(false);
+}
+ok('narrow status uses the directory name and the zh mode label is not doubled');
+
+// 5p. B262: in a short terminal a result preview keeps one line (success) or
+// two (failure), so the conversation still fits.
+{
+  const row = {
+    id: 50,
+    kind: 'result',
+    text: 'a\nb\nc\nd\ne',
+    tool: { name: 'run_tests', summary: 'passed' },
+  };
+  const normal = transcript.renderTranscriptRow(row, 80);
+  const narrow = transcript.renderTranscriptRow(row, 80, false, undefined, true);
+  assert.equal(normal.filter((line) => /^ {5}[a-e]$/.test(line.text)).length, 3);
+  assert.equal(narrow.filter((line) => /^ {5}[a-e]$/.test(line.text)).length, 1);
+  const failed = {
+    id: 51,
+    kind: 'result',
+    text: 'a\nb\nc\nd\ne',
+    tool: { name: 'run_tests', isError: true, summary: 'failed — boom' },
+  };
+  const narrowFailed = transcript.renderTranscriptRow(failed, 80, false, undefined, true);
+  assert.equal(narrowFailed.filter((line) => /^ {5}[a-e]$/.test(line.text)).length, 2);
+}
+ok('a narrow terminal shortens result previews to 1/2 lines');
+
+// 5q. B264: a resumed boot ends its replay with one confirmation line.
+{
+  const notice = appHelpers.resumeReplayNotice('cli-abc', 15);
+  assert.match(notice, /resumed “cli-abc” — replayed 15 rows/);
+  // B279: a known title is what makes the confirmation recognizable.
+  const titled = appHelpers.resumeReplayNotice('cli-abc', 15, 'fix the flaky test');
+  assert.match(titled, /resumed “fix the flaky test” — replayed 15 rows/);
+  // B293: a single replay row is singular, not `row(s)`.
+  const single = appHelpers.resumeReplayNotice('cli-abc', 1, 'one turn');
+  assert.match(single, /replayed 1 row$/);
+  assert.doesNotMatch(single, /row\(s\)/);
+  const longTitle = appHelpers.resumeReplayNotice('cli-abc', 3, 'x'.repeat(80));
+  assert.match(longTitle, /resumed “x{47}…” — replayed 3 rows/);
+}
+ok('a resumed replay ends with a resume confirmation');
+
+// 5r. B273: a successful steer says "steered", not "queued".
+{
+  const steered = appHelpers.formatSteered('use ES modules');
+  assert.match(steered, /^steered: use ES modules — applies at the next step$/);
+}
+ok('a successful steer is reported as steered, not queued');
+
+// 5s. B292: the /agents footer pluralizes ("1 file agent", not "agent(s)").
+{
+  const agent = {
+    id: 'auditor',
+    description: 'Reviews changes',
+    fileDefined: true,
+    scope: 'project',
+  };
+  const one = agentFiles.formatFileAgentReport({ experts: [agent], zh: false });
+  assert.match(one, /1 file agent$/m);
+  assert.doesNotMatch(one, /agent\(s\)/);
+  const two = agentFiles.formatFileAgentReport({
+    experts: [agent, { ...agent, id: 'planner' }],
+    zh: false,
+  });
+  assert.match(two, /2 file agents$/m);
+}
+ok('the agents panel pluralizes its footer');
+
+// 5t. B294: the /permissions panel only explains workspace-write confinement
+// when the mode actually derives it (not under full).
+{
+  const text = (modeKey, mode) =>
+    permissionsPanel
+      .renderPermissionsPanel({ width: 120, mode, modeKey, rules: [], cursor: 0 })
+      .map((entry) => entry.text)
+      .join('\n');
+  const full = text('full', 'full');
+  assert.doesNotMatch(full, /workspace-write confines/);
+  assert.match(full, /no rules — full decides; deny still wins everywhere/);
+  const plan = text('plan', 'plan');
+  assert.match(plan, /workspace-write confines/);
+  assert.match(plan, /no rules — plan decides/);
+}
+ok('the permissions panel explains confinement only when the mode derives it');
+
+// 5u. B295: compacting an empty conversation is one line, not a report.
+{
+  const empty = compactCommand.formatCompactSessionResult({
+    compacted: false,
+    tokensAfter: 0,
+    droppedMessages: 0,
+    summaryChars: 0,
+  });
+  assert.equal(empty, 'Conversation is empty — nothing to compact yet.');
+  const noSavings = compactCommand.formatCompactSessionResult({
+    compacted: false,
+    tokensAfter: 12_000,
+    droppedMessages: 0,
+    summaryChars: 0,
+  });
+  assert.match(noSavings, /was not compacted/);
+  assert.match(noSavings, /No context savings/);
+  // B319: small window, tiny conversation — compaction cannot shrink the prompt.
+  const below = compactCommand.formatCompactSessionResult({
+    compacted: false,
+    tokensAfter: 1_333,
+    keepRecentTokens: 4_915,
+    reason: 'below-keep-recent',
+  });
+  assert.match(below, /only ~1,333 tokens/);
+  assert.match(below, /below the 4,915 keep budget/);
+  assert.match(below, /system prompt and tool declarations/);
+}
+ok('compact says one line for an empty conversation');
+
+// 5v. B298: a hook ask's "this time" choice is not a session-wide grant.
+{
+  assert.equal(appHelpers.approvalAnswerLabel('a'), 'yes (session)');
+  assert.equal(appHelpers.approvalAnswerLabel('a', true), 'yes (this time)');
+  assert.equal(appHelpers.approvalAnswerLabel('y'), 'yes');
+  assert.equal(appHelpers.approvalAnswerLabel('n'), 'no');
+}
+ok('a hook-ask approval is labelled as this-time, not session-wide');
+
+// 5w. B299: prose about tests is not a claim that this run verified anything.
+{
+  assert.equal(
+    outcome.requestMentionsVerification('write a 400-line essay about software testing'),
+    false
+  );
+  assert.equal(outcome.requestMentionsVerification('run the tests and tell me the result'), true);
+  assert.equal(outcome.requestMentionsVerification('跑一下测试并告诉我结果'), true);
+  // B300: writing/explaining about verification is not an ask to verify.
+  assert.equal(
+    outcome.requestMentionsVerification('write an essay about how to check tests'),
+    false
+  );
+  assert.equal(outcome.requestMentionsVerification('how do I run the tests?'), false);
+  assert.equal(outcome.requestMentionsVerification('fix the failing test and run npm test'), true);
+
+  const essayText =
+    'The test passes, the system is wrong, and nobody noticed because the expected value was copied.';
+  const essayTracker = outcome.createRunCompletionTracker();
+  const essay = outcome.resolveRunOutcome({
+    tracker: essayTracker,
+    finalText: essayText,
+    request: 'write a 400-line essay about software testing. no tools.',
+  });
+  assert.equal(essay.status, 'completed', essay.reason);
+
+  const claimTracker = outcome.createRunCompletionTracker();
+  claimTracker.lastStep = 'exec: node --test';
+  const claim = outcome.resolveRunOutcome({
+    tracker: claimTracker,
+    finalText: 'All tests pass (2/2).',
+    request: 'fix the failing test',
+  });
+  assert.match(claim.reason, /claimed checks passed/);
+
+  const askedTracker = outcome.createRunCompletionTracker();
+  const asked = outcome.resolveRunOutcome({
+    tracker: askedTracker,
+    finalText: 'All tests pass (2/2).',
+    request: 'run the tests and tell me the result',
+  });
+  assert.equal(asked.status, 'unverified');
+}
+ok('an explanation about tests is not judged as an unverified claim');
+
+// 5x. B308: the @-file palette says how to choose a row, and Tab/Enter
+// completes the highlighted path instead of running the message.
+{
+  const value = 'look at @math';
+  const token = mentions.mentionTokenAt(value, value.length);
+  assert.ok(token, 'a word-boundary @ opens a mention token');
+  const menu = mentions
+    .renderMentionMenu(
+      [
+        { path: 'math.js', directory: false },
+        { path: 'src/', directory: true },
+      ],
+      { width: 80, selected: 0 }
+    )
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(menu, /@math\.js/);
+  assert.match(menu, /Tab\/Enter complete/);
+
+  const completed = mentions.completeMention(value, token, {
+    path: 'math.js',
+    directory: false,
+  });
+  assert.equal(completed.value, 'look at @math.js ');
+  const dir = mentions.completeMention(value, token, { path: 'src/', directory: true });
+  assert.equal(dir.value, 'look at @src/');
+}
+ok('the @-file palette documents completion and completes the highlighted path');
+
+// 5y. B309: the slash palette says how to pick a command (and where Tab/Enter
+// differ), including when it is windowed.
+{
+  const rows = [['/model', 'choose a model']];
+  const one = palette
+    .renderSlashPalette(rows, { width: 100, selected: 0, maxRows: 8 })
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(one, /\/model/);
+  assert.match(one, /Tab complete · Enter run · Esc dismiss/);
+
+  const many = Array.from({ length: 10 }, (_, index) => [`/cmd${index}`, 'probe']);
+  const windowed = palette
+    .renderSlashPalette(many, { width: 100, selected: 0, maxRows: 8 })
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(windowed, /… 2 more/);
+  assert.match(windowed, /Enter run/);
+}
+ok('the slash palette documents Tab (complete) vs Enter (run)');
+
+// 5z. B342: a tool row must render the full result, not the SSE preview.
+{
+  const store = renderBridge.createTuiStore();
+  renderBridge.beginRun(store);
+  renderBridge.applyAgentEvent(store, {
+    type: 'tool_start',
+    toolName: 'read_file',
+    toolCallId: 'call-b342',
+    input: { path: 'AGENTS.md' },
+  });
+  const full = Array.from({ length: 46 }, (_, index) => `${index + 1}\tline ${index + 1}`).join(
+    '\n'
+  );
+  const preview = full.split('\n').slice(0, 3).join('\n');
+  renderBridge.applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'read_file',
+    toolCallId: 'call-b342',
+    result: preview,
+    content: full,
+    isError: false,
+    durationMs: 12,
+  });
+  const row = store.rows.at(-1);
+  assert.match(row.tool.summary, /Read 46 lines/);
+  assert.equal(row.text.split('\n').length, 46);
+}
+ok('a tool row summarizes and keeps the full result, not the truncated SSE preview');
 
 // 6. B194: the status row labels each number instead of imploding.
 {

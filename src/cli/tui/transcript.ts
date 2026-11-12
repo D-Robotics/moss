@@ -240,16 +240,20 @@ function isPathTool(toolName: string): boolean {
 /** File tools read better relative to the workspace (the TUI's cwd). */
 export function compactToolPath(value: string): string {
   const text = value.replace(/\s+/g, ' ').trim();
-  if (!path.isAbsolute(text)) return text;
+  // B285: transcript labels are display text, not OS paths — `Read(src\a.ts)`
+  // reads as a typo next to the `/` every doc and keyboard shortcut uses.
+  const display = (candidate: string): string => candidate.replace(/\\/g, '/');
+  if (!path.isAbsolute(text)) return display(text);
   try {
     const relative = path.relative(process.cwd(), text);
-    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) return relative;
+    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative))
+      return display(relative);
   } catch {
     /* a deleted cwd is not a reason to fail a label */
   }
   const home = os.homedir();
-  if (home && text.startsWith(`${home}${path.sep}`)) return `~${text.slice(home.length)}`;
-  return text;
+  if (home && text.startsWith(`${home}${path.sep}`)) return display(`~${text.slice(home.length)}`);
+  return display(text);
 }
 
 export function toolLabel(toolName: string, input: Record<string, unknown> = {}): string {
@@ -666,7 +670,9 @@ export function renderTranscriptRow(
   row: TranscriptRow,
   width: number,
   verbose = false,
-  previous?: TranscriptRow
+  previous?: TranscriptRow,
+  /** B262: a short terminal trades preview detail for scrollback context. */
+  narrow = false
 ): TuiLine[] {
   // A tool's result belongs to the call right above it: no blank line between
   // `⏺ Read(x)` and its `⎿ …`, and consecutive results of one fold stay a block.
@@ -704,9 +710,12 @@ export function renderTranscriptRow(
       // the answer — fold it to one dim line (verbose expands it).
       if (row.progress === true && !verbose) {
         const text = row.text.replace(/\s+/g, ' ').trim();
-        out.push(
-          line(clip(`${ANSWER_MARK} ${clip(text, Math.max(4, width - 4))}`, width), { dim: true })
-        );
+        // B259: a folded narration line says how to open it; a bare `…` read as
+        // a truncated sentence with no way forward.
+        const suffix = tui(' · ctrl+o');
+        const available = Math.max(4, width - 4 - displayWidth(suffix));
+        const body = displayWidth(text) > available ? `${clip(text, available)}${suffix}` : text;
+        out.push(line(clip(`${ANSWER_MARK} ${body}`, width), { dim: true }));
         return out;
       }
       if (!verbose) {
@@ -861,17 +870,20 @@ export function renderTranscriptRow(
         out.push(...headline.slice(0, -1), withRuns);
         return out;
       }
+      const defaultLimit = verbose
+        ? source.length
+        : codeLike
+          ? CODE_PREVIEW_LINES
+          : row.tool?.name === 'exec' && row.tool?.isError !== true
+            ? // A successful command is one fact plus its first line of output;
+              // three preview lines per call turned a six-command run into 30 rows.
+              EXEC_SUCCESS_PREVIEW_LINES
+            : failedPreviewLimit(row.tool?.isError === true, source, RESULT_PREVIEW_LINES);
+      // B262: in a short terminal (rows < 20) a five-line preview leaves almost no
+      // conversation on screen; success keeps one line, failure two.
       const preview = compactPreview(
         deduped,
-        verbose
-          ? source.length
-          : codeLike
-            ? CODE_PREVIEW_LINES
-            : row.tool?.name === 'exec' && row.tool?.isError !== true
-              ? // A successful command is one fact plus its first line of output;
-                // three preview lines per call turned a six-command run into 30 rows.
-                EXEC_SUCCESS_PREVIEW_LINES
-              : failedPreviewLimit(row.tool?.isError === true, source, RESULT_PREVIEW_LINES)
+        narrow && !verbose && !codeLike ? (row.tool?.isError === true ? 2 : 1) : defaultLimit
       );
       const shown = preview.shown;
       out.push(...headline);
@@ -1181,7 +1193,9 @@ export function renderRunSummary(
   _tokens?: { input: number; output: number },
   now: Date = new Date(),
   /** O98 conclusion line (完成 / 未完成 / 未验证 / …); shown under the done stamp. */
-  outcomeLine?: string
+  outcomeLine?: string,
+  /** B259: the run ended on a provider/tool error; "worked" would be dishonest. */
+  failed = false
 ): TuiLine[] {
   const seconds = Math.max(1, Math.round(elapsedMs / 1000));
   const verb = runVerb(seconds);
@@ -1196,7 +1210,9 @@ export function renderRunSummary(
   });
   const text = halted
     ? tui('✻ {verb} for {seconds}s · interrupted', { verb, seconds })
-    : tui('✻ worked for {seconds}s{doneAt}', { seconds, doneAt });
+    : failed
+      ? tui('✻ failed after {seconds}s{doneAt}', { seconds, doneAt })
+      : tui('✻ worked for {seconds}s{doneAt}', { seconds, doneAt });
   const out: TuiLine[] = [line(''), line(clip(text, width), { dim: true })];
   const conclusion = outcomeLine?.trim();
   if (conclusion && !halted) {
@@ -1583,6 +1599,8 @@ function fitStatusFields(
 /** Context fill at/above which the status row turns the percentage yellow. */
 export const CONTEXT_WARN_PCT = 80;
 /** …and red past this line. The live warning row uses CONTEXT_WARN_PCT. */
+/** Below this width the status bar shows the directory name, not the path. */
+const NARROW_STATUS_WIDTH = 80;
 export const CONTEXT_CRIT_PCT = 95;
 
 export function renderStatusRight(view: StatusView, width: number): TuiLine {
@@ -1597,10 +1615,16 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
   let ctxPart: string | undefined;
   let ctxPct: number | undefined;
   if (view.statusFields) {
+    // B261: a narrow bar cannot afford a mid-truncated path (`…vate/tmp/ux4-ws`);
+    // the directory name is the useful part.
+    const statusCwd =
+      width < NARROW_STATUS_WIDTH && view.cwd
+        ? (view.cwd.split(/[\\/]/).filter(Boolean).pop() ?? view.cwd)
+        : view.cwd;
     const built = statusLineParts(
       {
         ...(view.model ? { model: view.model } : {}),
-        ...(view.cwd ? { cwd: view.cwd } : {}),
+        ...(statusCwd ? { cwd: statusCwd } : {}),
         ...(view.branch ? { branch: view.branch } : {}),
         tokensIn: view.sessionIn ?? view.turnIn,
         tokensOut: view.sessionOut ?? view.turnOut,

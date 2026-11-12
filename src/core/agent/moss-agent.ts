@@ -1073,6 +1073,10 @@ export class MossAgent {
     summaryChars: number;
     droppedMessages: number;
     tokensAfter: number;
+    /** B319: why a manual /compact was a no-op, when it was. */
+    reason?: 'empty' | 'below-keep-recent' | 'no-savings';
+    /** The keep-recent budget the gate compared against (below-keep-recent). */
+    keepRecentTokens?: number;
   }> {
     if (await this.getPendingTool(sessionKey)) {
       throw new MossError({
@@ -1092,7 +1096,13 @@ export class MossAgent {
     const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOutputTokens);
     const loaded = (await store.loadMessages(sessionKey)) as unknown as InternalMessage[];
     if (loaded.length === 0) {
-      return { compacted: false, summaryChars: 0, droppedMessages: 0, tokensAfter: 0 };
+      return {
+        compacted: false,
+        summaryChars: 0,
+        droppedMessages: 0,
+        tokensAfter: 0,
+        reason: 'empty',
+      };
     }
     const sessionMessages = toSessionMessages(loaded);
 
@@ -1110,6 +1120,8 @@ export class MossAgent {
         summaryChars: 0,
         droppedMessages: 0,
         tokensAfter: Math.max(0, Math.round(currentTokens)),
+        reason: 'below-keep-recent',
+        keepRecentTokens,
       };
     }
     const result = await compactHistoryIfNeeded({
@@ -1135,6 +1147,7 @@ export class MossAgent {
         summaryChars: 0,
         droppedMessages: 0,
         tokensAfter: Math.max(0, Math.round(estimateMessagesTokens(sessionMessages))),
+        reason: 'no-savings',
       };
     }
     const nextMessages = [result.summaryMessage, ...result.pruneResult.messages];
@@ -1152,6 +1165,7 @@ export class MossAgent {
         summaryChars: 0,
         droppedMessages: 0,
         tokensAfter: Math.max(0, Math.round(currentTokens)),
+        reason: 'no-savings',
       };
     }
     await store.replaceMessages(sessionKey, nextMessages as unknown as LLMMessage[]);

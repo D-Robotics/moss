@@ -1,0 +1,22 @@
+{
+  "id": "tros-classify-image",
+  "title": "Run the full TROS image-classification pipeline on the NPU",
+  "sideEffect": "readonly",
+  "tier": "optional",
+  "maxTurns": 10,
+  "timeoutMs": 420000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Do not guess a host and do not ask for one.\n\nRun the complete TROS image-classification pipeline with local-image feedback (no camera needed):\n1. Source TROS: `source /opt/tros/humble/setup.bash`.\n2. `cd /opt/tros/humble/lib/dnn_node_example`.\n3. Ensure the model exists at /opt/hobot/model/x5/basic/mobilenetv2_224x224_nv12.bin — if missing, copy it from /app/multimedia_samples/sunrise_camera/Platform/x5/model_zoom/mobilenetv2_224x224_nv12.bin.\n4. `timeout 35 ros2 launch dnn_node_example dnn_node_example_feedback.launch.py dnn_example_config_file:=config/mobilenetv2workconfig.json dnn_example_image:=config/target_class.jpg 2>&1 | grep -viE 'task_num|spurious' | tail -12`\nSuccess looks like a `ClassificationPostProcess: out cls size: 1` line followed by `class type:<name>, score:<value>` and a rendered `render_feedback_0_0.jpeg`. The launch runs until timeout kills it — that exit is expected.\n5. Record evidence with record_evidence (include task_id): metric `classify_result` with observed = the `class type` name and score exactly as printed.\n\nDo not reboot, reflash, or change board configuration.\n\nNOTE: the acceptance command is executed by the bench harness AFTER your turn, with its own environment (device credentials included). Do NOT try to run it yourself, read the repo .env, or investigate how the harness injects environment — that path is blocked by design. Do the device work, verify the outcome with your own probe, record evidence, and finish.",
+  "prerequisites": [
+    "test -d /opt/tros/humble/lib/dnn_node_example && (test -f /opt/hobot/model/x5/basic/mobilenetv2_224x224_nv12.bin || test -f /app/multimedia_samples/sunrise_camera/Platform/x5/model_zoom/mobilenetv2_224x224_nv12.bin)"
+  ],
+  "setup": [],
+  "oracle": [],
+  "acceptance": ["echo classify-accepted"],
+  "cleanup": [],
+  "evidence": [
+    {
+      "metric": "classify_result",
+      "probe": "echo classify-probe"
+    }
+  ]
+}

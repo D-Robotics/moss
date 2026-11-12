@@ -50,7 +50,31 @@ package.json 已 0.13.0）。v0.14–v0.20 期间欠账扩大：代码交付到 
 
 选择后者：证据不足时缩小主张，而不是补齐文字。
 
-## 当前主张（2026-10-12，v0.26.1）
+## 当前主张（2026-11-10，v0.32.0）
+
+- **版本**：`0.32.0`（`package.json` / `package-lock.json` 同步）。0.26.1 之后的首次
+  npm 发布候选：内容 = 仓内 0.27–0.31 里程碑（Super-agent、实时交互、TUI/locale、
+  fleet、device bench 等）+ 0.32 的工具与安全修复（`reasoning_effort` 最大思考档位、
+  `edit_file` 缩进容错、五个安全门修复）。0.31.0 只在仓内出现过、从未发布，因此本次
+  直接以 0.32.0 发布，避免与流通中的 0.31.0 tarball 版本号混淆。
+- **已跑、可主张**：
+  - 本树 `npm run verify`：static + build + smoke + examples + hooks/review/tool/loop
+    等探针全绿。本机整门约 60–68s（发布树实测 1m 0.2s）；CI 按分片跑（每片 gate ≤60s，run 42817916991），
+    本机不分片单跑会触发 60s budget 警告，属预算口径差异，不是失败。
+  - 代码树 `f3ca0c6f`（发布提交的父提交）CI 全绿（run 42817916991，
+    2026-11-10T12:41Z），当日 Deep verification 夜跑全绿（2026-11-10T00:59Z，
+    schedule 触发）。发布提交只改 `package.json` / `package-lock.json` / CHANGELOG /
+    本文件，不含代码改动。
+  - `npm pack` 产物在隔离 `HOME` + 独立 prefix 实装：`moss --version` /
+    `moss --help` 正常输出（tarball 文件名与 sha256 见当次交付记录）。
+- **未执行、因此不主张**：0.32.0 发布提交在 GitHub CI 的实际运行（未 push）；
+  tag `v0.32.0` 与 tag 触发的 Deep verification（未打 tag）；新包在 npm registry 的
+  落盘（本机 npm 凭据 401，未 publish）；真实模型行为回归与真机闭环的新一轮复跑；
+  benchmark 数字沿用它机历史测量。
+- **未处理**：CHANGELOG 尾部存在历史重复块（`0.26.1` + `Unreleased` 各两份），本次
+  未清理，登记为后续文档债。
+
+## 上一版主张（2026-10-12，v0.26.1）
 
 > 以下 v0.26.1 及更早的主张是当时树的实测记录；其中的"spec 数量 / 全量 verify"描述不适用于
 > 2026-11-04 之后的树，现行口径见上一节。

@@ -6,6 +6,14 @@
 import assert from 'node:assert/strict';
 import { bootTuiTinyNotice } from './lib/tiny-window-boot.mjs';
 
+// TUI is not a supported surface on Windows (documented matrix: REPL there), and
+// the boot helper drives a real PTY via Python. Skip instead of failing the
+// nightly cross-platform gate for a surface the product does not offer.
+if (process.platform === 'win32') {
+  console.log('[tiny-window-tui-notice] skip on win32 (TUI falls back to REPL)');
+  process.exit(0);
+}
+
 // B78: an unprobed provider that reports a small window still gets the notice
 // in the TUI, because the probe lands after the first paint.
 const tuiNoticeTiny = await bootTuiTinyNotice(4096);

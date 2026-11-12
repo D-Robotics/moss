@@ -162,7 +162,7 @@ Moss 的交互目标是：**敢让它跑、随时能停、停了能续、错了�
 写类工具走审批；会话可保存 / 搜索 / 导出 / fork。一屏总览当前安装能用什么：`moss capabilities`（工具 / 技能 / 命令 / 子代理 / 钩子 / MCP / 设备，只读且不需要模型配置）。**13 个设备工具**把 SSH 真机操作
 纳入同一套证据与验收；`moss device fleet` 一条命令做多机只读巡检。
 
-**长任务。** 每次运行（task / loop / workflow / superagent / `-p` chat）在账本里带 token 用量（网关有公开价时还带估算费用，无价就不编造）与「为什么停」的结构化闸门记录（acceptance / verification / review / plan / background + kind）；目标/任务运行结束后，REPL 会按统一账本重新打印一行 `Next`（续跑命令 / `/diff` / `moss runs`），不会把启动时的建议留成过期信息；`/goal` 与 `moss goal` 用同一套任务状态机；`moss loop` 做"跑一轮→用你的命令验收→
+**长任务。** 每次运行（task / loop / workflow / superagent / `-p` chat）在账本里带 token 用量（网关有公开价、或你在 `pricing.models` 配置了费率时带估算费用；无价就不编造）与「为什么停」的结构化闸门记录（acceptance / verification / review / plan / background + kind）；目标/任务运行结束后，REPL 会按统一账本重新打印一行 `Next`（续跑命令 / `/diff` / `moss runs`），不会把启动时的建议留成过期信息；`/goal` 与 `moss goal` 用同一套任务状态机；`moss loop` 做"跑一轮→用你的命令验收→
 失败把输出喂回下一轮"的本地闭环；`moss task status|timeline|list` 是离线读路径（`moss runs --kind task/loop/workflow/chat` 按引擎过滤、`--since 24h` 按时间窗过滤）；只读巡检 `moss artifacts`（契约/证据/部署/验收/设备）连模型配置都不需要；中断的任务
 `resume` 时先按当前工作区验收再决定要不要花执行回合。写类子代理可跑在独立 worktree 里，产物以
 三方补丁合并回父工作区。
@@ -211,7 +211,7 @@ npm run verify   # 交付门：static + build + smoke + examples，目标 ≤60s
 npm run bench    # 能力基准（DeepSeek 基准模型）；bench:swe / bench:deepswe / bench:device
 ```
 
-行为不靠"读代码觉得对"：交付门里现在有 **90+ 个可复跑的探针/阶段**（`scripts/verify/stages/*`，
+行为不靠"读代码觉得对"：交付门里现在有 **100+ 个可复跑的探针/阶段**（`scripts/verify/stages/*`，
 含 PTY 终端行为、TUI 渲染投影、离线任务引擎与账本场景），本地整门约 1–1.5 分钟（随机器负载），
 CI 把同一条门禁拆成两片并行、每片仍是 60s 预算；改坏会在 `npm run verify` 里直接红，本地一次跑完。
 真实模型回归另见 `npm run bench` 与 CI 夜跑矩阵。支持矩阵与验证方式见

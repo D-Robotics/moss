@@ -120,13 +120,25 @@ const compact = await commands.renderSkillsList(workspace, configDir, false, und
 for (const row of compact.split('\n')) {
   assert.ok(row.length < 260, `compact /skills row is bounded: ${row.slice(0, 120)}…`);
 }
+// B276: `moss skill list --json` reads the same rows; user-only entries carry
+// null catalogChars and the full description (not the compact 72-char form).
+const listData = await commands.loadSkillListData(workspace, configDir);
+assert.ok(listData, 'skill list data exists for the fixture workspace');
+const userOnly = listData.rows.find((row) => row.modelInvocable === false);
+assert.ok(userOnly, 'the user-only fixture is listed');
+assert.equal(userOnly.catalogChars, null);
+assert.match(userOnly.description, /^probe skill /);
+assert.ok(listData.rows.every((row) => row.name && row.scope));
+assert.equal(listData.summary.count, listData.rows.length);
 assert.equal(
   commands.compactSkillDescription('x'.repeat(200)).length,
   72,
   'a long description is truncated with an ellipsis'
 );
 assert.equal(commands.compactSkillDescription('short'), 'short');
-const summary = list.split('\n').find((line) => line.includes('skill(s); catalog')) ?? '';
+const summary =
+  list.split('\n').find((line) => line.includes('; catalog') && /skill(s)?; catalog/.test(line)) ??
+  '';
 assert.ok(summary.length > 0, 'catalog budget summary must be printed');
 // The budget number must equal the model-visible catalog, not all four skills.
 const expected = catalogModule.renderSkillCatalog(filtered).stats.renderedChars;
@@ -179,4 +191,79 @@ assert.equal(missingFile.kind, 'skill', 'an unreadable body must still dispatch'
 assert.match(missingFile.prompt, /Read the skill body with the skill tool first/);
 ok('the user-only skill slash command inlines the body; ordinary skills keep the tool path');
 
-console.log(`[skill-model-invocation] ${checks}/7 checks passed`);
+// B304: `skill install` + `skill lock` round-trip and singular grammar.
+{
+  const { captureProcess } = await import('./lib/proc.mjs');
+  const src = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-skill-src-'));
+  fs.writeFileSync(
+    path.join(src, 'SKILL.md'),
+    '---\nname: lock-probe\ndescription: Probe skill for lock checks\n---\n\nDo the probe.\n'
+  );
+  const cliEnv = {
+    ...process.env,
+    HOME: fakeHome,
+    MOSS_CONFIG_DIR: configDir,
+    MOSS_NO_RDK_DOCS: '1',
+    MOSS_NO_TUI: '1',
+    MOSS_LANG: 'en',
+    MOSS_TRUST_WORKSPACE: '1',
+  };
+  const runCli = (args) =>
+    captureProcess(process.execPath, [path.join(root, 'dist/cli.js'), ...args], {
+      cwd: workspace,
+      env: cliEnv,
+      timeoutMs: 60_000,
+    });
+  const install = await runCli(['skill', 'install', src, '--workspace', '--yes']);
+  assert.equal(install.status, 0, install.stderr);
+  assert.match(install.stdout, /installed lock-probe/);
+  const clean = await runCli(['skill', 'lock', '--workspace']);
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.match(clean.stdout, /1 skill matches the lockfile/);
+
+  const installed = path.join(skillsDir, 'lock-probe', 'SKILL.md');
+  fs.appendFileSync(installed, '\nlocal edit\n');
+  const drifted = await runCli(['skill', 'lock', '--workspace']);
+  assert.equal(drifted.status, 1, 'drift must exit 1');
+  assert.match(`${drifted.stdout}${drifted.stderr}`, /1 skill drifted from the lockfile/);
+
+  // B305: a content-only update says so (not "+0 -0 files"), and without --yes
+  // it explains how to apply it.
+  fs.appendFileSync(path.join(src, 'SKILL.md'), '\nsource v2\n');
+  const needsYes = await runCli(['skill', 'update', '--workspace']);
+  assert.equal(needsYes.status, 1, 'an unapplied update exits 1');
+  assert.match(`${needsYes.stdout}${needsYes.stderr}`, /re-run with --yes to apply lock-probe/);
+
+  const update = await runCli(['skill', 'update', '--workspace', '--yes']);
+  assert.equal(update.status, 0, update.stderr);
+  assert.match(update.stdout, /lock-probe: update from/);
+  assert.match(update.stdout, /content changed \(no files added or removed\)/);
+  assert.doesNotMatch(update.stdout, /\+0 -0 file/);
+  assert.match(update.stdout, /updated 1 skill/);
+  const cleanAfter = await runCli(['skill', 'lock', '--workspace']);
+  assert.equal(cleanAfter.status, 0, cleanAfter.stderr);
+  assert.match(cleanAfter.stdout, /1 skill matches the lockfile/);
+}
+ok('skill install + lock round-trip, drift, and singular grammar');
+
+// B303: a skipped skill says which required frontmatter field is missing, and
+// `skill validate <name>` can now reach a skill the catalog skips.
+{
+  const badDir = path.join(skillsDir, 'missing-description');
+  fs.mkdirSync(badDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(badDir, 'SKILL.md'),
+    '---\nname: missing-description\n---\n\n# no description\n'
+  );
+  const parsed = registry.readSkillManifest(
+    path.join(badDir, 'SKILL.md'),
+    'missing-description',
+    'workspace'
+  );
+  assert.ok(parsed.skip, 'a skill without a description is skipped');
+  assert.equal(parsed.skip.reason, 'empty');
+  assert.match(parsed.skip.detail ?? '', /non-empty "description"/);
+}
+ok('a skipped skill names the missing frontmatter field');
+
+console.log(`[skill-model-invocation] ${checks}/${checks} checks passed`);

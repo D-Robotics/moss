@@ -143,7 +143,7 @@ export function renderGatewayDoctorLines(
       ok(
         label,
         uiText(
-          `${result.host} answered HTTP ${result.status} (reachability only — a full chat answer is still required; see O87 if CONNECT succeeds but Moss still fails)`,
+          `${result.host} answered HTTP ${result.status} (reachability only — a full chat answer is still required; if CONNECT succeeds but a chat still fails, check the provider logs or gate settings)`,
           `https://${result.host} 返回 HTTP ${result.status}（仅可达性 — 仍须端到端有效回答；若代理已有 CONNECT 但 Moss 仍失败见 O87）`
         )
       ),
@@ -156,7 +156,7 @@ export function renderGatewayDoctorLines(
       warn(
         label,
         uiText(
-          `no response from ${result.host} — check HTTPS_PROXY/HTTP_PROXY and firewall. Moss uses these variables automatically; you should not need NODE_USE_ENV_PROXY on current releases. CONNECT alone is not enough: you also need a successful model answer (O87 tracks CONNECT-without-answer).`,
+          `no response from ${result.host} — check HTTPS_PROXY/HTTP_PROXY and firewall. Moss uses these variables automatically; you should not need NODE_USE_ENV_PROXY on current releases. CONNECT alone is not enough: you also need a successful model answer.`,
           `https://${result.host} 无响应——请检查 HTTPS_PROXY/HTTP_PROXY 与防火墙。当前版本会自动使用这些变量，一般不需要 NODE_USE_ENV_PROXY。仅有 CONNECT 不够：还须端到端有效回答（CONNECT 有回答无归 O87）。`
         )
       ),

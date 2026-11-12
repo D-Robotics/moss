@@ -4,6 +4,7 @@
  * contracts stay on `/task view`.
  */
 import type { BackgroundProcSnapshot } from '../../core/tools/background-process-registry.js';
+import { tui } from '../tui/copy.js';
 
 export function formatBackgroundJobLines(input: {
   processes: readonly BackgroundProcSnapshot[];
@@ -20,5 +21,14 @@ export function formatBackgroundJobLines(input: {
     input.subagents.length === 0
       ? ['  (none)']
       : input.subagents.map((task) => `  #${task.taskId} ${task.status}`);
-  return ['background shell:', ...shell, '', 'sub-agents:', ...subs];
+  const lines = ['background shell:', ...shell, '', 'sub-agents:', ...subs];
+  if (running.length === 0 && input.subagents.length === 0) {
+    // B339: an empty panel should teach the two ways to fill it.
+    lines.push(
+      '',
+      tui('start: !<command> runs it in the background of this session'),
+      tui('or ask Moss to launch a subagent for parallel work')
+    );
+  }
+  return lines;
 }

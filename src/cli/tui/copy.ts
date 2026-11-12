@@ -108,7 +108,7 @@ export function localizeAbortActor(by: string | undefined): string {
  */
 export const ZH: Readonly<Record<string, string>> = {
   // ── interaction mode hint (transcript.ts) ──────────────────────────────
-  '⏵⏵ {label} mode on': '⏵⏵ {label}已开启',
+  '⏵⏵ {label} mode on': '⏵⏵ {label}',
   '{glyph} {label} mode on (shift+tab to cycle)': '{glyph} {label}已开启（shift+tab 切换）',
 
   // ── run verbs (transcript.ts) ──────────────────────────────────────────
@@ -240,6 +240,9 @@ export const ZH: Readonly<Record<string, string>> = {
   click: '点击',
   prefixes: '前缀',
   '  ! shell · / commands · @ files': '  ! 终端 · / 命令 · @ 文件',
+  '  ↑↓ move · Tab/Enter complete · Esc dismiss': '  ↑↓ 移动 · Tab/Enter 补全 · Esc 关闭',
+  '  ↑↓ move · Tab complete · Enter run · Esc dismiss':
+    '  ↑↓ 移动 · Tab 补全 · Enter 执行 · Esc 关闭',
   shortcuts: '快捷键',
   'all commands': '全部命令',
   'common commands': '常用命令',
@@ -336,6 +339,18 @@ export const ZH: Readonly<Record<string, string>> = {
   'inject a constraint into the live run': '向当前运行注入一条约束',
   'work until a condition is met; /goal clear cancels': '持续工作直到条件满足；`/goal clear` 取消',
   'AGENTS.md · {count} facts': 'AGENTS.md · {count} 条记忆',
+  '  loading sessions…': '  正在加载会话…',
+  '  earlier turns stay as scrollback; they are no longer in the conversation':
+    '  上方回合只留在滚动区；已不在对话上下文里',
+  'Write it to AGENTS.md': '写入 AGENTS.md',
+  'Esc cancels': 'Esc 取消',
+  'Write this fact to AGENTS.md?': '把这条事实写入 AGENTS.md？',
+  'Enter writes · Esc cancels': 'Enter 写入 · Esc 取消',
+  'cancelled — nothing written': '已取消 — 未写入',
+  'remembered — AGENTS.md now has {count} fact': '已记住 — AGENTS.md 现有 {count} 条事实',
+  'remembered — AGENTS.md now has {count} facts': '已记住 — AGENTS.md 现有 {count} 条事实',
+  'resumed “{label}” — replayed {count} row': '已恢复 “{label}” — 回放 {count} 行',
+  'resumed “{label}” — replayed {count} rows': '已恢复 “{label}” — 回放 {count} 行',
   'work until a condition (or acceptance command) passes; /goal resume continues, /goal clear cancels':
     '持续工作直到条件（或验收命令）通过；`/goal resume` 继续，`/goal clear` 取消',
   'enter plan mode; with a description, start planning immediately':
@@ -354,6 +369,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'type your answer below · Enter to send · Esc to skip': '在下方输入回答 · 回车 发送 · Esc 跳过',
   yes: '是',
   'yes (session)': '是（会话）',
+  'yes (this time)': '是（仅这一次）',
   amend: '补充说明',
   no: '否',
   now: '刚刚',
@@ -382,7 +398,9 @@ export const ZH: Readonly<Record<string, string>> = {
   'Interrupted — /goal resume to continue': '已中断',
   Interrupted: '已中断',
   'no saved sessions': '没有已保存的会话',
-  'no MCP servers configured (.moss/mcp.json)': '未配置 MCP 服务（.moss/mcp.json）',
+  'no MCP servers configured': '未配置 MCP 服务',
+  'add one: moss mcp add <name> <command> · or edit .moss/mcp.json (user: <config>/mcp.json)':
+    '添加：moss mcp add <名称> <命令> · 或编辑 .moss/mcp.json（用户级：<配置目录>/mcp.json）',
   'no sub-agent tasks': '没有子 agent 任务',
   'no background tasks running': '没有运行中的后台任务',
   '{connected}/{total} MCP servers connected': '已连接 {connected}/{total} 个 MCP 服务',
@@ -453,8 +471,8 @@ export const ZH: Readonly<Record<string, string>> = {
   '◇ task {id} blocked — {reason} · /task resume {task}':
     '◇ 任务 {id} 受阻 — {reason} · /task resume {task}',
   'user decision required': '需要用户决策',
-  'context {pct}% full — auto-compact will trim older messages · /compact to do it now':
-    '上下文已用 {pct}% — 自动压缩将裁剪较早消息 · 立刻执行用 /compact',
+  'context {pct}% full — /compact now; small conversation? prompt+tools exceed the window → raise agent.contextTokens':
+    '上下文已用 {pct}% — 现在用 /compact；若对话很小，是提示词+工具超出窗口 → 请调大 agent.contextTokens',
   'interaction mode: {label}': '交互模式：{label}',
 
   // ── queue / steer control (app.ts) ─────────────────────────────────────
@@ -468,7 +486,7 @@ export const ZH: Readonly<Record<string, string>> = {
     '用法：/steer <constraint> — 在下一个边界注入',
   'could not send instruction: {error} — draft kept': '补充指令发送失败：{error}，草稿已保留',
   'rejected — no single active run on this session': '已拒绝 — 本会话没有单一活动运行',
-  'queued: {text}': '已排队：{text}',
+  'steered: {text}': '已注入：{text}',
   'applies at the next step': '将在下一步生效',
   'applies when this run finishes': '将在本次运行结束后生效',
   'queued — applies when this run finishes': '已排队 — 将在本次运行结束后生效',
@@ -498,8 +516,11 @@ export const ZH: Readonly<Record<string, string>> = {
   "  workspace-write confines Moss's own file tools.":
     '  `workspace-write` 只约束 Moss 自己的文件工具。',
   '  Shell commands run normally without an OS sandbox.': '  终端命令照常运行，没有操作系统沙箱。',
-  '  no rules — full allows tools; deny still wins everywhere':
-    '  无规则 — full 放行工具；deny 在任何模式都优先',
+  'no scoped rules': '没有作用域规则',
+  'add .moss/rules/<name>.md (workspace) or <config>/rules/<name>.md (user)':
+    '新建 .moss/rules/<名称>.md（工作区）或 <配置目录>/rules/<名称>.md（用户级）',
+  '  no rules — {mode} decides; deny still wins everywhere':
+    '  无规则 — 由 {mode} 决定；deny 在任何模式都优先',
   session: '会话',
   '  ↑↓ select · d remove session rule · Esc close': '  ↑↓ 选择 · d 删除会话规则 · Esc 关闭',
   '  add   /permissions add deny "exec(rm *)"': '  添加  /permissions add deny "exec(rm *)"',
@@ -560,9 +581,10 @@ export const ZH: Readonly<Record<string, string>> = {
   // `tui('signal')` is substituted in *both* locales, so the key must exist.
   signal: '信号',
   'background shell:': '后台 shell：',
+  'start: !<command> runs it in the background of this session': '开始：!<命令> 在本会话后台运行',
+  'or ask Moss to launch a subagent for parallel work': '或让 Moss 启动子代理并行处理',
   'sub-agents:': '子 agent：',
   'no skills found': '未找到技能',
-  '  ({count} skill(s) · load with the skill tool)': '  （{count} 个技能 · 用技能工具加载）',
   'restored checkpoint {seq}: {detail}': '已恢复检查点 {seq}：{detail}',
   'rewind to {seq} failed': '回退到 {seq} 失败',
   'no hooks configured — add a "hooks" object to the config file:':

@@ -2,7 +2,7 @@
 // Replaces 22 if-else branches in main() with a declarative routing table.
 
 import { isZhLocale, uiText } from './cli-locale.js';
-import { resumeUserText } from '../core/session/internal-transcript.js';
+import { resumeUserText, userTextWithoutTurnContext } from '../core/session/internal-transcript.js';
 import { resolveExportOutPath } from './export-path.js';
 import { formatSessionTimestamp } from './session-format.js';
 import type { LLMMessage } from '../core/llm/llm-provider.js';
@@ -72,6 +72,11 @@ function isExportableMessage(msg: LLMMessage): boolean {
   return resumeUserText(rawText).trim().length > 0;
 }
 
+/** How many messages the shared markdown actually contains (harness turns excluded). */
+export function countExportableSessionMessages(messages: readonly LLMMessage[]): number {
+  return messages.filter(isExportableMessage).length;
+}
+
 export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]): string {
   const exportable = messages.filter(isExportableMessage);
   const lines: string[] = [
@@ -111,16 +116,9 @@ export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]
         }
       }
     }
-    if (Array.isArray(msg.thinking) && msg.thinking.length) {
-      lines.push(
-        '<details><summary>thinking</summary>',
-        '',
-        msg.thinking.join('\n'),
-        '',
-        '</details>',
-        ''
-      );
-    }
+    // B322: the markdown export is the shareable conversation (PR/CI); model
+    // reasoning stays out of it. `sessions export --format json` keeps the raw
+    // record for tooling.
   }
   return lines
     .join('\n')
@@ -130,8 +128,12 @@ export function renderSessionMarkdown(sessionKey: string, messages: LLMMessage[]
 
 /**
  * Flatten a message into a single searchable string (user/assistant text,
- * tool_use name + input, tool_result content, and thinking). Used by
- * `moss sessions search` to locate a past conversation by content.
+ * tool_use name + input, tool_result content). Used by `moss sessions search`
+ * to locate a past conversation by content.
+ *
+ * B325: model reasoning is not conversation — including it made a search for
+ * a phrase from the chain of thought return the session and print that phrase
+ * as the snippet.
  */
 function messageSearchableText(message: LLMMessage): string {
   let text = '';
@@ -149,10 +151,46 @@ function messageSearchableText(message: LLMMessage): string {
       }
     }
   }
-  if (Array.isArray(message.thinking)) {
-    text += '\n' + message.thinking.join('\n');
-  }
   return text;
+}
+
+/**
+ * B323: `moss sessions export --json` — the raw conversation record (thinking
+ * included), for tooling; the markdown export stays shareable.
+ */
+export function buildSessionExportJson(
+  key: string,
+  messages: readonly LLMMessage[]
+): Record<string, unknown> {
+  // Keep harness preambles out of both formats (B252/B322); thinking stays
+  // here because this record is for tooling, not for sharing.
+  const exportContent = (message: LLMMessage): LLMMessage['content'] => {
+    if (message.role !== 'user') return message.content;
+    if (typeof message.content === 'string') {
+      return userTextWithoutTurnContext(message.content);
+    }
+    if (Array.isArray(message.content)) {
+      return message.content.map((block) =>
+        block.type === 'text' && typeof block.text === 'string'
+          ? { ...block, text: userTextWithoutTurnContext(block.text) }
+          : block
+      );
+    }
+    return message.content;
+  };
+  return {
+    schema: 'moss_sessions_export.v1',
+    key,
+    messageCount: messages.length,
+    exportableMessageCount: countExportableSessionMessages(messages),
+    messages: messages.map((message) => ({
+      role: message.role,
+      content: exportContent(message),
+      ...(Array.isArray(message.thinking) && message.thinking.length > 0
+        ? { thinking: message.thinking }
+        : {}),
+    })),
+  };
 }
 
 function safeStringify(value: unknown): string {
@@ -498,6 +536,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
       const code = await runSkillCommand(ctx.commandArgs, {
         workspaceDir: workspace,
         configDir: resolveConfigDir(),
+        json: ctx.argv.includes('--json'),
       });
       if (code !== 0) process.exitCode = code;
     },
@@ -658,7 +697,20 @@ export const COMMANDS: Record<string, CommandConfig> = {
         process.exitCode = ExitCode.USAGE;
         return;
       }
-      const code = await runDeviceCommand(ctx.commandArgs, { workspaceDir: workspace });
+      const { disconnectAllDevices } = await import('../device/device-registry.js');
+      let code = 0;
+      try {
+        code = await runDeviceCommand(ctx.commandArgs, {
+          workspaceDir: workspace,
+          json: ctx.argv.includes('--json'),
+        });
+      } finally {
+        // B368: a one-shot `moss device test/fleet` printed its result but the
+        // cached SSH connection kept the event loop alive — the command hung
+        // until killed. The REPL/TUI own the connection for their session;
+        // a CLI subcommand must release it before returning.
+        await disconnectAllDevices();
+      }
       if (code !== 0) process.exitCode = code;
     },
     description: 'Manage devices: add/list/remove/test (.moss/devices.json registry)',
@@ -691,6 +743,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
       const code = await runMcpCommand(ctx.commandArgs, {
         workspaceDir: workspace,
         configDir,
+        json: ctx.argv.includes('--json'),
         ...(rdkDocsConfig !== undefined ? { rdkDocs: rdkDocsConfig } : {}),
       });
       if (code !== 0) process.exitCode = code;
@@ -703,7 +756,9 @@ export const COMMANDS: Record<string, CommandConfig> = {
     phase: CliPhase.None,
     handler: async (ctx) => {
       const { runTrustCommand } = await import('./trust-commands.js');
-      const code = await runTrustCommand(ctx.commandArgs);
+      const code = await runTrustCommand(ctx.commandArgs, {
+        json: ctx.argv.includes('--json'),
+      });
       if (code !== 0) process.exitCode = code;
     },
     description: 'List or remove trusted folders (user trust store)',
@@ -726,7 +781,10 @@ export const COMMANDS: Record<string, CommandConfig> = {
     description: 'Print the upgrade command for this install (does not run it)',
     handler: async (ctx) => {
       const { runUpdateCommand } = await import('./update-command.js');
-      runUpdateCommand(undefined, ctx.commandArgs);
+      runUpdateCommand(undefined, [
+        ...ctx.commandArgs,
+        ...(ctx.argv.includes('--json') ? ['--json'] : []),
+      ]);
     },
   },
 
@@ -734,9 +792,9 @@ export const COMMANDS: Record<string, CommandConfig> = {
     name: 'uninstall',
     phase: CliPhase.None,
     description: 'Print removal paths and optionally delete the config directory',
-    handler: async () => {
+    handler: async (ctx) => {
       const { runUninstall } = await import('./uninstall.js');
-      await runUninstall();
+      await runUninstall({ ...(ctx.argv.includes('--json') ? { json: true } : {}) });
     },
   },
 
@@ -749,7 +807,12 @@ export const COMMANDS: Record<string, CommandConfig> = {
       const subCmd = ctx.commandArgs[0];
 
       if (subCmd === 'status') {
-        console.log(renderAuthStatus(undefined, process.env, ctx.fallbackStartDir));
+        if (ctx.argv.includes('--json')) {
+          const { renderAuthStatusJson } = await import('./config-commands.js');
+          console.log(renderAuthStatusJson(process.env, ctx.fallbackStartDir).trimEnd());
+        } else {
+          console.log(renderAuthStatus(undefined, process.env, ctx.fallbackStartDir));
+        }
         return;
       }
 
@@ -844,7 +907,8 @@ export const COMMANDS: Record<string, CommandConfig> = {
       // the subcommand silently did nothing (renderCliDoctor was dead code).
       // Wire it now: build DoctorOptions from the resolved config + workspace
       // and print the report.
-      const { renderCliDoctor, cliDoctorHasFailure } = await import('./doctor.js');
+      const { renderCliDoctor, cliDoctorHasFailure, doctorReportToJson } =
+        await import('./doctor.js');
       const { resolveCliDetailMode } = await import('./output.js');
       const { getPackageVersion } = await import('./package-info.js');
       const path = await import('node:path');
@@ -861,6 +925,12 @@ export const COMMANDS: Record<string, CommandConfig> = {
         safetyMode: String(config.safetyMode),
         detailMode: resolveCliDetailMode(),
       });
+      if (ctx.argv.includes('--json')) {
+        const json = doctorReportToJson(report);
+        console.log(JSON.stringify(json, null, 2));
+        if (!json.ok) process.exitCode = 1;
+        return;
+      }
       console.error(report);
       if (cliDoctorHasFailure(report)) process.exitCode = 1;
     },
@@ -879,6 +949,8 @@ export const COMMANDS: Record<string, CommandConfig> = {
         dir: (ctx.workspacePathMigration as any).paths.sessionsDir,
       });
       const subCommand = ctx.commandArgs[0];
+      // B277: the arg parser strips the global `--json`; read it from argv.
+      const jsonOut = ctx.argv.includes('--json');
 
       if (subCommand === 'list' || !subCommand) {
         const listArgs = subCommand === 'list' ? ctx.commandArgs.slice(1) : ctx.commandArgs;
@@ -888,12 +960,32 @@ export const COMMANDS: Record<string, CommandConfig> = {
 
         const sessions = await store.listSessions().catch(() => []);
         if (sessions.length === 0) {
+          if (jsonOut) {
+            console.log('{"schema":"moss_sessions_list.v1","sessions":[],"total":0,"shown":0}');
+            return;
+          }
           console.log(uiText('No saved sessions in this workspace.', '此工作区没有已保存的会话。'));
           return;
         }
 
         const sorted = sessions.sort((a, b) => b.updatedAt - a.updatedAt);
         const shown = showAll ? sorted : sorted.slice(0, limit);
+        if (jsonOut) {
+          console.log(
+            JSON.stringify({
+              schema: 'moss_sessions_list.v1',
+              sessions: shown.map((session) => ({
+                key: session.sessionKey,
+                messageCount: session.messageCount,
+                updatedAt: session.updatedAt,
+                title: session.title ?? '',
+              })),
+              total: sorted.length,
+              shown: shown.length,
+            })
+          );
+          return;
+        }
         console.log(
           uiText(
             'SESSION                          MESSAGES  UPDATED             TITLE',
@@ -958,6 +1050,21 @@ export const COMMANDS: Record<string, CommandConfig> = {
           return;
         }
         const hits = await searchSessions(store, query);
+        if (jsonOut) {
+          console.log(
+            JSON.stringify({
+              schema: 'moss_sessions_search.v1',
+              query,
+              hits: hits.map((hit) => ({
+                key: hit.key,
+                messageCount: hit.messageCount,
+                updatedAt: hit.updatedAt,
+                snippet: hit.snippet,
+              })),
+            })
+          );
+          return;
+        }
         if (hits.length === 0) {
           console.log(uiText(`No sessions matched "${query}".`, `没有会话匹配「${query}」。`));
           return;
@@ -1027,6 +1134,10 @@ export const COMMANDS: Record<string, CommandConfig> = {
         });
         if (!messages) return;
         const markdown = renderSessionMarkdown(key, messages);
+        // B323: `--json` exports the raw record; the markdown stays shareable.
+        const jsonPayload = jsonOut
+          ? `${JSON.stringify(buildSessionExportJson(key, messages), null, 2)}\n`
+          : undefined;
         // `--out=<file>` and `--out <file>`; `--out=-` writes stdout.
         let outPath: string | null = null;
         for (let i = 1; i < ctx.commandArgs.length; i += 1) {
@@ -1040,7 +1151,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
         }
         if (outPath) {
           if (outPath === '-') {
-            process.stdout.write(markdown + '\n');
+            process.stdout.write((jsonPayload ?? markdown) + '\n');
             return;
           }
           const resolved = resolveExportOutPath(ctx.workspace ?? process.cwd(), outPath);
@@ -1051,16 +1162,16 @@ export const COMMANDS: Record<string, CommandConfig> = {
           }
           const { writeFile } = await import('node:fs/promises');
           try {
-            await writeFile(resolved.absolute, markdown + '\n', 'utf8');
+            await writeFile(resolved.absolute, (jsonPayload ?? markdown) + '\n', 'utf8');
             console.log(
-              `[sessions] Exported "${key}" to ${outPath} (${messages.length} message(s)).`
+              `[sessions] Exported "${key}" to ${outPath} (${countExportableSessionMessages(messages)} message(s)).`
             );
           } catch (err) {
             console.error(`[sessions] Failed to write "${outPath}": ${errorMessage(err)}`);
             process.exitCode = ExitCode.SESSION;
           }
         } else {
-          process.stdout.write(markdown + '\n');
+          process.stdout.write((jsonPayload ?? markdown) + '\n');
         }
         return;
       }

@@ -21,7 +21,7 @@ const root = path.resolve(import.meta.dirname, '..', '..');
 const load = async (relative) => import(pathToFileURL(path.join(root, 'dist', relative)).href);
 
 const { COMMANDS } = await load('cli/command-dispatcher.js');
-const { fullHelpLines } = await load('cli/help.js');
+const { briefHelpLines, fullHelpLines } = await load('cli/help.js');
 const { parseCliArgs } = await load('cli/args.js');
 
 const plain = (text) => text;
@@ -40,6 +40,21 @@ const colors = {
 const failures = [];
 const helpEn = fullHelpLines(colors, '/tmp/config.json', false).join('\n');
 const helpZh = fullHelpLines(colors, '/tmp/config.json', true).join('\n');
+
+// B271: subcommand lists in the full help must name what exists; `runs` said
+// list|show|prune while export/follow/summary were shipped, and `task` listed
+// the separate `artifacts` command as its own subcommand.
+for (const [name, text] of [
+  ['en', helpEn],
+  ['zh', helpZh],
+]) {
+  for (const required of ['list|show|export|follow|summary|prune', 'run|resume|status|timeline']) {
+    if (!text.includes(required)) failures.push(`${name} full help lost "${required}"`);
+  }
+  if (text.includes('status|timeline|artifacts')) {
+    failures.push(`${name} help still lists artifacts as a task subcommand`);
+  }
+}
 
 /**
  * Only the subcommand sections count. The interactive-command section lists
@@ -108,6 +123,22 @@ for (const alias of aliases) {
     failures.push(`"moss ${alias.typed}" still reports unknownCommand`);
   }
 }
+
+// B335: the brief `moss --help` is the first screen of the product. Both
+// locales must advertise the same verbs (zh was missing init/goal, and neither
+// showed a read path).
+const briefEn = briefHelpLines(colors, '/tmp/config.json', false).join('\n');
+const briefZh = briefHelpLines(colors, '/tmp/config.json', true).join('\n');
+for (const needle of ['moss setup', 'moss init', 'moss goal', 'moss capabilities']) {
+  for (const [locale, text] of [
+    ['en', briefEn],
+    ['zh', briefZh],
+  ]) {
+    if (!text.includes(needle)) failures.push(`brief ${locale} help is missing "${needle}"`);
+  }
+}
+if (!briefEn.includes('Most useful')) failures.push('brief en help lost its Most useful heading');
+if (!briefZh.includes('最常用')) failures.push('brief zh help lost its 最常用 heading');
 
 const result = { ok: failures.length === 0, failures, commands: Object.keys(COMMANDS).length };
 if (process.argv.includes('--json')) console.log(JSON.stringify(result));

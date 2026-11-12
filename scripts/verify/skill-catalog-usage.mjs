@@ -228,6 +228,49 @@ assert.ok(
 );
 assert.match(replOut, /workspace\s+3\s+\d+\s+-\s+Parity probe skill/u);
 ok('in-session /skills prints the `moss skill list` table (scope + usage + catalog cost)');
+// ── 6. `moss skill list --json` forwards the global flag ──────────────────
+//
+// B276: the arg parser strips `--json` before the command sees argv, so the
+// first implementation silently printed the table instead. The dispatcher now
+// forwards it; a JSON document is what scripts can rely on.
+{
+  const jsonOut = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [path.join(root, 'dist/cli.js'), 'skill', 'list', '--json'],
+      {
+        cwd: fs.realpathSync(tmpWs),
+        env: {
+          PATH: process.env.PATH,
+          HOME: tmpRoot,
+          MOSS_CONFIG_DIR: tmpCfg,
+          MOSS_NO_TUI: '1',
+          MOSS_NO_RDK_DOCS: '1',
+          MOSS_NO_COLOR: '1',
+          MOSS_LANG: 'en',
+          MOSS_TRUST_WORKSPACE: '1',
+          TERM: 'dumb',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    );
+    let out = '';
+    child.stdout.on('data', (chunk) => {
+      out += String(chunk);
+    });
+    child.on('error', reject);
+    child.on('close', () => resolve(out));
+  });
+  const parsed = JSON.parse(jsonOut);
+  assert.equal(parsed.schema, 'moss_skill_list.v1');
+  const row = parsed.rows.find((entry) => entry.name === 'parity-skill');
+  assert.ok(row, 'the fixture skill is in the JSON rows');
+  assert.equal(row.used, 3);
+  assert.equal(typeof row.catalogChars, 'number');
+  assert.equal(parsed.summary.count, parsed.rows.length);
+}
+ok('moss skill list --json forwards the global flag and emits the shared rows');
+
 fs.rmSync(tmpRoot, { recursive: true, force: true });
 
 console.log(`[skill-catalog-usage] PASS (${checks} checks)`);

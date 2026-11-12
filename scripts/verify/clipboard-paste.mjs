@@ -90,9 +90,18 @@ try {
 
   // ── 3b. File references: Finder copy, dragged path, browser file URL ───
 
+  // B284: fileURLToPath is platform-correct — a POSIX-style URL is invalid on
+  // Windows, where the drive letter is required. Test the platform's own shape
+  // instead of failing the nightly deep gate for three days.
+  const fileUrlText =
+    process.platform === 'win32'
+      ? 'file:///C:/tmp/probe%20shot.png'
+      : 'file:///tmp/probe%20shot.png';
+  const fileUrlExpected =
+    process.platform === 'win32' ? 'C:\\tmp\\probe shot.png' : '/tmp/probe shot.png';
   assert.equal(
-    clipboard.clipboardPathFromText('file:///tmp/probe%20shot.png'),
-    '/tmp/probe shot.png',
+    clipboard.clipboardPathFromText(fileUrlText),
+    fileUrlExpected,
     'a file:// URL must decode its percent escapes'
   );
   assert.equal(

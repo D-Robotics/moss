@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { defaultSkillDirSpecs, loadSkillCatalog } from '../core/skills/skill-registry.js';
+import { countRememberedFacts } from './remember-command.js';
 import type { MossAgent } from '../core/index.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import {
@@ -148,14 +150,6 @@ function countJsonIndex(filePath: string): number {
   }
 }
 
-function countMarkdownFiles(dirPath: string): number {
-  try {
-    return fs.readdirSync(dirPath).filter((f) => f.endsWith('.md')).length;
-  } catch {
-    return 0;
-  }
-}
-
 function shortBaseUrl(value: string): string {
   try {
     const url = new URL(value);
@@ -288,10 +282,16 @@ export function welcomeComposerSuggestion(
   zh = isZhLocale()
 ): string | undefined {
   const t = (en: string, cn: string): string => (zh ? cn : en);
+  // B260: a ledger `next` may be advice prose ("make the run perform the check…")
+  // rather than a command; "Resume with <prose>" reads like a broken command.
+  const runnable = (value: string | undefined): value is string =>
+    typeof value === 'string' && /^(?:moss\s|\/)/.test(value.trim());
   if (latest && latest.status === 'running') {
-    return t(`In progress — ${latest.next}`, `进行中：${latest.next}`);
+    return runnable(latest.next)
+      ? t(`In progress — ${latest.next}`, `进行中：${latest.next}`)
+      : t('In progress — see /runs', '进行中：见 /runs');
   }
-  if (latest && latest.status !== 'completed' && latest.next) {
+  if (latest && latest.status !== 'completed' && runnable(latest.next)) {
     return t(`Resume with ${latest.next}`, `继续：${latest.next}`);
   }
   // B192: `/init` is already the `Next:` row; repeating it as the composer
@@ -379,7 +379,18 @@ export function renderWelcomeContextLines(
       : `moss runs show latest    ${t('(in progress)', '（进行中）')}`;
   } else if (latest && latest.status !== 'completed' && latest.next) {
     const resume = /^moss task resume (\S+)$/.exec(latest.next);
-    next = interactive && resume ? `/goal resume ${resume[1]}` : latest.next;
+    // B260: some ledger `next` values are advice prose, not commands
+    // ("finish the work, then re-run"). A first screen should offer an
+    // actionable step; the advice stays on the last-run line above.
+    const runnable = /^(?:moss\s|\/)/.test(latest.next.trim());
+    next =
+      interactive && resume
+        ? `/goal resume ${resume[1]}`
+        : runnable
+          ? latest.next
+          : interactive
+            ? `/runs    ${t('(see what happened)', '（看运行记录）')}`
+            : `moss runs    ${allRuns}`;
   } else if (latest) {
     // B157: a completed run's happy path is reviewing the change, not reading the
     // ledger; the ledger is one command away if the user wants it.
@@ -387,7 +398,9 @@ export function renderWelcomeContextLines(
       ? `/diff    ${t('(review what changed / ship it)', '（看改了什么 / 收尾）')}`
       : `moss runs    ${allRuns}`;
   } else if (!hasAgents) {
-    next = interactive ? `/init    ${initNote}` : `moss init    ${initNote}`;
+    // B264: one space — the zh note starts with a full-width paren, so padded
+    // alignment read as a stray gap (`/init （…）`).
+    next = interactive ? `/init ${initNote}` : `moss init ${initNote}`;
   } else {
     next = interactive
       ? '/goal "<intent>" --accept "<cmd>"'
@@ -421,14 +434,15 @@ export function formatPreviousSessionHint(
 ): string {
   const title =
     userTextWithoutTurnContext(meta.title ?? '') || meta.sessionKey || meta.key || 'session';
+  // B263: one short line — narrow terminals wrapped the old wording into three.
   if (zh) {
     return meta.messageCount !== undefined
-      ? `上次会话：${title}（${String(meta.messageCount)} 条消息）— 用 moss --continue 续上`
-      : `上次会话：${title} — 用 moss --continue 续上`;
+      ? `上次会话：${title}（${String(meta.messageCount)} 条）· moss --continue`
+      : `上次会话：${title} · moss --continue`;
   }
   return meta.messageCount !== undefined
-    ? `previous session: ${title} (${String(meta.messageCount)} messages) — restart with \`moss --continue\` to resume it`
-    : `previous session: ${title} — restart with \`moss --continue\` to resume it`;
+    ? `previous session: ${title} (${String(meta.messageCount)} messages) · moss --continue`
+    : `previous session: ${title} · moss --continue`;
 }
 
 export function renderCliWelcome(
@@ -478,7 +492,19 @@ export function renderCliStatus(
 ): string {
   const rt = runtimeWithDefaults(runtime);
   const memoryCount = countJsonIndex(path.join(rt.runtimeDir, 'memory', 'index.json'));
-  const skillCount = countMarkdownFiles(path.join(rt.workspace, '.moss', 'skills'));
+  // B311: the first screen counts explicit memory in AGENTS.md; /status showed
+  // only the tool-memory index, so a project with remembered facts read 0.
+  let agentsFacts = 0;
+  try {
+    agentsFacts = countRememberedFacts(
+      fs.readFileSync(path.join(rt.workspace, 'AGENTS.md'), 'utf8')
+    );
+  } catch {
+    agentsFacts = 0;
+  }
+  // B310: one discovery order for the number `/status` reports — the same
+  // helper the first screen and /capabilities use.
+  const skillCount = loadSkillCatalog(defaultSkillDirSpecs(rt.workspace, rt.configDir)).length;
   const sessionDir = path.join(rt.runtimeDir, 'sessions');
   const detailMode = resolveCliDetailMode();
   const toolGroups = groupTools(agent.tools.getAll()).filter((g) => g.enabled);
@@ -548,8 +574,17 @@ export function renderCliStatus(
     ]),
     `  ${label(zh ? '执行' : 'exec')} ${rt.execBackend}`,
     `  ${label(zh ? '记忆' : 'memory')} ${memoryCount} ${zh ? '条' : 'entries'}`,
+    `  ${label('AGENTS.md')} ${agentsFacts} ${zh ? '条记忆' : agentsFacts === 1 ? 'fact' : 'facts'}`,
     `  ${label(zh ? '技能' : 'skills')} ${skillCount}`,
-    `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size}${zh ? '（' : ' ('}${toolGroups.map((g) => groupTitle(g.title)).join(zh ? '、' : ', ')}${zh ? '）' : ')'}`,
+    `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size}${
+      // B312: /context counts the declarations the model actually receives;
+      // /status counted every registered tool, so one session said 53 vs 34.
+      agent.offeredTools
+        ? zh
+          ? `（${agent.offeredTools().length} 个发给模型）`
+          : ` (${agent.offeredTools().length} offered to the model)`
+        : ''
+    }${zh ? '（' : ' ('}${toolGroups.map((g) => groupTitle(g.title)).join(zh ? '、' : ', ')}${zh ? '）' : ')'}`,
   ].join('\n');
 }
 

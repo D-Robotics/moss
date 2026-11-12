@@ -30,7 +30,10 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const benchRoot = path.join(repoRoot, 'bench');
 const tasksRoot = path.join(benchRoot, 'tasks');
 const resultsRoot = path.join(benchRoot, 'results');
-const CLI_ENTRY = process.env.MOSS_BENCH_CLI ?? path.join(repoRoot, 'dist', 'cli.js');
+const EXPLICIT_CLI_ENTRY = process.env.MOSS_BENCH_CLI;
+// B343: snapshot dist at start; a concurrent `npm run build`/`verify` in the
+// repo must not pull the CLI out from under a running bench.
+let CLI_ENTRY = EXPLICIT_CLI_ENTRY ?? path.join(repoRoot, 'dist', 'cli.js');
 const CHECK_TIMEOUT_MS = 90_000;
 const KILL_GRACE_MS = 5_000;
 
@@ -321,7 +324,83 @@ function runCheck(task, workspace, canaryDir) {
   return { pass: r.status === 0, output: output.slice(-800) };
 }
 
+const BENCH_LOCK_PATH = path.join(os.tmpdir(), 'moss-bench.lock');
+
+function benchProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err && err.code === 'EPERM';
+  }
+}
+
+/**
+ * B340: `npm run bench` clean-builds first, so a second concurrent run removed
+ * dist/cli.js from under the first and every remaining task failed in 0.1s with
+ * "Cannot find module .../dist/cli.js". Refuse to start instead.
+ */
+function acquireBenchLock() {
+  const owner = () => {
+    try {
+      return Number.parseInt(fs.readFileSync(BENCH_LOCK_PATH, 'utf8').split('\n')[0] ?? '', 10);
+    } catch {
+      return Number.NaN;
+    }
+  };
+  const pid = owner();
+  if (Number.isInteger(pid) && pid > 1 && benchProcessAlive(pid) && pid !== process.pid) {
+    console.error(
+      `[bench] another bench run is in progress (pid ${pid}); wait for it to finish or delete ${BENCH_LOCK_PATH}`
+    );
+    return null;
+  }
+  fs.writeFileSync(BENCH_LOCK_PATH, `${process.pid}\n${new Date().toISOString()}\n`, {
+    mode: 0o600,
+  });
+  const release = () => {
+    try {
+      if (owner() === process.pid) fs.rmSync(BENCH_LOCK_PATH, { force: true });
+    } catch {
+      // The lock is advisory; a failed cleanup must not mask the run's result.
+    }
+  };
+  process.once('exit', release);
+  return release;
+}
+
+/**
+ * B343: copy dist/ into an ignored directory under node_modules (so bare
+ * imports still resolve from the repo) and point the runner at that copy.
+ * `npm run bench` itself runs `build --clean` first, which is exactly how two
+ * overlapping commands used to produce a page of 0.1s "Cannot find module"
+ * failures.
+ */
+function snapshotCliEntry() {
+  if (EXPLICIT_CLI_ENTRY) return;
+  const source = path.join(repoRoot, 'dist');
+  if (!fs.existsSync(path.join(source, 'cli.js'))) return;
+  const target = path.join(repoRoot, 'node_modules', `.bench-cli-${String(process.pid)}`);
+  fs.rmSync(target, { recursive: true, force: true });
+  // Keep the relative layout the build expects (`dist/cli.js` resolves
+  // `../../bin/node-version-message.cjs`, package info reads package.json).
+  fs.cpSync(source, path.join(target, 'dist'), { recursive: true });
+  const binDir = path.join(repoRoot, 'bin');
+  if (fs.existsSync(binDir)) fs.cpSync(binDir, path.join(target, 'bin'), { recursive: true });
+  fs.copyFileSync(path.join(repoRoot, 'package.json'), path.join(target, 'package.json'));
+  CLI_ENTRY = path.join(target, 'dist', 'cli.js');
+  const cleanup = () => {
+    try {
+      fs.rmSync(target, { recursive: true, force: true });
+    } catch {
+      // Ignored: this copy is a cache, not a result.
+    }
+  };
+  process.once('exit', cleanup);
+}
+
 async function main() {
+  snapshotCliEntry();
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     console.log(usage());
@@ -454,7 +533,16 @@ async function main() {
             LANG: 'C',
             LC_ALL: 'C',
             MOSS_CONFIG_DIR: configDir,
-            MOSS_RUN_ID: `bench/${task.id}/${String(sample).padStart(2, '0')}`,
+            // B340: run ids are filesystem-safe flat names; slashes made the
+            // run ledger reject every bench run (`invalid run id: bench/...`).
+            MOSS_RUN_ID: `bench-${task.id}-${String(sample).padStart(2, '0')}`,
+            // B354: the default 45s first-chunk watchdog turned gateway long
+            // tails into "Incomplete" samples (hard-wrong-fix-rejected 0/3 in
+            // full-s3 was three 45s stalls after a tool call). Bench runs may
+            // legitimately wait for a slow first chunk after tool output; keep
+            // the watchdog but with a bench-sized budget (override per run).
+            MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS:
+              process.env.MOSS_BENCH_FIRST_CHUNK_TIMEOUT_MS ?? '120000',
             MOSS_BENCH_RETRY_ATTEMPT: String(attempt),
             MOSS_SAFETY_MODE: 'workspace-write',
             MOSS_APPROVAL_POLICY: 'never',
@@ -833,8 +921,12 @@ function isDirect() {
 }
 
 if (isDirect()) {
-  main().catch((err) => {
-    console.error(`[bench] ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(2);
-  });
+  const releaseLock = acquireBenchLock();
+  if (!releaseLock) process.exit(2);
+  main()
+    .catch((err) => {
+      console.error(`[bench] ${err instanceof Error ? err.message : String(err)}`);
+      process.exitCode = 2;
+    })
+    .finally(releaseLock);
 }

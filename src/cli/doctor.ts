@@ -164,6 +164,47 @@ export function fail(label: string, detail: string): string {
   return `  fail  ${label}${doctorSep()} ${detail}`;
 }
 
+export interface DoctorJsonCheck {
+  status: 'ok' | 'warn' | 'fail';
+  label: string;
+  detail: string;
+}
+
+export interface DoctorJsonReport {
+  schema: 'moss_doctor.v1';
+  ok: boolean;
+  checks: DoctorJsonCheck[];
+}
+
+/**
+ * B316: `moss doctor --json` — the rendered report is one `status  label: detail`
+ * line per check; expose the same facts structurally instead of making scripts
+ * scrape the human text.
+ */
+export function doctorReportToJson(report: string): DoctorJsonReport {
+  const checks: DoctorJsonCheck[] = [];
+  for (const line of report.split('\n')) {
+    const match = /^\s{2}(ok|warn|fail)\s{2,}(.+)$/.exec(line);
+    if (match) {
+      const status = match[1] as DoctorJsonCheck['status'];
+      const body = (match[2] ?? '').trim();
+      const separator = body.indexOf(': ');
+      checks.push(
+        separator >= 0
+          ? { status, label: body.slice(0, separator), detail: body.slice(separator + 2) }
+          : { status, label: body, detail: '' }
+      );
+      continue;
+    }
+    // Indented continuation lines belong to the previous check's detail.
+    const previous = checks[checks.length - 1];
+    if (previous && /^\s{4,}\S/.test(line)) {
+      previous.detail = `${previous.detail} ${line.trim()}`.trim();
+    }
+  }
+  return { schema: 'moss_doctor.v1', ok: !checks.some((check) => check.status === 'fail'), checks };
+}
+
 export function cliDoctorHasFailure(report: string): boolean {
   return report.split('\n').some((line) => line.startsWith('  fail '));
 }
@@ -818,7 +859,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
           warn(
             uiText('context window', '上下文窗口'),
             uiText(
-              `not yet probed — using conservative default of ${humanTokens(tokens)} tokens. Run /model to auto-probe, or set agent.contextTokens in moss config`,
+              `not yet probed — assuming ${humanTokens(tokens)} tokens (the real window may be smaller). Run /model to auto-probe, or set agent.contextTokens in moss config`,
               `尚未探测 — 正在使用保守默认值 ${humanTokens(tokens)} 词元。运行 /model 自动探测，或在 moss 配置里设置 \`agent.contextTokens\``
             )
           )

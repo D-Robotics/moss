@@ -194,7 +194,7 @@ export interface MossAgentConfig
   verificationGate?: boolean;
 
   /** v0.10 W4: reasoning budget policy. Default 'adaptive'. */
-  reasoningBudget?: 'off' | 'adaptive' | 'high';
+  reasoningBudget?: 'off' | 'adaptive' | 'high' | 'max';
 
   /** v0.12 model routing tiers (same gateway/key). */
   modelTiers?: { cheap?: string; balanced?: string; strong?: string };

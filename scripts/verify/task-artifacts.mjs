@@ -53,6 +53,22 @@ try {
   }
   ok('artifacts: contracts/evidence/acceptance/device/tasks/failures answer without model config');
 
+  // 1b. B265: recorded failures render as a named table, not an anonymous list.
+  {
+    const failuresFile = path.join(ws, '.moss', 'task-failures.jsonl');
+    await fs.mkdir(path.dirname(failuresFile), { recursive: true });
+    await fs.writeFile(
+      failuresFile,
+      `${JSON.stringify({ failureId: 'f1', taskId: 'task_demo', stage: 'verifying', symptom: 'acceptance command exited 1' })}\n`,
+      'utf8'
+    );
+    const table = await cli(['artifacts', 'failures']);
+    assert.match(table.stdout, /^TASK ID\s+STAGE\s+SYMPTOM$/m);
+    assert.match(table.stdout, /^task_demo\s+verifying\s+acceptance command exited 1$/m);
+    await fs.rm(failuresFile, { force: true });
+  }
+  ok('artifacts failures names its columns');
+
   // 2. The old verb is the same output, not a second implementation.
   const current = await cli(['artifacts']);
   const alias = await cli(['tasks']);
@@ -85,17 +101,23 @@ try {
 
   // 6. B212: the advertised `--json` works for every kind, including the local
   //    ones and the global-flag-before-command spelling.
-  for (const args of [
-    ['artifacts', 'tasks', '--json'],
-    ['artifacts', 'history', '--json'],
-    ['artifacts', 'failures', '--json'],
-    ['--json', 'artifacts', 'evidence'],
+  for (const [expectedKind, args] of [
+    ['tasks', ['artifacts', 'tasks', '--json']],
+    ['tasks', ['artifacts', 'snapshots', '--json']],
+    ['history', ['artifacts', 'history', '--json']],
+    ['failures', ['artifacts', 'failures', '--json']],
+    ['evidence', ['--json', 'artifacts', 'evidence']],
+    ['contracts', ['artifacts', 'contracts', '--json']],
   ]) {
     const result = await cli(args);
     assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
-    assert.doesNotThrow(() => JSON.parse(result.stdout), `${args.join(' ')} must be JSON`);
+    const parsed = JSON.parse(result.stdout);
+    // B332: the envelope names the record kind; `tasks`/`tasks --json` share it.
+    assert.equal(parsed.schema, 'moss_artifacts.v1', `${args.join(' ')} schema`);
+    assert.equal(parsed.kind, expectedKind, `${args.join(' ')} kind`);
+    assert.ok(Array.isArray(parsed.items), `${args.join(' ')} items must be an array`);
   }
-  ok('artifacts --json returns JSON for every kind (both flag positions)');
+  ok('artifacts --json returns a moss_artifacts.v1 envelope for every kind');
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }

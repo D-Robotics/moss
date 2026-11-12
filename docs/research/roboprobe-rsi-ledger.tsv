@@ -1,0 +1,14 @@
+iteration	planner	task	layouts	episodes	successes	sr	score	wall_s	frames	notes
+it1-general_pickup-l0	deepseek	general_pickup	0	1	0	0.0000	0.00	841	docs/assets/roboprobe/it1-l3-deepseek	budget=4 calls -> give_up; first end-to-end L3 episode
+it2-general_pickup-l0	deepseek	general_pickup	0	1	1	1.0000	100.00	~800	docs/assets/roboprobe/it2-l3-deepseek-success	FIRST SUCCESS: 4 LLM calls, "pick up the mint green scissors by 10 cm"
+it3-general_pickup-l0	deepseek	general_pickup	0	1	0	0.0000	0.00	803	-	give_up after 4 calls despite 60-call budget
+it4-general_pickup-l0	deepseek	general_pickup	0	1	0	0.0000	0.00	379	-	12 calls, no success
+it5-general_pickup-l0	deepseek	general_pickup	0	1	0	0.0000	0.00	518	-	21 calls, give_up
+it6-general_pickup-l0	deepseek	general_pickup	0	1	0	0.0000	0.00	~600	-	29 calls, no success (result dir shared by resume manifest; see notes)
+baseline60-r1	deepseek	general_pickup	0	1	1	1.0000	100.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_04-23-52; llm_calls=14
+baseline60-r2	deepseek	general_pickup	0	1	1	1.0000	100.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_04-44-13; llm_calls=23
+baseline60-r3	deepseek	general_pickup	0	1	1	1.0000	100.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-02-01; llm_calls=22
+baseline60-r4	deepseek	general_pickup	0	1	0	0.0000	0.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-16-03
+baseline60-r5	deepseek	general_pickup	0	1	1	1.0000	100.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-22-30
+baseline60-r6	deepseek	general_pickup	0	1	0	0.0000	0.00	~	docs/assets/roboprobe/it2-l3-deepseek-success	baseline (original docs) run 2026-11-11_05-36-03
+cell50-partial	deepseek	general_pickup	0-6	50	1	0.0200	2.00	~	docs/assets/roboprobe/cell50-general-pickup	aborted at 7/50 (1 win) to run iteration-2; per-episode details in run 2026-11-11_07-52-07

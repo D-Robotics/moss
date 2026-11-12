@@ -117,6 +117,8 @@ export interface TuiAppOptions {
   locale?: string;
   /** Transcript rows replayed on boot (resume). */
   replayRows?: TuiReplayRow[];
+  /** Session title of a boot-time replay, when one is known. */
+  resumeTitle?: string;
   /** Boot-time context note (skills/MCP/soul/branch) printed under the banner. */
   contextInfo?: TuiContextInfo;
   /** Host diagnostics that may arrive after Ink owns the terminal. */
@@ -140,7 +142,9 @@ export interface TuiAppOptions {
   /** File checkpoint restore for /rewind (host wires the checkpoint store). */
   rewindTo?: (
     seq: number
-  ) => { ok: boolean; detail: string } | Promise<{ ok: boolean; detail: string }>;
+  ) =>
+    | { ok: boolean; detail: string; droppedMessages?: number }
+    | Promise<{ ok: boolean; detail: string; droppedMessages?: number }>;
   listCheckpoints?: () => Array<{ seq: number; label: string; files: number }>;
   /** Injected task runtime (specs); created from workspaceDir when omitted. */
   runtime?: TaskRuntime;
@@ -450,12 +454,13 @@ export function sliceHelpOverlay(
   return { offset: start, lines: visible, ...(hint ? { hint } : {}) };
 }
 
-/** Transcript line for a steer or a follow-up that waits until the run can take it. */
-export function formatSteerQueued(text: string, when: 'next-step' | 'run-finished'): string {
+/**
+ * B273: a successful steer is injected at the next boundary — saying "queued"
+ * described a different path (a follow-up that waits for the run to finish).
+ */
+export function formatSteered(text: string): string {
   const clipped = text.slice(0, 80);
-  const timing =
-    when === 'next-step' ? tui('applies at the next step') : tui('applies when this run finishes');
-  return `${tui('queued: {text}', { text: clipped })} — ${timing}`;
+  return `${tui('steered: {text}', { text: clipped })} — ${tui('applies at the next step')}`;
 }
 
 /** `5m` / `2h` / `3d` — a session's age in one glance. */
@@ -486,7 +491,8 @@ export function renderSessionPicker(
   matches: readonly TuiSessionSummary[],
   selected: number,
   width: number,
-  maxRows = 8
+  maxRows = 8,
+  options: { loading?: boolean } = {}
 ): TuiLine[] {
   const out: TuiLine[] = [
     line(clip(tui('Resume session  ⌕ {query}', { query }), width), {
@@ -516,12 +522,59 @@ export function renderSessionPicker(
     );
   }
   if (matches.length === 0) {
-    out.push(line(clip(tui('  no matching session'), width), { dim: true }));
+    // B256: the boot picker lists sessions asynchronously; "no matching session"
+    // for the first frames read like an empty workspace.
+    out.push(
+      line(clip(tui(options.loading ? '  loading sessions…' : '  no matching session'), width), {
+        dim: true,
+      })
+    );
   }
   out.push(
     line(clip(tui('  ↑/↓ to pick · type to filter · Esc starts fresh'), width), { dim: true })
   );
   return out;
+}
+
+/**
+ * B257: scrolling back cannot retract rows already printed into the terminal
+ * scrollback, so an undo that dropped conversation turns says so explicitly —
+ * otherwise the rows above look like they are still in context.
+ */
+export function rewindScrollbackNote(droppedMessages: number | undefined): string[] {
+  return droppedMessages && droppedMessages > 0
+    ? [tui('  earlier turns stay as scrollback; they are no longer in the conversation')]
+    : [];
+}
+
+/**
+ * B298: `a` means "don't ask again this session" for ordinary approvals, but for
+ * a PreToolUse hook ask the same key is relabeled "Yes, this time" and grants
+ * nothing — the commit row must say what the user actually chose.
+ */
+export function approvalAnswerLabel(answer: string, onceOnly = false): string {
+  if (answer === 'y') return tui('yes');
+  if (answer === 'a') return tui(onceOnly ? 'yes (this time)' : 'yes (session)');
+  if (answer === 'amend') return tui('amend');
+  return tui('no');
+}
+
+/**
+ * B264: a resumed boot replays rows without saying so at the bottom; the
+ * `[session] Resuming session:` line scrolls away, so the replay ends with one
+ * short confirmation (the picker flow already prints the same shape).
+ */
+export function resumeReplayNotice(sessionKey: string, replayRows: number, title?: string): string {
+  const clipped = (title ?? '').replace(/\s+/g, ' ').trim();
+  // B279: the session key alone says nothing about what was resumed; a short
+  // title is what makes the confirmation recognizable.
+  const label = clipped.length > 48 ? `${clipped.slice(0, 47).trimEnd()}…` : clipped || sessionKey;
+  return tui(
+    replayRows === 1
+      ? 'resumed “{label}” — replayed {count} row'
+      : 'resumed “{label}” — replayed {count} rows',
+    { label, count: replayRows }
+  );
 }
 
 /** One `HH:MM:SS role: snippet…` line for a conversation-log JSONL entry. */

@@ -111,4 +111,151 @@ assert.ok(zh.includes('README.en.md'), 'zh README does not link English');
 assert.ok(en.includes('README.md'), 'en README does not link Chinese');
 ok('the language switch links both ways');
 
+// 8. B267: docs/cli-reference.md is the authoritative command page README
+//    defers to; it drifted for months (missing loop/workflow/review/remember,
+//    plus a broken table row from an unescaped pipe).
+{
+  const ref = read('docs/cli-reference.md');
+  for (const required of [
+    'moss review check',
+    'moss workflow',
+    'moss loop',
+    'moss remember',
+    'moss plugins',
+    'follow` 实时跟随',
+    'moss runs summary',
+    '--out <file\\|->',
+    '--add-dir',
+    '--allowed-tools',
+    '`/remember`',
+    '`/rules`',
+    '`/status`',
+    '`/usage`',
+    '`/context`',
+    '`/export [path]`',
+    '`/rewind [seq]`',
+    '`/hooks`',
+    'moss_sessions_list.v1',
+    'moss_skill_list.v1',
+    'moss_mcp_list.v1',
+    'moss_devices_list.v1',
+    'moss_auth_status.v1',
+    'moss_trust_list.v1',
+    'moss_update.v1',
+    'moss_uninstall.v1',
+    'moss_doctor.v1',
+    'moss_review_list.v1',
+    'moss_artifacts.v1',
+    'moss_capabilities.v1',
+    'moss_task_timeline.v1',
+    'moss_skill_validate.v1',
+    'moss_sessions_export.v1',
+  ]) {
+    assert.ok(ref.includes(required), `docs/cli-reference.md lost \`${required}\``);
+  }
+  const pipeCount = (line) => (line.replace(/\\\|/g, '').match(/\|/g) ?? []).length;
+  const tableRows = ref.split('\n').filter((line) => line.startsWith('| '));
+  assert.ok(tableRows.length >= 20, 'the command/flags tables are present');
+  for (const row of tableRows) {
+    const count = pipeCount(row);
+    assert.ok(
+      count === 3 || count === 4,
+      `broken table row (${count} cells) in docs/cli-reference.md: ${row.slice(0, 80)}`
+    );
+  }
+}
+ok('docs/cli-reference.md lists the current commands and its tables are well formed');
+
+// 9. B268: user-facing CLI copy must not cite internal ticket ids
+//    ("see O87 if CONNECT succeeds…"). Comments may, strings may not.
+{
+  const dir = path.join(root, 'src/cli');
+  const offenders = [];
+  const walk = (current) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.name.endsWith('.ts')) continue;
+      const text = fs.readFileSync(full, 'utf8');
+      for (const line of text.split('\n')) {
+        const code = line.replace(/\/\/.*$/, '');
+        if (/\bsee O\d{2,3}\b/.test(code) || /\bO\d{2,3} tracks\b/.test(code)) {
+          offenders.push(`${path.relative(root, full)}: ${line.trim().slice(0, 100)}`);
+        }
+      }
+    }
+  };
+  walk(dir);
+  assert.deepEqual(
+    offenders,
+    [],
+    `internal ticket ids leak into CLI copy:\n${offenders.join('\n')}`
+  );
+}
+ok('CLI copy never cites internal ticket ids');
+
+// 10. B269: the install page is linked from README; it should not send users to
+//     an internal backlog id for a troubleshooting step.
+{
+  const install = read('docs/install.md');
+  const leaked = install.match(/\bO\d{2,3}\b/g) ?? [];
+  assert.deepEqual(leaked, [], `docs/install.md cites internal ids: ${leaked.join(', ')}`);
+}
+ok('the install page carries no internal ticket ids');
+
+// 11. B270: the probe-count claim in the quality section must be true — count
+//     the stage files the sentence points at instead of trusting a number.
+{
+  const stageCount = fs
+    .readdirSync(path.join(root, 'scripts/verify/stages'))
+    .filter((name) => name.endsWith('.mjs')).length;
+  for (const [name, text, pattern] of [
+    ['README.md', zh, /\*\*(\d+)\+ 个可复跑的探针\/阶段\*\*/],
+    ['README.en.md', en, /\*\*(\d+)\+ re-runnable/],
+  ]) {
+    const match = pattern.exec(text);
+    assert.ok(match, `${name} lost its probe-count claim`);
+    const claimed = Number(match[1]);
+    assert.ok(
+      claimed <= stageCount,
+      `${name} claims ${claimed}+ probes but only ${stageCount} stage files exist`
+    );
+  }
+}
+ok('the advertised probe count does not exceed the real stage count');
+
+// 12. B334: the command reference and the CLI must name the same commands.
+{
+  const args = read('src/cli/args.ts');
+  const block = /export const KNOWN_COMMANDS[^[]*\[([\s\S]*?)\];/.exec(args)?.[1] ?? '';
+  const known = [...block.matchAll(/'([a-z][a-z-]*)'/g)].map((match) => match[1]);
+  assert.ok(known.length >= 20, `parsed only ${known.length} known commands`);
+  // Rows escape the pipe (`moss resume\|fork`); flatten it so the alternative
+  // spellings are visible to the search.
+  const reference = read('docs/cli-reference.md').replace(/\\\|/g, '|');
+  // Removed subsystems are named so the error is documented, but they are not rows.
+  const removed = new Set(['migrate', 'web', 'agent']);
+  const missing = known.filter((command) =>
+    removed.has(command)
+      ? !new RegExp(`\`${command}\``).test(reference)
+      : !new RegExp(`moss [a-z|]*\\b${command}\\b`).test(reference)
+  );
+  assert.deepEqual(missing, [], `docs/cli-reference.md is missing: ${missing.join(', ')}`);
+  // The reverse direction catches stale rows: `moss run|status|tasks` are
+  // documented compatibility aliases, not KNOWN_COMMANDS entries.
+  const aliases = new Set(['run', 'status', 'tasks']);
+  const mentioned = [
+    ...new Set([...reference.matchAll(/`moss ([a-z][a-z-]*)/g)].map((match) => match[1])),
+  ].filter((word) => !known.includes(word) && !aliases.has(word));
+  assert.deepEqual(
+    mentioned,
+    [],
+    `docs/cli-reference.md names unknown commands: ${mentioned.join(', ')}`
+  );
+  ok(`cli-reference and KNOWN_COMMANDS agree (${known.length} commands + 3 aliases)`);
+}
+
 console.log(`[readme-parity] ${checks}/${checks} checks passed`);

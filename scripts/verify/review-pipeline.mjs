@@ -264,7 +264,9 @@ const listedJson = await captureLog(() =>
   reviewCommand.runReviewCommand(['list', '--json'], { workspaceDir: commandRepo })
 );
 assert.equal(listedJson.code, 0);
-assert.equal(JSON.parse(listedJson.lines.join('\n')).length, 1);
+const listedPayload = JSON.parse(listedJson.lines.join('\n'));
+assert.equal(listedPayload.schema, 'moss_review_list.v1');
+assert.equal(listedPayload.records.length, 1);
 ok('moss review list --json returns the records as JSON');
 await review.recordReview(commandRepo, {
   ...failRecord,
@@ -460,8 +462,13 @@ ok('repair attempts cap at 3 and only count distinct failing diffs');
   );
   assert.equal(cli.status, 0, cli.stderr);
   const parsed = JSON.parse(cli.stdout);
-  assert.ok(Array.isArray(parsed) && parsed.length > 0, 'real CLI --json returns records');
-  assert.equal(typeof parsed[0].verdict, 'string');
+  assert.equal(parsed.schema, 'moss_review_list.v1');
+  assert.equal(parsed.total, parsed.records.length);
+  assert.ok(
+    Array.isArray(parsed.records) && parsed.records.length > 0,
+    'real CLI --json returns records'
+  );
+  assert.equal(typeof parsed.records[0].verdict, 'string');
   ok('moss review list --json works through the real CLI parser');
 }
 

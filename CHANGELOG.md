@@ -2,6 +2,1374 @@
 
 ## Unreleased
 
+## 0.32.0 (2026-11-10)
+
+First npm release since 0.26.1. The log below is the rolling-main history that
+accumulated under `Unreleased` — the in-repo 0.27–0.31 milestones, which were
+never published, plus the 0.32 tools and safety work. Highlights since 0.26.1:
+optional native Super-agent coordination, live-interaction permissions,
+`reasoning_effort` / max thinking level (B439), indentation-tolerant
+`edit_file` matching (B452), and five safety-gate fixes that stop normal
+benchmark workspaces from being refused (B443/B446/B453/B458/B461). Version,
+gate and packaging evidence is recorded in `docs/release-policy.md`.
+
+首个 0.26.1 之后的 npm 发布。以下是此前压在 `Unreleased` 下的滚动 main 历史：
+从未发布的仓内 0.27–0.31 里程碑，以及 0.32 的工具与安全修复。0.26.1 以来的
+重点包括：可选的原生 Super-agent 协调、实时交互权限、`reasoning_effort` /
+最大思考档位（B439）、缩进容错的 `edit_file` 匹配（B452），以及五个让正常
+benchmark 工作区被拒的安全门修复（B443/B446/B453/B458/B461）。版本、门禁与
+打包证据记录在 `docs/release-policy.md`。
+
+### fix(safety): visible here-doc shells are no longer "invisible stdin" (B461)
+
+- `cd <repo> && bash <<'EOF' … EOF` inside a git repository was refused as
+  "shell reads stdin would run an external program over a protected path":
+  the detector saw a shell reading its script from stdin and assumed the text
+  was invisible. The harness receives the here-doc body inside the command, so
+  that assumption is wrong for inline here-docs.
+- A segment that carries an inline here-doc is now treated as visible. The
+  strict path still applies when the command names a sensitive marker
+  (`~/.ssh`, `.env`, `.git`, credentials, …), and `bash < file` /
+  `curl … | bash` remain blocked.
+- Verified: inline here-doc allowed; redirect-from-file blocked; foreign pipe
+  into bash blocked; here-doc reading `~/.ssh/id_rsa` blocked.
+
+### fix(safety): bare-root targets and destructive escapes (B458)
+
+- Inline code containing the string `'/'` (e.g. `python3 -c "print('/'.join(…))"`)
+  was reported as writing the filesystem root and refused: a mention of `/`
+  resolved through the ancestor rule to "SSH keys and config". This blocked real
+  benchmark work (a `sed -i … && python3 -c …` command lost the run's artifacts).
+- A resolved or mentioned target of exactly `/` is now a detector artifact for
+  ordinary commands; destructive heads (`rm`/`mv`/…) keep the ancestor rule, and
+  so does any command that cd's outside the workspace.
+- Also fixed: `cd <workspace> && rm -rf <subdir>` was caught by the workspace-root
+  delete gate through the cd operand; the gate now checks only detected targets.
+- Safety preserved: `rm -rf /`, `rm -rf <workspace>`, `rm -rf ~/.ssh`,
+  `python3 -c` path-joining into `.ssh`, `.env` reads, and a destructive command
+  after a cd that left the workspace all remain blocked.
+
+### fix(safety): workspace heredoc interpreters no longer refused (B453)
+
+- `cd <workspace>/dev && python - <<'EOF' … EOF` is the normal shape of
+  benchmark/dev work, but the indirect-write scan cannot always resolve its
+  targets and `-p` runs refused the whole command as "shell / is a protected
+  path". This was the most common remaining friction in long sessions.
+- New allowance: a heredoc-fed interpreter whose cwd is inside the workspace and
+  whose command + heredoc body contain NO protected-path marker is allowed.
+  Any mention of `.ssh` / `.env` / `.git` / Moss config keeps the strict
+  blocking path, and a `cd` that leaves the workspace is not this shape.
+- Verified: workspace heredoc allowed; heredoc reading `/root/.ssh/id_rsa`
+  blocked; heredoc mentioning `/root/.env` blocked.
+
+### feat(tools): indentation-tolerant edit_file matching (B452)
+
+- `edit_file`/`multi_edit` gained a fifth match mode, `indent`: a UNIQUE window
+  of consecutive lines whose leading/trailing whitespace is stripped matches,
+  and the replacement is re-indented to the matched block's depth. Models
+  routinely send `old_string` copied from a different nesting depth; exact,
+  quote, trailing-whitespace and CRLF modes all missed it, wasting the turn on
+  an edit-thrash retry.
+- The mode only fires when the window is unique — ambiguous matches still return
+  the same "not unique" error and nothing is written.
+- Verified: wrong-depth block now edits and keeps the surrounding indentation;
+  exact/trailing-ws modes unchanged; ambiguous `return` still refused.
+
+### fix(safety): script scans naming the workspace root no longer read as ancestor deletes (B446)
+
+- A heredoc/python script run from a workspace subdirectory
+  (`cd /workspace/work && python - <<'EOF' …`) could be refused as "deleting an
+  ancestor of the workspace" when the indirect-write scan resolved a relative
+  write to the workspace root itself.
+- Fix: `deletesProtectedAncestor` now only matches a STRICT ancestor; deleting
+  the workspace root itself is still blocked, but via an explicit destructive-
+  head check (rm/rmdir/mv/del/rd/remove-item/move-item). Writes and scripts that
+  merely name the root are allowed.
+- Verified matrix (findShellProtectedWrites): heredoc in ws subdir allowed,
+  cd-combination allowed, delete ws subdir allowed; delete ws root, delete
+  ~/.ssh, delete /tmp (ancestor), and escape-then-ssh-delete all blocked.
+
+### fix(safety): workspace-internal `cd` no longer disables the root exemption (B443)
+
+- A command that changed directory twice but stayed inside the workspace
+  (`cd /workspace/dev && python gen.py && cd /workspace && python -c "…"`) was
+  refused in `-p` runs as "deleting an ancestor of the workspace": the O127 rule
+  counted both `cd` builtins and dropped the workspace-root cd exemption, after
+  which the root itself was treated as a protected ancestor-delete. In benchmark
+  containers this blocked ordinary runs (observed across RLE-Bench sessions).
+- Fix: directory changes that resolve inside the workspace no longer count
+  against the exemption. Escapes (`cd ~`, bare `cd`, `cd /`) still count, and
+  `rm -rf <workspace>` / `rm -rf ~/.ssh` remain blocked. Verified by direct
+  before/after runs of `findShellProtectedWrites` on four normal commands and
+  three escape commands.
+
+### Moss goal drives a BPU inference on the real X5; ASPIRE motion stack verified (B371/B372)
+
+- A real `moss goal` run on the RDK X5 executed the board's BPU test
+  (`gen_I2004_ForTest2k_1x1088x2048x3.hbm`), recorded evidence `bpu_test -> bpu0 test sucess | pass` and
+  `cleanup_done -> true | pass`, and finished PASS in one turn (exit 0). A model attempt to write device
+  credentials into `.env` was correctly blocked by the protected-path policy mid-run.
+- On the RoboGO 5090, a motion-only program (open gripper, pyroki+curobo lift, close gripper) ran through
+  `cap-harness run` in LIBERO: `program_ok=true`, 12 steps, clean completion — the sim/IK/trajectory chain
+  works; only SAM3 perception awaits the gated HF token.
+
+### Moss goal 驱动真机 BPU 推理；ASPIRE 运动栈验证（B371/B372）
+
+- 真实 `moss goal` 在 RDK X5 上执行板上 BPU 测试（`gen_I2004_ForTest2k_1x1088x2048x3.hbm`），记录证据
+  `bpu_test -> bpu0 test sucess | pass` 与 `cleanup_done -> true | pass`，单回合 PASS（exit 0）。模型中途试图把
+  设备凭据写进 `.env` 被保护路径策略正确拦截。
+- RoboGO 5090 上，纯运动程序（开爪→pyroki/curobo 提升→闭爪）经 `cap-harness run` 在 LIBERO 执行：
+  `program_ok=true`、12 步、干净收尾——仿真/IK/轨迹链路全通；仅 SAM3 感知等待 gated HF token。
+
+### Real RDK X5 device bench: 8/11 → 11/11 (B369/B370)
+
+- The first full real-board bench (`--target real`, RDK X5) scored 8/11 = 72.7%. All three failures shared one
+  transcript pattern: after finishing the board work and verifying it, the model tried to run the harness's
+  acceptance command itself — device env is stripped from its children, the repo `.env` and SSH keys are
+  protected paths — and burned the timeout. One task also hung 120s starting a background process without
+  redirecting stdin, and the loop guard counted a pipeline grep's exit 1 as a failure at the discovery limit
+  of 2. Fixes: `device_exec` documents the safe backgrounding pattern
+  (`nohup CMD > log 2>&1 < /dev/null & echo $! > pid`) and the grep-exit-1 note, leaves the discovery class
+  (failure limit 2→3), every bench task prompt now says the harness runs acceptance after the turn, and
+  localhost-port gets 300s. The rerun scores **11/11 = 100%** (falseSuccess 0; camera-presence SKIPs without
+  a camera).
+
+### 真机 RDK X5 设备基准：8/11 → 11/11（B369/B370）
+
+- 首次真机全量基准（`--target real`，RDK X5）8/11 = 72.7%。三个失败同一 transcript 模式：模型完成板上工作并自证后，
+  转而试图自己执行 harness 的验收命令——子进程无设备 env、`.env` 与 SSH 密钥是保护路径——烧尽超时。一个任务还因
+  `nohup … &` 未重定向 stdin 挂住 SSH 通道 120s；loop guard 把管道 grep 的 exit 1 按 discovery 失败限 2 计数提前拦截。
+  修复：`device_exec` 写明安全后台范式与 grep 提示、移出 discovery 分类（失败限 2→3）、全部任务 prompt 注明
+  "验收由 harness 在回合后执行"、localhost-port 超时 300s。复跑 **11/11 = 100%**（falseSuccess 0；无相机环境时
+  camera 任务 SKIP）。
+
+### One-shot `moss device test/fleet` exits instead of hanging on the SSH socket (B368)
+
+- With a real RDK X5 reachable, `moss device test rdk-x5` printed the full probe
+  (`MODEL|D-Robotics RDK X5 V1.0`, OS, cores, memory) and then **never returned**: the cached SSH
+  connection kept the event loop alive, so the command had to be killed. The CLI device handler now
+  releases connections with `disconnectAllDevices()` in a `finally`, so the same command exits 0
+  immediately. `moss device fleet info|resources --devices rdk-x5` verified on the real board as well.
+
+### 一次性 `moss device test/fleet` 不再因 SSH socket 挂住（B368）
+
+- 在真实 RDK X5 可连通的环境里，`moss device test rdk-x5` 打印完整探测结果
+  （`MODEL|D-Robotics RDK X5 V1.0`、OS、核数、内存）后**不退出**：缓存的 SSH 连接让事件循环一直活着，只能被杀掉。
+  CLI device handler 现在在 `finally` 里调用 `disconnectAllDevices()` 释放连接，同一条命令立即 exit 0。
+  `moss device fleet info|resources --devices rdk-x5` 也在真机上验证通过。
+
+### Release tarball install verified (B365)
+
+- `npm pack` produces a 1.9 MB tarball (1113 files, `dist/` + bin included). Installing it into a temp global
+  prefix and running the installed `moss` works: `--version` (with build stamp), `--help`, `capabilities`
+  all run with a fresh HOME/config; the model-less headless run exits 3 with the setup hint as designed.
+  No packaging regression from this cycle's additions.
+
+### 发布 tarball 安装验证（B365）
+
+- `npm pack` 产出 1.9 MB tarball（1113 个文件，含 `dist/` 与 bin）。装进临时全局前缀后，安装出的 `moss`
+  可正常执行：`--version`（带 build stamp）、`--help`、`capabilities` 在全新 HOME/config 下都能跑；
+  无模型配置的 headless 运行按设计 exit 3 并给出 setup 提示。本轮新增文件未造成打包回归。
+
+### Closeout audit records the delivery state (B364)
+
+- The alignment closeout now ends with a delivery-state table: 378 backlog records, 106 verify stages
+  (98 probe scripts), README 253/258 lines inside the page budget, full-set bench 80/81 = 98.8%,
+  CI and Deep verification green, clean working tree — plus the explicit environment/design boundaries
+  (Windows behavior leg, device tasks, gateway long tail, exec cwd semantics) that remain.
+
+### 收敛审计记录交付状态（B364）
+
+- 对齐 closeout 末尾新增交付状态表：378 条 backlog 记录、106 个 verify stage（98 个探针脚本）、
+  README 253/258 行（页内预算内）、全量 bench 80/81 = 98.8%、CI 与 Deep 门禁全绿、工作树干净；
+  并列出仍是环境/设计边界（Windows 行为腿、设备任务、网关长尾、exec cwd 语义）。
+
+### Keep agent and slide artifacts out of `git status` (B363)
+
+- This long session left two untracked directories in every `git status`: `.autopilot/` (agent evidence)
+  and `docs/assets/moss-core-architecture/` (9.7 MB slide assets produced by another session). Both are now
+  ignored, so the working tree is clean and neither can be staged by accident.
+
+### 把 agent 与幻灯片工件排除出 `git status`（B363）
+
+- 这次长会话让每次 `git status` 都带两个未跟踪目录：`.autopilot/`（代理证据）与
+  `docs/assets/moss-core-architecture/`（另一会话生成的 9.7MB 幻灯片素材）。两者现已加入 `.gitignore`，工作树保持干净，
+  也不会再被误提交。
+
+### Final full-set bench: 80/81 (98.8%), and the last miss is fixed (B360/B361)
+
+- After the B355/B356 fixes, the full 31-task × 3-sample run scores **80/81 = 98.8%** (hard 97.2, easy 100,
+  weighted 98; harness flakes 0; 4 device tasks SKIP without `MOSS_DEVICE_*`). The only miss,
+  `hard-wrong-fix-rejected` #1, explained an unreproducible complaint in chat but skipped `SPEC-AUDIT.md`.
+  The system prompt now says an unreproducible complaint gets a `SPEC-AUDIT.md` report, not a chat-only
+  explanation; the task's rerun is **3/3 PASS**.
+
+### 最终全量 bench：80/81（98.8%），且最后一个缺口已修（B360/B361）
+
+- B355/B356 修复后，全量 31 任务 × 3 样本得分 **80/81 = 98.8%**（hard 97.2 / easy 100 / weighted 98；harness flakes 0；
+  4 个设备任务缺 `MOSS_DEVICE_*` 记 SKIP）。唯一失败 `hard-wrong-fix-rejected` #1 把"不可复现的投诉"只在聊天里解释、
+  没写 `SPEC-AUDIT.md`。系统提示现在明确：不可复现投诉要写 `SPEC-AUDIT.md` 报告，而不是只给聊天解释；该任务重跑
+  **3/3 PASS**。
+
+### `node test.js` counts as a test run for the completion gate (B356)
+
+- The gate mapped `npm test`, `node --test`, `pytest`, etc. to the `test` check, but not a plain
+  `node test.js` — the way small projects and the bench fixtures run tests. A model that verified with
+  `exec node test.js` was marked `Unverified: claimed checks passed, but no check was run: test`, and
+  `hard-wrong-fix-rejected` stayed 2/3. The command matcher now recognizes `node <...>test<...>.js`, the
+  system prompt also says to prefer `run_tests`, and the task reruns **3/3 PASS**. A hard-tier samples=3 run
+  first scored **32/33 = 97%** with only this task partial.
+
+### `node test.js` 也算一次测试运行（B356）
+
+- 完成门把 `npm test`、`node --test`、`pytest` 等映射到 `test` 检查，却没识别最简单的 `node test.js`——小项目和
+  bench 夹具常用它跑测试。模型用 `exec node test.js` 验证后会被判 `Unverified: claimed checks passed, but no check
+was run: test`，`hard-wrong-fix-rejected` 卡在 2/3。现在命令匹配器识别 `node <…>test<…>.js`，
+  系统提示也要求优先 `run_tests`；该任务重跑 **3/3 PASS**。此前一轮 hard-tier samples=3 为 **32/33 = 97%**（仅该任务部分通过）。
+
+### The spec-audit nudge no longer tells the model to ask (B355)
+
+- `hard-spec-contradiction` kept scoring 2/3 even after the system prompt said "do not ask which requirement wins":
+  the injected `[System]` spec-audit nudge (fired after the first tool call) still said "if the cited authority
+  is missing, do NOT write SPEC-AUDIT.md — ask the user". The nudge now mirrors the rule: requirements that
+  contradict each other get `SPEC-AUDIT.md` with no source changes; only a missing _cited document_ triggers one
+  clarifying question. The task reruns **3/3 PASS** (5 turns), and the sibling
+  `hard-contradictory-validation` sanity run is 1/1.
+
+### spec-audit nudge 不再让模型"先问"（B355）
+
+- 即使系统提示已写"不要问哪条优先，报告就是交付物"，`hard-spec-contradiction` 仍只有 2/3：首次工具调用后注入的
+  `[System]` spec-audit nudge 仍在说"被引用权威缺失时不要写 SPEC-AUDIT.md——去问用户"。nudge 现在与主提示一致：
+  需求之间互相矛盾 → 写 `SPEC-AUDIT.md`、不改源码；只有"被引用的具体文档缺失"才问一次。该任务重跑 **3/3 PASS**
+  （5 回合），同族的 `hard-contradictory-validation` 抽查 1/1。
+
+### Bench runs widen the first-chunk watchdog (B354)
+
+- The full-set samples=3 run lost `hard-wrong-fix-rejected` (0/3) to three 45s "no response from the model"
+  stalls after tool calls. The bench runner now sets `MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS=120000` per task
+  (overridable via `MOSS_BENCH_FIRST_CHUNK_TIMEOUT_MS`), so a slow gateway long tail is not scored as a
+  capability failure; only zero-turn samples are still retried/excluded as harness flakes.
+
+### bench 放宽首包看门狗（B354）
+
+- 全量 samples=3 运行中 `hard-wrong-fix-rejected`（0/3）是三次"工具调用后 45s 无模型响应"的网关停顿所致。bench runner
+- 现在为每个任务设 `MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS=120000`（可用 `MOSS_BENCH_FIRST_CHUNK_TIMEOUT_MS` 覆盖），
+- 慢网关长尾不再被记成能力失败；仍只有零回合样本按 `harness_flake` 重跑/排除。
+
+### README names the user-configurable price path (B353)
+
+- The README said an estimated cost appears "when the gateway has a known price"; B347/B348 also allow
+  `pricing.models` in config. Both pages now say "known price **or you configured `pricing.models`** — never an
+  invented one", matching what the ledger and `/usage` actually do.
+
+### README 说明费用也可以由用户配置（B353）
+
+- README 原写"网关有公开价时带估算费用"；B347/B348 也支持在配置里设 `pricing.models`。中英两页现在写
+  "网关有公开价、或你在 `pricing.models` 配置了费率时"带估算费用，并保留"无价就不编造"，与账本/`/usage` 行为一致。
+
+### `config show --json` includes the pricing block (B352)
+
+- B347/B348 made `pricing.models` settable and removable, but `config show --json` still omitted it (pricing is
+  a merged config-file surface, not one of the resolved CLI scalars). The JSON now carries `pricing` when any
+  rate is configured, so scripts can read back what they set.
+
+### `config show --json` 包含 pricing 块（B352）
+
+- B347/B348 让 `pricing.models` 可设可删，但 `config show --json` 仍不返回它（pricing 属于合并后的配置文件面，
+  不在 resolved CLI 标量里）。现在只要配置了费率，JSON 就带 `pricing`，脚本可以读回自己设置的内容。
+
+### Pricing keys can be unset again (B348)
+
+- B347 made `pricing.models` settable but `moss config unset` still rejected it — once set, the only way to
+  remove a rate was hand-editing the config file. `unset` now handles `pricing.models.<model>.<field>`,
+  `pricing.models.<model>` (drops the model; an empty pricing block disappears) and `pricing` (the whole block),
+  and the capabilities probe covers the set → unset → gone round-trip.
+
+### 价格键可以再次删除（B348）
+
+- B347 让 `pricing.models` 可设置，但 `moss config unset` 仍拒绝它——设置后只能手改配置文件才能去掉。现在 `unset`
+  支持 `pricing.models.<model>.<field>`、`pricing.models.<model>`（删该模型，空 pricing 块一并消失）与
+  `pricing`（整块），`capabilities` 探针覆盖 set → unset → 清空的完整往返。
+
+### The cost hint is now actionable (B347)
+
+- `/usage` said `set pricing.models["<model>"] to show cost`, but `moss config set` rejected every pricing key
+  and `moss config --help` did not mention it — the hint could not be followed. `config set` now accepts
+  `pricing.models.<model>.{input|output|cached|cacheWrite|currency}` (non-negative numbers, per 1M tokens;
+  USD/CNY), the key list and help document it, and the unpriced message names that exact command. A real run
+  after `config set …input 0.14 …output 0.28 …currency USD` shows `~$0.002562 (est.)` in the status line and
+  `cost ~$0.002562 (est.) · price source your config (pricing.models)` in `/usage`.
+
+### 费用提示现在真的可执行（B347）
+
+- `/usage` 原来提示 `set pricing.models["<model>"] to show cost`，但 `moss config set` 拒绝所有 pricing 键，
+  `moss config --help` 也没记录——提示无法照做。现在 `config set` 接受
+  `pricing.models.<model>.{input|output|cached|cacheWrite|currency}`（非负数字、每百万 token、USD/CNY），
+  键清单与帮助已记录，未定价提示直接给出该命令。真实运行：设置 input 0.14 / output 0.28 / USD 后，
+  状态栏显示 `~$0.002562 (est.)`，`/usage` 显示 `cost ~$0.002562 (est.) · price source your config (pricing.models)`。
+
+### Bench runs survive a concurrent rebuild (B343)
+
+- Every bench task shells out to `dist/cli.js`, so running `npm run build` / `npm run verify` while a bench is
+  running wiped the CLI and turned the remaining tasks into 0.1s "Cannot find module" failures (it produced a
+  false 51.5% hard-tier score). The runner now snapshots `dist/` (+ `bin/` and `package.json` for the relative
+  layout) into an ignored `node_modules/.bench-cli-<pid>` directory and runs the snapshot; a real concurrent
+  `npm run build` no longer changes the result, and the snapshot is removed on exit.
+
+### 基准运行不再被并发构建打断（B343）
+
+- 每个 bench 任务都调用 `dist/cli.js`；运行中执行 `npm run build` / `npm run verify` 会把 CLI 清掉，剩余任务
+  变成 0.1s 的 "Cannot find module" 假失败（曾产生 51.5% 的假 hard-tier 分数）。现在 runner 启动时把 `dist/`
+  （以及相对布局需要的 `bin/`、`package.json`）快照到被忽略的 `node_modules/.bench-cli-<pid>`，用快照运行；
+  实测并发 `npm run build` 不再影响结果，退出时自动清理。
+
+### Tool rows show the full result, not the SSE preview (B342)
+
+- The TUI built every tool-completion row from `event.result`, which is the SSE **preview** (truncated to a
+  short body), instead of `event.content`, the full result. A real 46-line `AGENTS.md` read displayed
+  `Read 13 lines`, and ctrl+o could never reveal the rest because the row body was already cut. The row now
+  uses `content` when present: the same read shows `Read 46 lines` and keeps all 46 lines.
+
+### 工具行展示完整结果，而非 SSE 预览（B342）
+
+- TUI 的每个工具完成行都取自 `event.result`（SSE **预览**，已被截成短 body），而不是完整结果 `event.content`。
+  真实的 46 行 `AGENTS.md` 读取显示为 `Read 13 lines`，且 ctrl+o 也无法展开——因为行 body 早已被截断。现在优先使用
+  `content`：同一次读取显示 `Read 46 lines`，并保留全部 46 行。
+
+### Contradictory requirements are reported; only missing cited docs are asked about (B341)
+
+- A full diagnostic bench (31 tasks, 1 sample) scored 26/27 (hard 91.7, easy 100, weighted 94.1). The one FAIL,
+  `hard-spec-contradiction`, was behavioral: the model detected the conflict and asked which requirement wins
+  instead of writing `SPEC-AUDIT.md`, because the soft spec-audit nudge says "missing cited authority → ask".
+  The system prompt now draws the line explicitly: requirements that contradict each other are already
+  auditable — write `SPEC-AUDIT.md` and finish; ask once only when a specific cited document is missing from
+  the workspace. The task reruns PASS (5 turns) on real deepseek-flash.
+
+### 矛盾需求要报告；只有"被引用的文档缺失"才提问（B341）
+
+- 全量诊断 bench（31 任务 × 1 样本）得 26/27（hard 91.7、easy 100、weighted 94.1）。唯一 FAIL
+  `hard-spec-contradiction` 属行为问题：模型识别出冲突后选择了"问哪条优先"，而不是写 `SPEC-AUDIT.md`，
+  原因是软性 spec-audit nudge 写了"被引用权威缺失 → 提问"。系统提示词现在明确划线：**需求之间互相矛盾本身就是可审计的**
+  ——写 `SPEC-AUDIT.md` 并收尾；只有任务引用了工作区里不存在的具体文档时才问一次。该任务用真实
+  deepseek-flash 重跑 PASS（5 回合）。
+
+### Benchmark harness: authority fixture, safe run ids, concurrent-run guard (B340)
+
+- `hard-contradictory-validation` expected `SPEC-AUDIT.md` while the agent was told to ask one question when the
+  cited security review is missing — and the fixture had no review file. The fixture now ships
+  `security-review.md` (with the contradictory requirements and "reviewer did not resolve"), so the intended
+  behavior is measurable; the task rerun PASSes with real deepseek-flash.
+- Bench run ids used `bench/<task>/<sample>`, which the run ledger rejects (`invalid run id`); they are now
+  `bench-<task>-<sample>`. A second concurrent `npm run bench` previously deleted `dist/cli.js` under the
+  first run (remaining tasks failed in 0.1s with "Cannot find module"); the runner now takes a pid lock and
+  refuses to start with a clear message (stale locks are reclaimed).
+
+### 基准测试工具：权威文件、合法 run id、并发保护（B340）
+
+- `hard-contradictory-validation` 期望 `SPEC-AUDIT.md`，但产品规则要求"被引用的安全评审缺失时先问一个问题"，
+  而夹具里确实没有该评审文件。夹具现补 `security-review.md`（含两条矛盾要求与"reviewer 未裁决"）；该任务用真实
+  deepseek-flash 重跑 PASS。
+- 基准 run id 原为 `bench/<task>/<sample>`，被 run ledger 拒绝（`invalid run id`）；现改为 `bench-<task>-<sample>`。
+  并发的第二个 `npm run bench` 原本会在第一个运行中删掉 `dist/cli.js`（后续任务 0.1s 失败 "Cannot find module"）；
+  现在 runner 用 pid 锁拒绝并发启动并给出清晰提示（陈旧锁自动回收）。
+
+### The empty `/tasks` panel teaches both ways to fill it (B339)
+
+- `/tasks` showed `background shell: (none)` and `sub-agents: (none)` with no next step. When both are empty
+  it now adds `start: !<command> runs it in the background of this session` and `or ask Moss to launch a
+subagent for parallel work` (zh translated), so the panel doubles as the feature's own introduction.
+
+### 空的 `/tasks` 面板教用户两种启动方式（B339）
+
+- `/tasks` 只显示 `background shell: (none)` 与 `sub-agents: (none)`，没有下一步。两者都空时新增
+  `start: !<command> runs it in the background of this session` 与
+  `or ask Moss to launch a subagent for parallel work`（中文已译），面板本身成为功能介绍。
+
+### The MCP empty state teaches the command (B338)
+
+- The TUI `/mcp` panel only said `no MCP servers configured (.moss/mcp.json)`; the CLI and REPL already
+  suggested `moss mcp add`. The panel now shows `no MCP servers configured` + `add one: moss mcp add <name>
+<command> · or edit .moss/mcp.json (user: <config>/mcp.json)`, translated in zh, and the REPL line names the
+  user-level file too.
+
+### MCP 空状态给出命令（B338）
+
+- TUI `/mcp` 面板原只说 `no MCP servers configured (.moss/mcp.json)`，而 CLI/REPL 早就会提示 `moss mcp add`。
+  现在面板显示 `no MCP servers configured` + `add one: moss mcp add <name> <command> · or edit .moss/mcp.json
+(user: <config>/mcp.json)`（中文已译），REPL 行也补上用户级文件路径。
+
+### The rules empty state names both scopes (B337)
+
+- `/rules` and `moss rules list` said only `.moss/rules/<name>.md`, although scoped rules also load from
+  `<config dir>/rules/` (user level). Both now name the workspace and user paths; the TUI lines are translated
+  in zh (`没有作用域规则` / `新建 …`), which they previously were not.
+
+### 规则空状态说明两个作用域（B337）
+
+- `/rules` 与 `moss rules list` 只提示 `.moss/rules/<name>.md`，但作用域规则也会从 `<配置目录>/rules/`（用户级）
+  加载。现在两处都写明工作区与用户级路径；TUI 两行补齐中文（此前中文界面显示英文）。
+
+### The first help screen advertises the same verbs in both languages (B335)
+
+- `moss --help` (the brief view) had drifted: Chinese was missing `moss init` and `moss goal`, and neither
+  language showed a read path. Both now list setup → init → one-shot → goal → `moss capabilities` (what this
+  install can do), and `help-surface` fails if a locale loses one of them or its heading.
+
+### 首屏帮助中英文命令一致（B335）
+
+- `moss --help` 的简要视图出现漂移：中文缺 `moss init` 与 `moss goal`，两种语言都没有"看结果/看能力"的入口。
+  现在两边都列出 setup → init → 一次性 → goal → `moss capabilities`（当前安装能做什么），
+  `help-surface` 会在任一语言缺行或缺标题时失败。
+
+### The command reference and the CLI can no longer drift apart (B334)
+
+- `readme-parity` now parses `KNOWN_COMMANDS` from `src/cli/args.ts` and requires every command to appear
+  in `docs/cli-reference.md` (removed subsystems `migrate`/`web`/`agent` must at least be named), and rejects
+  doc rows that name an unknown command. The three documented compatibility aliases (`moss run` / `moss
+status` / `moss tasks`) are the only exceptions. Adding a command without a row is now a red gate.
+
+### 命令参考与 CLI 不再漂移（B334）
+
+- `readme-parity` 现在从 `src/cli/args.ts` 解析 `KNOWN_COMMANDS`，要求每个命令都出现在
+  `docs/cli-reference.md`（已移除的子系统 `migrate`/`web`/`agent` 至少要被点名），并拒绝文档里出现未知命令。
+  仅放行三个已文档化的兼容别名（`moss run` / `moss status` / `moss tasks`）。新增命令不写文档 = 红灯。
+
+### `task timeline --json` is JSON (B333)
+
+- `moss task timeline --json` ignored the flag and printed the human timeline (or `No tasks in this
+workspace.`), although the command reference already promised `--json` on `status/timeline`. It now emits
+  `moss_task_timeline.v1` (`{taskId, phase, events}`; `taskId: null, events: []` when the workspace has no
+  task), and the probe pins both the filled and empty shapes.
+
+### `task timeline --json` 输出 JSON（B333）
+
+- `moss task timeline --json` 忽略该 flag，仍打印人类时间线（或 `No tasks in this workspace.`），而命令参考早已写着
+  `status/timeline` 支持 `--json`。现在输出 `moss_task_timeline.v1`（`{taskId, phase, events}`；空工作区为
+  `taskId: null, events: []`），探针同时锁定有数据/空数据两种形状。
+
+### Artifacts and capabilities JSON join the schema envelope (B332)
+
+- `moss artifacts … --json` and the `moss tasks` alias printed bare arrays (`[]`), and `capabilities --json`
+  had no `schema` string. Artifacts now emit `moss_artifacts.v1` (`{kind, items}`) for every kind
+  (contracts/tasks/history/evidence/deployments/acceptance/device/failures, delegated included), and
+  `capabilities --json` starts with `moss_capabilities.v1` while keeping its `version: 1` payload.
+
+### artifacts 与 capabilities 的 JSON 也统一为 schema（B332）
+
+- `moss artifacts … --json` 与 `moss tasks` 别名输出裸数组（`[]`），`capabilities --json` 没有 `schema` 字段。
+  现在 artifacts 所有 kind（contracts/tasks/history/evidence/deployments/acceptance/device/failures，含委托路径）
+  输出 `moss_artifacts.v1`（`{kind, items}`）；`capabilities --json` 顶层以 `moss_capabilities.v1` 开头，
+  保留原有 `version: 1` 载荷。
+
+### `/review` end-to-end, and `review list --json` has a schema (B331)
+
+- A real `/review` on a planted bug ran an independent read-only reviewer, recorded `verdict: FAIL`
+  (1 critical, 0 important), printed the finding with `math.js:2` and a fix hint, stated it made no edits,
+  and wrote `.moss/review.jsonl`; `moss review check` then exited 1 with `repair attempt: 1 of 3`.
+  `moss review list --json` was the last read command returning a bare array; it now emits
+  `moss_review_list.v1` (`{total, limit, records}`), and the command reference + `readme-parity` name it.
+
+### `/review` 端到端，`review list --json` 有 schema（B331）
+
+- 在真实埋 bug 的工作区跑 `/review`：独立只读评审给出 `verdict: FAIL`（1 critical / 0 important），
+  列出 `math.js:2` 与修复提示，明确没有改文件，并写 `.moss/review.jsonl`；随后 `moss review check` exit 1，
+  输出 `repair attempt: 1 of 3`。
+  `moss review list --json` 是最后一个返回裸数组的只读命令，现在输出 `moss_review_list.v1`
+  （`{total, limit, records}`），命令参考与 `readme-parity` 已登记。
+
+### The first-run provider picker says how to leave (B328)
+
+- A fresh TUI showed the blocking `Choose a model provider` picker with no way out documented (Esc has no
+  back target before a provider exists). It now ends with `Ctrl+C exits without saving.` (zh:
+  `Ctrl+C 退出，不保存。`); a first-run regression probe renders the view in both locales.
+
+### 首次运行的 provider 选择器说明如何退出（B328）
+
+- 全新 TUI 的 `Choose a model provider` 是阻塞选择器，却没有写退出方式（provider 未定前 Esc 无处可退）。现在末尾
+  显示 `Ctrl+C exits without saving.`（中文：`Ctrl+C 退出，不保存。`）；首次运行回归探针中英文各渲染一次。
+
+### Doctor's JSON and exit code are one contract (B326)
+
+- `moss doctor --json` on a temp HOME without an API key really returns `ok:false` and exits 1 (auth `fail`).
+  The doctor stage now pins the whole contract in both directions: `ok` matches the exit code, checks are
+  non-empty, statuses are only `ok|warn|fail`, and a `fail` check agrees with a non-zero exit.
+
+### doctor 的 JSON 与退出码是同一契约（B326）
+
+- 临时 HOME 无 API key 时，`moss doctor --json` 真实返回 `ok:false` 且 exit 1（auth 为 `fail`）。doctor 阶段现在
+  双向锁定该契约：`ok` 与退出码一致、checks 非空、status 只能是 `ok|warn|fail`、有 `fail` 时退出码必须非零。
+
+### Session search no longer matches the model's reasoning (B325)
+
+- `moss sessions search "The user says"` matched a session and printed the chain-of-thought phrase as the
+  snippet: search indexed `thinking`, so model-private reasoning leaked into results. Search now indexes only
+  user/assistant text and tool blocks; replies stay searchable
+  (`sessions search "export test"` still finds the turn).
+
+### 会话搜索不再命中模型推理（B325）
+
+- `moss sessions search "The user says"` 会命中会话并把思维链片段作为 snippet 打印：搜索把 `thinking` 也索引了，
+  模型私有推理泄漏到结果里。现在只索引用户/助手文本与工具块；回复仍可搜索
+  （`sessions search "export test"` 仍能找到该回合）。
+
+### Every --json flag is discoverable from `--help` (B324)
+
+- `sessions export --json`, `auth status --json`, `trust list --json`, `uninstall --json`, `doctor --json`,
+  `update --json` and `skill validate --json` worked but their `--help` pages did not mention them. The help
+  now lists each flag (with its schema name), and the capabilities probe fails if any of those seven commands
+  forgets `--json` again.
+
+### 每个 `--json` 都能从 `--help` 发现（B324）
+
+- `sessions export --json`、`auth status --json`、`trust list --json`、`uninstall --json`、`doctor --json`、
+  `update --json`、`skill validate --json` 都能用，但 `--help` 页没写。现在每个页面都列出该 flag（带 schema 名），
+  `capabilities` 探针会在七个命令中任何一个漏写 `--json` 时失败。
+
+### `sessions export --json` (B323)
+
+- `moss sessions export` was markdown-only, so tooling had to scrape or read the JSONL store. It now accepts
+  `--json` (and `--json --out=<file>`): `moss_sessions_export.v1` with `{key, messageCount,
+exportableMessageCount, messages:[{role, content, thinking?}]}` — thinking is kept for tooling, while
+  `<turn-context>`/harness preambles are stripped like the markdown export.
+
+### `sessions export --json`（B323）
+
+- `moss sessions export` 原来只有 markdown，工具只能抓文本或读 JSONL。现在接受 `--json`（以及
+  `--json --out=<file>`）：`moss_sessions_export.v1`，含 `{key, messageCount, exportableMessageCount,
+messages:[{role, content, thinking?}]}`——thinking 保留给工具，`<turn-context>`/harness 前缀与 markdown 一样被去掉。
+
+### Markdown session export is the conversation, not the model's reasoning (B322)
+
+- `/export -` (and `moss sessions export`, which share the renderer) printed each reply's reasoning as a
+  `<details><summary>thinking</summary>` block. Exports go to PRs/CI where that is noise (and model-private);
+  the markdown now contains only user/assistant text and tool blocks. `--format json` still keeps the raw
+  record for tooling. Real TUI `/export -` shows only the two conversation blocks.
+
+### Markdown 会话导出只含对话，不含模型推理（B322）
+
+- `/export -`（与 `moss sessions export` 共用渲染器）会把每条回复的推理打印成
+  `<details><summary>thinking</summary>` 块。导出面向 PR/CI，这些是噪音（也是模型私有内容）；现在 markdown
+  只含用户/助手文本与工具块，`--format json` 仍保留原始记录。真实 TUI `/export -` 只剩两个对话块。
+
+### `/remember` writes from the TUI after a confirming dialog (B321)
+
+- In-session `/remember <fact>` only printed the preview and told the user to leave and run
+  `moss remember`. It now writes: the preview is the diff, then a dialog asks
+  `Write this fact to AGENTS.md?` (1 = write, 2 = cancel, Esc cancels); writing prints
+  `answer: Write it to AGENTS.md` + `remembered — AGENTS.md now has 3 facts`, cancelling leaves the file
+  untouched, and an already-present fact skips the dialog with `Already remembered in AGENTS.md`.
+
+### TUI 的 `/remember` 确认后直接写入（B321）
+
+- 会话内 `/remember <fact>` 原本只打印预览、让用户退出后跑 `moss remember`。现在会真正写入：预览就是 diff，
+  随后对话框问 `Write this fact to AGENTS.md?`（1 写入、2 取消、Esc 取消）；写入显示
+  `answer: Write it to AGENTS.md` + `remembered — AGENTS.md now has 3 facts`，取消不动文件，
+  已存在的事实跳过对话框并提示 `Already remembered in AGENTS.md`。
+
+### `skill validate --json` (B320)
+
+- The last skill command without a machine-readable report now has one:
+  `moss_skill_validate.v1` with `{ok, file, skill:{name,scope,dir,legacyName,descriptionChars,when,globs,
+resources,allowedTools,issues,evals}}` on success, or `{ok:false, error: skipped|not-found|missing-file|
+unparseable, …}` with the same exit codes as the human path (1 / 2).
+
+### `skill validate --json`（B320）
+
+- 最后一个没有机器可读报告的技能命令补齐：成功时输出 `moss_skill_validate.v1`
+  （`{ok, file, skill:{name,scope,dir,legacyName,descriptionChars,when,globs,resources,allowedTools,issues,evals}}`），
+  失败时输出 `{ok:false, error: skipped|not-found|missing-file|unparseable, …}`，退出码与人类路径一致（1 / 2）。
+
+### A tiny window's `/compact` no-op explains itself (B319)
+
+- With `agent.contextTokens` smaller than the base prompt+tools, the live hint said `context 152% full — …
+/compact to do it now`, but `/compact` answered "No context savings" after checking only the conversation.
+  `compactSession` now reports why it was a no-op (`empty` / `below-keep-recent` / `no-savings`), and the
+  command says: `Conversation is only ~456 tokens (below the 3,686 keep budget) — compacting would not reduce
+the prompt; the system prompt and tool declarations are the rest.` The live hint is now
+  `context 152% full — /compact now; small conversation? prompt+tools exceed the window → raise
+agent.contextTokens`.
+
+### 小窗口的 `/compact` 无操作时会解释原因（B319）
+
+- 当 `agent.contextTokens` 比基础提示词+工具还小时，实时提示说 `context 152% full — … /compact to do it now`，
+  但 `/compact` 只检查对话后回答"No context savings"。现在 `compactSession` 返回无操作原因
+  （`empty` / `below-keep-recent` / `no-savings`），命令会说明：
+  `Conversation is only ~456 tokens (below the 3,686 keep budget) — compacting would not reduce the prompt;
+the system prompt and tool declarations are the rest.`；实时提示改为
+  `context 152% full — /compact now; small conversation? prompt+tools exceed the window → raise agent.contextTokens`。
+
+### A compaction summary is harness context, not a user turn (B318)
+
+- A real compacted session was titled `The conversation history before this point was compacted into
+the following sum…` in the resume hint — the auto-compaction summary is stored as a user message and
+  leaked into titles/replay/export. `isInternalUserText` now treats it as internal (title falls back to a
+  real user turn or the session key), and the probe pins it.
+
+### Thinking-only stream notice is a debug diagnostic (B317)
+
+- The streaming branch still logged a maintainer sentence at warn level when a reasoning model streamed
+  only thinking (`host agent loop should surface a placeholder or retry…`), and the TUI printed it mid-run as
+  a transcript notice. It is now `log.debug` (same as the non-streaming ping fix).
+
+### 压缩摘要属于 harness 上下文，不是用户回合（B318）
+
+- 真实的已压缩会话在恢复提示里被命名为 `The conversation history before this point was compacted into the
+following sum…`——自动压缩摘要是以 user 消息存储的，泄漏到了标题/回放/导出。`isInternalUserText`
+  现在把它视为内部文本（标题回退到真实用户回合或 session key），探针已锁定。
+
+### 只有 thinking 的流式提示降为 debug 诊断（B317）
+
+- 流式分支在推理模型只输出 thinking 时仍用 warn 打维护者文案
+  （`host agent loop should surface a placeholder or retry…`），TUI 会把它当中途通知显示。现在与
+  非流式 ping 修复一致，降为 `log.debug`。
+
+### `moss doctor --json` (B316)
+
+- The last read command without a machine-readable view now has one: `moss doctor --json` emits
+  `moss_doctor.v1` (`{ok, checks:[{status: ok|warn|fail, label, detail}]}`), parsed from the same rendered
+  report (`ok` iff no `fail`), and exits 1 when a `fail` is present. The doctor stage asserts the schema and
+  that the behavior checks (`images` / `review mode` / `verification gate`) appear in the JSON.
+
+### `moss doctor --json`（B316）
+
+- 最后一个没有机器可读视图的只读命令补齐：`moss doctor --json` 输出 `moss_doctor.v1`
+  （`{ok, checks:[{status: ok|warn|fail, label, detail}]}`），与人类报告同源（无 `fail` 则 `ok`），有 `fail` 时 exit 1。
+  doctor 阶段会断言 schema 与行为检查（`images` / `review mode` / `verification gate`）出现在 JSON 中。
+
+### `update --json` and a read-only `uninstall --json` (B315)
+
+- `moss update --json` emits `moss_update.v1` (`{kind, root, commands, missingSource?}`) instead of a
+  sentence, and `moss uninstall --json` emits `moss_uninstall.v1` with the exact paths it would touch —
+  and never deletes anything (`deletedConfig: false`, config dir untouched), so provisioning scripts can
+  inspect before acting.
+
+### `update --json` 与只读的 `uninstall --json`（B315）
+
+- `moss update --json` 输出 `moss_update.v1`（`{kind, root, commands, missingSource?}`）而不是一句说明；
+  `moss uninstall --json` 输出 `moss_uninstall.v1`，列出会触碰的精确路径，且**不删除任何东西**
+  （`deletedConfig: false`，配置目录保持不变），便于脚本先检查再行动。
+
+### `auth status --json` and `trust list --json` (B314)
+
+- Two read commands still printed prose to scripts that passed `--json`. `auth status --json` now emits
+  `moss_auth_status.v1` (the resolved provider/model/baseUrl/keys/config-path facts, `apiKeyConfigured`
+  only — no secret), and `trust list --json` emits `moss_trust_list.v1` (`{folders}`). Both are documented in
+  the command reference, and `readme-parity` guards the schema names.
+
+### `auth status --json` 与 `trust list --json`（B314）
+
+- 两个只读命令仍向传了 `--json` 的脚本打印散文。现在 `auth status --json` 输出 `moss_auth_status.v1`
+  （provider/model/baseUrl/key 配置/配置文件路径等解析结果，只给 `apiKeyConfigured` 不泄漏密钥），
+  `trust list --json` 输出 `moss_trust_list.v1`（`{folders}`）。命令参考已记录，`readme-parity` 守卫 schema 名。
+
+### The command reference lists the session/inspection slashes too (B313)
+
+- `docs/cli-reference.md` named the daily slashes but omitted `/status`, `/usage`, `/context`, `/export [path]`,
+  `/rewind [seq]`, `/mcp` and `/hooks`; they are now documented with their one-line roles, and
+  `readme-parity` requires those names on the page.
+
+### 命令参考补上会话/巡检类斜杠命令（B313）
+
+- `docs/cli-reference.md` 列了日常斜杠命令，但漏掉 `/status`、`/usage`、`/context`、`/export [path]`、
+  `/rewind [seq]`、`/mcp`、`/hooks`；现在补上各自的一句话用途，`readme-parity` 也要求该页出现这些名字。
+
+### `/status --verbose` separates registered tools from offered ones (B312)
+
+- One session showed `tools: 53` in `/status --verbose` and `34 declared` in `/context`; both were correct
+  (registered vs sent to the model) but with no label it read like a contradiction. The status line now says
+  `tools: 53 (34 offered to the model) (Workspace, …)`.
+
+### `/status --verbose` 区分"已注册"与"发给模型"的工具（B312）
+
+- 同一会话里 `/status --verbose` 显示 `tools: 53`，`/context` 显示 `34 declared`；两个数都对（注册 vs 发给模型），
+  但没有标注时看起来自相矛盾。状态行现在写 `tools: 53 (34 offered to the model) (Workspace, …)`。
+
+### `/status --verbose` names explicit memory next to the tool-memory index (B311)
+
+- A project with two remembered facts showed `memory: 0 entries` in `/status --verbose` (that line counts the
+  tool-memory index). The report now adds `AGENTS.md: 2 facts`, matching the first screen's
+  `AGENTS.md · 2 facts`, so the two kinds of memory are named instead of conflated.
+
+### `/status --verbose` 把显式记忆与工具记忆分开显示（B311）
+
+- 有两条 remembered facts 的项目在 `/status --verbose` 里只显示 `memory: 0 entries`（该行数的是工具记忆索引）。
+  现在额外显示 `AGENTS.md: 2 facts`，与首屏的 `AGENTS.md · 2 facts` 一致，两类记忆不再混为一谈。
+
+### `/status --verbose` reports the same skill count as the first screen (B310)
+
+- The status report counted only markdown files directly under `.moss/skills`, so a real session said
+  `skills: 0` while the first screen and `/capabilities` said 19. It now uses `defaultSkillDirSpecs` (the
+  shared discovery order), so `/status --verbose` shows `skills: 19`.
+
+### `/status --verbose` 的技能数与首屏一致（B310）
+
+- 状态报告只数 `.moss/skills` 下的 markdown 文件，真实会话里显示 `skills: 0`，而首屏与 `/capabilities` 都是 19。
+  现在使用共享的 `defaultSkillDirSpecs`，`/status --verbose` 显示 `skills: 19`。
+
+### The slash palette explains Tab vs Enter; shell mode verified (B309)
+
+- Typing `/` listed commands (and `… 33 more`) but said nothing about choosing one. The palette now ends with
+  `↑↓ move · Tab complete · Enter run · Esc dismiss` (zh: `↑↓ 移动 · Tab 补全 · Enter 执行 · Esc 关闭`), so the
+  important difference — Tab fills the name, Enter runs it — is visible.
+- Real TUI also verified `!` shell mode end to end: `!echo shell-mode-ok` runs without a model turn and prints
+  `shell-mode-ok`; a failing command shows `ls: … No such file or directory` plus `exit code 1`.
+
+### `/` 命令面板说明 Tab 与 Enter；shell 模式验证（B309）
+
+- 输入 `/` 只列命令（以及 `… 33 more`），没有任何选择提示。现在面板底部显示
+  `↑↓ move · Tab complete · Enter run · Esc dismiss`（中文：`↑↓ 移动 · Tab 补全 · Enter 执行 · Esc 关闭`），
+  让"Tab 只填名字、Enter 才执行"的区别可见。
+- 真实 TUI 同时验证了 `!` shell 模式：`!echo shell-mode-ok` 不经过模型、直接输出 `shell-mode-ok`；
+  失败命令显示 `ls: … No such file or directory` 与 `exit code 1`。
+
+### The @-file palette completes with Enter and explains its keys (B308)
+
+- Typing `@` showed file rows with no footer, and pressing Enter sent the half-typed `@math` as a message
+  instead of completing it (Tab was the only completion key). Enter now completes the highlighted path like
+  Tab (a real TUI run shows the composer becoming `@math.js ` with nothing sent), and the palette ends with
+  `↑↓ move · Tab/Enter complete · Esc dismiss` (zh: `↑↓ 移动 · Tab/Enter 补全 · Esc 关闭`).
+
+### @ 文件面板：Enter 补全并说明按键（B308）
+
+- 输入 `@` 后只显示文件行、没有底部提示，而且按 Enter 会把半截的 `@math` 直接发出去（此前只有 Tab 能补全）。
+  现在 Enter 与 Tab 一样补全高亮路径（真实 TUI：输入框变成 `@math.js ` 且没有发送消息），面板底部显示
+  `↑↓ move · Tab/Enter complete · Esc dismiss`（中文：`↑↓ 移动 · Tab/Enter 补全 · Esc 关闭`）。
+
+### Removing a capability pack leaves no empty scaffolding behind (B306)
+
+- `plugins install` created `.moss/config.json` (hooks) and `.moss/mcp.json`; `plugins remove` left
+  `"hooks": {"PreToolUse": []}` and `{"mcpServers": {}}` behind, plus an empty `.moss/plugins/`. Remove now
+  prunes empty hook events and containers, deletes the two files when nothing else is in them, removes the
+  pack registry directory when the last pack goes, and says what it took back
+  (`removed demo-pack: 1 file(s), 1 hook(s), 1 MCP server(s)`).
+
+### 卸载能力包不再留下空脚手架（B306）
+
+- `plugins install` 会创建 `.moss/config.json`（hooks）与 `.moss/mcp.json`；`plugins remove` 以前留下
+  `"hooks": {"PreToolUse": []}`、`{"mcpServers": {}}` 和一个空的 `.moss/plugins/`。现在会剪掉空 hook 事件与空容器，
+  两个文件在无其它内容时删除，最后一个包移除时删除 pack 注册目录，并说明收回了什么
+  （`removed demo-pack: 1 file(s), 1 hook(s), 1 MCP server(s)`）。
+
+### `skill update` describes a content-only change correctly (B305)
+
+- A local update printed `sha256:41b40feb17a2 → sha256:db858b7329eb… · +0 -0 file(s)`: one hash had an
+  ellipsis and the other did not, and "+0 -0 files" reads like nothing changed. It now shows both hashes the
+  same way and says `content changed (no files added or removed)` when the file set is unchanged; the
+  command also ends with `updated N skill(s)`. Without `--yes` it says which skill waits
+  (`re-run with --yes to apply …`).
+
+### `skill update` 正确描述"仅内容变化"（B305）
+
+- 本地更新原本打印 `sha256:41b40feb17a2 → sha256:db858b7329eb… · +0 -0 file(s)`：一个 hash 带省略号、另一个没有，
+  且 "+0 -0 files" 看起来像什么都没变。现在两侧 hash 截断方式一致，文件集合不变时显示
+  `content changed (no files added or removed)`；命令结尾给出 `updated N skill(s)`。不带 `--yes` 时会说明哪个技能
+  待应用（`re-run with --yes to apply …`）。
+
+### Skill lock grammar and a real install→lock→drift round-trip (B304)
+
+- `skill lock` said `1 skill match the lockfile`; it now agrees in number
+  (`1 skill matches` / `N skills match`). The probe also pins the whole flow for real: local
+  `skill install <src> --workspace --yes` → `skill lock --workspace` is clean → editing the installed file
+  reports `DRIFT — sha256:… recorded, sha256:… on disk` and `1 skill drifted …`, exit 1.
+
+### Skill lock 语法修正 + 安装→锁定→漂移真实回归（B304）
+
+- `skill lock` 原来说 `1 skill match the lockfile`；现在按数一致（`1 skill matches` / `N skills match`）。
+  探针同时锁定完整流程：本地 `skill install <src> --workspace --yes` → `skill lock --workspace` 干净 →
+  修改安装后的文件 → `DRIFT — sha256:… recorded, sha256:… on disk` 与 `1 skill drifted …`，exit 1。
+
+### `skill validate` explains a skipped skill instead of "no skill named" (B303)
+
+- `moss skill validate bad` said "no skill named \"bad\"" for a skill the catalog skips (missing
+  description), and validating by path only said `not a loadable skill (empty)`. The skip now carries a
+  detail (`frontmatter needs a non-empty "description"`), and a bare name falls back to the conventional
+  scoped paths (`<scope>/<name>/SKILL.md`) before reporting "not found" — so an invalid skill reaches its
+  own validation report (exit 1, real reason).
+
+### `skill validate` 对被跳过的技能给出真实原因（B303）
+
+- 目录中被跳过的技能（缺 description）用 `moss skill validate bad` 会得到 "no skill named \"bad\""，
+  按路径验证也只有一句 `not a loadable skill (empty)`。现在跳过原因带 detail
+  （`frontmatter needs a non-empty "description"`），裸名字也会先尝试各作用域下的
+  `<scope>/<name>/SKILL.md`，再报"找不到"——无效技能因此能得到自己的验证报告（exit 1，真实原因）。
+
+### `/doctor` no longer prints a maintainer warning above its panel (B301)
+
+- The model ping is a non-streaming call, and a reasoning model can legitimately return thinking-only; that
+  path logged a `warn` ("host should surface a placeholder via LLMResponse.thinking") which the TUI showed as
+  a stray `⎿` row above the Doctor block. It is now a debug diagnostic, so the panel starts with `⏺ Doctor`
+  and the ping still reports `ok … 1373ms`.
+
+### `/doctor` 面板上方不再出现维护者告警（B301）
+
+- 模型 ping 是非流式调用，推理模型合法地可能只返回 thinking；该路径用 `warn` 打了
+  "host should surface a placeholder via LLMResponse.thinking"，TUI 把它显示成 Doctor 块上方一行多余的 `⎿`。
+  现在降为 debug 诊断，面板从 `⏺ Doctor` 开始，ping 仍正常显示 `ok … 1373ms`。
+
+### Explanatory requests are not verification asks (B300)
+
+- Follow-up to B299: "write a 4-line essay about how to check tests" matched the verification-request
+  heuristic (`check … tests`), so prose in the essay could still mark the run unverified. Questions and
+  writing/explanation requests (`how…`, `why…`, `explain…`, `write…`, `如何/怎么/解释…`, trailing `?`) are no
+  longer treated as asks to verify; imperative asks ("run the tests", "fix the failing test and run npm
+  test", "跑一下测试") still are. Real re-run finishes with a clean `✻ worked for 2s`.
+
+### 解释类请求不算验证请求（B300）
+
+- 延续 B299："write a 4-line essay about how to check tests" 会命中验证请求启发式（`check … tests`），
+  文章里的句子仍可能把运行判成未验证。现在疑问句与写作/解释类请求（`how…`、`why…`、`explain…`、`write…`、
+  `如何/怎么/解释…`、结尾 `?`）不再算"要求验证"；命令式请求（`run the tests`、`fix … and run npm test`、
+  `跑一下测试`）仍然算。真实复跑收尾为干净的 `✻ worked for 2s`。
+
+### An essay about tests is no longer "unverified" (B299)
+
+- A real "write a 400-line essay about software testing" run was marked
+  `Unverified: claimed checks passed, but no check was run: test` because a sentence of the essay said
+  "The test passes…". Check-claims now only count when the run actually had a tool step or the request
+  asked for verification (`run/check/verify … tests/lint/build`, `跑测试`); an explanation or essay that
+  merely talks about tests stays `completed`.
+
+### 关于测试的文章不再被判成"未验证"（B299）
+
+- 真实 "write a 400-line essay about software testing" 运行被判
+  `Unverified: claimed checks passed, but no check was run: test`，原因只是文章里有一句
+  "The test passes…"。现在只有本次运行有工具步骤、或请求本身要求验证
+  （`run/check/verify … tests/lint/build`、`跑测试`）时才检测 check 声明；纯解释/文章保持 `completed`。
+
+### A hook ask's "this time" choice is labelled as such (B298)
+
+- The PreToolUse-hook confirmation relabels option 2 to "Yes, this time (the hook will ask again next
+  time)" and grants nothing, but the transcript row said `approval: yes (session)` — the opposite promise.
+  It now says `approval: yes (this time)`. The full flow was also verified for real: the dialog names the
+  hook file and reason, the same hook asks again on the next call, and denying it shows
+  `failed — Blocked by PreToolUse hook confirmation …` plus an honest `Incomplete: a safety check refused
+an action`.
+
+### hook 确认的"仅这一次"选项在回执里如实标注（B298）
+
+- PreToolUse hook 确认框把选项 2 改名为 "Yes, this time（该钩子下次仍会要求确认）" 且不授予任何持久权限，
+  但对话回执行却写 `approval: yes (session)`——语义相反。现在显示 `approval: yes (this time)`。完整流程也做了
+  真实复核：对话框给出 hook 文件与原因；同一 hook 下次仍会再问；拒绝时显示
+  `failed — Blocked by PreToolUse hook confirmation …` 与诚实的 `Incomplete: a safety check refused an action`。
+
+### The command reference documents the JSON schemas (B297)
+
+- `docs/cli-reference.md` now names the machine-readable shapes added this session: `sessions list/search`
+  (`moss_sessions_list.v1` / `moss_sessions_search.v1`), `skill list --json` (`moss_skill_list.v1`), and
+  `mcp/device list --json` (`moss_mcp_list.v1` / `moss_devices_list.v1`). `readme-parity` requires those
+  four schema names on the page, so a future “simplification” cannot silently drop the script contract.
+
+### 命令参考补上 JSON schema 说明（B297）
+
+- `docs/cli-reference.md` 现在写明本会话新增的机器可读形状：`sessions list/search`
+  （`moss_sessions_list.v1` / `moss_sessions_search.v1`）、`skill list --json`（`moss_skill_list.v1`）、
+  `mcp/device list --json`（`moss_mcp_list.v1` / `moss_devices_list.v1`）。`readme-parity` 要求该页出现这四个
+  schema 名，避免以后"简化"时静默丢掉脚本契约。
+
+### An empty `/compact` is one honest line (B295)
+
+- `/compact` on an empty conversation printed a three-line "not compacted / tokens after check: ~0 /
+  No context savings" report; it now says `Conversation is empty — nothing to compact yet.` A non-empty
+  conversation still gets the detailed no-savings report.
+
+### 空会话的 `/compact` 只给一行诚实结论（B295）
+
+- 空会话执行 `/compact` 原本打印三行"未压缩 / tokens after check: ~0 / 无节省空间"；现在只输出
+  `Conversation is empty — nothing to compact yet.`。非空会话仍保留详细报告。
+
+### `/permissions` stops describing confinement in full mode (B294)
+
+- The panel printed "workspace-write confines Moss's own file tools" under `mode full`, where the derived
+  safety mode is `full` — the current session looked confined when it was not. The two limitation lines now
+  appear only for modes that derive `workspace-write` (manual / acceptEdits / plan), and the no-rules line
+  names the current mode (`no rules — full decides` / `… plan decides`) instead of always saying "full".
+
+### `/permissions` 在 full 模式下不再描述沙箱限制（B294）
+
+- 面板在 `mode full` 下也打印 "workspace-write confines Moss's own file tools"，而 full 派生的安全模式是
+  `full`——当前会话看起来被限制了，其实没有。现在两行限制只在派生 `workspace-write` 的模式
+  （manual / acceptEdits / plan）显示；无规则行也改用当前模式名（`no rules — full decides` / `… plan decides`），
+  不再一律写 "full"。
+
+### Pluralization sweep: no literal `(s)` in skill/replay footers (B293)
+
+- `moss skill list` said `1 skill(s); catalog …` and a resume confirmation said `replayed 1 row(s)`; both now
+  inflect (`1 skill` / `N skills`, `1 row` / `N rows`). The lockfile messages (“N skill(s) match/drifted”) and
+  a dead `({count} skill(s) · load with the skill tool)` copy key were cleaned up in the same pass.
+
+### 复数化清理：技能/回放页脚不再出现字面 `(s)`（B293）
+
+- `moss skill list` 原本 `1 skill(s); catalog …`，恢复确认原本 `replayed 1 row(s)`；现在按数量变格
+  （`1 skill` / `N skills`，`1 row` / `N rows`）。同一轮还清理了 lockfile 文案（`N skill(s) match/drifted`）
+  与一条已无调用点的 `({count} skill(s) · load with the skill tool)` copy key。
+
+### `/agents` pluralizes its footer; agents/hooks counts agree across panels (B292)
+
+- The `/agents` footer said `1 file agent(s)`; it now says `1 file agent` / `N file agents`
+  (`tui-finish` asserts both forms, so a literal `(s)` cannot come back).
+- A fixture workspace also confirmed the "one story" property for these surfaces: `/agents` 1 = `/capabilities`
+  sub-agents 1, `/hooks` 2 = `/capabilities` hooks 2 (PreToolUse 1 · Stop 1).
+
+### `/agents` 页脚复数化；agents/hooks 计数跨面板一致（B292）
+
+- `/agents` 页脚原本是 `1 file agent(s)`；现在 `1 file agent` / `N file agents`（`tui-finish` 断言两种形式，
+  字面 `(s)` 不会回归）。
+- 夹具工作区同时验证了"单一故事"：`/agents` 1 = `/capabilities` sub-agents 1，`/hooks` 2 =
+  `/capabilities` hooks 2（PreToolUse 1 · Stop 1）。
+
+### `/capabilities` and `mcp list` resolve MCP servers the same way (B291)
+
+- A real session with the device host set showed `mcp: 1 — rdk-docs` in `moss mcp list` and `MCP: 0` in
+  `/capabilities`: the capability snapshot read the raw config files and never added the builtin rdk-docs.
+  Both now call `effectiveMcpConfigs` (the same opt-out / auto-connect / package-resolution rules), so the
+  server list of one session cannot disagree between surfaces.
+
+### `/capabilities` 与 `mcp list` 用同一套 MCP 解析（B291）
+
+- 真实会话里设置了 device host 时：`moss mcp list` 显示 `mcp: 1 — rdk-docs`，而 `/capabilities` 显示 `MCP: 0`；
+  能力快照只读原始配置文件，从不加入内建 rdk-docs。现在两者共用 `effectiveMcpConfigs`（同样的 opt-out /
+  自动连接 / 包解析规则），同一会话的服务列表不会在两个界面之间矛盾。
+
+### `/capabilities` counts the same skills the session loaded (B289/B290)
+
+- A real session showed `context: … 19 skills` on the first screen and `skills: 0` in `/capabilities`:
+  the capability snapshot had its own two-directory list and missed the `.agents/skills` / `.claude/skills`
+  conventions. All surfaces now share `defaultSkillDirSpecs` (runtime, `/skills`, `skill list`,
+  `skill validate`, `capabilities`), so the numbers cannot disagree.
+- With many skills the one-screen view printed every name; it now previews the first eight and says
+  `+N more` (real: `skills: 19 (workspace 0 · user 19) — …, +11 more`).
+
+### `/capabilities` 统计的技能与会话实际加载一致（B289/B290）
+
+- 真实会话首屏显示 `context: … 19 skills`，而 `/capabilities` 显示 `skills: 0`：能力快照自己维护两份目录，
+  漏掉了 `.agents/skills` / `.claude/skills` 约定。现在所有入口共用 `defaultSkillDirSpecs`
+  （runtime、`/skills`、`skill list`、`skill validate`、`capabilities`），数字不可能再互相矛盾。
+- 技能很多时一屏视图会打印全部名字；现在预览前 8 个并给出 `+N more`（真实：`skills: 19 (workspace 0 · user 19)
+— …, +11 more`）。
+
+### The deep gate's Windows leg proves what Windows supports (B288)
+
+- The nightly deep matrix ran the full behavior gate on Windows, which has been red since 2026-11-04
+  because several probes assume POSIX shells/PTYs (loop checks, hook fixtures, plugin path spellings).
+  While those are being ported, the Windows leg now runs the cross-platform subset the product actually
+  promises there — `static,build,smoke,examples` — and Linux/macOS keep the full gate. The CI design page
+  now matches reality (it still described the pre-probe "no behavior suite" state).
+
+### 夜间深门禁的 Windows leg 只证明 Windows 承诺的部分（B288）
+
+- 夜间矩阵此前在 Windows 上跑完整行为门禁，而多个探针假设 POSIX shell/PTY（loop 检查命令、hook 夹具、
+  插件路径写法），自 2026-11-04 起一直红。在移植完成前，Windows leg 改为跑该平台承诺的跨平台子集
+  `static,build,smoke,examples`；Linux/macOS 保持完整门禁。CI 设计文档也改成与现状一致（此前仍写着
+  "无行为测试"的旧状态）。
+
+### Windows: plugin records use `/`, hook fixtures avoid inline `-e` paths (B287)
+
+- `plugins list --json` reported drift paths as `.moss\skills\…` on Windows while the same pack is
+  `.moss/skills/…` everywhere else. Installed-file records and drift now normalize to `/` (fs access accepts
+  both), so CI reports and probes agree across OSes.
+- The skill-hooks probe wrote its PostToolUse marker through `node -e "…'${marker}'…"`; on Windows the
+  path's backslashes are parsed as JS escapes, so the hook silently did nothing. The probe now points the
+  hook at a tiny script file instead.
+
+### Windows：插件记录统一 `/`，hook 夹具不再用内联 `-e` 路径（B287）
+
+- Windows 上 `plugins list --json` 的漂移路径是 `.moss\skills\…`，而同一包在其它平台是 `.moss/skills/…`。
+  安装记录与漂移现在统一 `/`（文件系统两种分隔符都接受），CI 报告与探针跨平台一致。
+- skill-hooks 探针通过 `node -e "…'${marker}'…"` 写 PostToolUse 标记；Windows 上路径反斜杠被当作 JS 转义，
+  hook 静默失败。探针现在改为让 hook 执行一个小脚本文件。
+
+### Deep-gate probes speak the platform shell on Windows (B286)
+
+- `loop-command` used POSIX `[ -f flag ]` / `>&2` check commands, which can never pass through `cmd.exe`,
+  so the nightly Windows leg reported exit 1 where 0 was expected. The probe now builds cmd-compatible
+  check commands on win32 (`if exist … (exit /b …)`, `echo boom 1>&2 & exit /b 7`), and the
+  failure-message assertion matches the check text without hard-coding the POSIX spelling.
+
+### 深门禁探针在 Windows 上说平台 shell（B286）
+
+- `loop-command` 使用 POSIX 的 `[ -f flag ]` / `>&2` 检查命令，经 `cmd.exe` 永远无法通过，夜间 Windows leg
+  因此报"期望 0 实际 1"。探针现在在 win32 构造 cmd 兼容命令（`if exist … (exit /b …)`、`echo boom 1>&2 & exit /b 7`）。
+
+### Transcript tool labels use `/` on every platform (B285)
+
+- On Windows a file tool row read `Read(src\a.ts)` while every doc, path argument and shortcut around it
+  uses `/` — and the probe that guards labels failed the nightly Windows leg on exactly that. `toolLabel`'s
+  path compaction now renders display paths with `/` (relative, `~/…`, and absolute), so the transcript reads
+  the same everywhere; the actual filesystem path is untouched.
+
+### 各平台的 transcript 工具标题统一用 `/`（B285）
+
+- Windows 上文件工具行显示 `Read(src\a.ts)`，而文档、参数和快捷键都用 `/`；守卫标题的探针正是因此在
+  夜间 Windows leg 失败。`toolLabel` 的路径压缩现在统一以 `/` 渲染（相对路径、`~/…`、绝对路径），
+  真实文件系统路径不受影响。
+
+### The deep gate's Windows leg can pass again (B284)
+
+- `Deep verification` had been red on every nightly since 2026-11-04: the clipboard probe asserted a POSIX
+  `file:///tmp/…` URL resolves to `/tmp/…` on Windows, where `fileURLToPath` correctly returns null (that URL
+  has no drive). The probe now builds the platform's own URL/expected pair (`file:///C:/tmp/…` →
+  `C:\tmp\…` on win32), so the nightly cross-platform evidence is meaningful again instead of a known red.
+
+### 夜间深门禁的 Windows leg 可以重新变绿（B284）
+
+- `Deep verification` 自 2026-11-04 起每晚都失败：clipboard 探针在 Windows 上断言 POSIX 风格
+  `file:///tmp/…` 会解析成 `/tmp/…`，而 `fileURLToPath` 在 Windows 上正确返回 null（该 URL 没有盘符）。
+  探针现在按平台构造 URL/期望值（win32：`file:///C:/tmp/…` → `C:\tmp\…`），夜间跨平台证据重新有意义。
+
+### "Unprobed window" copy stops calling an over-estimate conservative (B283)
+
+- `doctor` said "using conservative default of 1M tokens" and `/context` said "conservative 1,000k default" while
+  the constant is deliberately an over-estimate (real windows may be smaller). Both now say
+  `assuming 1M tokens (the real window may be smaller)` / `assuming 1M default (may be smaller; /model probes
+the real value)`, and the `/context` note formats 1000k as `1M`. The constant's docstring and neighbouring
+  comments were rewritten to match what the code actually does.
+
+### "未探测窗口"文案不再把高估值说成保守值（B283）
+
+- `doctor` 写"using conservative default of 1M tokens"，`/context` 写"conservative 1,000k default"，但这个常量
+  是有意的高估（真实窗口可能更小）。现在改成 `assuming 1M tokens (the real window may be smaller)` /
+  `assuming 1M default (may be smaller; /model probes the real value)`，`/context` 把 1000k 格式化为 `1M`；
+  常量的 docstring 与相邻注释也改成与实现一致。
+
+### `runs follow` says what it is waiting for (B282)
+
+- With no run in flight, `moss runs follow` sat silent for the whole timeout (10m by default) and then
+  exited 1. It now prints `no run in progress — waiting for a new one (Ctrl+C to stop)` on the first poll,
+  so a user knows the command is alive and what would show up.
+
+### `runs follow` 会说明自己在等什么（B282）
+
+- 没有进行中运行时，`moss runs follow` 会静默等到超时（默认 10m）再 exit 1。现在首次轮询就打印
+  `no run in progress — waiting for a new one (Ctrl+C to stop)`，用户知道命令还活着、在等什么。
+
+### A `--accept` command that can never pass is refused up front (B281)
+
+- A real probe (`--accept false`) burned 16 attempts and 2.7M input tokens before reporting the obvious
+  failure. `moss task run` and `moss task resume` now reject `false` / `/bin/false` / `exit 1…` before the
+  first model turn: `acceptance command "false" can never exit 0, so the run can never pass.` exit 2 in
+  under a second (nothing spent); `--accept true` is still allowed for smoke runs.
+- B280 evidence: a real failed task resumed with `task resume latest --accept true` →
+  `Resumed — resumed by user` / `Acceptance command updated — true` / `Acceptance passed`, exit 0, no
+  execution turns.
+
+### 不可能通过的 `--accept` 命令在开跑前被拒绝（B281）
+
+- 真实探针（`--accept false`）烧掉 16 次尝试、2.7M input tokens 才报告显然的失败。现在 `moss task run` /
+  `moss task resume` 在第一个模型回合前拒绝 `false` / `/bin/false` / `exit 1…`：
+  `acceptance command "false" can never exit 0, so the run can never pass.`，1 秒内 exit 2、零消耗；
+  `--accept true` 仍允许用于 smoke。
+- B280 证据补充：真实失败任务 `task resume latest --accept true` → `Resumed — resumed by user` /
+  `Acceptance command updated — true` / `Acceptance passed`，exit 0，无执行回合。
+
+### `moss task resume` / `verify` accept `latest` (B280)
+
+- Every other task read path took `latest`, and `moss goal --resume` already meant "newest resumable";
+  `task resume` demanded an id and `task verify latest` would have treated `latest` as a task id. `resume`
+  with no id (or `latest`) now picks the newest resumable task, and an empty workspace explains itself
+  instead of printing usage. `verify latest` verifies the newest task.
+
+### `moss task resume` / `verify` 接受 `latest`（B280）
+
+- 其他 task 读路径都接受 `latest`，`moss goal --resume` 也早已表示"最新可恢复"；但 `task resume` 强制要 id，
+  `task verify latest` 会把 `latest` 当 task id。现在 `resume` 不带 id（或 `latest`）取最新可恢复任务，空工作区
+  给出解释而非 usage；`verify latest` 复验最新任务。
+
+### The resume confirmation names the session (B279)
+
+- A resumed boot said `resumed cli-20261107052804-4430c33c — replayed 3 row(s)`: honest, but a key says
+  nothing about what came back. The notice now uses the session title when one is known
+  (`resumed “Run node --test, then rewrite…” — replayed 3 row(s)`, 48-char cap), falls back to the key when
+  it is not, and the picker's resume path uses the same helper (it printed `rows` instead of `row(s)`).
+
+### 恢复确认会指出会话标题（B279）
+
+- 恢复启动原本显示 `resumed cli-20261107052804-4430c33c — replayed 3 row(s)`：诚实，但 key 看不出恢复了什么。
+  现在已知标题时显示 `resumed “Run node --test, then rewrite…” — replayed 3 row(s)`（48 字符上限），
+  不知道时回退 key；picker 的恢复路径共用同一 helper（此前打印 `rows` 而非 `row(s)`）。
+
+### `moss mcp list --json` and `moss device list --json` (B278)
+
+- The JSON sweep finished: the two remaining list commands printed only tables. `mcp list --json` emits
+  `moss_mcp_list.v1` (`{servers:[{name,transport,command|url}],inactive}` — routing fields only, because
+  server env blocks can hold tokens), and `device list --json` emits `moss_devices_list.v1`
+  (`{env,devices:[{id,user,host,port,kind,auth}]}`). Both forward the parser-stripped global `--json`.
+
+### `moss mcp list --json` 与 `moss device list --json`（B278）
+
+- JSON 扫描收尾：最后两个列表命令只看表格。`mcp list --json` 输出 `moss_mcp_list.v1`
+  （`{servers:[{name,transport,command|url}],inactive}`，只给路由字段，因为 server env 可能含 token）；
+  `device list --json` 输出 `moss_devices_list.v1`（`{env,devices:[{id,user,host,port,kind,auth}]}`）。
+  两者都显式转发被解析器剥离的全局 `--json`。
+
+### `moss sessions list/search --json` (B277)
+
+- A JSON sweep of the read commands found `sessions list`/`sessions search` printing tables even with
+  `--json` (the global flag is stripped by the arg parser before the dispatcher runs). They now emit
+  `moss_sessions_list.v1` (`{sessions:[{key,messageCount,updatedAt,title}],total,shown}`) and
+  `moss_sessions_search.v1` (`{query,hits:[{key,messageCount,updatedAt,snippet}]}`), including an empty
+  array on a workspace with no sessions; the human tables are unchanged.
+
+### `moss sessions list/search --json`（B277）
+
+- 只读命令的 JSON 扫描发现 `sessions list` / `sessions search` 即使带 `--json` 也打印表格（全局 flag 在
+  dispatcher 前被参数解析器剥离）。现在输出 `moss_sessions_list.v1`（`{sessions,…}`）与
+  `moss_sessions_search.v1`（`{query,hits:[…]}`），空工作区返回空数组；人类表格不变。
+
+### `moss skill list --json` (B276)
+
+- Scripts had no machine-readable skill list; the table was the only output. `moss skill list --json`
+  now emits `{schema:"moss_skill_list.v1", rows:[{name,scope,used,catalogChars,modelInvocable,evals,
+description,issues}], summary:{count,catalogChars,budgetChars,strategy,uncappedChars}}` from the same
+  `loadSkillListData` the table renders (so row counts and catalog cost cannot disagree). The global
+  `--json` is stripped by the arg parser, so the dispatcher forwards it explicitly.
+
+### `moss skill list --json`（B276）
+
+- 脚本没有机器可读的技能列表，只有表格。`moss skill list --json` 现在输出
+  `{schema:"moss_skill_list.v1", rows:[...], summary:{...}}`，与表格共用 `loadSkillListData`
+  （行数与目录成本不会互相矛盾）。全局 `--json` 会被参数解析器提前剥离，因此 dispatcher 显式转发。
+
+### `moss skill list` keeps each skill on one readable row (B275)
+
+- The human table printed the full description line, so one skill with a 300-char description turned
+  into a paragraph. It now uses the same compact description as the TUI `/skills` panel (72 chars);
+  the catalog-cost/usage numbers are unchanged.
+
+### `moss skill list` 每个技能保持一行可读（B275）
+
+- 人类可读表格会打印完整描述行，一条 300 字符的描述变成一整段。现在与 TUI `/skills` 面板共用
+  compact 描述（72 字符）；目录成本/使用次数等列不变。
+
+### A successful steer says "steered"; revising an answer prints only the delta (B273/B274)
+
+- Typing during a run showed `queued: 2 — applies at the next step` even when the instruction was
+  **steered** into the live turn — "queued" describes the other path. Steered instructions now read
+  `steered: <text> — applies at the next step`.
+- A real follow-up ("make the ending focus on integration tests") reprinted a 120-line essay verbatim
+  (7.6k output tokens). The communication contract now says: when asked to revise an earlier answer,
+  apply the change and state only what changed. Real re-run printed the three changed lines and nothing
+  else (727 output tokens vs reprinting the whole essay).
+
+### 成功 steer 显示 steered；改答案只给增量（B273/B274）
+
+- 运行中输入消息即使成功 **steer** 也显示 `queued: 2 — applies at the next step`——"queued" 是另一条路径。
+  现在显示 `steered: <text> — applies at the next step`。
+- 真实后续请求（"make the ending focus on integration tests"）把 120 行文章整篇重印（7.6k output tokens）。
+  通信契约新增：被要求修改先前答案时只应用变化并说明改了什么。真实复跑只打印改动的三行（727 tokens）。
+
+### The full help names the subcommands that exist (B271)
+
+- `moss --help --all` said `runs list|show|prune` while `export`/`follow`/`summary` shipped, listed
+  `artifacts` as a `task` subcommand (it is its own row), and named `device add|list|remove|test` without
+  `fleet` or `skill create|list` without `install|update`. Both locales now match the dispatcher, and
+  `help-surface` pins the two lists (`list|show|export|follow|summary|prune`,
+  `run|resume|status|timeline`) plus the retirement of the old `status|timeline|artifacts` row.
+
+### 完整帮助列出真实存在的子命令（B271）
+
+- `moss --help --all` 写着 `runs list|show|prune`，但 export/follow/summary 已发布；把 `artifacts` 当成
+  `task` 的子命令（其实有独立行）；`device` 缺 `fleet`、`skill` 缺 `install|update`。中英两版现在与 dispatcher
+  一致，`help-surface` 锁定两组子命令列表与旧 `status|timeline|artifacts` 行的退役。
+
+### The README's probe count is accurate and guarded (B270)
+
+- The quality section said "90+ re-runnable probes" while the gate now carries 106 stage files; both
+  READMEs say 100+, and `readme-parity` parses the claim and compares it with the real count under
+  `scripts/verify/stages/` so the number cannot drift ahead of the gate.
+
+### README 的探针数量准确且有守卫（B270）
+
+- 质量段落写"90+ 个可复跑的探针"，而门禁现在有 106 个 stage 文件；两版 README 改为 100+，
+  `readme-parity` 会解析这个数字并与 `scripts/verify/stages/` 的真实数量比较，数字不能超前于门禁。
+
+### The install page's proxy troubleshooting is self-contained (B269)
+
+- The proxy section sent users to internal backlog item `O87` for "CONNECT works but the answer fails" and
+  described a ticket as the fix. It now gives a three-step diagnosis (compare with `MOSS_NO_RDK_DOCS=1`,
+  check provider/model/baseUrl with `moss doctor`, then proxy/gateway streaming + an A/B endpoint), with
+  no internal ids. `readme-parity` also guards `docs/install.md` against citing `O##` ids.
+
+### 安装页的代理排查不再依赖内部工单（B269）
+
+- 代理小节把"CONNECT 成功但拿不到回答"指向内部 backlog `O87`，并把工单当成修复。现在给出三步排查
+  （用 `MOSS_NO_RDK_DOCS=1` 对照、`moss doctor` 核对 provider/model/baseUrl、检查代理/网关的流式与超时并做端点
+  A/B），不再出现内部编号。`readme-parity` 同时守卫 `docs/install.md` 不得引用 `O##`。
+
+### Doctor copy no longer cites internal ticket ids (B268)
+
+- The gateway reachability line told users to "see O87 if CONNECT succeeds" and the no-response line said
+  "(O87 tracks CONNECT-without-answer)" — an internal backlog id in user-facing output. Both now say what
+  to do (check provider logs / gate settings; CONNECT alone is not enough), and `readme-parity` scans
+  `src/cli` for `see O##` / `O## tracks` in code (comments may keep ids) so it cannot come back.
+
+### doctor 文案不再引用内部工单号（B268）
+
+- 网关可达性一行让用户 "see O87 if CONNECT succeeds"，无响应一行写 "(O87 tracks CONNECT-without-answer)"——
+  用户可见输出里出现了内部 backlog 编号。现在改为可执行建议（查 provider 日志/门禁设置；CONNECT 本身不够），
+  并且 `readme-parity` 会扫描 `src/cli` 代码中的 `see O##` / `O## tracks`（注释可保留编号）防止回归。
+
+### `docs/cli-reference.md` matches the shipped command surface again (B267)
+
+- The page README defers to as the authoritative command reference had drifted: no `loop` / `workflow` /
+  `review` / `remember` / `plugins` / `superagent` rows, a `runs` cell broken by an unescaped `|`, and a
+  flags table missing `--plan`, `--session/--last`, `--add-dir`, `--allowed-tools` and `--mock`.
+- The command table is rewritten from `moss --help --all` (grouped rows, `latest` read paths, `--out=-`),
+  the slash-command paragraph names the current set, and `readme-parity` now guards the page: required
+  commands must stay listed and every table row must have 2–3 cells.
+
+### `docs/cli-reference.md` 重新与实现对齐（B267）
+
+- README 指定的权威命令参考页已过时：缺少 `loop` / `workflow` / `review` / `remember` / `plugins` /
+  `superagent`，`runs` 单元格被未转义的 `|` 截断，flags 表缺少 `--plan`、`--session/--last`、`--add-dir`、
+  `--allowed-tools`、`--mock`。
+- 命令表按 `moss --help --all` 重写（分组行、`latest` 读路径、`--out=-`），斜杠命令段落更新，
+  `readme-parity` 新增守卫：必需命令必须在列、每个表格行 2–3 个单元格。
+
+### `moss artifacts failures` names its columns (B265)
+
+- Failures printed as three anonymous columns (`task_id  stage  symptom`) while evidence/acceptance had
+  headers. The kind now prints `TASK ID  STAGE  SYMPTOM` with a rule and aligned rows (empty state
+  unchanged).
+
+### `moss artifacts failures` 带表头（B265）
+
+- 失败记录原本是三列匿名文本（`task_id  stage  symptom`），而 evidence/acceptance 都有表头。现在输出
+  `TASK ID  STAGE  SYMPTOM` + 分隔线与对齐行（空态不变）。
+
+### A resumed boot confirms the replay, and `/init` stops looking padded (B264)
+
+- `moss --continue` replayed rows but the `[session] Resuming session:` line scrolled away; the replay now
+  ends with one dim line (`resumed <key> — replayed N row(s)`), matching the picker's confirmation.
+- The zh `/init` next-step read `/init （检测项目…）` with a padded gap before a full-width paren; it is now
+  one space in both locales.
+
+### 恢复启动会确认回放，`/init` 不再显得有多余空格（B264）
+
+- `moss --continue` 回放了历史行，但顶部的 `[session] Resuming session:` 早已滚走；现在回放末尾有一行
+  `resumed <key> — replayed N row(s)` 确认（与 picker 恢复的提示一致）。
+- 中文 `/init` 下一步原本是 `/init （检测项目…）`，全角括号前有多余间隔；现在中英都用一个空格。
+
+### The first screen has one next step, not two (B263)
+
+- A fresh boot with an earlier session showed both `Next: /init …` and `previous session: … restart
+with moss --continue` — two different actions competing (and the hint wrapped to three lines at 60
+  columns). When an earlier session exists, its resume hint (now one short line: `previous session: <title>
+(N messages) · moss --continue`) is the single next step; the generic `Next:` row is only shown when
+  there is nothing to continue.
+
+### 首屏只保留一个"下一步"（B263）
+
+- 有旧会话的新启动会同时显示 `Next: /init …` 与 `previous session: … restart with moss --continue`，
+  两个不同的下一步互相竞争（60 列下提示还会折成三行）。现在有旧会话时只显示一行短提示
+  （`previous session: <title> (N messages) · moss --continue`），没有可续会话时才显示通用 `Next:` 行。
+
+### A short terminal keeps result previews to one or two lines (B262)
+
+- At rows < 20 a five-line tool result left almost no conversation on screen. Result previews now keep one
+  line on success and two on failure (inline and fullscreen renderers both get the narrow flag); the hidden
+  remainder stays behind `ctrl+o`. Writes/patches keep their larger window because the source dump is the
+  point of those rows.
+
+### 短终端把工具结果压到一行或两行（B262）
+
+- 行数 < 20 时，五行工具结果几乎不留对话空间。现在结果预览成功 1 行、失败 2 行（inline 与 fullscreen
+  渲染器都收到 narrow 标记），其余仍在 `ctrl+o` 后；写文件/补丁保持较大窗口（源码本身就是要看的内容）。
+
+### A narrow status bar shows the directory name; the Chinese full-mode label stops doubling (B261)
+
+- At 60 columns the bar printed a mid-truncated path (`…vate/tmp/ux4-ws (main)`). Below 80 columns it now
+  shows the directory name (`ux4-ws (main)`); wide windows keep the full path.
+- `⏵⏵ 完全访问已开启` doubled the mode and its state; the zh full-mode label is now just `⏵⏵ 完全访问`.
+
+### 窄窗状态栏显示目录名；中文全模式标签不再叠词（B261）
+
+- 60 列时状态栏把路径中截断成 `…vate/tmp/ux4-ws (main)`。现在宽度小于 80 时显示目录名（`ux4-ws (main)`），宽窗保留完整路径。
+- `⏵⏵ 完全访问已开启` 是模式与状态叠词；中文全模式标签改为 `⏵⏵ 完全访问`。
+
+### Failed runs say failed, name the endpoint, and folded narration says ctrl+o (B259)
+
+- A network failure showed `Could not connect…` with no endpoint and closed with `✻ worked for 1s` — the
+  opposite of what happened. The error row now appends the provider base URL when the classifier's text
+  cannot name it, and the run summary says `✻ failed after Ns`. Folded narration lines that get truncated
+  now end with `· ctrl+o` (a bare `…` read as an unfinished sentence with no way to open it).
+
+### 失败运行说 failed、给出 endpoint，折叠叙述提示 ctrl+o（B259）
+
+- 网关不可达时错误行只有 `Could not connect…`（没有 endpoint），收尾却是 `✻ worked for 1s`——与事实相反。
+  现在错误行在分类文案无法给出地址时追加 provider base URL，运行收尾显示 `✻ failed after Ns`；
+  被截断的折叠叙述行以 `· ctrl+o` 结尾（此前只有 `…`，像没说完又没有展开入口）。
+
+### Ledger advice is not a command: Next/composer fall back to the ledger (B260)
+
+- An incomplete chat run records advice (`finish the work, then re-run`) as its `next`; the first screen
+  printed it as `Next: …` and the composer offered `Resume with finish the work, then re-run`. Both now
+  require a runnable command (`moss …` or `/…`); prose advice stays on the last-run line and the next step
+  falls back to `/runs` (interactive) or `moss runs`.
+
+### 账本里的建议不是命令：Next/占位符回退到账本（B260）
+
+- 未完成的 chat 运行会把建议（`finish the work, then re-run`）写进 `next`；首屏把它当命令显示为 `Next: …`，
+  占位符还提示 `Resume with finish the work, then re-run`。现在两者都要求可执行命令（`moss …` 或 `/…`）；
+  建议文案留在 last-run 行，下一步回退为 `/runs`（交互）或 `moss runs`。
+
+### Nudges decide on the user's words, not the injected context (B258)
+
+- The 4th read-only audit showed an ordinary "run the tests and tell me the result in one line" answered in
+  Chinese about `SPEC-AUDIT` and derailing, plus 5–6 near-duplicate answer blocks for a one-character fix.
+  Root cause: `selectNudgeUserText` matched triggers against the stored user turn **including the injected
+  `<turn-context>`** — whose skill catalog contains "spec"/"requirements" — so the spec-audit nudge (and
+  length-based nudges) fired on nearly every request, buying hidden turns the user never saw. Nudges now
+  see only the user's own words (turn-context stripped and whitespace collapsed).
+- Same-workspace real re-run: the tests prompt got one short English answer about the actual result (no
+  SPEC-AUDIT text, no derail); the fix prompt ended with 2 blocks instead of 5–6.
+
+### nudge 只看用户自己的话，不看注入的上下文（B258）
+
+- 第四轮审计里，普通的 "run the tests and tell me the result in one line" 被用中文回答成 SPEC-AUDIT 内容，且
+  一个字符的修复出现 5–6 个近似重复的回答块。根因：`selectNudgeUserText` 用**包含注入 `<turn-context>`** 的
+  存储用户回合匹配触发器——而技能目录里含 "spec"/"requirements"——导致 spec-audit nudge 与长度类 nudge 几乎每次
+  都触发，买来用户看不见的隐藏回合。现在 nudge 只看用户自己的话（剥离 turn-context 并压缩空白）。
+- 同工作区真实复跑：测试问题得到一句英文结果回答（无 SPEC-AUDIT、无跑题）；修复问题结尾 2 个块而不是 5–6 个。
+
+### Undo says when the scrollback above is stale (B257)
+
+- A real `/undo` restored the file and dropped 8 messages, but the rows above stayed on screen (terminal
+  scrollback cannot be retracted), so the dropped turns looked like they were still in context. When a
+  rewind drops conversation turns, the result now adds one dim line:
+  `earlier turns stay as scrollback; they are no longer in the conversation`.
+
+### `/undo` 会说明上方滚动区已不在上下文（B257）
+
+- 真实 `/undo` 恢复了文件并丢弃 8 条消息，但屏幕上方那些行仍在（终端滚动区无法撤回），看起来像它们还在上下文里。
+  现在当 rewind 丢弃对话回合时，结果会多一行 dim：
+  `earlier turns stay as scrollback; they are no longer in the conversation`。
+
+### The resume picker says it is loading instead of "no matching session" (B256)
+
+- `moss resume` lists sessions asynchronously, so the picker's first frames said `no matching session`
+  before the list arrived — it read like an empty workspace. The picker now opens in a loading state and
+  shows `loading sessions…` until the list lands (and the loading flag is set on the first render, not
+  after the first effect).
+
+### 恢复选择器先显示"加载中"，不再短暂说没有会话（B256）
+
+- `moss resume` 异步加载会话列表，选择器前几帧会显示 `no matching session`，看起来像工作区没有会话。
+  现在选择器以 loading 状态打开，列表到达前显示 `loading sessions…`；loading 标记在首帧渲染前就设置，
+  不再先闪一帧空列表。
+
+### Export message counts match what is written (B255)
+
+- After B252 the markdown header counted only exportable messages, but the success line still counted raw
+  stored messages, so `sessions export` said `(15 message(s))` above a file saying `_11 message(s)_`.
+  Both `/export` and `sessions export` now report the same count the file contains
+  (`countExportableSessionMessages`).
+
+### 导出条数与实际写入一致（B255）
+
+- B252 之后 markdown 头部只计可导出消息，但成功提示仍计原始存储消息，于是 `sessions export` 打印
+  `(15 message(s))` 而文件头写 `_11 message(s)_`。现在 `/export` 与 `sessions export` 都用
+  `countExportableSessionMessages`，提示与文件一致。
+
 ### `moss task status|timeline latest` works like the other read paths (B253)
 
 - `moss task status latest` and `moss task timeline latest` answered "No tasks in this workspace" even

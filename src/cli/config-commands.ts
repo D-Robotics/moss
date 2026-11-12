@@ -25,6 +25,7 @@ import {
   type ConfigFile,
   parseReasoningBudget,
   REASONING_BUDGET_VALUES,
+  safeProcessCwd,
 } from './config.js';
 import { errorMessage } from '../errors.js';
 import { isZhLocale, parseLanguageSetting, uiText } from './cli-locale.js';
@@ -33,6 +34,23 @@ import { withoutSecret } from './config-snapshot.js';
 import { parsePermissionRuleSpec } from './permission-rules.js';
 import { parseCliInteractionMode } from './interaction-mode.js';
 import { untrustedFolderLine } from './workspace-trust.js';
+
+/**
+ * B314: `moss auth status --json` — the same resolved facts the human status
+ * prints, shaped for scripts (no secret: apiKeyConfigured only).
+ */
+export function renderAuthStatusJson(
+  env: NodeJS.ProcessEnv = process.env,
+  startDir = safeProcessCwd()
+): string {
+  const loaded = loadCliConfigFile(env, process.argv.slice(2), startDir);
+  const resolved = resolveCliConfig(env, loaded?.config, {}, loaded);
+  return `${JSON.stringify(
+    { ...serializeResolvedConfig(resolved), schema: 'moss_auth_status.v1' },
+    null,
+    2
+  )}\n`;
+}
 
 function serializeResolvedConfig(
   resolved: ReturnType<typeof resolveCliConfig>
@@ -272,7 +290,13 @@ export function renderConfigJson(
   const loaded =
     config === undefined ? loadCliConfigFile(env, process.argv.slice(2), startDir) : undefined;
   const resolved = resolveCliConfig(env, config ?? loaded?.config, overrides, loaded);
-  return JSON.stringify(serializeResolvedConfig(resolved), null, 2);
+  const out = serializeResolvedConfig(resolved);
+  // B352: pricing is a config-file surface (merged user+project), not part of
+  // the resolved CLI scalars; without this `config show --json` omitted a key
+  // that `config set` accepts.
+  const pricing = (config ?? loaded?.config)?.pricing;
+  if (pricing && Object.keys(pricing.models ?? {}).length > 0) out.pricing = pricing;
+  return JSON.stringify(out, null, 2);
 }
 
 /** Short usage — printed on error paths; points at `moss config --help`. */
@@ -411,7 +435,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_REVIEW_MODE (off|manual|auto; overrides config review.mode)',
       'MOSS_VERIFICATION_GATE (0|false|off disables the L1 completion gate)',
       'MOSS_OUTPUT_STYLE (default|explanatory|learning; changes voice, not the engineering rules)',
-      'MOSS_REASONING_BUDGET (off|adaptive|high; overrides config agent.reasoningBudget)',
+      'MOSS_REASONING_BUDGET (off|adaptive|high|max; overrides config agent.reasoningBudget)',
       'MOSS_MODEL_BALANCED',
       'MOSS_MODEL_CHEAP',
       'MOSS_MODEL_STRONG',
@@ -512,8 +536,8 @@ const ENV_GROUP_ZH: Record<string, string> = {
 
 const ENV_NOTE_ZH: Record<string, string> = {
   'internal worker credential forwarding; never persisted': '内部执行进程的凭据传递；不持久化',
-  'off|adaptive|high; overrides config agent.reasoningBudget':
-    'off|adaptive|high；优先于配置 agent.reasoningBudget',
+  'off|adaptive|high|max; overrides config agent.reasoningBudget':
+    'off|adaptive|high|max；优先于配置 agent.reasoningBudget',
   'process env only; a project .env cannot set this': '仅进程环境；项目 .env 不能设置',
   'process env or --config-file; a project .env cannot set this':
     '进程环境或 --config-file；项目 .env 不能设置',
@@ -609,6 +633,7 @@ export function renderConfigHelp(zh = false): string {
     '  moss config validate [--strict] [--json]',
     '  moss config set <provider|model|baseUrl|apiKey|apiKeyEnv> <value>              # model',
     '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|agent.*> <value>   # operational',
+    '  moss config set pricing.models.<model>.<input|output|cached|cacheWrite|currency> <value>   # cost display',
     '  moss config set <key>=<value> [<key>=<value>...]                               # batch',
     '  moss config set --project <key>=<value> [<key>=<value>...]',
     '  moss config set --project <key> <value>',
@@ -627,6 +652,7 @@ export function renderConfigHelp(zh = false): string {
     '  moss config init --project',
     '  moss config validate --strict',
     '  moss config set profile autonomous',
+    '  moss config set pricing.models.deepseek-flash@latest.input 0.14',
     '  moss config set provider openai-compatible',
     '  moss config set model <your-model>',
     '  moss config set baseUrl https://your-gateway.example   # /v1 is optional (https://host/v1 also works); /chat/completions is not needed',
@@ -643,7 +669,7 @@ export function renderConfigHelp(zh = false): string {
     '  # (default true). false makes read_image explain the limitation instead of',
     '  # attaching an image the provider would drop or reject.',
     '  moss config set agent.supportsImages false',
-    '  # agent.reasoningBudget — Moss adaptive-reasoning knob (off|adaptive|high).',
+    '  # agent.reasoningBudget — Moss adaptive-reasoning knob (off|adaptive|high|max).',
     '  # high forces reasoning=high on outbound calls; adaptive may escalate to high under',
     "  # verify/turn-error pressure; off means do NOT escalate (keeps the model's own",
     '  # reasoning level — it does not disable provider-native thinking).',
@@ -988,8 +1014,8 @@ function buildProjectConfigTemplate(): ConfigFile {
 
 function supportedConfigKeys(): string {
   return uiText(
-    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, permissions.osSandbox, outputStyle, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.supportsImages, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
-    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、outputStyle、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.supportsImages、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
+    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, permissions.osSandbox, outputStyle, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.supportsImages, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language; pricing (per 1M tokens): pricing.models.<model>.input, .output, .cached, .cacheWrite, .currency (USD|CNY)',
+    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、outputStyle、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.supportsImages、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language；价格（每百万 token）：pricing.models.<模型>.input、.output、.cached、.cacheWrite、.currency（USD|CNY）'
   );
 }
 
@@ -1428,6 +1454,46 @@ function applyConfigSetPair(
     } else {
       next.agent.compaction = { ...next.agent.compaction, keepRecentTokens: parsed.value };
     }
+  } else if (key.startsWith('pricing.models.')) {
+    // B347: `/usage` told people to set `pricing.models[...]`, but config set
+    // rejected the key — the hint was not actionable.
+    const rest = key.slice('pricing.models.'.length);
+    const dot = rest.lastIndexOf('.');
+    const model = dot > 0 ? rest.slice(0, dot) : '';
+    const field = dot > 0 ? rest.slice(dot + 1) : '';
+    const fields = new Set(['input', 'output', 'cached', 'cacheWrite', 'currency']);
+    if (!model || !fields.has(field)) {
+      return { ok: false, messages: [supportedConfigKeys(), configHelpHint()] };
+    }
+    const models = { ...(next.pricing?.models ?? {}) };
+    const entry = { ...(models[model] ?? {}) };
+    let amount = 0;
+    if (field === 'currency') {
+      const currency = value.trim().toUpperCase();
+      if (currency !== 'USD' && currency !== 'CNY') {
+        return { ok: false, messages: ['Supported pricing currency values: USD, CNY'] };
+      }
+      entry.currency = currency;
+    } else {
+      amount = Number(value.trim());
+      if (!Number.isFinite(amount) || amount < 0) {
+        return {
+          ok: false,
+          messages: [`${key} must be a non-negative number of currency units per 1M tokens`],
+        };
+      }
+      if (field === 'input') entry.input = amount;
+      else if (field === 'output') entry.output = amount;
+      else if (field === 'cached') entry.cached = amount;
+      else entry.cacheWrite = amount;
+    }
+    models[model] = entry;
+    next.pricing = { ...(next.pricing ?? {}), models };
+    messages.push(
+      `[config] pricing for ${model}: ${field} = ${
+        field === 'currency' ? String(entry.currency ?? '') : `${String(amount)} (per 1M tokens)`
+      }`
+    );
   } else {
     return {
       ok: false,
@@ -1650,6 +1716,31 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   } else if (key === 'agent.compaction.keepRecentTokens') {
     next.agent = { ...current.agent, compaction: { ...current.agent?.compaction } };
     delete next.agent.compaction?.keepRecentTokens;
+  } else if (key === 'pricing') {
+    delete next.pricing;
+  } else if (key.startsWith('pricing.models.')) {
+    // B348: a key you can set must be removable — `unset` rejected pricing and
+    // forced hand-editing the config file.
+    const rest = key.slice('pricing.models.'.length);
+    const dot = rest.lastIndexOf('.');
+    const model = rest === '' ? '' : dot > 0 ? rest.slice(0, dot) : rest;
+    const field = dot > 0 ? rest.slice(dot + 1) : '';
+    const models = { ...(current.pricing?.models ?? {}) };
+    const entry = model ? { ...(models[model] ?? {}) } : undefined;
+    if (!model || !entry || (field !== '' && !(field in entry))) {
+      print(supportedConfigKeys());
+      print(configHelpHint());
+      process.exitCode = 1;
+      return;
+    }
+    if (field === '') delete models[model];
+    else {
+      delete entry[field as keyof typeof entry];
+      if (Object.keys(entry).length === 0) delete models[model];
+      else models[model] = entry;
+    }
+    if (Object.keys(models).length === 0) delete next.pricing;
+    else next.pricing = { ...current.pricing, models };
   } else {
     print(supportedConfigKeys());
     print(configHelpHint());

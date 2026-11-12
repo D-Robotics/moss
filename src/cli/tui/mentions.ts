@@ -8,6 +8,7 @@
  * thousand entries.
  */
 import fs from 'node:fs';
+import { tui } from './copy.js';
 import path from 'node:path';
 
 import { clip, displayWidth, line, padEndTo, type TuiLine } from './text.js';
@@ -207,7 +208,7 @@ export function renderMentionMenu(
       48,
       entries.reduce((widest, entry) => Math.max(widest, displayWidth(entry.path)), 0) + 2
     ) || 2;
-  return entries.map((entry, index) => {
+  const rows = entries.map((entry, index) => {
     const marker = index === selected ? '❯ ' : '  ';
     const kind = entry.directory ? 'dir' : 'file';
     const text = `${marker}${padEndTo(`@${entry.path}`, labelWidth)}${kind}`;
@@ -215,4 +216,7 @@ export function renderMentionMenu(
       ? line(clip(text, width), { color: TONE.accent, bold: true })
       : line(clip(text, width), { dim: true });
   });
+  // B308: the palette had no footer, so nothing said how to choose a row.
+  rows.push(line(clip(tui('  ↑↓ move · Tab/Enter complete · Esc dismiss'), width), { dim: true }));
+  return rows;
 }

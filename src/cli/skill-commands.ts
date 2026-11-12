@@ -5,8 +5,8 @@
  * moment the user edits the description.
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { defaultSkillDirSpecs } from '../core/skills/skill-registry.js';
 import { isZhLocale } from './cli-locale.js';
 
 const SKILL_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
@@ -17,7 +17,7 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
       '用法：',
       '  moss skill create <名称>          生成 .moss/skills/<名称>/SKILL.md 脚手架',
       '  moss skill list                   列出已发现的技能（工作区与用户级）',
-      '  moss skill validate <名称|路径>   按 Agent Skills 规范校验一个技能（名称按发现范围解析）',
+      '  moss skill validate <名称|路径> [--json]  按 Agent Skills 规范校验一个技能（名称按发现范围解析）',
       '  moss skill install <源> [--workspace] [--name 名称] [--yes]',
       '                                    从目录 / git URL / npm 包安装并写锁文件',
       '  moss skill update [名称] [--workspace] [--yes]',
@@ -28,7 +28,7 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
       '只有 `name` 和 `description` 进入提示词；正文由技能工具按 `{参数}` 加载）。',
       '',
       '选项：',
-      '  （无）  `create` <name> 与 `list` 不接受其它参数',
+      '  --json  list / validate 输出机器可读 JSON（list → moss_skill_list.v1，validate → moss_skill_validate.v1）',
       '',
       '示例：',
       '  moss skill create deploy_check',
@@ -38,8 +38,8 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
   return [
     'Usage:',
     '  moss skill create <name>          scaffold .moss/skills/<name>/SKILL.md',
-    '  moss skill list                   list discovered skills (workspace + user)',
-    '  moss skill validate <name|path>   validate a skill (a bare name is resolved via discovery scopes)',
+    '  moss skill list [--json]          list discovered skills (workspace + user)',
+    '  moss skill validate <name|path> [--json]   validate a skill (a bare name is resolved via discovery scopes)',
     '  moss skill install <source> [--workspace] [--name n] [--yes]',
     '                                    install from a directory / git URL / npm package, write the lockfile',
     '  moss skill update [name] [--workspace] [--yes]',
@@ -51,7 +51,7 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
     'enter the prompt; the body loads via the skill tool with {args}).',
     '',
     'Options:',
-    '  (none)  create <name> and list take no other flags',
+    '  --json  machine-readable JSON for list (moss_skill_list.v1) and validate (moss_skill_validate.v1)',
     '',
     'Examples:',
     '  moss skill create deploy-check',
@@ -77,6 +77,8 @@ optional {args} value, e.g. "Target: $ARGUMENTS".
 export interface SkillCommandContext {
   workspaceDir: string;
   configDir: string;
+  /** Global `--json` is stripped by the arg parser; the dispatcher forwards it. */
+  json?: boolean;
 }
 
 /**
@@ -96,14 +98,41 @@ export function compactSkillDescription(text: string, limit = 72): string {
   return `${one.slice(0, limit - 1).trimEnd()}…`;
 }
 
-export async function renderSkillsList(
+/** One row of `moss skill list`, shared by the table renderer and `--json`. */
+export interface SkillListRow {
+  name: string;
+  scope: string;
+  used: number;
+  /** Catalog characters this skill costs; null when it is user-only. */
+  catalogChars: number | null;
+  modelInvocable: boolean;
+  evals: boolean;
+  description: string;
+  issues: string[];
+}
+
+export interface SkillListSummary {
+  count: number;
+  catalogChars: number;
+  budgetChars: number;
+  strategy: string;
+  uncappedChars: number;
+}
+
+export interface SkillListData {
+  rows: SkillListRow[];
+  summary: SkillListSummary;
+}
+
+/**
+ * B276: the data behind `moss skill list`. The table and `--json` read the same
+ * rows so scripts and humans cannot disagree about counts or catalog cost.
+ */
+export async function loadSkillListData(
   workspaceDir: string,
   configDir: string,
-  zh: boolean = isZhLocale(),
-  /** Model context window; the in-session budget is ~1% of it (8k fallback). */
-  contextTokens?: number,
-  options: { compact?: boolean } = {}
-): Promise<string> {
+  contextTokens?: number
+): Promise<SkillListData | null> {
   const { loadSkillCatalog } = await import('../core/skills/skill-registry.js');
   const {
     rankSkillsForCatalog,
@@ -112,18 +141,8 @@ export async function renderSkillsList(
     SKILL_CATALOG_DEFAULT_BUDGET_CHARS,
   } = await import('../core/skills/skill-catalog.js');
   const { loadSkillUsage } = await import('../core/skills/skill-usage.js');
-  const skills = loadSkillCatalog([
-    { dir: path.join(workspaceDir, '.moss', 'skills'), scope: 'workspace' },
-    { dir: path.join(workspaceDir, '.agents', 'skills'), scope: 'shared' },
-    { dir: path.join(workspaceDir, '.claude', 'skills'), scope: 'shared' },
-    { dir: path.join(configDir, 'skills'), scope: 'user' },
-    { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
-  ]);
-  if (skills.length === 0) {
-    return zh
-      ? '未发现技能。创建一个：moss skill create <名称>'
-      : 'No skills found. Create one: moss skill create <name>';
-  }
+  const skills = loadSkillCatalog(defaultSkillDirSpecs(workspaceDir, configDir));
+  if (skills.length === 0) return null;
   const usage = loadSkillUsage(workspaceDir);
   // Same order the catalog budget uses, so the table shows which entries
   // survive a cut: scope precedence, then recently used first.
@@ -136,33 +155,67 @@ export async function renderSkillsList(
       ? SKILL_CATALOG_DEFAULT_BUDGET_CHARS
       : skillCatalogBudgetForWindow(contextTokens);
   const total = renderSkillCatalog(modelSkills, { usage, budgetChars: budget });
+  const rows: SkillListRow[] = ranked.map((skill) => ({
+    name: skill.name,
+    scope: skill.scope,
+    used: usage[skill.name]?.count ?? 0,
+    // Per-skill catalog cost: what the full catalog entry costs for this one
+    // skill (the same renderer the prompt uses, so the number is not an estimate).
+    catalogChars:
+      skill.modelInvocable !== false ? renderSkillCatalog([skill]).stats.renderedChars : null,
+    modelInvocable: skill.modelInvocable !== false,
+    evals: Boolean(skill.resources.evals),
+    description: skill.description,
+    issues: skill.issues.map((issue) => String(issue)),
+  }));
+  return {
+    rows,
+    summary: {
+      count: skills.length,
+      catalogChars: total.stats.renderedChars,
+      budgetChars: budget,
+      strategy: total.stats.strategy,
+      uncappedChars: total.stats.uncappedChars,
+    },
+  };
+}
+
+export async function renderSkillsList(
+  workspaceDir: string,
+  configDir: string,
+  zh: boolean = isZhLocale(),
+  /** Model context window; the in-session budget is ~1% of it (8k fallback). */
+  contextTokens?: number,
+  options: { compact?: boolean } = {}
+): Promise<string> {
+  const data = await loadSkillListData(workspaceDir, configDir, contextTokens);
+  if (!data) {
+    return zh
+      ? '未发现技能。创建一个：moss skill create <名称>'
+      : 'No skills found. Create one: moss skill create <name>';
+  }
+  const { rows, summary } = data;
   const lines: string[] = [
     zh
       ? '  名称                来源      使用  目录成本  评测  描述'
       : '  name                scope     used  catalog   evals description',
   ];
-  for (const skill of ranked) {
-    // Per-skill catalog cost: what the full catalog entry costs for this one
-    // skill (the same renderer the prompt uses, so the number is not an estimate).
-    const cost =
-      skill.modelInvocable !== false
-        ? String(renderSkillCatalog([skill]).stats.renderedChars)
-        : 'user-only';
-    const uses = usage[skill.name]?.count ?? 0;
-    const evals = skill.resources.evals ? 'yes' : '-';
-    const problems = skill.issues.length > 0 ? `  (${skill.issues.length} issue(s))` : '';
+  for (const row of rows) {
+    const cost = row.modelInvocable ? String(row.catalogChars ?? 0) : 'user-only';
+    const evals = row.evals ? 'yes' : '-';
+    const problems = row.issues.length > 0 ? `  (${row.issues.length} issue(s))` : '';
     const description =
       options.compact === true
-        ? compactSkillDescription(skill.description)
-        : (skill.description.split('\n')[0] ?? '');
+        ? compactSkillDescription(row.description)
+        : (row.description.split('\n')[0] ?? '');
     lines.push(
-      `  ${skill.name.padEnd(18)} ${skill.scope.padEnd(9)} ${String(uses).padEnd(5)} ${cost.padEnd(8)} ${evals.padEnd(5)} ${description}${problems}`
+      `  ${row.name.padEnd(18)} ${row.scope.padEnd(9)} ${String(row.used).padEnd(5)} ${cost.padEnd(8)} ${evals.padEnd(5)} ${description}${problems}`
     );
   }
   lines.push(
     zh
-      ? `\n共 ${skills.length} 个技能；目录 ${total.stats.renderedChars}/${budget} 字符（策略 ${total.stats.strategy}，无预算上限时 ${total.stats.uncappedChars} 字符）。会话内用技能工具加载；\`user-only\` 技能仅用户可用（disable-model-invocation），不占目录字符。`
-      : `\n${skills.length} skill(s); catalog ${total.stats.renderedChars}/${budget} chars (strategy ${total.stats.strategy}, ${total.stats.uncappedChars} without a budget). Load one in-session with the skill tool. \`user-only\` skills are user-invocable only (disable-model-invocation) and never cost catalog chars.`
+      ? `\n共 ${summary.count} 个技能；目录 ${summary.catalogChars}/${summary.budgetChars} 字符（策略 ${summary.strategy}，无预算上限时 ${summary.uncappedChars} 字符）。会话内用技能工具加载；\`user-only\` 技能仅用户可用（disable-model-invocation），不占目录字符。`
+      : `\n${summary.count} skill${summary.count === 1 ? '' : 's'}; catalog ${summary.catalogChars}/${summary.budgetChars} chars (strategy ${summary.strategy}, ${summary.uncappedChars} without a budget). Load one in-session with the skill tool. \`user-only\` skills are user-invocable only (disable-model-invocation) and never cost catalog chars.`
   );
   return lines.join('\n');
 }
@@ -222,14 +275,30 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
   }
 
   if (sub === 'list') {
-    out(await renderSkillsList(ctx.workspaceDir, ctx.configDir, zh));
+    const json = ctx.json === true || argv.includes('--json');
+    if (json) {
+      const data = await loadSkillListData(ctx.workspaceDir, ctx.configDir);
+      out(
+        JSON.stringify({ schema: 'moss_skill_list.v1', ...(data ?? { rows: [], summary: null }) })
+      );
+      return 0;
+    }
+    // B275: the human table truncates one description line, not the whole
+    // multiline body; a 300-char description turned one row into a paragraph.
+    out(await renderSkillsList(ctx.workspaceDir, ctx.configDir, zh, undefined, { compact: true }));
     return 0;
   }
 
   if (sub === 'validate') {
     const target = argv[1];
+    // B320: editors/CI want the report structurally, not as prose.
+    const validateJson = ctx.json === true || argv.includes('--json');
+    const emitValidateJson = (payload: Record<string, unknown>): void => {
+      out(JSON.stringify({ schema: 'moss_skill_validate.v1', target: target ?? '', ...payload }));
+    };
     if (!target) {
-      err(renderSkillUsage(zh));
+      if (validateJson) emitValidateJson({ ok: false, error: 'no-target' });
+      else err(renderSkillUsage(zh));
       return 2;
     }
     const { readSkillManifest, loadSkillCatalog } =
@@ -245,36 +314,86 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
     // (workspace → shared conventions → user-level) instead of failing with
     // "no SKILL.md at <workspace>/<name>".
     if (!fs.existsSync(file) && !target.includes(path.sep) && !target.includes('/')) {
-      const dirs: Array<{ dir: string; scope: 'workspace' | 'shared' | 'user' }> = [
-        { dir: path.join(ctx.workspaceDir, '.moss', 'skills'), scope: 'workspace' },
-        { dir: path.join(ctx.workspaceDir, '.agents', 'skills'), scope: 'shared' },
-        { dir: path.join(ctx.workspaceDir, '.claude', 'skills'), scope: 'shared' },
-        { dir: path.join(ctx.configDir, 'skills'), scope: 'user' },
-        { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
-      ];
+      const dirs = defaultSkillDirSpecs(ctx.workspaceDir, ctx.configDir);
       const found = loadSkillCatalog(dirs).find((skill) => skill.name === target);
       if (found) file = path.join(found.dir, 'SKILL.md');
       else {
-        err(`moss skill validate: no skill named "${target}" in:`);
-        for (const d of dirs) err(`  ${d.dir} (${d.scope})`);
-        err('Pass a path instead if the skill lives somewhere else.');
+        // B303: an invalid skill is skipped by the catalog, so a bare name could
+        // not reach its own validation report. Try the conventional scoped
+        // locations before saying "no skill named".
+        const direct = dirs
+          .map((entry) => path.join(entry.dir, target, 'SKILL.md'))
+          .find((candidate) => fs.existsSync(candidate));
+        if (direct) file = direct;
+      }
+      if (!fs.existsSync(file)) {
+        if (validateJson) {
+          emitValidateJson({ ok: false, error: 'not-found', searched: dirs });
+        } else {
+          err(`moss skill validate: no skill named "${target}" in:`);
+          for (const d of dirs) err(`  ${d.dir} (${d.scope})`);
+          err('Pass a path instead if the skill lives somewhere else.');
+        }
         return 2;
       }
     }
     if (!fs.existsSync(file)) {
-      err(`moss skill validate: no SKILL.md at ${file}`);
+      if (validateJson) emitValidateJson({ ok: false, error: 'missing-file', file });
+      else err(`moss skill validate: no SKILL.md at ${file}`);
       return 2;
     }
     const parsed = readSkillManifest(file, path.basename(path.dirname(file)), 'workspace');
     if (parsed.skip) {
-      err(`moss skill validate: not a loadable skill (${parsed.skip.reason}): ${file}`);
-      for (const issue of parsed.issues) err(`  [${issue.code}] ${issue.message}`);
+      if (validateJson) {
+        emitValidateJson({
+          ok: false,
+          error: 'skipped',
+          file,
+          skip: {
+            reason: parsed.skip.reason,
+            ...(parsed.skip.detail ? { detail: parsed.skip.detail } : {}),
+          },
+          issues: parsed.issues,
+        });
+      } else {
+        err(`moss skill validate: not a loadable skill (${parsed.skip.reason}): ${file}`);
+        if (parsed.skip.detail) err(`  ${parsed.skip.detail}`);
+        for (const issue of parsed.issues) err(`  [${issue.code}] ${issue.message}`);
+      }
       return 1;
     }
     const skill = parsed.manifest;
     if (!skill) {
-      err(`moss skill validate: could not parse ${file}`);
+      if (validateJson) emitValidateJson({ ok: false, error: 'unparseable', file });
+      else err(`moss skill validate: could not parse ${file}`);
       return 1;
+    }
+    if (validateJson) {
+      const { loadSkillEvals } = await import('../core/skills/skill-evals.js');
+      const evals = loadSkillEvals(skill.dir);
+      emitValidateJson({
+        ok: true,
+        file,
+        skill: {
+          name: skill.name,
+          scope: skill.scope,
+          dir: skill.dir,
+          legacyName: skill.legacy === true,
+          descriptionChars: skill.description.length,
+          when: skill.when ?? null,
+          globs: [...skill.globs],
+          resources: {
+            scripts: skill.resources.scripts.length,
+            references: skill.resources.references.length,
+            assets: skill.resources.assets.length,
+            evals: Boolean(skill.resources.evals),
+          },
+          allowedTools: [...skill.allowedTools],
+          issues: skill.issues,
+          evals: { cases: evals.cases.length },
+        },
+      });
+      return 0;
     }
     out(`${zh ? '技能' : 'skill'}: ${skill.name}`);
     out(`${zh ? '来源' : 'source'}: ${skill.scope} ${skill.dir}`);

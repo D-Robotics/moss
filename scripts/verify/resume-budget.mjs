@@ -180,7 +180,7 @@ ok('a failed task starts from one recorded verification');
 {
   const { renderTaskCliUsage } = await load('dist/cli/task-run.js');
   for (const usage of [renderTaskCliUsage(false), renderTaskCliUsage(true)]) {
-    assert.match(usage, /resume <task_id>.*--max-repairs N.*--max-turns N/);
+    assert.match(usage, /resume \[<task_id>\|latest\].*--max-repairs N.*--max-turns N/);
   }
   ok('resume usage documents --max-repairs / --max-turns');
 }

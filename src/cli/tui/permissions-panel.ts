@@ -25,6 +25,8 @@ export interface PermissionPanelRule {
 export interface PermissionPanelView {
   width: number;
   mode: string;
+  /** Raw mode id (`full` / `workspace-write` / `read-only` / …). */
+  modeKey?: string;
   rules: readonly PermissionPanelRule[];
   cursor: number;
 }
@@ -38,18 +40,26 @@ export function renderPermissionsPanel(view: PermissionPanelView): TuiLine[] {
     line(clip(tui('  mode  {mode}    Shift+Tab cycles', { mode: view.mode }), width), {
       dim: true,
     }),
-    ...wrap(tui(`  ${WORKSPACE_WRITE_FILE_TOOLS_EN}`), width).map((text) =>
-      line(clip(text, width), { dim: true })
-    ),
-    ...wrap(tui(`  ${WORKSPACE_WRITE_SHELL_EN}`), width).map((text) =>
-      line(clip(text, width), { dim: true })
-    ),
   ];
+  // B294: full mode derives safetyMode `full`; manual/acceptEdits/plan derive
+  // `workspace-write`. Showing the confinement lines under `full` read like the
+  // current session was confined.
+  if (view.modeKey !== 'full') {
+    out.push(
+      ...wrap(tui(`  ${WORKSPACE_WRITE_FILE_TOOLS_EN}`), width).map((text) =>
+        line(clip(text, width), { dim: true })
+      ),
+      ...wrap(tui(`  ${WORKSPACE_WRITE_SHELL_EN}`), width).map((text) =>
+        line(clip(text, width), { dim: true })
+      )
+    );
+  }
   if (view.rules.length === 0) {
     out.push(
-      ...wrap(tui('  no rules — full allows tools; deny still wins everywhere'), width).map(
-        (text) => line(clip(text, width), { dim: true })
-      )
+      ...wrap(
+        tui('  no rules — {mode} decides; deny still wins everywhere', { mode: view.mode }),
+        width
+      ).map((text) => line(clip(text, width), { dim: true }))
     );
   }
   view.rules.forEach((rule, index) => {

@@ -565,6 +565,16 @@ async function* streamOpenAiChat(
     }));
   }
   if (options?.temperature !== undefined) baseBody.temperature = options.temperature;
+  // Explicit thinking level → OpenAI-compatible `reasoning_effort`. Only sent
+  // when a level is configured, so gateways that reject the field are unaffected.
+  const reasoningLevel: unknown = options?.reasoning;
+  const reasoningEffort =
+    typeof reasoningLevel === 'string' && reasoningLevel.length > 0
+      ? reasoningLevel === 'off'
+        ? 'none'
+        : reasoningLevel
+      : undefined;
+  if (reasoningEffort) baseBody.reasoning_effort = reasoningEffort;
   if (extraBody) Object.assign(baseBody, extraBody);
   if (options?.toolChoice) baseBody.tool_choice = options.toolChoice;
 

@@ -1,6 +1,6 @@
 export { EventStream } from './event-stream.js';
 
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type StopReason = 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
 
 export interface TextContent {

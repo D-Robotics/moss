@@ -9,12 +9,19 @@ import { forgetFolderTrust, isFilesystemRoot, listTrustedFolders } from './folde
 import { chrome } from './tui/copy.js';
 import { resolveFolderKey } from './workspace-trust.js';
 
-export async function runTrustCommand(args: readonly string[]): Promise<number> {
+export async function runTrustCommand(
+  args: readonly string[],
+  options: { json?: boolean } = {}
+): Promise<number> {
   const zh = isZhLocale();
   const sub = (args[0] ?? 'list').trim().toLowerCase();
   const configDir = resolveConfigDir();
   if (sub === 'list') {
     const folders = listTrustedFolders(configDir);
+    if (options.json === true) {
+      console.log(JSON.stringify({ schema: 'moss_trust_list.v1', folders }));
+      return ExitCode.SUCCESS;
+    }
     if (folders.length === 0) {
       console.log(chrome('No trusted folders.', zh));
       return ExitCode.SUCCESS;

@@ -1,0 +1,26 @@
+{
+  "id": "tros-dnn-bench",
+  "title": "Run a TROS ROS2 DNN node on the NPU and capture throughput",
+  "sideEffect": "readonly",
+  "tier": "optional",
+  "maxTurns": 10,
+  "timeoutMs": 420000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Do not guess a host and do not ask for one.\n\nA real MobileNetV2 BPU model ships on the board at /app/multimedia_samples/sunrise_camera/Platform/x5/model_zoom/mobilenetv2_224x224_nv12.bin.\n\nSteps:\n1. `mkdir -p /opt/tros/humble/lib/dnn_benchmark_example/config/X5` and copy the model there if not already present.\n2. Source TROS: `source /opt/tros/humble/setup.bash`.\n3. Run the ROS2 DNN benchmark node for ~40s and capture output:\n`cd /opt/tros/humble/lib/dnn_benchmark_example && timeout 40 ros2 run dnn_benchmark_example dnn_benchmark_example --ros-args -p model_file_name:=config/X5/mobilenetv2_224x224_nv12.bin -p show_fps_log:=1 -p statistic_cycle:=100 2>&1 | grep -iE 'Throughput|Predict latency' | tail -6`\n(the task_num spam is normal; the node runs until timeout kills it — that exit is expected)\n4. Record evidence with record_evidence (include task_id): metric `tros_dnn_fps` with observed = the last Throughput number, and metric `tros_dnn_latency_ms` with observed = the last avg latency. Expected: FPS above 100 and latency under 10 ms.\n\nDo not reboot, reflash, or change board configuration.\n\nNOTE: the acceptance command is executed by the bench harness AFTER your turn, with its own environment (device credentials included). Do NOT try to run it yourself, read the repo .env, or investigate how the harness injects environment — that path is blocked by design. Do the device work, verify the outcome with your own probe, record evidence, and finish.",
+  "prerequisites": [
+    "test -f /app/multimedia_samples/sunrise_camera/Platform/x5/model_zoom/mobilenetv2_224x224_nv12.bin && test -d /opt/tros/humble/lib/dnn_benchmark_example"
+  ],
+  "setup": [],
+  "oracle": [],
+  "acceptance": ["echo tros-dnn-accepted"],
+  "cleanup": [],
+  "evidence": [
+    {
+      "metric": "tros_dnn_fps",
+      "probe": "echo tros-dnn-probe"
+    },
+    {
+      "metric": "tros_dnn_latency_ms",
+      "probe": "echo tros-dnn-probe"
+    }
+  ]
+}

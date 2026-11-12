@@ -8,6 +8,7 @@
 import { commandRowsForSlashInput } from '../interactive-commands.js';
 import { clip, line, padEndTo, displayWidth, type TuiColor, type TuiLine } from './text.js';
 import { TONE } from './theme.js';
+import { tui } from './copy.js';
 
 export type PaletteRow = readonly [command: string, description: string];
 
@@ -134,6 +135,13 @@ export function renderSlashPalette(
   if (rows.length > visible.length) {
     out.push(line(clip(`  … ${rows.length - visible.length} more`, options.width), { dim: true }));
   }
+  // B309: the menu listed commands but never said how to pick one; Enter runs
+  // the highlighted command, Tab just completes its name.
+  out.push(
+    line(clip(tui('  ↑↓ move · Tab complete · Enter run · Esc dismiss'), options.width), {
+      dim: true,
+    })
+  );
   return out;
 }
 
