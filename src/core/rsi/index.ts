@@ -35,4 +35,10 @@ export type {
   HermitWorkerRun,
 } from './hermit-worker.js';
 export { RsiDailyStore, RSI_DAILY_ALL_PROJECTS } from './daily-store.js';
-export type { RsiDailyState, RsiDailyExperience, RsiDailyView } from './daily-store.js';
+export type {
+  RsiDailyState,
+  RsiDailyExperience,
+  RsiDailyView,
+  RsiDailyCollectionStatus,
+  RsiDailyMetadataExport,
+} from './daily-store.js';

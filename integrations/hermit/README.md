@@ -113,6 +113,12 @@ including its cross-process writer lock and atomic replacement. The host must de
 `read(scope)` returns `revision`, `storageDirectory`, `metadataBytes`, retention and
 quota settings, project consent entries and experience references. Old state without
 daily metadata defaults to collection disabled, 30 days and a 1 GiB metadata quota.
+`collectionStatus` persists a bounded `ready` or `paused` state with a timestamp;
+paused reasons are `quota` or `error`. A rejected over-quota collection latches the
+pause across restarts. `indexQuota` reports bytes, limit bytes, stored reference
+count and its 1,000-entry limit (including expired entries until a pruning write).
+Its `exceeded` flag means bytes exceed the limit or the reference count is at capacity;
+a candidate reference can also be rejected before current bytes reach the limit.
 
 ```js
 const daily = new RsiDailyStore(rootDir);
@@ -137,10 +143,24 @@ are discarded. Duplicate project/run pairs are idempotent, and references always
 start with `eligibility: 'needs_judge'`. Successful completion alone is not training
 admission. The host retains the source evidence and owns real-task qualification.
 
+Further collection returns `reason: 'paused'` until an explicit CAS-protected
+`configure(scope, { expectedRevision, projectId, enabled, resetCollectionStatus: true })`.
+Changing consent or raising the quota alone does not clear a pause. Hosts catching
+collection failures call `reportCollectionError(scope)` to persist a generic error
+state, with no raw error text. This cannot persist if the storage itself is
+unavailable; hosts must surface that failure directly. Control metadata (including
+the pause and deletion tombstones) may exceed a tiny configured index quota so the
+cause and replay protection are retained. No unbounded error history is written.
+
 `deleteExperience(scope, id, { expectedRevision })` removes a reference and stores
 a minimal digest tombstone against late event replay. This API does not delete a
 host's original conversation, evidence files, or already derived training assets;
 the host must complete any broader deletion workflow before reporting that outcome.
+`exportMetadata(scope)` returns only versioned preferences, visible reference
+metadata and status; it excludes local paths, tombstones and source task content.
+`deleteMetadata(scope, { expectedRevision })` deletes all stored experience
+references atomically, retaining consent, pause state and replay tombstones.
+Both methods share owner/environment isolation with the single-reference API.
 Metadata is bounded at 1,000 references and 10,000 deletion tombstones per owner/env;
 capacity failures are explicit. `metadataBytes` and `quotaBytes` cover daily index
 metadata only, not all training/workspace disk usage. Host-owned artifact quota and

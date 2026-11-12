@@ -73,6 +73,19 @@ try {
     quotaBytes: 1,
   });
   assert.equal(store.record(scope, { ...run, runId: 'new' }).reason, 'quota');
+  const paused = store.read(scope);
+  assert.equal(paused.collectionStatus.state, 'paused');
+  assert.equal(paused.collectionStatus.reason, 'quota');
+  assert.equal(paused.indexQuota.bytes, paused.metadataBytes);
+  assert.equal(paused.indexQuota.limitBytes, 1);
+  assert.equal(paused.indexQuota.exceeded, true);
+  assert.deepEqual(new RsiDailyStore(root).read(scope).collectionStatus, paused.collectionStatus);
+  assert.equal(store.record(scope, { ...run, runId: 'retry' }).reason, 'paused');
+  assert.deepEqual(
+    store.read(scope).collectionStatus,
+    paused.collectionStatus,
+    'pause does not grow on retries'
+  );
   const before = store.read(scope).revision;
   const lock = path.join(store.read(scope).storageDirectory, 'state.json.lock');
   fs.writeFileSync(lock, String(process.pid));
@@ -100,13 +113,63 @@ try {
     enabled: true,
     quotaBytes: 1_073_741_824,
   });
+  assert.equal(
+    store.record(scope, { ...run, projectId: 'new-admitted-project' }).reason,
+    'paused',
+    'increasing quota or re-enabling consent never silently resumes collection'
+  );
+  store.configure(scope, {
+    expectedRevision: store.read(scope).revision,
+    projectId: RSI_DAILY_ALL_PROJECTS,
+    enabled: true,
+    resetCollectionStatus: true,
+  });
   assert.equal(store.record(scope, { ...run, projectId: 'new-admitted-project' }).recorded, true);
   assert.equal(
     store.record(scope, { ...run, runId: 'explicit-opt-out-project' }).reason,
     'disabled'
   );
+  store.reportCollectionError(scope, new Error('raw sensitive error must be discarded'));
+  const errorStatus = new RsiDailyStore(root).read(scope).collectionStatus;
+  assert.equal(errorStatus.state, 'paused');
+  assert.equal(errorStatus.reason, 'error');
+  assert.equal(
+    store.record(scope, { ...run, projectId: 'new-admitted-project', runId: 'after-error' }).reason,
+    'paused'
+  );
+  assert.equal(store.read(other).collectionStatus.state, 'ready');
+  const exported = store.exportMetadata(scope);
+  assert.equal(exported.experiences.length, 1);
+  assert.equal('storageDirectory' in exported, false);
+  assert.equal('deletedRunDigests' in exported, false);
+  assert.equal(JSON.stringify(exported).includes('raw sensitive'), false);
+  assert.equal(JSON.stringify(exported).includes(root), false);
+  const beforeDelete = store.read(scope);
+  assert.throws(
+    () => store.deleteMetadata(scope, { expectedRevision: beforeDelete.revision - 1 }),
+    /rsi_daily_revision_conflict/
+  );
+  store.deleteMetadata(scope, { expectedRevision: beforeDelete.revision });
+  const afterDelete = new RsiDailyStore(root).read(scope);
+  assert.equal(afterDelete.experiences.length, 0);
+  assert.deepEqual(afterDelete.projects, beforeDelete.projects);
+  assert.deepEqual(afterDelete.collectionStatus, errorStatus);
+  assert.equal(
+    store.record(scope, { ...run, projectId: 'new-admitted-project' }).reason,
+    'deleted'
+  );
+  assert.equal(store.exportMetadata(scope).experiences.length, 0);
+  // Old schema-1 documents migrate in memory with no opt-in or status history invented.
+  const stateFile = path.join(afterDelete.storageDirectory, 'state.json');
+  const legacy = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  delete legacy.daily.collectionStatus;
+  fs.writeFileSync(stateFile, JSON.stringify(legacy));
+  assert.deepEqual(new RsiDailyStore(root).read(scope).collectionStatus, {
+    state: 'ready',
+    updatedAt: 0,
+  });
   console.log(
-    'rsi-daily-store: consent, CAS, isolation, restart, deletion, quota, expiration and lock checks passed'
+    'rsi-daily-store: consent, CAS, isolation, restart, deletion, quota pause/reset, bounded error status, metadata export, expiration and lock checks passed'
   );
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
