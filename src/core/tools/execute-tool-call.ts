@@ -86,6 +86,7 @@ export function deniedToolResultText(
 }
 
 const logger = getRootLogger();
+const MAX_LIVE_TOOL_OUTPUT_BYTES = 256 * 1024;
 
 const TRANSIENT_RETRY_TOOLS = new Set([
   'read_file',
@@ -626,6 +627,8 @@ async function executeOneToolCallInner(
       const timeoutAbortCtrl = new AbortController();
       const outputRedactor = createStreamingTextRedactor();
       let outputOpen = true;
+      let outputBytes = 0;
+      let outputCapped = false;
       const publishOutput = (chunk: string) => {
         if (
           !chunk ||
@@ -669,7 +672,16 @@ async function executeOneToolCallInner(
           ...callToolCtx,
           abortSignal: attemptSignal,
           onToolOutput: (chunk) => {
-            if (outputOpen && !attemptSignal.aborted) publishOutput(outputRedactor.push(chunk));
+            if (!outputOpen || outputCapped || attemptSignal.aborted) return;
+            outputBytes += Buffer.byteLength(chunk, 'utf8');
+            if (outputBytes > MAX_LIVE_TOOL_OUTPUT_BYTES) {
+              outputCapped = true;
+              // Never slice and settle an uncertain secret at the preview cap.
+              outputRedactor.reset();
+              publishOutput('\n[Live output limit reached; further output omitted.]\n');
+              return;
+            }
+            publishOutput(outputRedactor.push(chunk));
           },
           markResultError: () => {
             structuralError = true;

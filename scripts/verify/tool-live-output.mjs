@@ -8,6 +8,7 @@ import { executeOneToolCall } from '../../dist/core/tools/execute-tool-call.js';
 import { createMossAgentLoopEventAdapter } from '../../dist/core/agent/moss-agent-loop-adapter.js';
 import { execTool } from '../../dist/tools/builtin.js';
 import { noteKnownSecret } from '../../dist/safety/known-secrets.js';
+import { resolveHostShell } from '../../dist/utils/host-shell.js';
 
 const workspace = await mkdtemp(join(tmpdir(), 'moss-tool-live-'));
 const controller = new AbortController();
@@ -41,7 +42,10 @@ try {
       {
         id: `exec-${eventMode}`,
         name: 'exec',
-        input: { command: `"${process.execPath}" "${script}"`, event: eventMode },
+        input: {
+          command: `${resolveHostShell().kind === 'pwsh' ? '& ' : ''}"${process.execPath}" "${script}"`,
+          event: eventMode,
+        },
       },
       deps(execTool, (event) => {
         for (const output of adapter.onMiniEvent(event)) {
@@ -98,6 +102,41 @@ try {
   savedCallback?.('late output\n');
   assert.equal(hostOutput.join(''), live, 'settled tools must ignore late callbacks');
 
+  for (const oversizedChunk of [false, true]) {
+    const cappedEvents = [];
+    const cappedTool = {
+      ...tool,
+      async execute(_input, ctx) {
+        ctx.onToolOutput?.('visible line\n');
+        if (oversizedChunk) {
+          ctx.onToolOutput?.(known.slice(0, 8));
+          ctx.onToolOutput?.(known.slice(8) + 'x'.repeat(300 * 1024));
+        } else {
+          for (let index = 0; index < 100; index++) ctx.onToolOutput?.('x'.repeat(4095) + '\n');
+        }
+        ctx.onToolOutput?.('late output after cap\n');
+        return 'final receipt remains available';
+      },
+    };
+    const result = await executeOneToolCall(
+      { id: 'cap', name: tool.name, input: {} },
+      deps(cappedTool, (event) => cappedEvents.push(event))
+    );
+    assert.equal(result.text, 'final receipt remains available');
+    const preview = cappedEvents
+      .filter((event) => event.type === 'tool_execution_progress')
+      .map((event) => event.chunk)
+      .join('');
+    assert.ok(Buffer.byteLength(preview) < 257 * 1024, 'live preview must remain bounded');
+    assert.equal(preview.split('[Live output limit reached; further output omitted.]').length, 2);
+    assert.ok(!preview.includes('late output after cap'));
+    if (oversizedChunk)
+      assert.equal(
+        preview,
+        'visible line\n\n[Live output limit reached; further output omitted.]\n'
+      );
+  }
+
   const cancelledEvents = [];
   const cancel = new AbortController();
   const cancelledTool = {
@@ -123,7 +162,7 @@ try {
     'visible line\n'
   );
   console.log(
-    '[tool-live-output] real exec normal/event lines, split secrets, safe final tails and cancellation passed'
+    '[tool-live-output] real exec lines, split secrets, bounded previews, safe final tails and cancellation passed'
   );
 } finally {
   await rm(workspace, { recursive: true, force: true });
