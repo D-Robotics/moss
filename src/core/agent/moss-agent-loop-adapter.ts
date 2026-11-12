@@ -1,5 +1,7 @@
+import { isOutputLimitStopReason } from '../../provider/output-limit.js';
 import type { Model } from '../../provider/pi-ai-types.js';
-import { createStreamingTextRedactor, redactEgress } from '../../safety/tool-output-redact.js';
+import { redactEgress } from '../../safety/tool-output-redact.js';
+import { createAssistantTextRedactor } from '../../safety/redact-stream.js';
 import type { MiniAgentEvent, MiniAgentResult } from '../subagent/agent-events.js';
 import type { ChatResult, MossAgentConfig, MossAgentEvent } from './moss-agent-types.js';
 import type { ToolCall, ToolResult } from '../tools/tool-types.js';
@@ -27,6 +29,16 @@ function normalizePublicStopReason(reason: string): string {
   if (reason === 'length') return 'max_tokens';
   if (reason === 'toolUse' || reason === 'toolCall') return 'tool_use';
   return reason;
+}
+
+function isInterruptedOutput(reason: string | undefined): boolean {
+  return (
+    reason === 'error' ||
+    reason === 'aborted' ||
+    reason === 'aborted_by_user' ||
+    reason === 'cancelled' ||
+    reason === 'output_limit'
+  );
 }
 
 export function createModelDefFromMossConfig(config: ModelBridgeConfig): Model<any> {
@@ -59,13 +71,19 @@ export interface MossAgentLoopEventAdapterOptions {
   isAborted?: () => boolean;
 
   contextTokens?: number;
+  normalizeLeadingWhitespace?: boolean;
 }
 
 export function createMossAgentLoopEventAdapter(
   options?: MossAgentLoopEventAdapterOptions
 ): MossAgentLoopEventAdapter {
   let response = '';
-  const textRedactor = createStreamingTextRedactor();
+  let publishedResponse = '';
+  const textRedactor = createAssistantTextRedactor({
+    normalizeLeadingWhitespace: options?.normalizeLeadingWhitespace !== false,
+  });
+  let continuingOutput = false;
+  const thinkingRedactor = createAssistantTextRedactor();
   const thinking: string[] = [];
   const toolCalls: ToolCall[] = [];
   const toolResults: ToolResult[] = [];
@@ -80,13 +98,37 @@ export function createMossAgentLoopEventAdapter(
   let compactions = 0;
   let stopReason = 'unknown';
 
+  const publish = (delta: string): MossAgentEvent[] => {
+    if (!delta) return [];
+    publishedResponse += delta;
+    return [{ type: 'text_delta', delta }];
+  };
+
+  const publishThinking = (delta: string): MossAgentEvent[] => {
+    if (!delta) return [];
+    thinking.push(delta);
+    return [{ type: 'thinking_delta', delta }];
+  };
+
   const getResult = (result: MiniAgentResult): ChatResult => {
     const toolBudgetReached = toolResults.some(
       (toolResult) =>
         toolResult.outcome === 'blocked' && /tool budget reached/i.test(toolResult.content)
     );
+    const resolvedStopReason = toolBudgetReached
+      ? 'tool_budget_reached'
+      : options?.isAborted?.()
+        ? 'aborted_by_user'
+        : stopReason === 'unknown' && (response || result.finalText)
+          ? 'end_turn'
+          : stopReason;
     return {
-      response: redactEgress(response || result.finalText),
+      response:
+        result.suspendedTool ||
+        isInterruptedOutput(resolvedStopReason) ||
+        isOutputLimitStopReason(resolvedStopReason)
+          ? publishedResponse
+          : redactEgress(response || result.finalText),
       ...(result.suspendedTool ? { suspendedTool: result.suspendedTool } : {}),
       ...(options?.harnessAdapterReceipt ? { harnessAdapter: options.harnessAdapterReceipt } : {}),
       toolCalls,
@@ -94,15 +136,7 @@ export function createMossAgentLoopEventAdapter(
       ...(usage ? { usage } : {}),
       ...(thinking.length > 0 ? { thinking } : {}),
       ...(compactions > 0 ? { compactions } : {}),
-      stopReason: result.suspendedTool
-        ? 'suspended'
-        : toolBudgetReached
-          ? 'tool_budget_reached'
-          : options?.isAborted?.()
-            ? 'aborted_by_user'
-            : stopReason === 'unknown' && (response || result.finalText)
-              ? 'end_turn'
-              : stopReason,
+      stopReason: result.suspendedTool ? 'suspended' : resolvedStopReason,
     };
   };
 
@@ -111,17 +145,33 @@ export function createMossAgentLoopEventAdapter(
       switch (event.type) {
         case 'message_delta': {
           response += event.delta;
-          const delta = textRedactor.push(event.delta);
-          return delta ? [{ type: 'text_delta', delta }] : [];
+          // Public prose starts after the reasoning block has settled. Emit
+          // its safe tail first so hosts keep the two channels chronological.
+          if (options?.isAborted?.()) thinkingRedactor.reset();
+          return [
+            ...publishThinking(thinkingRedactor.flush()),
+            ...(continuingOutput ? [] : publish(textRedactor.push(event.delta))),
+          ];
         }
         case 'message_end': {
           response = event.text;
-          const delta = textRedactor.flush();
-          return delta ? [{ type: 'text_delta', delta }] : [];
+          if (isOutputLimitStopReason(event.stopReason)) {
+            thinkingRedactor.reset();
+            return [];
+          }
+          continuingOutput = false;
+          if (isInterruptedOutput(event.stopReason) || options?.isAborted?.()) {
+            textRedactor.reset();
+            thinkingRedactor.reset();
+            return [];
+          }
+          return [
+            ...publishThinking(thinkingRedactor.flush()),
+            ...publish(textRedactor.flush(response)),
+          ];
         }
         case 'thinking_delta':
-          thinking.push(event.delta);
-          return [{ type: 'thinking_delta', delta: event.delta }];
+          return publishThinking(thinkingRedactor.push(event.delta));
         case 'tool_execution_start': {
           const input = asRecord(event.args);
           toolCalls.push({ id: event.toolCallId, name: event.toolName, input });
@@ -141,6 +191,7 @@ export function createMossAgentLoopEventAdapter(
               toolCallId: event.toolCallId,
               toolName: event.toolName,
               elapsedSec: event.elapsed_sec,
+              ...(event.chunk !== undefined ? { chunk: event.chunk } : {}),
             },
           ];
         case 'tool_execution_end': {
@@ -175,7 +226,11 @@ export function createMossAgentLoopEventAdapter(
           ];
         }
         case 'turn_start':
-          textRedactor.reset();
+          thinkingRedactor.reset();
+          if (!continuingOutput) {
+            textRedactor.reset();
+            publishedResponse = '';
+          }
           return [
             {
               type: 'turn_start',
@@ -183,7 +238,11 @@ export function createMossAgentLoopEventAdapter(
               ...(event.harnessAdapter ? { harnessAdapter: event.harnessAdapter } : {}),
             },
           ];
-        case 'output_continuation':
+        case 'output_continuation': {
+          // A length cutoff is not an egress boundary. A secret may continue
+          // in the next turn, so settle its combined text as a single reply.
+          continuingOutput = !event.exhausted && Boolean(response);
+          if (event.exhausted) textRedactor.reset();
           return [
             {
               type: 'output_continuation',
@@ -192,21 +251,30 @@ export function createMossAgentLoopEventAdapter(
               ...(event.exhausted ? { exhausted: true } : {}),
             },
           ];
+        }
         case 'turn_end': {
+          // A rejected completion has no message_end; its unfinished
+          // reasoning suffix must never escape through turn completion.
+          thinkingRedactor.reset();
           const incomingStopReason = event.stopReason
             ? normalizePublicStopReason(event.stopReason)
             : undefined;
           const resolvedStopReason =
             incomingStopReason ?? (stopReason === 'unknown' && response ? 'end_turn' : stopReason);
           stopReason = resolvedStopReason;
-          const delta = textRedactor.flush();
+          const interrupted = isInterruptedOutput(resolvedStopReason) || options?.isAborted?.();
+          // Only message_end settles held text. A rejected completion also
+          // ends a turn, but its pending bytes have no publication boundary.
+          if (interrupted || (!continuingOutput && !isOutputLimitStopReason(resolvedStopReason))) {
+            textRedactor.reset();
+          }
           const endEvent: MossAgentEvent = {
             type: 'turn_end',
             turn: event.turn,
             stopReason: resolvedStopReason,
             ...(event.totalToolCalls !== undefined ? { totalToolCalls: event.totalToolCalls } : {}),
           };
-          return delta ? [{ type: 'text_delta', delta }, endEvent] : [endEvent];
+          return [endEvent];
         }
         case 'turn_transition':
           stopReason = normalizePublicStopReason(event.reason);
@@ -304,7 +372,11 @@ export function createMossAgentLoopEventAdapter(
             },
           ];
         case 'retry':
-          textRedactor.reset();
+          thinkingRedactor.reset();
+          if (!continuingOutput) {
+            textRedactor.reset();
+            publishedResponse = '';
+          }
           // Emit a retry event so the host/TUI can clear partial visible output
           // from the failed attempt before the new attempt streams fresh deltas.
           // Previously this was `return []` — the host saw no signal, so
@@ -315,6 +387,8 @@ export function createMossAgentLoopEventAdapter(
         case 'context_overflow_compact':
           return [];
         case 'agent_error':
+          textRedactor.reset();
+          thinkingRedactor.reset();
           stopReason = options?.isAbortError?.(event.error) ? 'aborted_by_user' : 'error';
           return [
             {

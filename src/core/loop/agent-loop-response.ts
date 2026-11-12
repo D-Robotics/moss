@@ -236,6 +236,11 @@ export async function processLlmResponse(
     // and does not eat the gap the model already wrote.
     trim: !(outputLimited || state.carriedAssistantText.length > 0),
   });
+  // Live first fragments use the same absolute leading trim as a completed
+  // answer. Continuations still preserve the whitespace at their join.
+  if (!delayedVisibleDeltas && !state.carriedAssistantText) {
+    visibleAssistantText = visibleAssistantText.trimStart();
+  }
   if (guardAssistantOutput && !hasThinkingOnly) {
     let decision:
       | { approved: true; response?: string }
@@ -323,6 +328,7 @@ export async function processLlmResponse(
     type: 'message_end',
     message: assistantMsg,
     text: stitchedAssistantText.trim() ? stitchedAssistantText : visibleAssistantText,
+    ...(streamStopReason ? { stopReason: streamStopReason } : {}),
   });
 
   const toolsForNudge = resolveToolsForRun();

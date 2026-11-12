@@ -1583,6 +1583,8 @@ ${result.stderr ?? ''}`.trim();
       isAbortError: () => abortSignal.aborted,
       isAborted: () => abortSignal.aborted,
       contextTokens: this.config.contextTokens,
+      normalizeLeadingWhitespace:
+        this.config.bufferAssistantUntilComplete !== true && !hooks?.onOutputGuardrail,
     });
 
     const streamFn = createStreamFunctionFromLlmProvider({

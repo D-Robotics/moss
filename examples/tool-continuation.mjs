@@ -4,11 +4,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { MossAgent, JsonlSessionStore, suspendToolCall } from '../dist/index.js';
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-continuation-'));
 let writes = 0;
 let requests = 0;
+let providerCompleted = false;
+let suspendedOutput;
 const provider = {
   id: 'continuation-example',
   displayName: 'Offline continuation example',
@@ -19,6 +22,7 @@ const provider = {
       return {
         stopReason: 'tool_use',
         content: [
+          { type: 'text', text: '先记录数值，再等待回复。' },
           { type: 'tool_use', id: 'write-before', name: 'record_value', input: {} },
           { type: 'tool_use', id: 'wait-call', name: 'await_reply', input: {} },
           { type: 'tool_use', id: 'write-after', name: 'record_value', input: {} },
@@ -32,6 +36,10 @@ const provider = {
   async stream(options, emit) {
     const result = await this.complete(options);
     emit({ type: 'message_start' });
+    if (requests === 1) {
+      emit({ type: 'content_block_delta', deltaRole: 'thinking', text: '先确认执行顺序。' });
+      await delay(30);
+    }
     for (const block of result.content) {
       emit({
         type: 'content_block_start',
@@ -43,9 +51,11 @@ const provider = {
           : { type: 'content_block_delta', text: block.text }
       );
       emit({ type: 'content_block_stop' });
+      if (block.type === 'text') await delay(30);
     }
     emit({ type: 'message_delta', stopReason: result.stopReason });
     emit({ type: 'message_stop' });
+    providerCompleted = true;
     return result;
   },
 };
@@ -73,7 +83,11 @@ function makeAgent() {
     description: 'Wait for a host-provided answer.',
     metadata: { sideEffectClass: 'runtime_state', canSuspend: true, noReplay: true },
     inputSchema: { type: 'object', properties: {} },
-    async execute() {
+    async execute(_input, ctx) {
+      suspendedOutput = ctx.onToolOutput;
+      ctx.onToolOutput?.('已开始等待回复。\n');
+      ctx.onToolOutput?.('unfinished output');
+      await delay(30);
       suspendToolCall({ continuationId: 'wait-1', payload: { question: 'peer-question' } });
     },
   });
@@ -81,9 +95,43 @@ function makeAgent() {
 }
 try {
   const first = makeAgent();
-  const suspended = await first.chat('example', 'Record a value, then wait for the peer.', {
+  const streamed = [];
+  let suspended;
+  for await (const event of first.streamChat('example', 'Record a value, then wait for the peer.', {
     taskFlow: false,
-  });
+  })) {
+    streamed.push(event);
+    if (event.type === 'thinking_delta' || event.type === 'text_delta')
+      assert.equal(providerCompleted, false, 'reasoning and prose must precede model completion');
+    if (event.type === 'done') suspended = event.result;
+  }
+  assert.equal(
+    streamed
+      .filter((event) => event.type === 'thinking_delta')
+      .map((event) => event.delta)
+      .join(''),
+    '先确认执行顺序。'
+  );
+  assert.equal(
+    streamed
+      .filter((event) => event.type === 'text_delta')
+      .map((event) => event.delta)
+      .join(''),
+    '先记录数值，再等待回复。'
+  );
+  const chunks = streamed
+    .filter((event) => event.type === 'tool_progress' && event.toolCallId === 'wait-call')
+    .map((event) => event.chunk ?? '')
+    .join('');
+  assert.equal(chunks, '已开始等待回复。\n');
+  assert.ok(
+    !streamed.some((event) => event.type === 'tool_end' && event.toolCallId === 'wait-call')
+  );
+  const count = streamed.length;
+  suspendedOutput?.('late output after suspension\n');
+  assert.equal(streamed.length, count);
+  assert.equal(suspended.response, '先记录数值，再等待回复。');
+  assert.equal(suspended.thinking?.join(''), '先确认执行顺序。');
   assert.equal(suspended.stopReason, 'suspended');
   assert.equal(suspended.suspendedTool?.continuationId, 'wait-1');
   assert.equal(writes, 1);
@@ -121,7 +169,9 @@ try {
   );
   assert.equal(requests, 2);
   await restarted.close();
-  console.log('Durable tool suspension, restart, guarded continuation and no replay verified.');
+  console.log(
+    'Live reasoning, prose and tool output with durable suspension, restart and no replay verified.'
+  );
 } finally {
   await fs.rm(directory, { recursive: true, force: true });
 }

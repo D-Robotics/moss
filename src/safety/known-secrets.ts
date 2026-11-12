@@ -51,12 +51,38 @@ export function redactKnownSecretValues(
   // Field position first, and only for short values stored in Moss config.
   // A 7-character password must not be replaced in unrelated text.
   let out = redactConfigSecretFields(text, storedShortSecrets(env));
-  for (const secret of collectKnownSecretValues(env)) {
+  for (const secret of knownSecretRepresentations(env)) {
     if (out.includes(secret)) out = out.split(secret).join('[REDACTED]');
-    const escaped = JSON.stringify(secret).slice(1, -1);
-    if (escaped !== secret && out.includes(escaped)) out = out.split(escaped).join('[REDACTED]');
   }
   return out;
+}
+
+/** Capture the same values the egress redactor matches, including JSON escapes. */
+function* knownSecretRepresentations(env: NodeJS.ProcessEnv): Iterable<string> {
+  for (const secret of collectKnownSecretValues(env)) {
+    yield secret;
+    const escaped = JSON.stringify(secret).slice(1, -1);
+    if (escaped !== secret) yield escaped;
+  }
+}
+
+/** Keep a whole known value or any trailing prefix of one off the live wire. */
+export function createKnownSecretStreamCut(env: NodeJS.ProcessEnv = process.env) {
+  const secrets = [...knownSecretRepresentations(env)];
+  return (text: string): number => {
+    let cut = text.length;
+    for (const secret of secrets) {
+      const full = text.indexOf(secret);
+      if (full !== -1) cut = Math.min(cut, full);
+      for (let at = Math.max(0, text.length - secret.length + 1); at < cut; at += 1) {
+        if (secret.startsWith(text.slice(at))) {
+          cut = at;
+          break;
+        }
+      }
+    }
+    return cut;
+  };
 }
 
 /** Whole numbered read, so a flag and its value can sit on different lines. */

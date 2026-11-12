@@ -5,7 +5,7 @@
  *
  * `redactEgress` is bound by the facade. This module does not import it.
  */
-import { knownSecretPrefixCut } from './known-secrets.js';
+import { createKnownSecretStreamCut, knownSecretPrefixCut } from './known-secrets.js';
 import { callRedactEgress } from './redact-bind.js';
 import { OPEN_SECRET_PREFIX, REDACTED, SECRET_FIELD_SOURCE } from './redact-patterns.js';
 import { unclosedPrivateKeyLineStart } from './redact-pem.js';
@@ -101,6 +101,134 @@ export function createStreamingTextRedactor(): {
       raw = '';
       emitted = '';
     },
+  };
+}
+
+// A word at the end of a chunk could still become a provider key or an
+// assignment. Credential words also introduce patterns that reach across
+// whitespace. Keep those words and structured syntax on the full-text path.
+const CREDENTIAL_WORD = new RegExp(
+  `(?:${SECRET_FIELD_SOURCE}|passwordvalue|pwd|pass|auth|sig|accountkey|sharedaccesskey)$|eyJ|AKIA|AIza`,
+  'i'
+);
+const PROSE_SYMBOL =
+  /[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D.,!?;'"()[\]{}#*`，。！？、；：“”‘’（）《》…—–]/uy;
+const PROSE_BREAK = /^[ \t\r\n.,!?;'"()[\]{}#*`]|^[^\x00-\x7f]/u;
+const ATOM_BREAK = /^[\s'"`()\[\]{};,!]/u;
+
+/**
+ * Publish stable prose and completed ordinary code/path atoms. Credential
+ * contexts and unresolved command syntax remain pending for full redaction.
+ * Tool and command output keep the ordinary line-oriented redactor.
+ */
+export function createAssistantTextRedactor(
+  options: { normalizeLeadingWhitespace?: boolean } = {}
+) {
+  const atom = /[A-Za-z0-9_$/\\:=@?&%+#~-][A-Za-z0-9_$./\\:=@?&%+#~-]*/y;
+  const symbol = new RegExp(PROSE_SYMBOL);
+  let raw = '';
+  let scanned = 0;
+  let proseEnd = 0;
+  let emitted = 0;
+  let held = false;
+  let leading = options.normalizeLeadingWhitespace === true;
+  let structured = false;
+  let cutKnownSecrets: ReturnType<typeof createKnownSecretStreamCut> | undefined;
+
+  const reset = () => {
+    raw = '';
+    scanned = proseEnd = emitted = 0;
+    held = structured = false;
+    leading = options.normalizeLeadingWhitespace === true;
+    cutKnownSecrets = undefined;
+  };
+
+  const advance = () => {
+    while (!held && scanned < raw.length) {
+      const char = raw.charAt(scanned);
+      if (/\s/u.test(char)) {
+        scanned += 1;
+        continue;
+      }
+      // A Markdown bullet or quote can still introduce a PEM diff line.
+      if ((char === '-' || char === '>') && /\s/u.test(raw.charAt(scanned + 1))) {
+        const body = raw.slice(scanned + 1).search(/\S/u);
+        if (body === -1) return;
+        if (raw.charAt(scanned + 1 + body) === '-') {
+          held = true;
+          return;
+        }
+        scanned += 1;
+        proseEnd = scanned;
+        continue;
+      }
+      atom.lastIndex = scanned;
+      const token = atom.exec(raw);
+      if (token) {
+        let value = token[0];
+        if (atom.lastIndex === raw.length) {
+          if (!value.endsWith('.') || /[:/\\]/.test(value)) return;
+          value = value.slice(0, -1);
+          atom.lastIndex -= 1;
+        }
+        const delimiter = raw.charAt(atom.lastIndex);
+        const words = value.match(/[A-Za-z0-9_]+/g) ?? [];
+        const contextual =
+          CREDENTIAL_WORD.test(value) || words.some((word) => CREDENTIAL_WORD.test(word));
+        const flag = value.startsWith('-') && !/^-\d/.test(value);
+        const url = value.includes('://');
+        // A URL password can include non-ASCII text and punctuation. Only
+        // actual URL/argv terminators make such an atom complete.
+        const boundary = url ? ATOM_BREAK.test(delimiter) : PROSE_BREAK.test(delimiter);
+        if (contextual || flag) {
+          held = true;
+          return;
+        }
+        if (!boundary) return;
+        structured ||= /[^A-Za-z0-9]/.test(value);
+        scanned = atom.lastIndex;
+      } else {
+        if (scanned + 1 === raw.length && /[\uD800-\uDBFF]/.test(char)) return;
+        symbol.lastIndex = scanned;
+        if (!symbol.test(raw)) return;
+        structured ||= char === '`' || char === '{' || char === '}';
+        scanned = symbol.lastIndex;
+      }
+      proseEnd = scanned;
+    }
+  };
+
+  return {
+    push(chunk: string): string {
+      if (leading) {
+        chunk = chunk.trimStart();
+        if (!chunk) return '';
+        leading = false;
+      }
+      raw += chunk;
+      advance();
+      if (proseEnd <= emitted) return '';
+      const prefix = raw.slice(0, proseEnd);
+      // Structured atoms must also agree with the authoritative batch
+      // redactor before their original bytes can enter an append-only stream.
+      if (structured && callRedactEgress(prefix) !== prefix) {
+        held = true;
+        return '';
+      }
+      cutKnownSecrets ??= createKnownSecretStreamCut();
+      const candidate = raw.slice(emitted, proseEnd);
+      const delta = candidate.slice(0, cutKnownSecrets(candidate));
+      emitted += delta.length;
+      return delta;
+    },
+    flush(finalText = raw): string {
+      const canonical = options.normalizeLeadingWhitespace ? finalText.trimStart() : finalText;
+      const settled = callRedactEgress(canonical);
+      const delta = settled.startsWith(raw.slice(0, emitted)) ? settled.slice(emitted) : '';
+      reset();
+      return delta;
+    },
+    reset,
   };
 }
 

@@ -403,6 +403,8 @@ export type MossAgentEvent =
       toolName: string;
       toolCallId: string;
       elapsedSec: number;
+      /** Redacted incremental tool output; absent on heartbeat-only progress. */
+      chunk?: string;
     }
   | {
       type: 'tool_end';

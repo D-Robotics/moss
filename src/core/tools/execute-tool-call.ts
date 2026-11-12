@@ -15,6 +15,7 @@ import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js
 import { MossError, ErrorCode, errorMessage, isMossError, wrapAsMoss } from '../../errors.js';
 import { isEffectiveUiZh } from '../../utils/ui-language.js';
 import type { DenialClass } from '../../contracts/tool-denial.js';
+import { createStreamingTextRedactor } from '../../safety/redact-stream.js';
 import { ToolSuspension, type SuspendedToolCall } from './tool-suspension.js';
 
 /**
@@ -86,6 +87,7 @@ export function deniedToolResultText(
 }
 
 const logger = getRootLogger();
+const MAX_LIVE_TOOL_OUTPUT_BYTES = 256 * 1024;
 
 const TRANSIENT_RETRY_TOOLS = new Set([
   'read_file',
@@ -625,6 +627,27 @@ async function executeOneToolCallInner(
 
       structuredBlocks = undefined;
       const timeoutAbortCtrl = new AbortController();
+      const outputRedactor = createStreamingTextRedactor();
+      let outputOpen = true;
+      let outputBytes = 0;
+      let outputCapped = false;
+      const publishOutput = (chunk: string) => {
+        if (
+          !chunk ||
+          !outputOpen ||
+          effectiveAbortSignal.aborted ||
+          timeoutAbortCtrl.signal.aborted
+        )
+          return;
+        deps.push({
+          type: 'tool_execution_progress',
+          toolCallId: call.id,
+          toolName: call.name,
+          elapsed_sec: Math.round((Date.now() - startMs) / 1000),
+          chunk,
+        });
+        callToolCtx.onToolOutput?.(chunk);
+      };
 
       try {
         const toolTimeoutPromise = new Promise<never>(
@@ -650,6 +673,18 @@ async function executeOneToolCallInner(
         const attemptCtx: ToolContext = {
           ...callToolCtx,
           abortSignal: attemptSignal,
+          onToolOutput: (chunk) => {
+            if (!outputOpen || outputCapped || attemptSignal.aborted) return;
+            outputBytes += Buffer.byteLength(chunk, 'utf8');
+            if (outputBytes > MAX_LIVE_TOOL_OUTPUT_BYTES) {
+              outputCapped = true;
+              // Never slice and settle an uncertain secret at the preview cap.
+              outputRedactor.reset();
+              publishOutput('\n[Live output limit reached; further output omitted.]\n');
+              return;
+            }
+            publishOutput(outputRedactor.push(chunk));
+          },
           markResultError: () => {
             structuralError = true;
           },
@@ -721,6 +756,7 @@ async function executeOneToolCallInner(
             });
           }
         }
+        if (!attemptSignal.aborted) publishOutput(outputRedactor.flush());
       } catch (err) {
         if (
           err instanceof ToolSuspension &&
@@ -806,6 +842,10 @@ async function executeOneToolCallInner(
         }
         attemptErrFlag = true;
       } finally {
+        // Late callbacks from timed-out or retried tools cannot publish into
+        // the next attempt. Only normal completion settles a partial line.
+        outputOpen = false;
+        outputRedactor.reset();
         if (timeoutHandle) clearTimeout(timeoutHandle);
         if (heartbeatHandle) clearInterval(heartbeatHandle);
       }
