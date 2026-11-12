@@ -81,6 +81,66 @@ try {
   await rm(isolatedConfig, { recursive: true, force: true });
 }
 
+// Reasoning is a separate public channel with the same cross-chunk egress boundary.
+for (const [index, text] of cases.entries()) {
+  const expected = redactEgress(text);
+  const reasoner = createMossAgentLoopEventAdapter();
+  let visible = '';
+  reasoner.onMiniEvent({ type: 'turn_start', turn: 1 });
+  for (const delta of text) {
+    visible += reasoner
+      .onMiniEvent({ type: 'thinking_delta', delta })
+      .filter((event) => event.type === 'thinking_delta')
+      .map((event) => event.delta)
+      .join('');
+    assert.ok(expected.startsWith(visible), `unsafe reasoning prefix in case ${index}`);
+  }
+  visible += reasoner
+    .onMiniEvent({ type: 'message_end', text: '' })
+    .filter((event) => event.type === 'thinking_delta')
+    .map((event) => event.delta)
+    .join('');
+  assert.equal(visible, expected, `reasoning completion in case ${index}`);
+  assert.equal(reasoner.getResult({ finalText: '' }).thinking?.join(''), expected);
+}
+
+for (const boundary of [
+  { type: 'retry', attempt: 1, error: 'temporary failure' },
+  { type: 'turn_end', turn: 1, stopReason: 'end_turn' },
+  { type: 'message_end', text: '', stopReason: 'aborted_by_user' },
+  { type: 'message_end', text: '', stopReason: 'length' },
+  { type: 'agent_error', error: 'interrupted' },
+]) {
+  const reasoner = createMossAgentLoopEventAdapter();
+  const live = reasoner.onMiniEvent({ type: 'thinking_delta', delta: '先检查环境。' });
+  assert.equal(live[0]?.delta, '先检查环境。', 'reasoning must publish before completion');
+  assert.deepEqual(reasoner.onMiniEvent({ type: 'thinking_delta', delta: known.slice(0, 3) }), []);
+  assert.ok(reasoner.onMiniEvent(boundary).every((event) => event.type !== 'thinking_delta'));
+  reasoner.onMiniEvent({ type: 'turn_start', turn: 2 });
+  assert.equal(
+    reasoner.onMiniEvent({ type: 'thinking_delta', delta: '接下来验证。' })[0]?.delta,
+    '接下来验证。'
+  );
+  assert.equal(
+    reasoner.getResult({ finalText: '' }).thinking?.join(''),
+    '先检查环境。接下来验证。'
+  );
+}
+console.log(
+  '[assistant-live-text] safe live reasoning, settled results and interrupted tails passed'
+);
+
+const reasoningBoundary = createMossAgentLoopEventAdapter();
+assert.deepEqual(
+  reasoningBoundary.onMiniEvent({ type: 'thinking_delta', delta: 'trailingword' }),
+  []
+);
+assert.deepEqual(reasoningBoundary.onMiniEvent({ type: 'message_delta', delta: '公开正文。' }), [
+  { type: 'thinking_delta', delta: 'trailingword' },
+  { type: 'text_delta', delta: '公开正文。' },
+]);
+assert.deepEqual(reasoningBoundary.onMiniEvent({ type: 'message_end', text: '公开正文。' }), []);
+
 const commandRedactor = createStreamingTextRedactor();
 assert.equal(commandRedactor.push('Command logs still hold a partial line.'), '');
 assert.equal(commandRedactor.flush(), 'Command logs still hold a partial line.');
@@ -171,6 +231,7 @@ assert.deepEqual(router.push('short plain delta'), {
 });
 
 const deltas = ['清晨，机器人走出门口。', '它把画册交给等待的人。', '它转身看到了花园。'];
+const reasoningDeltas = ['先确定故事的场景。', '再补充角色的行动。'];
 let providerDone = false;
 const provider = {
   id: 'assistant-live-text-fixture',
@@ -181,6 +242,10 @@ const provider = {
   },
   async stream(options, emit) {
     assert.equal(options.tools?.length ?? 0, 0);
+    for (const text of reasoningDeltas) {
+      emit({ type: 'content_block_delta', deltaRole: 'thinking', text });
+      await delay(100);
+    }
     for (const text of deltas) {
       emit({ type: 'content_block_delta', text });
       await delay(200);
@@ -199,6 +264,8 @@ const agent = new MossAgent({
 try {
   const live = [];
   let beforeDone = 0;
+  const liveReasoning = [];
+  let reasoningBeforeDone = 0;
   let response;
   for await (const event of agent.streamChat('live-text', 'Write a short story.', {
     toolFilter: () => false,
@@ -206,11 +273,17 @@ try {
     if (event.type === 'text_delta') {
       live.push(event.delta);
       if (!providerDone && event.delta) beforeDone += 1;
+    } else if (event.type === 'thinking_delta') {
+      liveReasoning.push(event.delta);
+      if (!providerDone && event.delta) reasoningBeforeDone += 1;
     } else if (event.type === 'done') {
       response = event.result.response;
+      assert.equal(event.result.thinking?.join(''), reasoningDeltas.join(''));
     }
   }
   assert.ok(beforeDone >= 2, `only ${beforeDone} text events before model completion`);
+  assert.equal(liveReasoning.join(''), reasoningDeltas.join(''));
+  assert.equal(reasoningBeforeDone, reasoningDeltas.length);
   assert.equal(live.join(''), deltas.join(''));
   assert.equal(response, deltas.join(''));
   console.log(
