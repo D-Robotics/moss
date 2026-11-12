@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ErrorCode, MossError } from '../../errors.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 import { hashHarnessAdapter } from '../agent/harness-adapter.js';
+import type { RsiDailyState } from './daily-store.js';
 import type {
   RsiAdapter,
   RsiCandidate,
@@ -93,6 +94,8 @@ export interface RsiState {
   schemaVersion: 2;
   scope: RsiScope;
   revision: number;
+  /** Optional opt-in daily references. Legacy state is unchanged until configured. */
+  daily?: RsiDailyState;
   runs: RsiRun[];
   cases: RsiCase[];
   candidates: RsiCandidate[];

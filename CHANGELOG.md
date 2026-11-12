@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Optional Hermit training and daily experience references (SDK 0.32)
+
+- Adds public `probeHermitWorker`, `runHermitWorker`, `HERMIT_WORKER_PIN`, worker types,
+  `rsiTaskScopeDigest` and trusted external-training methods on `RsiEngine`. The optional
+  Python worker runs pinned official Hermit/GEPA and is outside Node dependencies.
+- Adds `RsiDailyStore` and daily reference/view types for opt-in per-project collection,
+  owner/environment isolation, revision CAS, retained run references and deletion tombstones.
+  It shares RSI's cross-process transaction lock; no raw prompts or tools outputs are collected.
+- External candidates require frozen provenance and one-use confirmation before promotion.
+  Missing runtime scope selects baseline. Existing native RSI remains available.
+- Offline probes cover the protocol and persistence. Real X5 training, functional improvement,
+  cloud synchronization and total on-disk asset quota require host integration and acceptance.
+
 ### `moss task status|timeline latest` works like the other read paths (B253)
 
 - `moss task status latest` and `moss task timeline latest` answered "No tasks in this workspace" even

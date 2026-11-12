@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'hermit-supervisor-')));
 const { runHermitWorker, probeHermitWorker, HERMIT_WORKER_PIN } = await import(
-  pathToFileURL(path.resolve('dist/core/rsi/hermit-worker.js')).href
+  pathToFileURL(path.resolve('dist/index.js')).href
 );
 const { spawnProcess } = await import(
   pathToFileURL(path.resolve('dist/utils/run-process.js')).href

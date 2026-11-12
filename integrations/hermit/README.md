@@ -104,3 +104,48 @@ Trainer with one or more **scripted loopback model HTTP requests**, plus scripte
 acting/Judge receipts. These prove interfaces only: no paid model, board, historic
 bug task or self-improvement efficacy is claimed. Real acceptance needs fresh
 RDK historical bugs, hidden final evaluation and measured provider usage.
+
+## Daily experience references (SDK 0.32)
+
+`RsiDailyStore(rootDir)` uses the same owner/environment `state.json` as `RsiEngine`,
+including its cross-process writer lock and atomic replacement. The host must derive
+`scope` from authenticated identity and admit project IDs before calling the SDK.
+`read(scope)` returns `revision`, `storageDirectory`, `metadataBytes`, retention and
+quota settings, project consent entries and experience references. Old state without
+daily metadata defaults to collection disabled, 30 days and a 1 GiB metadata quota.
+
+```js
+const daily = new RsiDailyStore(rootDir);
+daily.configure(scope, {
+  expectedRevision: daily.read(scope).revision,
+  projectId: trustedProjectId,
+  enabled: true,
+});
+daily.record(scope, {
+  runId: nativeRunId,
+  projectId: trustedProjectId,
+  completedAt: Date.now(),
+  outcome: 'completed',
+});
+```
+
+`RSI_DAILY_ALL_PROJECTS` is an explicit all-admitted-projects consent choice.
+An exact project entry overrides it, including a project's opt-out. `record` only
+accepts identifiers, timestamps, outcome and optional adapter/scope/evidence digests;
+it does not store raw prompts, code, tool output or credentials. Unknown input fields
+are discarded. Duplicate project/run pairs are idempotent, and references always
+start with `eligibility: 'needs_judge'`. Successful completion alone is not training
+admission. The host retains the source evidence and owns real-task qualification.
+
+`deleteExperience(scope, id, { expectedRevision })` removes a reference and stores
+a minimal digest tombstone against late event replay. This API does not delete a
+host's original conversation, evidence files, or already derived training assets;
+the host must complete any broader deletion workflow before reporting that outcome.
+Metadata is bounded at 1,000 references and 10,000 deletion tombstones per owner/env;
+capacity failures are explicit. `metadataBytes` and `quotaBytes` cover daily index
+metadata only, not all training/workspace disk usage. Host-owned artifact quota and
+candidate lifecycle are separate integration work. Expired references are filtered
+on reads and pruned on subsequent configuration or successful collection writes.
+
+After building, run `node scripts/verify/rsi-daily-store.mjs` and
+`node scripts/verify/rsi-external-training.mjs` for offline persistence/protocol probes.
