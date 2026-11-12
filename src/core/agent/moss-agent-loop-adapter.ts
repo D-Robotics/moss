@@ -87,19 +87,22 @@ export function createMossAgentLoopEventAdapter(
     );
     return {
       response: redactEgress(response || result.finalText),
+      ...(result.suspendedTool ? { suspendedTool: result.suspendedTool } : {}),
       ...(options?.harnessAdapterReceipt ? { harnessAdapter: options.harnessAdapterReceipt } : {}),
       toolCalls,
       toolResults,
       ...(usage ? { usage } : {}),
       ...(thinking.length > 0 ? { thinking } : {}),
       ...(compactions > 0 ? { compactions } : {}),
-      stopReason: toolBudgetReached
-        ? 'tool_budget_reached'
-        : options?.isAborted?.()
-          ? 'aborted_by_user'
-          : stopReason === 'unknown' && (response || result.finalText)
-            ? 'end_turn'
-            : stopReason,
+      stopReason: result.suspendedTool
+        ? 'suspended'
+        : toolBudgetReached
+          ? 'tool_budget_reached'
+          : options?.isAborted?.()
+            ? 'aborted_by_user'
+            : stopReason === 'unknown' && (response || result.finalText)
+              ? 'end_turn'
+              : stopReason,
     };
   };
 

@@ -238,3 +238,5 @@ export type {
   SuperagentWorkerResult,
   SuperagentAssessment,
 } from './contracts/superagent.js';
+export { suspendToolCall } from './core/tools/tool-suspension.js';
+export type { SuspendedToolCall } from './core/tools/tool-suspension.js';

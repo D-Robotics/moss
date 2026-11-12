@@ -654,7 +654,10 @@ export function runAgentLoop(
 
             await flushAssistantBuffer(turnAssistantBuffer);
 
-            if (responseResult.control === 'break' && state.taskAcceptanceCommitted) {
+            if (
+              responseResult.control === 'break' &&
+              (state.taskAcceptanceCommitted || state.suspendedTool)
+            ) {
               break outerLoop;
             }
 
@@ -845,9 +848,15 @@ export function runAgentLoop(
           prepNextTurnParallelMs: state.toolExecutionMetrics.prepNextTurnParallelMs,
         },
       });
+      if (state.suspendedTool) {
+        if (!params.replaceMessages)
+          throw new Error('Suspension requires a durable session replacement port');
+        await params.replaceMessages(sessionKey, currentMessages);
+      }
       stream.push({ type: 'agent_end', runId, messages: currentMessages });
       stream.end({
         finalText: state.finalText,
+        ...(state.suspendedTool ? { suspendedTool: state.suspendedTool } : {}),
         turns: state.turns,
         totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
         messages: currentMessages,

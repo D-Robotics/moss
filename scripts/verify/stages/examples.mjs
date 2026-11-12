@@ -10,12 +10,13 @@ const EXAMPLES = [
   'examples/repl-host.mjs',
   'examples/custom-tool-approval.mjs',
   'examples/skill-catalog.mjs',
+  'examples/tool-continuation.mjs',
 ];
 
 export const stage = {
   name: 'examples',
   requires: ['build'],
-  description: 'the four offline SDK embedding examples',
+  description: 'offline SDK embedding examples and durable tool continuation',
   async run(context) {
     for (const example of EXAMPLES) {
       const result = await runProcess(process.execPath, [path.join(context.root, example)], {

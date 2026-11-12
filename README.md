@@ -244,7 +244,7 @@ CI 把同一条门禁拆成两片并行、每片仍是 60s 预算；改坏会在
 ## 文档
 
 - [安装与运行环境](docs/install.md) · [安全与隐私](docs/safety.md) · [命令与配置参考](docs/cli-reference.md)
-- [RDK 板端依赖](docs/rdk-board-deps.md) · [能力层（MCP / device / skill）](docs/capability-layer.md)
+- [RDK 板端依赖](docs/rdk-board-deps.md) · [能力层（MCP / device / skill）](docs/capability-layer.md) · [SDK 工具挂起](docs/tool-continuation.md)
 - [AGENTS.md](AGENTS.md)（工程合同） · [CHANGELOG](CHANGELOG.md) · [发布策略](docs/release-policy.md)
 - [与 Claude Code / codex 的命令面基线](docs/cli-parity/) · [设计记录](docs/superpowers/plans/)
 
