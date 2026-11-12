@@ -134,8 +134,8 @@ function plan(prefix) {
     ),
   };
 }
-async function enrolled(prefix, forged = false) {
-  const session = engine.freezeTrainingSession(scope, plan(prefix));
+async function enrolled(prefix, forged = false, taskScope = identity) {
+  const session = engine.freezeTrainingSession(scope, { ...plan(prefix), taskScope });
   for (let step = 0; step < 2; step++) {
     const r = engine.reserveTrainingCall(scope, session.id, {
       stage: 'training',
@@ -241,7 +241,43 @@ try {
     'permission changes invalidate adoption'
   );
   provider.runtimeConfig.permissionsDigest = oldPermission;
-  engine.rollback(scope, promoted.version);
+  const otherIdentity = { ...identity, projectId: 'second-project' };
+  const second = await enrolled('second-project', false, otherIdentity);
+  const secondCandidate = await engine.admitTrainingCandidate(
+    scope,
+    second.session.id,
+    second.input
+  );
+  const secondConfirmation = await engine.confirmTrainingCandidate(scope, second.session.id);
+  const secondPolicy = engine.promoteTrainingCandidate(scope, second.session.id, {
+    confirmationId: secondConfirmation.id,
+    expectedPolicyVersion: 0,
+  });
+  assert.equal(
+    engine.captureAdapter(scope, expected).adapter.digest,
+    candidate.digest,
+    'promoting another project cannot replace this project policy'
+  );
+  assert.equal(
+    engine.captureAdapter(scope, { ...expected, taskScope: otherIdentity }).adapter.digest,
+    secondCandidate.digest
+  );
+  engine.rollbackTrainingPolicy(scope, otherIdentity, secondPolicy.version);
+  assert.equal(
+    engine.captureAdapter(scope, expected).adapter.digest,
+    candidate.digest,
+    'rolling back another project cannot replace this project policy'
+  );
+  assert.equal(
+    engine.captureAdapter(scope, { ...expected, taskScope: otherIdentity }).adapter.digest,
+    RSI_BASELINE.digest
+  );
+  assert.equal(
+    engine.status(scope).policy.activeDigest,
+    RSI_BASELINE.digest,
+    'external policies cannot mutate legacy global policy'
+  );
+  engine.rollbackTrainingPolicy(scope, identity, promoted.version);
   assert.equal(engine.captureAdapter(scope, expected).adapter.digest, RSI_BASELINE.digest);
 
   const legacy = engine.importCandidate(scope, {
@@ -323,7 +359,7 @@ try {
 
   const baselineChanged = await enrolled('baseline-change');
   engine.store.update(scope, (state) => {
-    state.policy.version++;
+    state.trainingPolicies[rsiTaskScopeDigest(identity)].version++;
   });
   await assert.rejects(
     engine.admitTrainingCandidate(scope, baselineChanged.session.id, baselineChanged.input),
@@ -345,7 +381,7 @@ try {
       () =>
         engine.promoteTrainingCandidate(scope, fixture.session.id, {
           confirmationId: result.id,
-          expectedPolicyVersion: engine.store.read(scope).policy.version,
+          expectedPolicyVersion: engine.getTrainingPolicy(scope, identity).version,
         }),
       mode === 'cancellation' ? 'training_session_cancelled' : 'passing_confirmation_required'
     );
@@ -361,7 +397,7 @@ try {
       () =>
         engine.promoteTrainingCandidate(scope, fixture.session.id, {
           confirmationId: result.id,
-          expectedPolicyVersion: engine.store.read(scope).policy.version,
+          expectedPolicyVersion: engine.getTrainingPolicy(scope, identity).version,
         }),
       'passing_confirmation_required'
     );

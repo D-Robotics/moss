@@ -308,6 +308,7 @@ export interface RsiPolicyTransition {
   toDigest: string;
   policyVersion: number;
   evaluationId?: string;
+  taskScopeDigest?: string;
 }
 export interface RsiEngineStatus {
   learningAvailable: boolean;

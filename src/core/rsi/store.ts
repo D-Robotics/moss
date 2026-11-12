@@ -96,6 +96,8 @@ export interface RsiState {
   revision: number;
   /** Optional opt-in daily references. Legacy state is unchanged until configured. */
   daily?: RsiDailyState;
+  /** External training uses one independent active policy per trusted task scope. */
+  trainingPolicies?: Record<string, RsiPolicy>;
   runs: RsiRun[];
   cases: RsiCase[];
   candidates: RsiCandidate[];

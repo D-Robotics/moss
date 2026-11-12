@@ -149,3 +149,12 @@ on reads and pruned on subsequent configuration or successful collection writes.
 
 After building, run `node scripts/verify/rsi-daily-store.mjs` and
 `node scripts/verify/rsi-external-training.mjs` for offline persistence/protocol probes.
+
+Hermit promotion uses a policy keyed by the complete trusted `RsiTaskScope` digest,
+independent of native RSI's legacy global policy. Read it with
+`engine.getTrainingPolicy(scope, taskScope)`; roll it back with
+`engine.rollbackTrainingPolicy(scope, taskScope, expectedPolicyVersion)`.
+`captureAdapter(scope, { model, providerIdentityDigest, taskScope })` captures that
+scope's version. A promotion or rollback in another project cannot replace it.
+The repository revision is an exact compatibility boundary: project updates require
+a separately admitted scope and evaluation, not an inferred broad match.

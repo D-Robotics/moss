@@ -1,5 +1,9 @@
 import path from 'node:path';
-import { RsiTrainingController, rsiTaskScopeDigest } from './external-training.js';
+import {
+  RsiTrainingController,
+  rsiTaskScopeDigest,
+  trainingPolicyFor,
+} from './external-training.js';
 import { randomUUID } from 'node:crypto';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { HarnessAdapter } from '../agent/harness-adapter.js';
@@ -408,6 +412,13 @@ export class RsiEngine {
   }
   cancelTrainingSession(scope: RsiScope, sessionId: string) {
     return this.training.cancel(scope, sessionId);
+  }
+  getTrainingPolicy(scope: RsiScope, taskScope: RsiTaskScope) {
+    return this.training.policy(scope, taskScope);
+  }
+  rollbackTrainingPolicy(scope: RsiScope, taskScope: RsiTaskScope, expectedPolicyVersion: number) {
+    this.requireEnabled(scope);
+    return this.training.rollback(scope, taskScope, expectedPolicyVersion);
   }
   setLearningProvider(provider: RsiLearningProvider | RsiLearningProviderFactory) {
     this.learning = provider;
@@ -1063,8 +1074,20 @@ export class RsiEngine {
   ): RsiSelectedAdapter | null {
     try {
       this.requireEnabled(scope);
-      const state = this.store.read(scope),
-        adapter = adapterFor(state);
+      const state = this.store.read(scope);
+      let policy = state.policy;
+      if (expected?.taskScope) {
+        try {
+          policy = trainingPolicyFor(state, expected.taskScope);
+        } catch {
+          return freezeSnapshot({
+            adapter: RSI_BASELINE,
+            receipt: receipt(RSI_BASELINE, 0),
+            reason: 'adapter_scope_mismatch' as const,
+          });
+        }
+      }
+      const adapter = adapterFor(state, policy.activeDigest);
       const candidate = state.candidates.find((item) => item.adapter.digest === adapter.digest);
       if (
         adapter.digest !== RSI_BASELINE.digest &&
@@ -1086,7 +1109,7 @@ export class RsiEngine {
           return freezeSnapshot(
             structuredClone({
               adapter: RSI_BASELINE,
-              receipt: receipt(RSI_BASELINE, state.policy.version),
+              receipt: receipt(RSI_BASELINE, policy.version),
               reason: 'adapter_scope_mismatch' as const,
             })
           );
@@ -1103,7 +1126,7 @@ export class RsiEngine {
           return freezeSnapshot(
             structuredClone({
               adapter: RSI_BASELINE,
-              receipt: receipt(RSI_BASELINE, state.policy.version),
+              receipt: receipt(RSI_BASELINE, policy.version),
               reason: 'adapter_model_mismatch' as const,
             })
           );
@@ -1112,7 +1135,7 @@ export class RsiEngine {
         structuredClone({
           adapter,
           receipt: {
-            ...receipt(adapter, state.policy.version),
+            ...receipt(adapter, policy.version),
             ...(candidate?.taskScope
               ? { taskScopeDigest: rsiTaskScopeDigest(candidate.taskScope) }
               : {}),

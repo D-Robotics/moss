@@ -21,6 +21,7 @@ import type {
   RsiTrainingSession,
   RsiTrainingStage,
   RsiTrainingUsage,
+  RsiPolicy,
 } from './types.js';
 
 function fail(code: string): never {
@@ -78,6 +79,16 @@ export function rsiTaskScopeDigest(scope: RsiTaskScope): string {
   text(scope.taskFamilyVersion);
   digest(scope.capabilitiesDigest);
   return hash(scope);
+}
+export function trainingPolicyFor(state: RsiState, taskScope: RsiTaskScope): RsiPolicy {
+  return (
+    state.trainingPolicies?.[rsiTaskScopeDigest(taskScope)] ?? {
+      version: 0,
+      activeDigest: RSI_BASELINE.digest,
+      previousDigest: null,
+      updatedAt: 0,
+    }
+  );
 }
 function usage(value: RsiTrainingUsage) {
   if (!value || typeof value !== 'object') fail('training_usage_missing');
@@ -249,9 +260,10 @@ function sameUsage(a: RsiTrainingUsage, b: RsiTrainingUsage) {
 }
 function assertCurrent(state: RsiState, session: RsiTrainingSession) {
   if (session.status === 'cancelled') fail('training_session_cancelled');
+  const policy = trainingPolicyFor(state, session.taskScope);
   if (
-    state.policy.version !== session.policyVersion ||
-    state.policy.activeDigest !== session.policyActiveDigest
+    policy.version !== session.policyVersion ||
+    policy.activeDigest !== session.policyActiveDigest
   )
     fail('training_baseline_changed');
 }
@@ -397,16 +409,15 @@ export class RsiTrainingController {
     const provider = this.providerFor(clone(scope), clone(plan.taskScope));
     validateProvider(provider);
     return this.store.update(scope, (state) => {
-      const active = state.candidates.find(
-        (item) => item.adapter.digest === state.policy.activeDigest
-      );
+      const policy = trainingPolicyFor(state, plan.taskScope);
+      const active = state.candidates.find((item) => item.adapter.digest === policy.activeDigest);
       const eligible =
         active?.trainingSessionId &&
         this.canCapture(scope, active.trainingSessionId, active.adapter.digest) &&
         same(active.taskScope, plan.taskScope) &&
         active.validation?.model === provider.model &&
         active.validation.providerIdentityDigest === provider.providerIdentityDigest;
-      const baselineDigest = eligible ? state.policy.activeDigest : RSI_BASELINE.digest;
+      const baselineDigest = eligible ? policy.activeDigest : RSI_BASELINE.digest;
       const session: RsiTrainingSession = {
         ...plan,
         schemaVersion: 1,
@@ -415,8 +426,8 @@ export class RsiTrainingController {
         scopeDigest: hash(scope),
         createdAt: Date.now(),
         baselineDigest,
-        policyActiveDigest: state.policy.activeDigest,
-        policyVersion: state.policy.version,
+        policyActiveDigest: policy.activeDigest,
+        policyVersion: policy.version,
         hermit: clone(provider.hermit),
         validationIdentity: {
           model: provider.model,
@@ -477,7 +488,7 @@ export class RsiTrainingController {
         if (
           confirmation?.status !== 'passed' ||
           ![session.candidateDigest, session.policyActiveDigest, session.baselineDigest].includes(
-            state.policy.activeDigest
+            trainingPolicyFor(state, session.taskScope).activeDigest
           )
         )
           fail('passing_confirmation_required');
@@ -737,6 +748,7 @@ export class RsiTrainingController {
     this.authorize(scope);
     return this.store.update(scope, (state) => {
       const session = sessionFor(state, sessionId);
+      const policy = trainingPolicyFor(state, session.taskScope);
       assertCurrent(state, session);
       this.provider(scope, session);
       const record = state.trainingConfirmations!.find((item) => item.id === input.confirmationId),
@@ -745,7 +757,7 @@ export class RsiTrainingController {
             item.adapter.digest === session.candidateDigest && item.trainingSessionId === session.id
         );
       if (
-        state.policy.version !== input.expectedPolicyVersion ||
+        policy.version !== input.expectedPolicyVersion ||
         session.status !== 'confirmed' ||
         !record ||
         record.id !== session.confirmationId ||
@@ -761,23 +773,68 @@ export class RsiTrainingController {
         !sameUsage(stageUsage(state, session, 'confirmation'), record.usage!)
       )
         fail('passing_confirmation_required');
-      const previous = state.policy.activeDigest;
+      const previous = policy.activeDigest;
       candidate.validation = { ...session.validationIdentity, evaluationId: record.id };
-      state.policy = {
-        version: state.policy.version + 1,
+      const updated = {
+        version: policy.version + 1,
         activeDigest: candidate.adapter.digest,
         previousDigest: previous,
         updatedAt: Date.now(),
       };
+      const taskScopeDigest = rsiTaskScopeDigest(session.taskScope);
+      state.trainingPolicies ??= {};
+      state.trainingPolicies[taskScopeDigest] = updated;
       state.transitions.push({
         at: Date.now(),
         kind: 'promote',
         fromDigest: previous,
         toDigest: candidate.adapter.digest,
-        policyVersion: state.policy.version,
+        policyVersion: updated.version,
         evaluationId: record.id,
+        taskScopeDigest,
       });
-      return clone(state.policy);
+      return clone(updated);
+    });
+  }
+  policy(scope: RsiScope, taskScope: RsiTaskScope) {
+    this.authorize(scope);
+    return clone(trainingPolicyFor(this.store.read(scope), taskScope));
+  }
+  rollback(scope: RsiScope, taskScope: RsiTaskScope, expectedPolicyVersion: number) {
+    this.authorize(scope);
+    return this.store.update(scope, (state) => {
+      const taskScopeDigest = rsiTaskScopeDigest(taskScope);
+      const policy = trainingPolicyFor(state, taskScope);
+      if (policy.version !== expectedPolicyVersion) fail('policy_version_conflict');
+      if (!policy.previousDigest) fail('rollback_unavailable');
+      if (policy.previousDigest !== RSI_BASELINE.digest) {
+        const previous = state.candidates.find(
+          (item) => item.adapter.digest === policy.previousDigest
+        );
+        if (
+          !previous?.trainingSessionId ||
+          !same(previous.taskScope, taskScope) ||
+          !this.canCapture(scope, previous.trainingSessionId, previous.adapter.digest)
+        )
+          fail('rollback_unavailable');
+      }
+      const updated = {
+        version: policy.version + 1,
+        activeDigest: policy.previousDigest,
+        previousDigest: null,
+        updatedAt: Date.now(),
+      };
+      state.trainingPolicies ??= {};
+      state.trainingPolicies[taskScopeDigest] = updated;
+      state.transitions.push({
+        at: Date.now(),
+        kind: 'rollback',
+        fromDigest: policy.activeDigest,
+        toDigest: updated.activeDigest,
+        policyVersion: updated.version,
+        taskScopeDigest,
+      });
+      return clone(updated);
     });
   }
   cancel(scope: RsiScope, sessionId: string) {
