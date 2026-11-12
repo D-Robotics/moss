@@ -132,6 +132,67 @@ export function findTrailingWsMatches(
   return matches;
 }
 
+/**
+ * Indentation-tolerant match: a unique window of consecutive lines whose
+ * leading/trailing whitespace is stripped on both sides. Models routinely send
+ * `old_string` that differs only in indentation (nested blocks copied from a
+ * different depth); exact/quote/trailing-ws modes all miss that and the turn is
+ * wasted. Only a UNIQUE window counts, so this can never edit the wrong site.
+ * Returns ranges over the ORIGINAL content plus the indentation of the matched
+ * first line, which the caller reapplies to `new_string`.
+ */
+export function findIndentMatches(
+  content: string,
+  needle: string,
+  allowMultiple: boolean
+): Array<{ start: number; end: number; indent: string }> {
+  const contentLines = content.split('\n');
+  const needleLines = needle
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l, idx, all) => idx < all.length - 1 || l.length > 0);
+  if (needleLines.length === 0 || needleLines.every((l) => l.length === 0)) return [];
+  const matches: Array<{ start: number; end: number; indent: string }> = [];
+
+  const lineStarts: number[] = new Array(contentLines.length);
+  let offset = 0;
+  for (let i = 0; i < contentLines.length; i++) {
+    lineStarts[i] = offset;
+    offset += contentLines[i]!.length + (i < contentLines.length - 1 ? 1 : 0);
+  }
+
+  for (let i = 0; i <= contentLines.length - needleLines.length; i++) {
+    let ok = true;
+    for (let j = 0; j < needleLines.length; j++) {
+      if (contentLines[i + j]!.trim() !== needleLines[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const start = lineStarts[i]!;
+    const last = i + needleLines.length - 1;
+    const end = lineStarts[last]! + contentLines[last]!.length;
+    const indent = /^[ \t]*/.exec(contentLines[i]!)?.[0] ?? '';
+    matches.push({ start, end, indent });
+    if (!allowMultiple && matches.length > 1) return matches;
+  }
+  return matches;
+}
+
+/**
+ * Reapply the matched block's first-line indentation to a replacement block.
+ * The matched span already consumed the original indentation (it starts at the
+ * beginning of the line), so EVERY line of the replacement needs it back.
+ */
+export function reindentReplacement(newStr: string, indent: string): string {
+  if (!indent) return newStr;
+  return newStr
+    .split('\n')
+    .map((line) => (line.trim() === '' ? line : indent + line))
+    .join('\n');
+}
+
 /** Score lines for closest-match hints when old_string is missing. */
 export function findClosestLineHints(content: string, needle: string, maxHints = 3): string[] {
   const probe = stripLineNumberPrefixes(needle)
@@ -454,7 +515,7 @@ export const writeFileTool: Tool = {
   },
 };
 
-export type PreciseEditMatchMode = 'exact' | 'quotes' | 'trailing-ws';
+export type PreciseEditMatchMode = 'exact' | 'quotes' | 'trailing-ws' | 'indent';
 
 export interface PreciseEditRequest {
   oldString: string;
@@ -588,6 +649,18 @@ export function applyPreciseEditToContent(
         );
         matchMode = lfMode;
       }
+    }
+  }
+
+  // Indentation-tolerant fallback: the text exists but at a different depth.
+  let indentPrefix = '';
+  if (ranges.length === 0) {
+    const indentMatches = findIndentMatches(content, oldStr, Boolean(request.replaceAll));
+    if (indentMatches.length > 0) {
+      ranges = indentMatches.map(({ start, end }) => ({ start, end }));
+      matchMode = 'indent';
+      indentPrefix = indentMatches[0]!.indent;
+      if (indentPrefix) newStr = reindentReplacement(newStr, indentPrefix);
     }
   }
 

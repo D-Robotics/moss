@@ -28,6 +28,8 @@ export interface Message {
 }
 
 export interface ContentBlock {
+  /** Durable host continuation metadata; never included in provider tool inputs. */
+  continuation?: { continuationId: string; payload?: Record<string, unknown> };
   type: 'text' | 'image' | 'tool_use' | 'tool_result';
 
   text?: string;

@@ -283,6 +283,44 @@ assert.equal(latestJson.taskId, live.taskId);
 const latestTimeline = await runCli(['task', 'timeline', 'latest']);
 assert.equal(latestTimeline.status, 0, latestTimeline.stderr);
 assert.match(latestTimeline.stdout, /Task created/);
-ok('task status/timeline accept `latest`');
+// B333: `--json` must be JSON on this path too (it used to print the human text).
+const latestTimelineJson = JSON.parse(
+  (await runCli(['task', 'timeline', 'latest', '--json'])).stdout
+);
+assert.equal(latestTimelineJson.schema, 'moss_task_timeline.v1');
+assert.equal(latestTimelineJson.taskId, live.taskId);
+assert.ok(Array.isArray(latestTimelineJson.events) && latestTimelineJson.events.length > 0);
+ok('task status/timeline accept `latest` (timeline --json included)');
+
+// 9. B280: verify/resume accept `latest`; resume with no id means newest
+// resumable, and an empty workspace says so instead of leaking a usage error.
+const verifyLatest = await runCli(['task', 'verify', 'latest']);
+assert.notEqual(verifyLatest.status, 0, 'a task with no acceptance command cannot verify as PASS');
+assert.match(
+  `${verifyLatest.stdout}${verifyLatest.stderr}`,
+  /acceptance|verify|task/i,
+  'verify latest explains why it could not pass'
+);
+cwd = emptyWorkspace;
+const emptyTimeline = JSON.parse((await runCli(['task', 'timeline', 'latest', '--json'])).stdout);
+assert.equal(emptyTimeline.schema, 'moss_task_timeline.v1');
+assert.equal(emptyTimeline.taskId, null);
+assert.deepEqual(emptyTimeline.events, []);
+const resumeEmpty = await runCli(['task', 'resume']);
+assert.equal(resumeEmpty.status, 2);
+assert.match(resumeEmpty.stderr, /no resumable task/);
+ok('task verify/resume accept `latest` and explain an empty workspace');
+
+// 10. B281: an acceptance command that can never exit 0 is refused before the
+// first turn instead of burning the whole repair budget.
+for (const args of [
+  ['task', 'run', 'create x.txt', '--accept', 'false'],
+  ['task', 'resume', '--accept', 'exit 1'],
+]) {
+  const result = await runCli(args);
+  assert.equal(result.status, 2, `${args.join(' ')} must exit 2`);
+  assert.match(result.stderr, /can never exit 0/);
+}
+ok('an impossible acceptance command is refused before spending a turn');
 
 console.log(`[task-status-json] ${String(checks)} checks passed`);

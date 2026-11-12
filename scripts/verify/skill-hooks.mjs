@@ -27,6 +27,12 @@ const state = await import(pathToFileURL(path.join(root, 'dist/core/skills/skill
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-skill-hooks-'));
 const skillsDir = path.join(workspace, '.moss', 'skills');
 const marker = path.join(workspace, 'post.marker');
+const markerScript = path.join(workspace, 'write-post.marker.cjs');
+fs.writeFileSync(
+  markerScript,
+  `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'post');\n`,
+  'utf8'
+);
 
 let checks = 0;
 const ok = (name) => {
@@ -68,7 +74,9 @@ writeSkill('demo-guard', {
     PostToolUse: [
       {
         matcher: 'write_file',
-        command: `${JSON.stringify(process.execPath)} -e "require('fs').writeFileSync('${marker}','post')"`,
+        // B287: an inline `-e "…'${marker}'…"` breaks on Windows (backslashes
+        // are parsed as JS escapes); a tiny script file is shell-neutral.
+        command: `${JSON.stringify(process.execPath)} ${JSON.stringify(markerScript)}`,
       },
     ],
     Stop: [{ command: `${JSON.stringify(process.execPath)} -e "process.exit(1)"` }],

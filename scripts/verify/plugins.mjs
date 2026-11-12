@@ -193,10 +193,11 @@ await check('remove takes back only unedited files and cleans hooks + MCP', asyn
   // The locally edited skill file stays, with a warning instead of a silent delete.
   assert.equal(fs.existsSync(path.join(workspace, '.moss/skills/x5-deploy/SKILL.md')), true);
   assert.match(`${result.stdout}${result.stderr}`, /kept locally edited file/);
-  const config = JSON.parse(fs.readFileSync(path.join(workspace, '.moss', 'config.json'), 'utf8'));
-  assert.equal((config.hooks.PreToolUse ?? []).length, 0);
-  const mcp = JSON.parse(fs.readFileSync(path.join(workspace, '.moss', 'mcp.json'), 'utf8'));
-  assert.equal(mcp.mcpServers['demo-server'], undefined);
+  assert.match(`${result.stdout}${result.stderr}`, /1 hook\(s\), 1 MCP server\(s\)/);
+  // B306: the pack created these files; an empty container is clutter, not config.
+  assert.equal(fs.existsSync(path.join(workspace, '.moss', 'config.json')), false);
+  assert.equal(fs.existsSync(path.join(workspace, '.moss', 'mcp.json')), false);
+  assert.equal(fs.existsSync(path.join(workspace, '.moss', 'plugins')), false);
 });
 
 for (const line of checks) console.log(`[plugins] ${line}`);

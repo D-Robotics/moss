@@ -525,16 +525,21 @@ const contextCommand: CommandSpec = {
       }
       const reserveTokens = ctx.agent.config.compactionSettings?.reserveTokens ?? 20_000;
       const freeTokens = Math.max(0, usage.total - usage.used);
-      // B227: an unprobed window is the conservative 1M default, not a measured
+      // B227/B283: an unprobed window is the 1M default, not a measured
       // size; say so here too (the status row shows `ctx ~N%`).
       const windowSource = (ctx.agent.config as { contextTokensSource?: string })
         .contextTokensSource;
+      // `1,000k` reads worse than `1M`; keep the note human.
+      const windowLabel =
+        usage.total >= 1_000_000
+          ? `${Number((usage.total / 1_000_000).toFixed(1))}M`
+          : `${Math.round(usage.total / 1000).toLocaleString()}k`;
       const windowNote =
         windowSource === 'unprobed'
           ? [
               zh
-                ? `  window     未探测，使用保守默认 ${Math.round(usage.total / 1000).toLocaleString()}k（/model 可探测精确值）`
-                : `  window     unprobed — conservative ${Math.round(usage.total / 1000).toLocaleString()}k default (/model probes the real value)`,
+                ? `  window     未探测，按默认 ${windowLabel} 假设（真实窗口可能更小；/model 可探测精确值）`
+                : `  window     unprobed — assuming ${windowLabel} default (may be smaller; /model probes the real value)`,
             ]
           : [];
       const detailLines =
@@ -814,7 +819,8 @@ const exportCommand: CommandSpec = {
   name: '/export',
   summary: 'export this session to markdown (/export [path])',
   async run(ctx, args) {
-    const { renderSessionMarkdown } = await import('../command-dispatcher.js');
+    const { countExportableSessionMessages, renderSessionMarkdown } =
+      await import('../command-dispatcher.js');
     const { writeFile } = await import('node:fs/promises');
     const pathArg = args.trim() || '';
     try {
@@ -839,7 +845,7 @@ const exportCommand: CommandSpec = {
       await writeFile(resolved.absolute, markdown + '\n', 'utf8');
       ctx.say(
         'system',
-        `Exported ${messages.length} message(s) to ${target}. (Use /export - to print, or /export <path> to choose a file.)`
+        `Exported ${countExportableSessionMessages(messages)} message(s) to ${target}. (Use /export - to print, or /export <path> to choose a file.)`
       );
     } catch (err) {
       ctx.say('error', `Could not export session: ${errorMessage(err)}`);

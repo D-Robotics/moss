@@ -156,7 +156,10 @@ for (const entry of library.slice(0, 12)) {
   );
 }
 const smallList = await commands.renderSkillsList(workspace, configDir, false, 32_000);
-const smallSummary = smallList.split('\n').find((line) => line.includes('skill(s); catalog')) ?? '';
+const smallSummary =
+  smallList
+    .split('\n')
+    .find((line) => line.includes('; catalog') && /skill(s)?; catalog/.test(line)) ?? '';
 assert.ok(
   smallSummary.includes(`/1_280`.replace('_', '')),
   `32k summary must say 1280: ${smallSummary}`
@@ -167,7 +170,9 @@ const smallRendered = Number(
 assert.ok(smallRendered > 0 && smallRendered <= 1_280, `rendered ${String(smallRendered)}`);
 const defaultList = await commands.renderSkillsList(workspace, configDir, false);
 const defaultSummary =
-  defaultList.split('\n').find((line) => line.includes('skill(s); catalog')) ?? '';
+  defaultList
+    .split('\n')
+    .find((line) => line.includes('; catalog') && /skill(s)?; catalog/.test(line)) ?? '';
 assert.ok(defaultSummary.includes('/8000'), `no window → 8k fallback: ${defaultSummary}`);
 ok('/skills uses the window budget in-session and the 8k fallback without a window');
 

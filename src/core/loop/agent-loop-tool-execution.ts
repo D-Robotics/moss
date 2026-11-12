@@ -158,7 +158,7 @@ export function findLoopReplay(
   input: Record<string, unknown>,
   toolMeta: Tool['metadata'] | undefined
 ): string | null {
-  if (toolMeta?.noReplay) return null;
+  if (toolMeta?.noReplay || toolMeta?.canSuspend) return null;
   return findReplayableToolResultContent(history, toolName, input, 32, toolMeta?.sideEffectClass);
 }
 
@@ -464,7 +464,9 @@ export async function executeAgentLoopToolCalls(
   };
 
   const readonlyToolNames = new Set(
-    toolsForRun.filter((t) => t.metadata?.sideEffectClass === 'readonly').map((t) => t.name)
+    toolsForRun
+      .filter((t) => t.metadata?.sideEffectClass === 'readonly' && !t.metadata.canSuspend)
+      .map((t) => t.name)
   );
   const requestedParallelSafe = parallelSafeTools.size > 0 ? parallelSafeTools : readonlyToolNames;
   const effectiveParallelSafeTools = new Set(
@@ -529,6 +531,20 @@ export async function executeAgentLoopToolCalls(
   // extended tool-loop nudge included) is attached after the batch and guides
   // the next turn — it does not skip or error the rest of the batch.
   for (const group of toolGroups) {
+    if (state.suspendedTool) {
+      for (const call of group.calls) {
+        recordToolOutcome(
+          call,
+          {
+            kind: 'pre-blocked',
+            text: 'Not executed: another tool suspended this turn. Request again after continuation if still needed.',
+          },
+          recordCtx,
+          toolResults
+        );
+      }
+      continue;
+    }
     if (state.taskAcceptanceCommitted) {
       skipRemainingToolCalls(group.calls);
       continue;
@@ -587,6 +603,24 @@ export async function executeAgentLoopToolCalls(
             syncAssistantToolUseInput(assistantContent, { ...call, input });
           })
         );
+        if (outcome.kind === 'completed' && outcome.suspendedTool) {
+          state.suspendedTool = outcome.suspendedTool;
+          const block = assistantContent.find((b) => b.type === 'tool_use' && b.id === call.id);
+          if (!block) throw new Error('Suspended tool has no persisted assistant call');
+          block.continuation = {
+            continuationId: outcome.suspendedTool.continuationId,
+            ...(outcome.suspendedTool.payload ? { payload: outcome.suspendedTool.payload } : {}),
+          };
+          for (const skipped of group.calls.slice(gi + 1)) {
+            recordToolOutcome(
+              skipped,
+              { kind: 'pre-blocked', text: 'Not executed: tool turn suspended.' },
+              recordCtx,
+              toolResults
+            );
+          }
+          break;
+        }
         recordToolOutcome(call, outcome, recordCtx, toolResults);
         if (state.taskAcceptanceCommitted) {
           skipRemainingToolCalls(group.calls.slice(gi + 1));
@@ -609,6 +643,14 @@ export async function executeAgentLoopToolCalls(
     content: toolResults,
     timestamp: Date.now(),
   };
+
+  if (state.suspendedTool) {
+    if (toolResults.length > 0) {
+      await appendMessage(sessionKey, resultMsg);
+      currentMessages.push(resultMsg);
+    }
+    return { pendingMessages: [] };
+  }
 
   if (abortSignal.aborted) {
     // Persist results for tools that already completed/skipped, so the next

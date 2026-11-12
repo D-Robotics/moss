@@ -412,4 +412,14 @@ console.log('[verification-gate] no-change directive ok');
   console.log('[verification-gate] corrections are marked and replay-hidden');
 }
 
+// B356: a plain `node test.js` exec run is a real test run for the gate.
+{
+  const { checksForCommand } = completionModule;
+  assert.ok(checksForCommand('cd /tmp/ws && node test.js').includes('test'));
+  assert.ok(checksForCommand('node --test').includes('test'));
+  assert.ok(checksForCommand('npm test').includes('test'));
+  assert.deepEqual(checksForCommand('node app.js'), []);
+  console.log('[verification-gate] node test.js counts as a test run');
+}
+
 console.log(`[verification-gate] ${cases.length} assertion(s) passed`);

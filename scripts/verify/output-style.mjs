@@ -193,6 +193,8 @@ ok('config set/show/unset round-trips and rejects unknown values');
   assert.match(base.text, /Lead with the result/);
   // B241: the reply language follows the user's latest message, not the UI locale.
   assert.match(base.text, /Answer in the language of the user's latest message/);
+  // B274: revising an earlier answer must not reprint the whole thing.
+  assert.match(base.text, /do not reprint the whole earlier answer/);
 }
 ok('the default workflow discipline is a stable contract layer with a communication contract');
 

@@ -168,6 +168,7 @@ export interface RunMetrics {
 }
 
 export interface MiniAgentResult {
+  suspendedTool?: import('../tools/tool-suspension.js').SuspendedToolCall;
   finalText: string;
   turns: number;
   totalToolCalls: number;

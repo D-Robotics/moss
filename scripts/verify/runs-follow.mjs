@@ -95,6 +95,7 @@ const cli = (args) =>
 const empty = await cli(['runs', 'follow', '--timeout', '600ms']);
 assert.equal(empty.status, 1);
 assert.match(empty.stderr, /no running run observed/);
+assert.match(empty.stderr, /waiting for a new one/);
 assert.equal((await cli(['runs', 'follow', '--timeout', 'soon'])).status, 2);
 assert.equal((await cli(['runs', 'follow', '--kind', 'nope'])).status, 2);
 // A live in-flight row is announced on the first poll, then the timeout exits 1.

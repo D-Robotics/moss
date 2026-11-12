@@ -213,6 +213,8 @@ export type ToolSideEffectClass =
 export type ToolPlanMode = 'allow' | 'audit' | 'requires_user_confirmation';
 
 export interface ToolMetadata {
+  /** May yield without a result; such calls always execute serially. */
+  canSuspend?: boolean;
   permissionBoundary?: string;
   sideEffectClass?: ToolSideEffectClass;
   /**

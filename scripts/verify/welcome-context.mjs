@@ -13,8 +13,16 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const { formatPreviousSessionHint, renderWelcomeContextLines, renderNextHint, formatAgo } =
-  await import(pathToFileURL(path.join(root, 'dist/cli/onboarding.js')).href);
+const {
+  formatPreviousSessionHint,
+  renderWelcomeContextLines,
+  renderNextHint,
+  formatAgo,
+  welcomeComposerSuggestion,
+} = await import(pathToFileURL(path.join(root, 'dist/cli/onboarding.js')).href);
+const { renderFirstRunLines } = await import(
+  pathToFileURL(path.join(root, 'dist/cli/first-run.js')).href
+);
 
 let checks = 0;
 const ok = (name) => {
@@ -100,9 +108,33 @@ try {
   {
     const { lines, next } = renderWelcomeContextLines(ws, false);
     assert.match(lines[0], /unverified · 10s ago · chat chat_unverified/);
-    assert.match(next, /actually perform the check/);
+    // B260: advice prose stays on the last-run line; Next is actionable.
+    assert.match(next, /^moss runs/);
+    assert.match(renderWelcomeContextLines(ws, false, 'interactive').next, /^\/runs/);
   }
-  ok('an unverified chat run keeps its recorded next step');
+  ok('an unverified chat run with prose advice falls back to the ledger command');
+  // B260: advice prose is not a command — the composer must not say
+  // "Resume with make the run actually perform…".
+  assert.equal(
+    welcomeComposerSuggestion(
+      {
+        status: 'unverified',
+        next: 'make the run actually perform the check it claims, then re-run',
+      },
+      false
+    ),
+    undefined
+  );
+  assert.match(
+    welcomeComposerSuggestion({ status: 'verify_failed', next: 'moss task resume t1' }, false) ??
+      '',
+    /Resume with moss task resume t1/
+  );
+  assert.match(
+    welcomeComposerSuggestion({ status: 'running', next: 'see what happened' }, false) ?? '',
+    /In progress — see \/runs/
+  );
+  ok('the composer only offers to run a real command');
 
   // 6. Chinese labels and malformed records.
   await fs.mkdir(path.join(ws, '.moss', 'runs', 'broken'), { recursive: true });
@@ -110,7 +142,7 @@ try {
   {
     const { lines, next } = renderWelcomeContextLines(ws, true);
     assert.match(lines[0], /上次运行/);
-    assert.match(next, /actually perform the check/);
+    assert.match(next, /^moss runs/);
   }
   ok('Chinese labels render and a half-written record is skipped');
 
@@ -124,9 +156,9 @@ try {
   // 8. B144: the empty composer suggests resuming / onboarding, not a slogan.
   {
     const { suggestion } = renderWelcomeContextLines(ws, false);
-    assert.match(suggestion ?? '', /^Resume with make the run actually perform the check/);
-    const zh = renderWelcomeContextLines(ws, true).suggestion;
-    assert.match(zh ?? '', /^继续：make the run actually perform the check/);
+    // B260: the pending chat run's `next` is advice prose, not a command; the
+    // composer no longer pretends it can be "resumed".
+    assert.equal(suggestion, undefined);
 
     const fresh = path.join(tmp, 'fresh-composer');
     await fs.mkdir(fresh, { recursive: true });
@@ -256,17 +288,14 @@ try {
       title: 'refactor auth',
       messageCount: 7,
     });
-    assert.match(
-      en,
-      /^previous session: refactor auth \(7 messages\) — restart with `moss --continue`/
-    );
+    assert.match(en, /^previous session: refactor auth \(7 messages\) · moss --continue$/);
     const zh = formatPreviousSessionHint(
       { key: 'sess_old', title: '重构认证', messageCount: 7 },
       true
     );
-    assert.match(zh, /^上次会话：重构认证（7 条消息）— 用 moss --continue 续上/);
+    assert.match(zh, /^上次会话：重构认证（7 条）· moss --continue$/);
     const bare = formatPreviousSessionHint({ key: 'sess_bare' }, true);
-    assert.match(bare, /^上次会话：sess_bare — 用 moss --continue 续上/);
+    assert.match(bare, /^上次会话：sess_bare · moss --continue$/);
   }
   ok('the previous-session hint is one localized line for either session shape');
 
@@ -303,5 +332,15 @@ try {
 } finally {
   await fs.rm(tmp, { recursive: true, force: true });
 }
+
+// 20. B328: the blocking first-run provider picker says how to leave it.
+{
+  const providerView = { step: 'provider', offers: [], cursor: 0 };
+  const en = renderFirstRunLines(providerView, 'en').join('\n');
+  assert.match(en, /Ctrl\+C exits without saving\./);
+  const zh = renderFirstRunLines(providerView, 'zh').join('\n');
+  assert.match(zh, /Ctrl\+C 退出，不保存/);
+}
+ok('the provider picker names Ctrl+C as the exit');
 
 console.log(`[welcome-context] ${checks}/${checks} checks passed`);

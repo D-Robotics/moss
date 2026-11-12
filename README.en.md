@@ -166,7 +166,7 @@ sessions can be saved / searched / exported / forked. One screen for what this i
 `moss capabilities` (tools / skills / commands / agents / hooks / MCP / devices, read-only, no model config). **13 device tools** bring SSH hardware work
 into the same evidence and acceptance model; `moss device fleet` inspects many boards in one command.
 
-**Long runs.** Each run record (task / loop / workflow / superagent / `-p` chat) carries token usage (plus an estimated cost when the gateway has a known price — never an invented one) and a structured record of which gate held the answer (acceptance / verification / review / plan / background + kind); After a goal/task run finishes, the REPL prints a fresh ledger-derived `Next` line (a resume command / `/diff` / `moss runs`) instead of leaving boot-time guidance stale; `/goal` and `moss goal` share one task state machine; `moss loop` repeats
+**Long runs.** Each run record (task / loop / workflow / superagent / `-p` chat) carries token usage (plus an estimated cost when the gateway has a known price or you configured `pricing.models` — never an invented one) and a structured record of which gate held the answer (acceptance / verification / review / plan / background + kind); After a goal/task run finishes, the REPL prints a fresh ledger-derived `Next` line (a resume command / `/diff` / `moss runs`) instead of leaving boot-time guidance stale; `/goal` and `moss goal` share one task state machine; `moss loop` repeats
 "run → check with your command → feed failures back"; `moss task status|timeline|list` are the
 offline read paths (`moss runs --kind task/loop/workflow/chat` narrows by engine, `--since 24h` by window); `moss artifacts` (contracts/evidence/deployments/acceptance/device) needs no model configuration at all; a resumed task verifies the workspace first and only then spends execution
 turns. Write sub-agents can run in isolated git worktrees and merge back as three-way patches.
@@ -215,7 +215,7 @@ npm run verify   # delivery gate: static + build + smoke + examples, budget ≤6
 npm run bench    # capability baseline (DeepSeek base model); bench:swe / bench:deepswe / bench:device
 ```
 
-Behaviour is not "looks right in review": the delivery gate now carries **90+ re-runnable
+Behaviour is not "looks right in review": the delivery gate now carries **100+ re-runnable
 probes/stages** (`scripts/verify/stages/*`, including PTY terminal behaviour, TUI render projection and
 offline task-engine/ledger scenarios); locally the whole gate takes ~1–1.5 min depending on machine
 load, while CI runs the same gate as two parallel shards under the same 60s budget each. A regression
@@ -249,7 +249,7 @@ sandbox by default (optional seatbelt / bubblewrap) — see [Safety & privacy](d
 ## Documentation
 
 - [Install & runtime](docs/install.md) · [Safety & privacy](docs/safety.md) · [CLI & config reference](docs/cli-reference.md)
-- [RDK board deps](docs/rdk-board-deps.md) · [Capability layer (MCP / device / skill)](docs/capability-layer.md)
+- [RDK board deps](docs/rdk-board-deps.md) · [Capability layer (MCP / device / skill)](docs/capability-layer.md) · [SDK tool continuation](docs/tool-continuation.md)
 - [AGENTS.md](AGENTS.md) (engineering contract) · [CHANGELOG](CHANGELOG.md) · [Release policy](docs/release-policy.md)
 - [CLI parity baseline vs Claude Code / codex](docs/cli-parity/) · [Design records](docs/superpowers/plans/)
 

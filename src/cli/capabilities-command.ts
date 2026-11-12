@@ -14,13 +14,15 @@ import path from 'node:path';
 import { builtinTools } from '../tools/builtin.js';
 import { DISPATCHABLE_SLASH_COMMANDS } from './interactive-commands.js';
 import { reservedBuiltinNames, loadCustomCommands } from './commands/custom-commands.js';
-import { loadSkillCatalog, type SkillDir, type SkillScope } from '../core/skills/skill-registry.js';
+import { defaultSkillDirSpecs, loadSkillCatalog } from '../core/skills/skill-registry.js';
 import { loadAgentFiles } from '../core/subagent/agent-file-loader.js';
 import { isFolderTrusted } from '../utils/folder-trust-store.js';
 import { loadDeviceRegistry } from '../device/device-registry-file.js';
-import { loadMcpConfigs } from './mcp-config.js';
+import { effectiveMcpConfigs } from './rdk-docs-mcp.js';
+import { loadConfigFile } from './config.js';
 import { resolveConfigDir } from './config.js';
 import { isZhLocale } from './cli-locale.js';
+import { uiText } from '../utils/ui-language.js';
 
 export interface CapabilitiesSnapshot {
   version: 1;
@@ -75,13 +77,18 @@ function countHooks(configDir: string, workspaceDir: string): Record<string, num
   return events;
 }
 
+/**
+ * B290: a user with many skills got a three-line name paragraph. Show a bounded
+ * preview (`a, b, … +13 more`) instead of every name in the one-screen view.
+ */
+function previewNames(names: readonly string[], max = 8): string {
+  if (names.length <= max) return names.join(', ');
+  return `${names.slice(0, max).join(', ')}, ${uiText(`+${names.length - max} more`, `+${names.length - max} 个`)}`;
+}
+
 export function collectCapabilities(workspaceDir: string, configDir: string): CapabilitiesSnapshot {
   const deviceTools = builtinTools.filter((tool) => tool.name.startsWith('device_')).length;
-  const skillDirs: SkillDir[] = [
-    { dir: path.join(workspaceDir, '.moss', 'skills'), scope: 'workspace' as SkillScope },
-    { dir: path.join(configDir, 'skills'), scope: 'user' as SkillScope },
-  ];
-  const skills = loadSkillCatalog(skillDirs);
+  const skills = loadSkillCatalog(defaultSkillDirSpecs(workspaceDir, configDir));
   const commands = loadCustomCommands(
     { workspace: workspaceDir, configDir, reservedNames: reservedBuiltinNames() },
     () => {},
@@ -96,7 +103,19 @@ export function collectCapabilities(workspaceDir: string, configDir: string): Ca
     projectTrust: { trusted, claudeOptIn: trusted },
   }).agents;
   const devices = loadDeviceRegistry(workspaceDir);
-  const mcp = loadMcpConfigs(workspaceDir, configDir, process.env, () => {});
+  // B291: include the builtin rdk-docs exactly when `moss mcp list` does.
+  let rdkDocsConfig: unknown;
+  try {
+    rdkDocsConfig = loadConfigFile().rdkDocs;
+  } catch {
+    rdkDocsConfig = undefined;
+  }
+  const mcp = effectiveMcpConfigs({
+    workspaceDir,
+    configDir,
+    env: process.env,
+    rdkDocs: rdkDocsConfig,
+  });
   return {
     version: 1,
     runtime: {
@@ -218,7 +237,7 @@ export function renderCapabilities(
         `${t('skills', '技能')}: ${snapshot.skills.total} (${t('workspace', '工作区')} ${snapshot.skills.workspace} · ${t(
           'user',
           '用户'
-        )} ${snapshot.skills.user})${snapshot.skills.names.length > 0 ? ` — ${snapshot.skills.names.join(', ')}` : ''}`,
+        )} ${snapshot.skills.user})${snapshot.skills.names.length > 0 ? ` — ${previewNames(snapshot.skills.names)}` : ''}`,
       ],
     },
     {
@@ -235,7 +254,7 @@ export function renderCapabilities(
       kind: 'agents',
       lines: [
         `${t('sub-agents', '子代理')}: ${snapshot.agents.total}${
-          snapshot.agents.names.length > 0 ? ` — ${snapshot.agents.names.join(', ')}` : ''
+          snapshot.agents.names.length > 0 ? ` — ${previewNames(snapshot.agents.names)}` : ''
         }`,
       ],
     },
@@ -255,7 +274,7 @@ export function renderCapabilities(
       kind: 'mcp',
       lines: [
         `${t('MCP', 'MCP')}: ${snapshot.mcp.total}${
-          snapshot.mcp.names.length > 0 ? ` — ${snapshot.mcp.names.join(', ')}` : ''
+          snapshot.mcp.names.length > 0 ? ` — ${previewNames(snapshot.mcp.names)}` : ''
         }`,
       ],
     },
@@ -263,7 +282,7 @@ export function renderCapabilities(
       kind: 'devices',
       lines: [
         `${t('devices', '设备')}: ${snapshot.devices.total}${
-          snapshot.devices.ids.length > 0 ? ` — ${snapshot.devices.ids.join(', ')}` : ''
+          snapshot.devices.ids.length > 0 ? ` — ${previewNames(snapshot.devices.ids)}` : ''
         }`,
       ],
     },
@@ -331,7 +350,10 @@ export async function runCapabilitiesCommand(
     return 2;
   }
   const configDir = ctx.configDir ?? resolveConfigDir();
-  const snapshot = collectCapabilities(ctx.workspace, configDir);
+  const snapshot = {
+    schema: 'moss_capabilities.v1' as const,
+    ...collectCapabilities(ctx.workspace, configDir),
+  };
   if (json) output('stdout', `${JSON.stringify(snapshot, null, 2)}\n`);
   else output('stdout', `${renderCapabilities(snapshot, zh, kind)}\n`);
   return 0;

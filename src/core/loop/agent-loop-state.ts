@@ -4,6 +4,7 @@ import { createOverflowRecoveryState } from './overflow-recovery.js';
 import type { AgentLoopToolExecutionMetrics } from './agent-loop-tool-execution.js';
 
 export interface AgentLoopMutableState {
+  suspendedTool?: import('../tools/tool-suspension.js').SuspendedToolCall;
   turns: number;
   compactionRetries: number;
   outputContinuationCount: number;

@@ -68,3 +68,19 @@ Approvals stay pluggable: `MOSS_DEVICE_BENCH_APPROVAL=full` (default), `inherit`
 `inherit` 让子进程以 full 模式运行，并且不设置 `MOSS_DEVICE_TRUST`。汇总里的 `meta.devicePolicy` 来自 `src/safety/device-risk.ts`：只读和可逆样本 `autoAllow: true`；毁灭性（`reboot`）和敏感读取（`cat /etc/shadow`）不是。headless moss 会拒绝这两档。`full` 用同一交互模式，同样不授予设备信任。`manual` 会询问，headless 下等于拒绝。
 
 `inherit` runs the child in full mode and does not set `MOSS_DEVICE_TRUST`. The summary then includes `meta.devicePolicy` from `src/safety/device-risk.ts`: readonly and reversible samples are `autoAllow: true`; destructive (`reboot`) and sensitive (`cat /etc/shadow`) are not. Headless moss denies those tiers. `full` uses the same interaction mode and also does not grant device trust. `manual` prompts, which headless moss denies.
+
+## 任务覆盖（16 个）
+
+| 维度             | 任务                                                                                            |
+| ---------------- | ----------------------------------------------------------------------------------------------- |
+| 系统巡检（只读） | report-identity · report-network · report-processes · report-resources                          |
+| 变更与回滚       | c-program · python-program · install-local-deb · rollback-state · systemd-oneshot               |
+| 网络             | localhost-port（127.0.0.1 监听 + token 应答）                                                   |
+| ROS2             | ros2-pubsub（topic 发布/回读；setup 用括号技巧 pkill 清残留 publisher）                         |
+| NPU 推理         | bpu-inference（板上 HBDK3 BPU 自测）· bpu-perf（hrt_model_exec perf 延迟/FPS）                  |
+| TROS AI 节点     | tros-dnn-bench（dnn_benchmark_example 吞吐）· tros-classify-image（MobileNetV2 图像分类全管线） |
+| 相机             | camera-presence（无 `/dev/video*` 时 SKIP）                                                     |
+
+真机参考（RDK X5，Ubuntu 22.04，2026-11）：**15/15 = 100%**（falseSuccess=0，camera SKIP）。NPU 基线：HBDK3 2K 模型 hrt perf 2 线程 200 帧 ≈ 44ms / 45FPS；TROS MobileNetV2 ≈ 520-600 FPS / 1.6-1.8ms 预测延迟。
+
+注意：同一块板不要并发跑两个 bench（互相干扰会产生假失败）；板上若有残留的 `ros2 topic pub` 进程，ros2-pubsub 的 setup 会在开跑前清理它们。

@@ -5,7 +5,7 @@
   "tier": "optional",
   "maxTurns": 14,
   "timeoutMs": 240000,
-  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*).\n\nCreate /etc/systemd/system/moss-bench-marker.service, a Type=oneshot unit whose ExecStart writes the single line {{TOKEN}} to {{ROOT}}/systemd-proof.txt. daemon-reload and start that unit only. Record evidence metric `unit_result` whose observed value is the trimmed output of `systemctl show -p Result --value moss-bench-marker` (it must be success).\n\nDo not enable a reboot, do not restart ssh, and do not edit firewall or network configuration. The bench removes this unit afterwards.",
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*).\n\nCreate /etc/systemd/system/moss-bench-marker.service, a Type=oneshot unit whose ExecStart writes the single line {{TOKEN}} to {{ROOT}}/systemd-proof.txt. daemon-reload and start that unit only. Record evidence metric `unit_result` whose observed value is the trimmed output of `systemctl show -p Result --value moss-bench-marker` (it must be success).\n\nDo not enable a reboot, do not restart ssh, and do not edit firewall or network configuration. The bench removes this unit afterwards.\n\nNOTE: the acceptance command is executed by the bench harness AFTER your turn, with its own environment (device credentials included). Do NOT try to run it yourself, read the repo .env, or investigate how the harness injects environment — that path is blocked by design. Do the device work, verify the outcome with your own probe, record evidence, and finish.",
   "prerequisites": [
     "command -v systemctl >/dev/null 2>&1 && { [ -d /run/systemd/system ] || [ \"${MOSS_BENCH_SIM:-}\" = 1 ]; }"
   ],

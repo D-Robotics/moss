@@ -4,6 +4,7 @@
  * session or replay a transcript skip these so internal mechanics stay off
  * the screen.
  */
+import { COMPACTION_SUMMARY_PREFIX } from '../../contracts/messages.js';
 
 const PHASE_MARK = '[task-phase:';
 
@@ -13,6 +14,13 @@ export function isInternalUserText(text: string): boolean {
   if (trimmed.startsWith('[System]')) return true;
   if (trimmed.startsWith(PHASE_MARK)) return true;
   if (trimmed.includes('<moss_working_context_checkpoint')) return true;
+  // B318: auto-compaction stores its summary as a user message; it is harness
+  // context, not something the user said (session titles/export/replay leaked it).
+  const compactionLead = COMPACTION_SUMMARY_PREFIX.slice(
+    0,
+    COMPACTION_SUMMARY_PREFIX.indexOf('\n\n')
+  );
+  if (compactionLead.length > 0 && trimmed.startsWith(compactionLead)) return true;
   return false;
 }
 
@@ -31,9 +39,15 @@ export function goalFromPhasePrompt(text: string): string | undefined {
  */
 export function selectNudgeUserText(candidatesNewestFirst: readonly string[]): string {
   for (const text of candidatesNewestFirst) {
-    if (!text.trim()) continue;
-    if (isInternalUserText(text)) continue;
-    return text;
+    // B258: the stored user turn carries the injected <turn-context> (skills
+    // catalog, project notes). Matching nudge triggers against that preamble
+    // made the spec-audit nudge fire on ordinary requests ("spec"/"requirements"
+    // appear in skill descriptions), which bought hidden turns and repeated
+    // answers. Nudges must decide on the user's own words.
+    const cleaned = stripTurnContext(text).replace(/\s+/g, ' ').trim();
+    if (!cleaned) continue;
+    if (isInternalUserText(cleaned)) continue;
+    return cleaned;
   }
   return '';
 }

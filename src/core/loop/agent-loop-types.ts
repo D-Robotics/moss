@@ -298,7 +298,7 @@ export interface AgentLoopParams
   /** v0.10 W4: adaptive reasoning — raise to high after observed failure
    *  signals, fall back when the run is clean. 'off' pins the configured
    *  level; 'high' pins high; default (undefined) = adaptive. */
-  reasoningBudget?: 'off' | 'adaptive' | 'high';
+  reasoningBudget?: 'off' | 'adaptive' | 'high' | 'max';
 
   /** v0.12 model routing: per-round model tiers. Absent = fixed model. */
   modelTiers?: ModelTiers;

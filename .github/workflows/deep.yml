@@ -52,13 +52,24 @@ jobs:
       - name: Install
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      # Windows has no PTY; the smoke stage skips the PTY check there itself.
+      # Deep runs are evidence, not the latency contract; Windows runners are
+      # slower and must not fail the leg on the one-minute budget.
       - name: Verify (fast gate)
+        if: runner.os != 'Windows'
         env:
-          # Deep runs are evidence, not the latency contract; Windows runners
-          # are slower and must not fail the leg on the one-minute budget.
           VERIFY_BUDGET_SECONDS: '0'
         run: npm run verify
+
+      # B288: behavior probes assume POSIX shells/PTys in places that are still
+      # being ported (loop checks, hook fixtures, plugin paths). Until then the
+      # Windows leg proves what the product promises there: static, build, CLI
+      # smoke and the embedding examples. The full behavior gate runs on Linux
+      # and macOS (and on Linux-via-CI for every push).
+      - name: Verify (Windows-supported subset)
+        if: runner.os == 'Windows'
+        env:
+          VERIFY_BUDGET_SECONDS: '0'
+        run: node scripts/verify/cli.mjs --stage static,build,smoke,examples
 
   summary:
     name: Deep gate

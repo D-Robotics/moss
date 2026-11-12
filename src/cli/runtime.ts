@@ -31,7 +31,6 @@ import {
 } from '../provider/keep-alive-dispatcher.js';
 import { resolveHostShell } from '../utils/host-shell.js';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { configureWindowsUtf8Console } from '../utils/run-process.js';
 import { errorMessage } from '../errors.js';
@@ -138,6 +137,7 @@ import { CONFIGURED_DEVICE_PROMPT } from '../device/device-probe-prompt.js';
 import { createWebSearchTool } from '../tools/web-search.js';
 import { createWebFetchTool } from '../tools/web-fetch.js';
 import {
+  defaultSkillDirSpecs,
   loadSkillCatalog,
   selectActiveSkills,
   skillSlashName,
@@ -1316,13 +1316,7 @@ export async function runCli(): Promise<void> {
   {
     // Discovery scopes: the Moss workspace directory wins, then the cross-client
     // `.agents/skills` / `.claude/skills` conventions, then user-level installs.
-    const skillDirSpecs: Array<{ dir: string; scope: 'workspace' | 'shared' | 'user' }> = [
-      { dir: path.join(workspace, '.moss', 'skills'), scope: 'workspace' },
-      { dir: path.join(workspace, '.agents', 'skills'), scope: 'shared' },
-      { dir: path.join(workspace, '.claude', 'skills'), scope: 'shared' },
-      { dir: path.join(configDir, 'skills'), scope: 'user' },
-      { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
-    ];
+    const skillDirSpecs = defaultSkillDirSpecs(workspace, configDir);
     const announcedSkillSkips = new Set<string>();
     const emitSkillNotice = (line: string) => {
       if (useTui) emitTuiNotice(line);
@@ -1958,10 +1952,14 @@ export async function runCli(): Promise<void> {
       // never wired here, so a resumed session booted blank (D2 in the parity
       // baseline audit).
       let replayRows: Array<{ kind: 'user' | 'assistant' | 'system'; text: string }> | undefined;
+      let resumeTitle: string | undefined;
       if (sessionCommand !== 'chat') {
         try {
           const replay = buildResumeReplay(await sessionStore.loadMessages(session.sessionKey));
-          if (replay.items.length > 0) replayRows = replay.items;
+          if (replay.items.length > 0) {
+            replayRows = replay.items;
+            resumeTitle = replay.items.find((item) => item.kind === 'user')?.text;
+          }
         } catch {
           // A missing/unreadable session store must not block the shell.
         }
@@ -2028,6 +2026,7 @@ export async function runCli(): Promise<void> {
         skills: loadedSkills,
         ...(resumeInteractive ? { resumePicker: true } : {}),
         ...(replayRows ? { replayRows } : {}),
+        ...(resumeTitle ? { resumeTitle } : {}),
         // The checkpoint is what `/rewind` restores from; without this call the
         // store records nothing and every rewind silently did nothing (D1).
         onTurnStart: async (message) => {
@@ -2075,12 +2074,14 @@ export async function runCli(): Promise<void> {
             if (!result.found) return { ok: false, detail: `no checkpoint ${seq}` };
             const skipped = result.skipped.length > 0 ? `, ${result.skipped.length} skipped` : '';
             let conversation = '';
+            let droppedMessages = 0;
             if (result.messageCount !== undefined) {
               try {
                 const { truncated } = await agent.rewindConversation(
                   session.sessionKey,
                   result.messageCount
                 );
+                droppedMessages = truncated;
                 if (truncated > 0) conversation = `, ${truncated} message(s) dropped`;
               } catch {
                 conversation = ', conversation not rewound';
@@ -2089,6 +2090,7 @@ export async function runCli(): Promise<void> {
             return {
               ok: true,
               detail: `${result.restored.length} file(s) restored${skipped}${conversation}`,
+              ...(droppedMessages > 0 ? { droppedMessages } : {}),
             };
           } catch (err) {
             return { ok: false, detail: errorMessage(err) };

@@ -124,16 +124,19 @@ export function createMossAgentLoopEventAdapter(
           : stopReason;
     return {
       response:
-        isInterruptedOutput(resolvedStopReason) || isOutputLimitStopReason(resolvedStopReason)
+        result.suspendedTool ||
+        isInterruptedOutput(resolvedStopReason) ||
+        isOutputLimitStopReason(resolvedStopReason)
           ? publishedResponse
           : redactEgress(response || result.finalText),
+      ...(result.suspendedTool ? { suspendedTool: result.suspendedTool } : {}),
       ...(options?.harnessAdapterReceipt ? { harnessAdapter: options.harnessAdapterReceipt } : {}),
       toolCalls,
       toolResults,
       ...(usage ? { usage } : {}),
       ...(thinking.length > 0 ? { thinking } : {}),
       ...(compactions > 0 ? { compactions } : {}),
-      stopReason: resolvedStopReason,
+      stopReason: result.suspendedTool ? 'suspended' : resolvedStopReason,
     };
   };
 

@@ -300,6 +300,7 @@ import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
 import {
   INTERACTION_MODE_CYCLE,
   nextInteractionMode,
+  approvalAnswerLabel,
   describeApproval,
   inkTextStyle,
   inkLineStyle,
@@ -308,11 +309,13 @@ import {
   questionDialogFromPrompt,
   commandBlockTitle,
   buildHelpOverlayLines,
-  formatSteerQueued,
+  formatSteered,
   sliceHelpOverlay,
   relativeAge,
   filterPickerSessions,
+  rewindScrollbackNote,
   renderSessionPicker,
+  resumeReplayNotice,
   describeConversationLogEntry,
   shellContextUsage,
   resolveShellCliConfig,
@@ -350,7 +353,7 @@ export {
   questionDialogFromPrompt,
   commandBlockTitle,
   buildHelpOverlayLines,
-  formatSteerQueued,
+  formatSteered,
   sliceHelpOverlay,
   relativeAge,
   filterPickerSessions,
@@ -416,13 +419,6 @@ function createStoreHandle(): StoreHandle {
   };
 }
 
-function approvalAnswerLabel(answer: CliApprovalAnswer): string {
-  if (answer === 'y') return tui('yes');
-  if (answer === 'a') return tui('yes (session)');
-  if (answer === 'amend') return tui('amend');
-  return tui('no');
-}
-
 interface PendingDialog {
   kind: 'approval' | 'question';
   /** Exactly-once guard: several exit paths can race to resolve the same dialog. */
@@ -442,6 +438,8 @@ interface PendingDialog {
    * told the user nothing; the commit row names what was decided.
    */
   label?: string;
+  /** Hook ask: `a` was relabeled "this time" and grants nothing. */
+  onceOnlyApproval?: boolean;
 }
 
 /** The shell tells the registry it is the TUI, so surface-specific copy can diverge later. */
@@ -650,6 +648,9 @@ export function TuiAppRoot({
     options.resumePicker ? { query: '', cursor: 0 } : undefined
   );
   const [pickerSessions, setPickerSessions] = useState<TuiSessionSummary[]>([]);
+  // B256: the boot picker's first frame must not claim "no matching session"
+  // before the async session list arrives.
+  const [pickerLoading, setPickerLoading] = useState(options.resumePicker === true);
   const [paletteCursor, setPaletteCursor] = useState(0);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const [mentionCursor, setMentionCursor] = useState(0);
@@ -947,7 +948,7 @@ export function TuiAppRoot({
           options.commit ??
           (pending.kind === 'question'
             ? `answer: ${value || 'skipped'}`
-            : `approval: ${approvalAnswerLabel(value as CliApprovalAnswer)}`);
+            : `approval: ${approvalAnswerLabel(value, pending.onceOnlyApproval === true)}`);
         appendRow(store, 'result', pending.label ? `${base} · ${pending.label}` : base);
         handle.notify();
       }
@@ -993,10 +994,14 @@ export function TuiAppRoot({
         runtime.setApprovalPending(true);
         notifyAttention(question ? 'question needs your answer' : 'approval needed');
         handle.notify();
+        const onceOnlyApproval =
+          !question &&
+          (view.options.find((option) => option.key === '2')?.label ?? '').includes('this time');
         const entry: PendingDialog = {
           kind: question ? 'question' : 'approval',
           resolve,
           settled: false,
+          ...(onceOnlyApproval ? { onceOnlyApproval: true } : {}),
           ...(question
             ? { optionAnswers: question.answers, freeTextEntry: question.multiSelect }
             : {}),
@@ -1122,9 +1127,6 @@ export function TuiAppRoot({
       'interactive'
     );
     for (const line of welcomeContext.lines) appendRow(store, 'detail', line);
-    if (!resumedBoot) {
-      appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
-    }
     composerSuggestionRef.current = welcomeContext.suggestion;
     options.onMcpUiReady?.();
     // Crash/quit recovery: history survives per-message, but a bare `moss`
@@ -1137,30 +1139,48 @@ export function TuiAppRoot({
           const sessions = (await options.listSessions?.()) ?? [];
           const previous = sessions.find((s) => !s.current);
           if (previous) {
+            // B263: one next step, not two — an earlier session to continue wins
+            // over the generic onboarding hint.
             appendRow(
               store,
               'system',
               formatPreviousSessionHint(previous, activeUiLocale(options.locale) === 'zh')
             );
             handle.notify();
+            return;
           }
         } catch {
           // Session listing must never break boot.
         }
+        if (!resumedBoot) {
+          appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
+          handle.notify();
+        }
       })();
+    } else if (!resumedBoot) {
+      appendRow(store, 'system', tui('Next: {command}', { command: welcomeContext.next }));
     }
     if (options.resumePicker) {
       // `moss resume` on a TTY: the picker overlay opens with real sessions.
+      setPickerLoading(true);
       void (async () => {
         try {
           setPickerSessions((await options.listSessions?.()) ?? []);
         } catch {
           setPickerSessions([]);
         }
+        setPickerLoading(false);
         handle.notify();
       })();
     }
     for (const row of options.replayRows ?? []) appendRow(store, row.kind, row.text);
+    if ((options.replayRows?.length ?? 0) > 0) {
+      appendRow(
+        store,
+        'system',
+        resumeReplayNotice(sessionKey, options.replayRows!.length, options.resumeTitle)
+      );
+    }
     void runtime.refresh().then(() => handle.notify(), reportRuntimeError);
     handle.notify();
   }, []);
@@ -1304,6 +1324,7 @@ export function TuiAppRoot({
       runtime.beginRun();
       const resumeHint = messageRequestsTaskContract(message);
       beginRun(store, { resumeHint });
+      if (options.agent.config.baseUrl) store.run.baseUrl = options.agent.config.baseUrl;
       runStartedAtRef.current = Date.now();
       handle.notify();
       const controller = new AbortController();
@@ -1382,6 +1403,7 @@ export function TuiAppRoot({
       // Completed-and-nothing-to-add runs keep only the `✻ worked for` stamp;
       // formatOutcomeLine stays mandatory for headless output (run-outcome).
       const outcomeLine = outcomeLineForSummary(outcome, isZhLocale() ? 'zh' : 'en') ?? '';
+      const runFailure = store.run.lastError;
       endRun(store, halted);
       if (startedAt !== undefined) {
         // Claude leaves a finalizing status line in the transcript; keep the
@@ -1396,7 +1418,8 @@ export function TuiAppRoot({
             output: store.usage.runTokensOut,
           },
           new Date(),
-          outcomeLine
+          outcomeLine,
+          runFailure !== undefined
         );
         for (const entry of summary) {
           const text = entry.text.trim();
@@ -1496,7 +1519,14 @@ export function TuiAppRoot({
       }
       if (command === 'mcp') {
         const servers = options.listMcpServers?.() ?? options.mcpServers ?? [];
-        if (servers.length === 0) return [tui('no MCP servers configured (.moss/mcp.json)')];
+        if (servers.length === 0) {
+          return [
+            tui('no MCP servers configured'),
+            tui(
+              'add one: moss mcp add <name> <command> · or edit .moss/mcp.json (user: <config>/mcp.json)'
+            ),
+          ];
+        }
         return servers.map((x) => formatMcpStatusLine(x));
       }
       if (command === 'subs') {
@@ -1641,6 +1671,7 @@ export function TuiAppRoot({
         appendRow(store, 'user', display ?? `/task ${parsed.join(' ')}`);
         runtime.beginRun();
         beginRun(store, { resumeHint: true });
+        if (options.agent.config.baseUrl) store.run.baseUrl = options.agent.config.baseUrl;
         runStartedAtRef.current = Date.now();
         const controller = new AbortController();
         abortRef.current = controller;
@@ -2434,7 +2465,10 @@ export function TuiAppRoot({
         printBlock(
           tui('Rules'),
           rows.length === 0
-            ? [tui('no scoped rules'), tui('add .moss/rules/<name>.md')]
+            ? [
+                tui('no scoped rules'),
+                tui('add .moss/rules/<name>.md (workspace) or <config>/rules/<name>.md (user)'),
+              ]
             : rows
                 .map((row) => {
                   const globs = row.globs.length > 0 ? ` [${row.globs.join(', ')}]` : '';
@@ -2456,17 +2490,68 @@ export function TuiAppRoot({
           return;
         }
         const remember = await import('../remember-command.js');
-        const plan = remember.buildRememberPlan(options.workspaceDir ?? process.cwd(), fact);
-        printBlock(
-          tui('Remember'),
-          'error' in plan
-            ? [plan.error]
-            : [
-                ...remember.renderRememberPreview(plan).split('\n'),
-                '',
-                tui('this shell does not write; run `moss remember "<fact>"` to apply it.'),
-              ]
-        );
+        const workspaceDir = options.workspaceDir ?? process.cwd();
+        const plan = remember.buildRememberPlan(workspaceDir, fact);
+        if ('error' in plan) {
+          printBlock(tui('Remember'), [plan.error]);
+          return;
+        }
+        printBlock(tui('Remember'), remember.renderRememberPreview(plan).split('\n'));
+        if (!plan.changed) return;
+        // B321: writing memory should not require leaving the session; the
+        // preview above is the diff, and this dialog is the confirmation.
+        const WRITE = tui('Write it to AGENTS.md');
+        const CANCEL = tui('Cancel');
+        runtime.setApprovalPending(true);
+        handle.notify();
+        pendingDialogRef.current = {
+          kind: 'question',
+          settled: false,
+          escHint: tui('Esc cancels'),
+          resolve: (value) => {
+            if (value !== WRITE) {
+              appendRow(store, 'system', tui('cancelled — nothing written'));
+              handle.notify();
+              return;
+            }
+            const applied = remember.applyRememberPlan(plan);
+            if (!applied.ok) {
+              appendRow(store, 'error', applied.error);
+              handle.notify();
+              return;
+            }
+            let count = 0;
+            try {
+              count = remember.countRememberedFacts(
+                fs.readFileSync(path.join(workspaceDir, 'AGENTS.md'), 'utf8')
+              );
+            } catch {
+              count = 0;
+            }
+            appendRow(
+              store,
+              'system',
+              tui(
+                count === 1
+                  ? 'remembered — AGENTS.md now has {count} fact'
+                  : 'remembered — AGENTS.md now has {count} facts',
+                { count }
+              )
+            );
+            handle.notify();
+          },
+          optionAnswers: [WRITE, CANCEL],
+        };
+        setApproval({
+          title: tui('Remember'),
+          question: tui('Write this fact to AGENTS.md?'),
+          options: [
+            { key: '1', answer: 'y', label: WRITE },
+            { key: '2', answer: 'n', label: CANCEL },
+          ],
+          footer: tui('Enter writes · Esc cancels'),
+          cursor: 0,
+        });
         return;
       }
       if (text === '/resume' || text.startsWith('/resume ')) {
@@ -2497,10 +2582,7 @@ export function TuiAppRoot({
               appendRow(
                 store,
                 'result',
-                tui('resumed {key} — replayed {count} rows', {
-                  key: pick.key,
-                  count: replay.items.length,
-                })
+                resumeReplayNotice(pick.key, replay.items.length, pick.title)
               );
               setActiveSession(pick.key);
             } catch (err) {
@@ -2545,6 +2627,7 @@ export function TuiAppRoot({
                     detail: result.detail,
                   })
                 : (result?.detail ?? tui('undo to {seq} failed', { seq: last.seq })),
+              ...rewindScrollbackNote(result?.droppedMessages),
             ]);
           }
         } else if (!arg) {
@@ -2569,6 +2652,7 @@ export function TuiAppRoot({
             result?.ok
               ? tui('restored checkpoint {seq}: {detail}', { seq, detail: result.detail })
               : (result?.detail ?? tui('rewind to {seq} failed', { seq })),
+            ...rewindScrollbackNote(result?.droppedMessages),
           ]);
         }
         return;
@@ -2620,7 +2704,7 @@ export function TuiAppRoot({
             printBlock('Steer', [
               entry === null || entry === undefined
                 ? tui('rejected — no single active run on this session')
-                : formatSteerQueued(constraint, 'next-step'),
+                : formatSteered(constraint),
             ]);
           } catch (error) {
             restoreFailedSteer(error);
@@ -2716,7 +2800,7 @@ export function TuiAppRoot({
           return;
         }
         if (steered) {
-          appendRow(store, 'summary', formatSteerQueued(display, 'next-step'));
+          appendRow(store, 'summary', formatSteered(display));
           handle.notify();
           return;
         }
@@ -3439,10 +3523,7 @@ export function TuiAppRoot({
               appendRow(
                 store,
                 'result',
-                tui('resumed {key} — replayed {count} rows', {
-                  key: pick.key,
-                  count: replay.items.length,
-                })
+                resumeReplayNotice(pick.key, replay.items.length, pick.title)
               );
               setActiveSession(pick.key);
             } catch (err) {
@@ -3538,9 +3619,9 @@ export function TuiAppRoot({
         );
         return;
       }
-      if (key.tab) {
-        // The reference completes the highlighted path into the composer and
-        // does NOT run anything.
+      if (key.tab || key.return) {
+        // B308: Tab (and Enter, what people actually press) completes the
+        // highlighted path into the composer and does NOT run anything.
         const entry = mentionRows[mentionSelection];
         if (entry && mentionToken) {
           const completed = completeMention(input, mentionToken, entry);
@@ -4222,7 +4303,9 @@ export function TuiAppRoot({
         sessionPicker.query,
         sessionPickerMatches,
         Math.min(sessionPicker.cursor, Math.max(0, sessionPickerMatches.length - 1)),
-        columns
+        columns,
+        8,
+        { loading: pickerLoading && pickerSessions.length === 0 }
       )
     : [];
   // Context-window high-water mark: the status row paints the percentage, and
@@ -4302,7 +4385,7 @@ export function TuiAppRoot({
           line(
             clip(
               tui(
-                'context {pct}% full — auto-compact will trim older messages · /compact to do it now',
+                'context {pct}% full — /compact now; small conversation? prompt+tools exceed the window → raise agent.contextTokens',
                 { pct: contextPct }
               ),
               columns
@@ -4348,6 +4431,7 @@ export function TuiAppRoot({
       ? renderPermissionsPanel({
           width: columns,
           mode: formatCliInteractionModeLabel(interactionMode, isTuiZh()),
+          modeKey: interactionMode,
           rules: permissionPanelRules(),
           cursor: permissionCursor,
         })
@@ -4430,9 +4514,10 @@ export function TuiAppRoot({
   if (fullscreen) {
     const folded = foldReadonlyRows(store.rows, verbose);
     const cache = projectionCacheRef.current;
+    const narrowRows = (windowSize.rows || 24) < 20;
     folded.forEach((row, rowIndex) => {
       cache
-        .render(row, bodyWidth, rowDetail(row), folded[rowIndex - 1])
+        .render(row, bodyWidth, rowDetail(row), folded[rowIndex - 1], narrowRows)
         .forEach((entry, lineIndex) => {
           projected.push({ rowId: row.id, lineIndex, text: entry.text, line: entry });
         });
@@ -4655,9 +4740,13 @@ export function TuiAppRoot({
             return React.createElement(
               Box,
               { key: row.id, flexDirection: 'column' },
-              ...renderTranscriptRow(row, columns, rowDetail(row), store.rows[rowIndex - 1]).map(
-                (l, index) => inkLine(l, `${row.id}-${index}`)
-              )
+              ...renderTranscriptRow(
+                row,
+                columns,
+                rowDetail(row),
+                store.rows[rowIndex - 1],
+                (windowSize.rows || 24) < 20
+              ).map((l, index) => inkLine(l, `${row.id}-${index}`))
             );
           },
         }),

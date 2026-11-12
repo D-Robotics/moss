@@ -265,7 +265,12 @@ try {
 // 8. B208: session export/search never show the injected turn context.
 {
   const { InMemorySessionStore } = await import(dist('core/session/session.js'));
-  const { renderSessionMarkdown, searchSessions } = await import(dist('cli/command-dispatcher.js'));
+  const {
+    buildSessionExportJson,
+    countExportableSessionMessages,
+    renderSessionMarkdown,
+    searchSessions,
+  } = await import(dist('cli/command-dispatcher.js'));
   const preamble =
     'power export <turn-context>\n## Environment\n- Working directory: /tmp/x\n</turn-context>';
   const store = new InMemorySessionStore();
@@ -308,7 +313,39 @@ try {
   const internalMarkdown = renderSessionMarkdown('s1', await store.loadMessages('s1'));
   assert.doesNotMatch(internalMarkdown, /\[System\]|\[Steering\]/);
   assert.match(internalMarkdown, /_3 message\(s\) · exported from moss\._/);
+  assert.equal(countExportableSessionMessages(await store.loadMessages('s1')), 3);
   assert.deepEqual(await searchSessions(store, 'Long tool loop'), []);
+
+  // B322: model reasoning is not conversation; the markdown export is what a
+  // PR/CI reader sees, so thinking stays out of it.
+  await store.appendMessage('s1', {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Shipped.' }],
+    thinking: ['secret chain of thought'],
+    timestamp: Date.now(),
+  });
+  const withThinking = renderSessionMarkdown('s1', await store.loadMessages('s1'));
+  assert.match(withThinking, /Shipped\./);
+  assert.doesNotMatch(withThinking, /secret chain of thought|<summary>thinking/);
+
+  // B325: thinking is not searchable conversation (the snippet leaked it).
+  assert.deepEqual(await searchSessions(store, 'secret chain of thought'), []);
+  const shipped = (await searchSessions(store, 'Shipped'))[0];
+  assert.ok(shipped, 'the assistant reply stays searchable');
+  assert.doesNotMatch(shipped.snippet, /secret chain of thought/);
+
+  // The JSON export is the tooling record: thinking kept, harness preambles out.
+  const payload = buildSessionExportJson('s1', await store.loadMessages('s1'));
+  assert.equal(payload.schema, 'moss_sessions_export.v1');
+  const raw = JSON.stringify(payload);
+  assert.match(raw, /secret chain of thought/);
+  assert.doesNotMatch(raw, /<turn-context>|## Environment/);
+  assert.ok(
+    payload.messages.some(
+      (message) =>
+        message.role === 'user' && JSON.stringify(message.content).includes('power export')
+    )
+  );
   ok('session export/search strip internal [System] and [Steering] turns');
 }
 
@@ -382,5 +419,60 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true });
   ok('sessions export --last exports the newest non-empty session');
 }
+
+// 12. B277: `sessions list/search --json` forwards the global flag.
+{
+  const { JsonlSessionStore } = await import(dist('core/session/jsonl-session-store.js'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-sessions-json-'));
+  const store = new JsonlSessionStore({ dir: path.join(tmp, '.moss', 'sessions') });
+  await store.appendMessage('alpha', {
+    role: 'user',
+    content: 'find the widget',
+    timestamp: Date.now(),
+  });
+  await store.appendMessage('alpha', {
+    role: 'assistant',
+    content: 'the widget lives here',
+    timestamp: Date.now(),
+  });
+  await store.appendMessage('beta', { role: 'user', content: 'unrelated', timestamp: Date.now() });
+  const env = {
+    ...process.env,
+    MOSS_LANG: 'en',
+    MOSS_NO_TUI: '1',
+    MOSS_CONFIG_DIR: path.join(tmp, 'cfg'),
+  };
+  const runJson = async (args) => {
+    const result = await captureProcess(
+      process.execPath,
+      [path.join(root, 'dist/cli.js'), 'sessions', ...args, '--json'],
+      { cwd: tmp, env, timeoutMs: 30_000 }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  const list = await runJson(['list']);
+  assert.equal(list.schema, 'moss_sessions_list.v1');
+  assert.equal(list.total, 2);
+  assert.deepEqual(list.sessions.map((session) => session.key).sort(), ['alpha', 'beta']);
+  const search = await runJson(['search', 'widget']);
+  assert.equal(search.schema, 'moss_sessions_search.v1');
+  assert.equal(search.query, 'widget');
+  assert.ok(search.hits.some((hit) => hit.key === 'alpha'));
+  fs.rmSync(tmp, { recursive: true, force: true });
+  ok('sessions list/search --json emit the shared schemas');
+}
+
+// 13. B318: auto-compaction summaries are harness context, not user turns.
+{
+  const { isInternalUserText, sessionTitleFromTexts } = await import(
+    dist('core/session/internal-transcript.js')
+  );
+  const { createCompactionSummaryMessage } = await import(dist('contracts/messages.js'));
+  const summary = createCompactionSummaryMessage('old turns summarized');
+  assert.equal(isInternalUserText(summary.content), true);
+  assert.equal(sessionTitleFromTexts([summary.content, 'write the essay']), 'write the essay');
+}
+ok('a compaction summary is internal: never a title or a replayed user turn');
 
 console.log(`[rewind-conversation] ${checks}/${checks} checks passed`);

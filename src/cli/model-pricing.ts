@@ -458,9 +458,11 @@ export function unknownPriceMessage(model: string | undefined, zh = false): stri
   const id = model?.trim() || '<model>';
   // B228: say what it means and the one key that fixes it; the full schema lives
   // in `moss config --help`, not on every /usage screen.
+  // B347: name the command that actually works (config set accepted no
+  // pricing key before), and the unit the number is in.
   return zh
-    ? `费用：未知（设置 pricing.models["${id}"] 可显示费用）`
-    : `cost: unpriced (set pricing.models["${id}"] to show cost)`;
+    ? `费用：未知（运行 moss config set pricing.models.${id}.input <每百万 token 单价>）`
+    : `cost: unpriced (moss config set pricing.models.${id}.input <usd-per-1M-tokens>)`;
 }
 
 let unknownNoted = false;

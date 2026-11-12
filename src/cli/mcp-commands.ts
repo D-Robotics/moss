@@ -11,6 +11,7 @@ import type { McpServerConfig } from '../core/mcp/types.js';
 import { isZhLocale } from './cli-locale.js';
 import { loadMcpConfigs } from './mcp-config.js';
 import {
+  effectiveMcpConfigs,
   rdkDocsAutoConnectEnabled,
   rdkDocsInactiveNotice,
   rdkDocsOptOut,
@@ -131,6 +132,8 @@ export interface McpCommandContext {
   env?: NodeJS.ProcessEnv;
   /** Merged config.json `rdkDocs`, when the caller already loaded it. */
   rdkDocs?: unknown;
+  /** Global `--json` is stripped by the arg parser; the dispatcher forwards it. */
+  json?: boolean;
 }
 
 /**
@@ -241,15 +244,22 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
   const rdkDocs = readRdkDocsFlag(ctx.rdkDocs);
   const enableInput = { env, rdkDocs, workspaceDir: ctx.workspaceDir };
   const effectiveConfigs = (purpose: 'session' | 'test', testName?: string): McpServerConfig[] => {
-    const loaded = loadMcpConfigs(ctx.workspaceDir, ctx.configDir, env);
-    if (rdkDocsOptOut(env, rdkDocs)) return loaded;
-    if (rdkDocsAutoConnectEnabled(enableInput))
-      return withBuiltinRdkDocs(loaded, true, resolveRdkDocsPackage(ctx.rdkDocs, env));
-    // `moss mcp test rdk-docs` health-checks the builtin even with no device.
-    if (purpose === 'test' && testName === RDK_DOCS_SERVER_NAME) {
-      return withBuiltinRdkDocs(loaded, true, resolveRdkDocsPackage(ctx.rdkDocs, env));
+    // `moss mcp test rdk-docs` health-checks the builtin even when auto-connect
+    // is off; every other view comes from the shared resolver (B291).
+    if (purpose === 'test' && testName === RDK_DOCS_SERVER_NAME && !rdkDocsOptOut(env, rdkDocs)) {
+      const builtin = withBuiltinRdkDocs(
+        loadMcpConfigs(ctx.workspaceDir, ctx.configDir, env),
+        true,
+        resolveRdkDocsPackage(ctx.rdkDocs, env)
+      );
+      return builtin;
     }
-    return loaded;
+    return effectiveMcpConfigs({
+      workspaceDir: ctx.workspaceDir,
+      configDir: ctx.configDir,
+      env,
+      rdkDocs: ctx.rdkDocs,
+    });
   };
 
   if (sub === 'list') {
@@ -258,6 +268,24 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
       !rdkDocsOptOut(env, rdkDocs) &&
       !rdkDocsAutoConnectEnabled(enableInput) &&
       !merged.some((config) => config.name === RDK_DOCS_SERVER_NAME);
+    if (ctx.json === true) {
+      // Only routing fields: server env blocks can carry tokens and must not be
+      // echoed into CI logs by a list command.
+      out(
+        JSON.stringify({
+          schema: 'moss_mcp_list.v1',
+          servers: merged.map((config) => ({
+            name: config.name,
+            transport: config.transport,
+            ...(config.transport === 'http'
+              ? { url: config.url ?? '' }
+              : { command: config.command ?? '' }),
+          })),
+          inactive: showInactive ? [{ name: RDK_DOCS_SERVER_NAME, reason: 'inactive' }] : [],
+        })
+      );
+      return 0;
+    }
     if (merged.length === 0) {
       out(
         zh

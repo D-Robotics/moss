@@ -12,6 +12,7 @@
  * instead of vanishing silently.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import micromatch from 'micromatch';
 import {
@@ -54,6 +55,24 @@ export type SkillSkipReason = 'placeholder' | 'empty' | 'invalid-name' | 'hidden
 export interface SkillSkip {
   file: string;
   reason: SkillSkipReason;
+  /** Human explanation when the reason alone is vague (`empty`). */
+  detail?: string;
+}
+
+/**
+ * B289: one discovery order for every surface (runtime, `/skills`,
+ * `moss skill list`, `moss skill validate`, `moss capabilities`). Each of them
+ * used to spell its own list, so `/capabilities` reported 0 skills while the
+ * first screen said 19 (the `.claude`/`.agents` conventions were missing there).
+ */
+export function defaultSkillDirSpecs(workspaceDir: string, configDir: string): SkillDir[] {
+  return [
+    { dir: path.join(workspaceDir, '.moss', 'skills'), scope: 'workspace' },
+    { dir: path.join(workspaceDir, '.agents', 'skills'), scope: 'shared' },
+    { dir: path.join(workspaceDir, '.claude', 'skills'), scope: 'shared' },
+    { dir: path.join(configDir, 'skills'), scope: 'user' },
+    { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
+  ];
 }
 
 export interface SkillDir {
@@ -194,7 +213,16 @@ export function readSkillManifest(
   let description = (asString(parsed.fields.description) ?? '').trim();
   const reason = skillSkipReason(name, description);
   if (reason && reason !== 'invalid-name') {
-    return { skip: { file, reason }, issues };
+    // B303: `reason: empty` alone told the author nothing; say which required
+    // frontmatter field is missing.
+    const missing: string[] = [];
+    if (!name) missing.push('"name"');
+    if (!description) missing.push('"description"');
+    const detail =
+      reason === 'empty' && missing.length > 0
+        ? `frontmatter needs a non-empty ${missing.join(' and ')}`
+        : undefined;
+    return { skip: { file, reason, ...(detail ? { detail } : {}) }, issues };
   }
   if (!isSpecSkillName(name)) {
     issues.push({

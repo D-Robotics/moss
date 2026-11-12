@@ -16,6 +16,7 @@ import { MossError, ErrorCode, errorMessage, isMossError, wrapAsMoss } from '../
 import { isEffectiveUiZh } from '../../utils/ui-language.js';
 import type { DenialClass } from '../../contracts/tool-denial.js';
 import { createStreamingTextRedactor } from '../../safety/redact-stream.js';
+import { ToolSuspension, type SuspendedToolCall } from './tool-suspension.js';
 
 /**
  * O88: text the model (and the tool row) gets when approval is refused. It
@@ -380,6 +381,7 @@ export interface ExecuteToolCallDeps {
 export type ExecuteToolCallOutcome =
   | {
       kind: 'completed';
+      suspendedTool?: SuspendedToolCall;
       text: string;
       isError: boolean;
       durationMs: number;
@@ -756,6 +758,19 @@ async function executeOneToolCallInner(
         }
         if (!attemptSignal.aborted) publishOutput(outputRedactor.flush());
       } catch (err) {
+        if (
+          err instanceof ToolSuspension &&
+          tool.metadata?.canSuspend &&
+          !deps.abortSignal.aborted
+        ) {
+          return {
+            kind: 'completed',
+            text: '',
+            isError: false,
+            durationMs: 0,
+            suspendedTool: { ...err.continuation, toolCallId: call.id, toolName: call.name },
+          };
+        }
         const rawMessage = errorMessage(err);
         const userAborted = deps.abortSignal.aborted || !!perToolAbortSignal?.aborted;
         const deadlineElapsed = timeoutAbortCtrl.signal.aborted && !userAborted;

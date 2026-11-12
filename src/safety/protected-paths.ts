@@ -268,10 +268,24 @@ function deletesProtectedAncestor(
   for (const dir of normalisedConfigDirs(ctx)) anchors.push([dir, 'moss-config']);
   for (const candidate of candidates) {
     for (const [anchor, category] of anchors) {
-      if (isUnder(anchor, candidate)) return { category, resolved: candidate };
+      // Strict ancestor only: a write target that IS the workspace root (a script
+      // scan resolving relative writes against cwd) is not "deleting an ancestor".
+      // Deleting the root itself is handled explicitly for destructive commands.
+      if (candidate !== norm(anchor) && isUnder(anchor, candidate)) {
+        return { category, resolved: candidate };
+      }
     }
   }
   return undefined;
+}
+
+/**
+ * True when the command contains a destructive file head (rm/mv/...). A resolved
+ * target of exactly `/` is only meaningful for those; for ordinary commands it is
+ * a detector artifact (inline code doing `'/'.join(...)`, a trailing-slash prefix).
+ */
+function isDestructiveFileCommand(command: string): boolean {
+  return /(?:^|[;&|]\s*)(?:rm|rmdir|mv|del|rd|remove-item|move-item)\b/i.test(command);
 }
 
 // ── shell (policy only; detection lives behind detectShellWriteTargets) ─
@@ -559,6 +573,33 @@ function countDirectoryChanges(command: string): number {
     /(?:^|&&|\|\||;|\n|\()\s*(?:builtin\s+|command\s+)?(?:cd|pushd|popd|chdir)(?=\s|$|;|&|\||<|>|\)|\n)/gi;
   let n = 0;
   for (const _ of command.matchAll(re)) n += 1;
+  return n;
+}
+
+/**
+ * O152: like countDirectoryChanges, but directory changes that stay inside the
+ * workspace do not count. `cd <ws>/dev && python gen.py && cd <ws> && python -c …`
+ * used to disable the workspace-root cd exemption (two cd builtins), which then
+ * reported the root itself as a deleted ancestor and refused ordinary runs in -p.
+ * Escapes (`cd ~`, bare `cd`, a cd to an outside path) still count.
+ */
+function directoryChangesLeavingWorkspace(command: string, ctx: ProtectedPathContext): number {
+  const root = ctx.workspaceRoot;
+  if (!root) return countDirectoryChanges(command);
+  const rootReal = norm(realOrResolved(root));
+  const re =
+    /(?:^|&&|\|\||;|\n|\()\s*(?:builtin\s+|command\s+)?(?:cd|pushd|popd|chdir)(?=\s|$|;|&|\||<|>|\)|\n)(?:\s+(?:--\s+)?(['"]?)([^\s'"`$;&|()<>]+)\1)?/gi;
+  let n = 0;
+  for (const m of command.matchAll(re)) {
+    const raw = m[2];
+    if (raw === undefined || raw.startsWith('~') || raw === '-') {
+      n += 1;
+      continue;
+    }
+    const abs = norm(realOrResolved(path.resolve(ctx.cwd, raw)));
+    if (abs === rootReal || isUnder(abs, rootReal)) continue;
+    n += 1;
+  }
   return n;
 }
 
@@ -1073,8 +1114,29 @@ function execCapableHits(command: string, ctx: ProtectedPathContext): ProtectedP
   if (forms.length === 0) return [];
   const hits: ProtectedPathHit[] = [];
   const seen = new Set<string>();
+  // O152: a bare `cd <workspace-root>` operand is a directory change, not a
+  // write target. Without this, `cd /ws/dev && python gen.py && cd /ws && python -c …`
+  // was reported as writing /ws/.git and refused in -p runs.
+  const cdTargets = new Set<string>();
+  {
+    const { tokens } = tokenize(command);
+    const words = tokens.filter((t) => t.kind === 'word').map((t) => t.text);
+    for (let i = 0; i < words.length - 1; i += 1) {
+      const head = words[i]!.split(/[\\/]/).pop()?.toLowerCase();
+      if (head !== 'cd' && head !== 'pushd') continue;
+      let j = i + 1;
+      if (words[j] === '--') j += 1;
+      const operand = words[j];
+      if (!operand || /[$`]/.test(operand) || operand.startsWith('-')) continue;
+      cdTargets.add(path.resolve(ctx.cwd, operand));
+    }
+  }
+  const isBareCdRoot = (abs: string): boolean =>
+    cdTargets.has(abs) && isWorkspaceRootPath(abs, ctx);
+  const destructive = isDestructiveFileCommand(command);
   const consider = (raw: string, form: string, uncertain?: boolean) => {
     const abs = path.resolve(ctx.cwd, raw || '.');
+    if (!destructive && norm(abs) === '/') return;
     // O152 r5 C: structural "uncertain" forms apply inside a git repository
     // only (the cwd, a `-C` dir or operand, or one of their ancestors).
     if (uncertain) {
@@ -1086,6 +1148,7 @@ function execCapableHits(command: string, ctx: ProtectedPathContext): ProtectedP
       hits.push({ raw: form, resolved, category: 'git', operation: 'shell', kind: 'exec-capable' });
       return;
     }
+    if (isBareCdRoot(abs)) return;
     // A directory that is / contains a git worktree → gate as writing its .git.
     const asGit =
       hasDotGit(abs) || isWorkspaceRootPath(abs, ctx)
@@ -1120,10 +1183,40 @@ function execCapableHits(command: string, ctx: ProtectedPathContext): ProtectedP
   return hits;
 }
 
+/**
+ * O152 r6: a heredoc-fed interpreter run from inside the workspace
+ * (`python - <<'EOF' … EOF`) is the normal shape of benchmark/dev work. The
+ * indirect-write scan cannot always resolve its targets, which used to refuse
+ * the whole command in -p mode even when the script only touches the workspace.
+ * Allow it when the cwd is inside the workspace AND neither the command nor the
+ * heredoc body mentions a protected path marker; any mention keeps the normal
+ * (blocking) path, and an escape (`cd ~`, `cd /`) is not this shape.
+ */
+function isWorkspaceHeredocInterpreter(command: string, ctx: ProtectedPathContext): boolean {
+  const root = ctx.workspaceRoot;
+  if (!root) return false;
+  const rootReal = norm(realOrResolved(root));
+  const cwdReal = norm(realOrResolved(ctx.cwd));
+  if (cwdReal !== rootReal && !isUnder(cwdReal, rootReal)) return false;
+  // heredoc-fed interpreter heads only
+  if (
+    !/(?:^|[;&|(]\s*)(?:python3?|node|deno|bun|bash|sh|zsh|perl|ruby)\b[^\n]*<<-?\s*['"]?[A-Za-z_]+/.test(
+      command
+    )
+  ) {
+    return false;
+  }
+  // a directory change out of the workspace is not this shape
+  if (directoryChangesLeavingWorkspace(command, ctx) > 0) return false;
+  // any protected marker in the command or its heredoc body keeps the strict path
+  return !PROTECTED_TEXT.test(command);
+}
+
 export function findShellProtectedWrites(
   command: string,
   ctx: ProtectedPathContext
 ): ProtectedPathHit[] {
+  if (isWorkspaceHeredocInterpreter(command, ctx)) return [];
   const detect = ctx.shellWriteTargets ?? detectShellWriteTargets;
   const winForm = windowsSeparatorForm(command, ctx);
   // O151 (Windows): analyse the pwsh/cmd separator form first (its paths are
@@ -1145,8 +1238,26 @@ export function findShellProtectedWrites(
   ];
   const hits: ProtectedPathHit[] = [];
   const seen = new Set<string>();
+  // O152: a script scan can name the workspace root itself as a write target
+  // (relative writes resolved against cwd). Treating that as "deleting an
+  // ancestor of the workspace" refused ordinary `python -c` runs in -p; only
+  // real delete/move commands keep the ancestor check for the root path.
+  const destructiveCommand = /(?:^|[;&|]\s*)(?:rm|rmdir|mv|del|rd|remove-item|move-item)\b/i.test(
+    command
+  );
+  const rootWriteTargetExempt = (target: string): boolean =>
+    !destructiveCommand && isWorkspaceRootPath(target, ctx);
+  // A resolved target of exactly `/` is a detector artifact for ordinary
+  // commands (inline code doing `'/'.join(...)`, a trailing-slash path prefix).
+  // Writing the filesystem root is not a thing; only destructive heads keep it.
+  const isBareRootTarget = (target: string): boolean =>
+    !destructiveCommand && norm(path.resolve(ctx.cwd, target)) === '/';
   for (const target of targets) {
-    const hit = classifyProtectedPath(target, ctx) ?? deletesProtectedAncestor(target, ctx);
+    const hit =
+      classifyProtectedPath(target, ctx) ??
+      (rootWriteTargetExempt(target) || isBareRootTarget(target)
+        ? undefined
+        : deletesProtectedAncestor(target, ctx));
     if (!hit || seen.has(hit.resolved)) continue;
     seen.add(hit.resolved);
     hits.push({
@@ -1167,7 +1278,7 @@ export function findShellProtectedWrites(
     const cdOnly = cdOnlyOperands(winForm ?? command, ctx.cwd);
     // QA B1 / PM 10-12: a second cd/pushd/popd/chdir (any operand) cancels the
     // exemption — the first cd-to-root must also be the last directory change.
-    const allowCdExempt = countDirectoryChanges(command) <= 1;
+    const allowCdExempt = directoryChangesLeavingWorkspace(command, ctx) === 0;
     let rootReadOnlyMemo: boolean | undefined;
     const rootReadOnly = () => (rootReadOnlyMemo ??= workspaceRootOnlyReadOnly(command, ctx));
     // Prefer absolute mentions from the shared detector; fall back to text regex.
@@ -1192,9 +1303,19 @@ export function findShellProtectedWrites(
       // `ls -la <root>`) besides that single cd is not a delete of its .git.
       const isReadOnlyRoot = !isCd && isWorkspaceRootPath(m, ctx) && rootReadOnly();
       const isScriptArg = scriptArgs.has(path.resolve(ctx.cwd, m));
+      // A bare `/` mentioned by inline code (`print('/')`) is not a write target
+      // for ordinary commands; destructive heads keep the ancestor rule, and so
+      // does any command that cd's outside the workspace (cwd no longer
+      // describes where the relative operand lands).
+      const isBareRootMention =
+        !isDestructiveFileCommand(command) &&
+        directoryChangesLeavingWorkspace(command, ctx) === 0 &&
+        norm(path.resolve(ctx.cwd, m)) === '/';
       const hit =
         classifyProtectedPath(m, ctx) ??
-        (isCd || isReadOnlyRoot || isScriptArg ? undefined : deletesProtectedAncestor(m, ctx));
+        (isCd || isReadOnlyRoot || isScriptArg || isBareRootMention
+          ? undefined
+          : deletesProtectedAncestor(m, ctx));
       if (!hit || seen.has(hit.resolved)) continue;
       seen.add(hit.resolved);
       hits.push({
@@ -1224,6 +1345,26 @@ export function findShellProtectedWrites(
     }
   }
 
+  // O152: deleting/moving the workspace root itself is still a destructive
+  // no-go in -p (it takes the project and its .git with it), but only when a
+  // detected target actually IS the root — a `cd <root> && rm -rf sub` must not
+  // be caught by the cd operand.
+  if (destructiveCommand && ctx.workspaceRoot) {
+    const rootReal = norm(realOrResolved(ctx.workspaceRoot));
+    for (const target of targets) {
+      const abs = path.resolve(ctx.cwd, target);
+      if (norm(realOrResolved(abs)) === rootReal) {
+        hits.push({
+          raw: displayPath(abs, ctx),
+          resolved: abs,
+          category: 'git',
+          operation: 'shell',
+        });
+        break;
+      }
+    }
+  }
+
   // O103: hooksPath redirection.
   for (const hit of gitHooksPathHits(command, ctx)) {
     const key = `hookspath:${hit.raw}:${hit.resolved}`;
@@ -1248,7 +1389,10 @@ export function findShellProtectedWrites(
     ctx.workspaceRoot ?? ctx.cwd
   )) {
     const hit =
-      classifyProtectedPath(finding.raw, ctx) ?? deletesProtectedAncestor(finding.raw, ctx);
+      classifyProtectedPath(finding.raw, ctx) ??
+      (rootWriteTargetExempt(finding.raw) || isBareRootTarget(finding.raw)
+        ? undefined
+        : deletesProtectedAncestor(finding.raw, ctx));
     if (!hit) continue;
     const key = hit.resolved;
     if (seen.has(key)) {
@@ -1263,6 +1407,22 @@ export function findShellProtectedWrites(
       category: hit.category,
       operation: 'shell',
       source: finding.source,
+    });
+  }
+
+  // A destructive head after a cd that left the workspace: the relative operand
+  // no longer describes where it lands (`cd / && rm -rf root` targets /root).
+  // Ask once instead of guessing; commands that stay inside are unaffected.
+  if (
+    hits.length === 0 &&
+    isDestructiveFileCommand(command) &&
+    directoryChangesLeavingWorkspace(command, ctx) > 0
+  ) {
+    hits.push({
+      raw: command.trim().slice(0, 80),
+      resolved: '/',
+      category: 'unresolved',
+      operation: 'shell',
     });
   }
 

@@ -77,19 +77,22 @@ aggregated `Deep gate`.
 
 This section is part of the design, not a disclaimer hidden in a log.
 
-- **No behavior regression suite.** The 504 `test/*.spec.mjs` files were
-  deleted on 2026-11-04. Nothing today runs the agent loop, tools, providers,
-  permissions, TUI, MCP, device or task-runtime behavior automatically. The
-  gate proves the tree compiles, the CLI boots, and the three embedding
-  examples still work. Git history (up to commit `01a16fd7`) still holds the
-  suite, but the standing decision is not to restore it.
+- **The gate is fast, not exhaustive.** `scripts/verify/stages/` now carries
+  100+ re-runnable probes/stages (agent loop, tools, providers, permissions,
+  TUI rendering, MCP, task runtime, ledger, review gate, …), but they are
+  selected for the 60s budget: long real-terminal runs, cross-OS behavior and
+  model benchmarks are not part of it. The nightly deep workflow is the wider
+  (still not exhaustive) evidence tier.
 - **No install e2e.** The documented `npm ci` + `npm install -g --install-links`
   path is not executed by any automated gate.
 - **No real terminals.** PTY startup is checked by `smoke` on Unix; tmux /
   screen / Terminal.app behavior is only covered by the opt-in
   `npm run bench:tui-feel` path.
-- **Windows** runs the same gate in the deep workflow, but the smoke stage
-  skips the PTY check there (no `pty` module).
+- **Windows** (deep workflow) runs the cross-platform subset the product
+  promises there — static, build, CLI smoke and the embedding examples; the
+  behavior probes still assume POSIX shells/PTYs in places, so they run on the
+  Linux/macOS legs, not on Windows. The smoke stage also skips its PTY check
+  there (no `pty` module).
 - **Benchmarks** (`npm run bench*`) and device/RDK paths are never part of CI.
 
 ## Invariants
@@ -137,9 +140,10 @@ break; the OS matrix is the next tier.
 
 ### `.github/workflows/deep.yml` — nightly, tags, manual
 
-The same gate on `ubuntu-latest` / `macos-latest` / `windows-latest` at Node
-22.16.0 plus `ubuntu-latest` at Node 24 (runtime-version coverage is
-OS-independent, so one Linux leg is enough), aggregated by `Deep gate`
+The full gate on `ubuntu-latest` / `macos-latest` at Node 22.16.0 plus
+`ubuntu-latest` at Node 24 (runtime-version coverage is OS-independent, so one
+Linux leg is enough), and the Windows-supported subset (`static,build,smoke,
+examples`) on `windows-latest` 22.16.0. Aggregated by `Deep gate`
 (`scripts/verify/ci-gate.mjs`, fed by `toJSON(needs)`). Nightly cost is four
 short jobs; a version tag carries the same matrix as release evidence.
 

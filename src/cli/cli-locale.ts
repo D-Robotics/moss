@@ -60,6 +60,7 @@ export const SETUP_ZH: Readonly<Record<string, string>> = {
     'key 会保存在 Moss 配置文件里（只有你能读）。想用环境变量？退出后运行：moss config set apiKeyEnv <变量名>',
   'Choose a model provider (↑↓ + Enter, or press its number):':
     '选择模型服务商（↑↓ 加回车，或直接按数字）：',
+  'Ctrl+C exits without saving.': 'Ctrl+C 退出，不保存。',
   '{provider} API key (paste it; shown as dots): {dots}':
     '{provider} API key（粘贴即可，以圆点显示）：{dots}',
   'No key yet? Get one at {keyUrl}.': '还没有 key？到 {keyUrl} 申请。',

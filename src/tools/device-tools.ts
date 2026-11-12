@@ -119,11 +119,15 @@ export const deviceExecTool: Tool = {
     'Execute a shell command on the configured remote device (RDK board / Linux host) over SSH and return stdout + stderr with the exit code. Use for device-side work: builds, service control, diagnostics, ROS commands.\n' +
     '- Prefer one focused command per call; prefer the read-only device_* tools for standard observation (info/processes/resources/temperature/files).\n' +
     '- Destructive or lockout-risk commands (reboot/shutdown, flashing, rm of system paths, writes to /boot or /etc, network changes, package removal, systemctl stop/disable/mask, ssh or account edits) stay gated even in full mode until the user confirms or opts into device trust.\n' +
+    '- Start long-running/background processes with ALL fds redirected or the SSH channel hangs until the timeout: `nohup CMD > run.log 2>&1 < /dev/null & echo $! > run.pid; sleep 1; cat run.log`. Never bare `CMD &`. To stop one: `kill \"$(cat run.pid)\"`. A grep in a pipeline exiting 1 (no match) is NOT a failure — add `|| true` when you chain commands.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
     leanDescription:
       'Run one shell command on the device over SSH; destructive commands stay gated. Not for observation.',
-    classification: { discovery: true },
+    // Not `discovery`: this is a mutation-capable tool, and the discovery
+    // failure limit (2) is too tight for device work where a pipeline grep
+    // exiting 1 is routine. The read-only device probes keep discovery.
+    classification: {},
     maxResultTokens: 6_000,
     truncationHint: 'output was cut — narrow the remote command to the slice you need',
     sideEffectClass: 'device_mutation',

@@ -145,6 +145,9 @@ export function parseUpdateArgs(args: readonly string[]): {
       dir = value;
       continue;
     }
+    // B315: the JSON mode is read by runUpdateCommand; the parser only needs to
+    // accept the flag instead of rejecting it as unknown.
+    if (arg === '--json') continue;
     return { error: { code: 'unknown', token: arg } };
   }
   return dir ? { dir } : {};
@@ -295,7 +298,7 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: 
   if (zh) {
     return [
       '用法：',
-      '  moss update [--dir <克隆>]',
+      '  moss update [--dir <克隆>] [--json]',
       '',
       '按安装方式打印升级命令。已有克隆时打印：',
       `  ${UPGRADE_IN_CLONE}`,
@@ -313,6 +316,7 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: 
       '',
       '选项：',
       '  --dir <克隆>  要升级的检出目录（覆盖 MOSS_SOURCE_DIR）',
+      '  --json        以 moss_update.v1 输出 kind/root/commands',
       '',
       '示例：',
       ...examples,
@@ -320,7 +324,7 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: 
   }
   return [
     'Usage:',
-    '  moss update [--dir <clone>]',
+    '  moss update [--dir <clone>] [--json]',
     '',
     'Print the upgrade command for this install. An existing clone prints:',
     `  ${UPGRADE_IN_CLONE}`,
@@ -341,6 +345,7 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: 
     '',
     'Options:',
     '  --dir <clone>  checkout to upgrade (overrides MOSS_SOURCE_DIR)',
+    '  --json         print moss_update.v1 (kind/root/commands)',
     '',
     'Examples:',
     ...examples,
@@ -404,6 +409,24 @@ export function runUpdateCommand(
     cwd: process.cwd(),
     ...(sourceDir ? { sourceDir } : {}),
   });
+  if (args.includes('--json')) {
+    // B315: scripts get the method and the exact commands, never a sentence.
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          schema: 'moss_update.v1',
+          kind: advice.kind,
+          root: advice.root,
+          commands: [...advice.commands],
+          ...(advice.missingSource ? { missingSource: true } : {}),
+        },
+        null,
+        2
+      )}\n`
+    );
+    if (advice.missingSource) process.exitCode = ExitCode.USAGE;
+    return;
+  }
   process.stdout.write(`${renderUpdateAdvice(advice, zh)}\n`);
   if (advice.missingSource) process.exitCode = ExitCode.USAGE;
 }

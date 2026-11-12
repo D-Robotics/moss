@@ -283,6 +283,8 @@ function formatFleetReport(
 export interface DeviceCommandContext {
   workspaceDir: string;
   env?: NodeJS.ProcessEnv;
+  /** Global `--json` is stripped by the arg parser; the dispatcher forwards it. */
+  json?: boolean;
 }
 
 /** Parse device-add argv into a DeviceTarget, or the first problem. */
@@ -417,6 +419,28 @@ export async function runDeviceCommand(argv: string[], ctx: DeviceCommandContext
   if (sub === 'list') {
     const registry = loadDeviceRegistry(ctx.workspaceDir);
     const envHost = (ctx.env ?? process.env).MOSS_DEVICE_HOST?.trim();
+    if (ctx.json === true) {
+      out(
+        JSON.stringify({
+          schema: 'moss_devices_list.v1',
+          env: envHost ? { host: envHost } : null,
+          devices: registry.map((device) => ({
+            id: device.deviceId,
+            user: device.user ?? 'root',
+            host: device.host,
+            port: device.port ?? 22,
+            kind: device.kind,
+            auth:
+              device.auth?.method === 'private-key'
+                ? { method: 'private-key', privateKeyPath: device.auth.privateKeyPath }
+                : device.auth?.passwordEnvVar
+                  ? { method: 'password-env', passwordEnvVar: device.auth.passwordEnvVar }
+                  : { method: 'none' },
+          })),
+        })
+      );
+      return 0;
+    }
     if (envHost)
       out(
         zh

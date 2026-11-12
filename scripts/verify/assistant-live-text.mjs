@@ -181,6 +181,28 @@ for (const reason of ['error', 'aborted_by_user', 'output_limit']) {
   assert.equal(interrupted.getResult({ finalText: partialValue }).response, 'Visible sentence.');
 }
 
+const suspendedAdapter = createMossAgentLoopEventAdapter();
+suspendedAdapter.onMiniEvent({ type: 'turn_start', turn: 1 });
+const unsettled = 'Visible sentence. ' + known.slice(0, 3);
+suspendedAdapter.onMiniEvent({ type: 'message_delta', delta: unsettled });
+const suspendedResult = suspendedAdapter.getResult({
+  finalText: unsettled,
+  suspendedTool: {
+    continuationId: 'waiting',
+    toolCallId: 'waiting-call',
+    toolName: 'await_reply',
+  },
+});
+assert.equal(suspendedResult.stopReason, 'suspended');
+assert.equal(suspendedResult.response, 'Visible sentence.');
+assert.equal(suspendedResult.suspendedTool?.continuationId, 'waiting');
+suspendedAdapter.onMiniEvent({ type: 'message_end', text: 'Visible sentence. ' + known });
+assert.equal(
+  suspendedAdapter.getResult({ finalText: '', suspendedTool: suspendedResult.suspendedTool })
+    .response,
+  redactEgress('Visible sentence. ' + known)
+);
+
 const rejected = createMossAgentLoopEventAdapter();
 rejected.onMiniEvent({ type: 'turn_start', turn: 1 });
 rejected.onMiniEvent({ type: 'message_delta', delta: 'Visible sentence. ' + known.slice(0, 3) });

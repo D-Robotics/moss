@@ -13,6 +13,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
+// TUI is not a supported surface on Windows, and this probe boots it through a
+// Python PTY. Skip rather than red the nightly gate for an unsupported surface.
+if (process.platform === 'win32') {
+  console.log('[tui-welcome] skip on win32 (TUI falls back to REPL)');
+  process.exit(0);
+}
+
 const root = path.resolve(import.meta.dirname, '../..');
 let checks = 0;
 const ok = (name) => {

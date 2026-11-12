@@ -97,7 +97,7 @@ export interface StatusLineInput {
   tokensOut?: number;
   costLabel?: string;
   contextPct?: number;
-  /** The window size is the conservative unprobed default, so the share is approximate. */
+  /** The window size is the unprobed default (an assumption), so the share is approximate. */
   contextEstimated?: boolean;
   device?: string;
   task?: string;

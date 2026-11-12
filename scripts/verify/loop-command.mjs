@@ -41,31 +41,33 @@ function ok(name) {
 }
 
 // 1. A failing check retries and the loop passes on the second attempt.
+// The check command runs through the platform shell, so the Windows probe must
+// speak cmd.exe (B286); a POSIX `[ -f ]` check can never pass there.
+const IS_WINDOWS = process.platform === 'win32';
+const passOnFlag = IS_WINDOWS
+  ? 'if exist flag (exit /b 0) else (echo.>flag & exit /b 1)'
+  : 'if [ -f flag ]; then exit 0; else touch flag; exit 1; fi';
 await fs.rm(path.join(workspace, 'flag'), { force: true });
-const retry = await run([
-  'loop',
-  '--mock',
-  '--until',
-  'if [ -f flag ]; then exit 0; else touch flag; exit 1; fi',
-  'just say hello',
-]);
+const retry = await run(['loop', '--mock', '--until', passOnFlag, 'just say hello']);
 assert.equal(retry.status, 0, retry.stderr);
 assert.match(retry.stdout, /after attempt 2/);
 assert.ok(await fs.stat(path.join(workspace, 'flag')));
 ok('a failing check triggers a second attempt and exits 0 when it passes');
 
 // 2. Exhausting --max keeps the failure: exit 1 with the check output tail.
+const boomThen7 = IS_WINDOWS ? 'echo boom 1>&2 & exit /b 7' : 'echo boom >&2; exit 7';
 const exhausted = await run([
   'loop',
   '--mock',
   '--max',
   '2',
   '--until',
-  'echo boom >&2; exit 7',
+  boomThen7,
   'just say hello',
 ]);
 assert.equal(exhausted.status, 1);
-assert.match(exhausted.stdout, /2 attempt\(s\) and `echo boom >&2; exit 7` still exited 7/);
+// The check command text is platform-specific now (cmd.exe vs POSIX sh).
+assert.match(exhausted.stdout, /2 attempt\(s\) and `.*` still exited 7/);
 assert.match(exhausted.stdout, /boom/);
 ok('exhausted attempts exit 1 and show the check output');
 

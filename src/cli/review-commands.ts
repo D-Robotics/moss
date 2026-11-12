@@ -115,7 +115,15 @@ export async function runReviewCommand(
     }
     const records = await listReviewRecords(ctx.workspaceDir, limit);
     if (json) {
-      out(JSON.stringify(records, null, 2));
+      // B331: every other read command ships a schema envelope; a bare array
+      // made list the only shape a script could not identify.
+      out(
+        JSON.stringify(
+          { schema: 'moss_review_list.v1', total: records.length, limit, records },
+          null,
+          2
+        )
+      );
       return 0;
     }
     if (records.length === 0) {

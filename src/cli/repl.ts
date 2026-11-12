@@ -714,7 +714,7 @@ export async function runInteractive(
         console.error(
           cliLocale() === 'zh'
             ? '  未配置 MCP 服务器（moss mcp add <name> <command>，或编辑 .moss/mcp.json）'
-            : '  no MCP servers configured (moss mcp add <name> <command>, or .moss/mcp.json)'
+            : '  no MCP servers configured (moss mcp add <name> <command>, or .moss/mcp.json; user: <config>/mcp.json)'
         );
       } else {
         for (const server of servers) console.error(`  ${formatMcpStatusLine(server)}`);

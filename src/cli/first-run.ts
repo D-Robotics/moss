@@ -726,6 +726,9 @@ export function renderFirstRunLines(
         `${index === view.cursor ? '>' : ' '} ${item.key}  ${isZhLocale(locale) ? item.zh : item.en}`
       );
     });
+    // B328: the first screen is a blocking picker; say how to leave it (Esc has
+    // no "back" target before a provider exists).
+    lines.push(copy(locale, 'Ctrl+C exits without saving.'));
   } else if (view.step === 'url') {
     lines.push(copy(locale, 'Gateway URL (https://host). A trailing /v1 is removed.'));
     if (tuiChrome) lines.push(copy(locale, 'Esc returns to the provider list.'));

@@ -48,6 +48,10 @@ Moss 的目标是让用户更快拿到**独立验证过、可继续修改的结�
 ## 当前评测缺口与推进顺序
 
 - **P0：评测可信度。** 默认 `scripts/tui-feel/driver.py` 的历史版本只观察启动画面，没有执行 JSON 场景步骤或测回显延迟；缺 pyte 时默认 runner 会 skip 并退出 0。`assert-layout.py` 是独立且更完整的屏幕断言，二者不可混为一谈。先使场景、失败、skip 和耗时可观察。
+- **P0：网关长尾与首包预算。** CLI 的 first-chunk watchdog 默认 45s（`MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS`）；
+  工具输出后模型可能长时间"无流式输出"，45s 会把慢网关记成 `Incomplete`。bench runner 现在为每轮设置
+  `MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS=120000`（可用 `MOSS_BENCH_FIRST_CHUNK_TIMEOUT_MS` 覆盖），
+  减少把网关抖动误判为能力失败；仍只有零回合样本才按 `harness_flake` 重跑/排除。
 - **P0：基准计分。** `scripts/bench-tbench.mjs` 曾被只读检查发现任务对象处理、通过管道获取退出码以及多样本口径的潜在问题；修复并以故意失败的 oracle 验证前，不发布比较分数。仓库的旧版 40 题锁定子集不是官方 Terminal-Bench 2.0 的 89 题榜单。DeepSWE 默认 1 样本 / 80 turns 也不能直接对照供应商的 8 样本 / 500 steps。
 - **P1：交互与连续性。** 在本地 stub 和 PTY 下增加输入、粘贴、中文光标、长流、工具等待、审批、steer、Esc 和后台操作的可重复测量；再验证多次压缩、失败修复及中断重启时任务和权限是否保留。
 - **P2：任务身份。** 在放开超过 50 个历史任务的内部恢复限制前，贯通当前任务 ID 到 agent turn、自动测试证据、隐式验收及相关子代理路径；不能让任务 A 的结果归到 B。

@@ -8,6 +8,7 @@ import { executeOneToolCall } from '../../dist/core/tools/execute-tool-call.js';
 import { createMossAgentLoopEventAdapter } from '../../dist/core/agent/moss-agent-loop-adapter.js';
 import { execTool } from '../../dist/tools/builtin.js';
 import { noteKnownSecret } from '../../dist/safety/known-secrets.js';
+import { suspendToolCall } from '../../dist/core/tools/tool-suspension.js';
 import { resolveHostShell } from '../../dist/utils/host-shell.js';
 
 const workspace = await mkdtemp(join(tmpdir(), 'moss-tool-live-'));
@@ -136,6 +137,32 @@ try {
         'visible line\n\n[Live output limit reached; further output omitted.]\n'
       );
   }
+
+  const suspendedEvents = [];
+  const suspendedTool = {
+    ...tool,
+    metadata: { canSuspend: true },
+    async execute(_input, ctx) {
+      savedCallback = ctx.onToolOutput;
+      ctx.onToolOutput?.('before suspension\n');
+      ctx.onToolOutput?.(known.slice(0, 8));
+      suspendToolCall({ continuationId: 'live-wait' });
+    },
+  };
+  const suspended = await executeOneToolCall(
+    { id: 'suspend', name: tool.name, input: {} },
+    deps(suspendedTool, (event) => suspendedEvents.push(event))
+  );
+  assert.equal(suspended.suspendedTool?.continuationId, 'live-wait');
+  assert.equal(suspended.isError, false);
+  savedCallback?.('after suspension\n');
+  assert.equal(
+    suspendedEvents
+      .filter((event) => event.type === 'tool_execution_progress')
+      .map((event) => event.chunk)
+      .join(''),
+    'before suspension\n'
+  );
 
   const cancelledEvents = [];
   const cancel = new AbortController();
