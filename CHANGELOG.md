@@ -4,6 +4,11 @@
 
 ### Optional Hermit training and daily experience references (SDK 0.33)
 
+- Adds `RsiAssetStore` and asset/lease/status/backup types for local immutable payloads,
+  filesystem usage and reservation quotas, dependency-aware deletion, policy protection,
+  authenticated backup/restore and monotonic consumption/revocation ledgers. Schema-2
+  state migrates with a backup to a schema-3 index with verified external documents.
+
 - Adds public `probeHermitWorker`, `runHermitWorker`, `HERMIT_WORKER_PIN`, worker types,
   `rsiTaskScopeDigest` and trusted external-training methods on `RsiEngine`. The optional
   Python worker runs pinned official Hermit/GEPA and is outside Node dependencies.

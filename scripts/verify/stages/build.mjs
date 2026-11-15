@@ -115,6 +115,16 @@ export const stage = {
 
     sweepStaleOutputs(distDir, srcDir);
 
+    // Optional worker is shipped inside the existing dist closure, from one canonical source.
+    const hermitOutput = path.join(distDir, 'integrations', 'hermit');
+    fs.mkdirSync(hermitOutput, { recursive: true });
+    for (const name of ['worker.py', 'requirements.lock', 'requirements-gepa.lock', 'README.md']) {
+      fs.copyFileSync(
+        path.join(root, 'integrations', 'hermit', name),
+        path.join(hermitOutput, name)
+      );
+    }
+
     const stamp = await runProcess(
       process.execPath,
       [path.join(root, 'scripts', 'write-build-stamp.mjs')],

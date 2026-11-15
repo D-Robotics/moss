@@ -42,3 +42,11 @@ export type {
   RsiDailyCollectionStatus,
   RsiDailyMetadataExport,
 } from './daily-store.js';
+export { RsiAssetStore } from './asset-store.js';
+export type { RsiAssetStatus, RsiAssetBackup } from './asset-store.js';
+export type {
+  RsiAssetKind,
+  RsiAssetRecord,
+  RsiAssetState,
+  RsiWorkspaceLease,
+} from './asset-types.js';

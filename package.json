@@ -25,11 +25,7 @@
     "README.md",
     "README.en.md",
     "LICENSE",
-    "THIRD-PARTY-NOTICES.md",
-    "integrations/hermit/worker.py",
-    "integrations/hermit/requirements.lock",
-    "integrations/hermit/requirements-gepa.lock",
-    "integrations/hermit/README.md"
+    "THIRD-PARTY-NOTICES.md"
   ],
   "publishConfig": {
     "access": "public"

@@ -404,6 +404,7 @@ export class RsiTrainingController {
   }
   freeze(scope: RsiScope, input: RsiTrainingPlan) {
     this.authorize(scope);
+    this.store.assertAssetCapacity(scope);
     const plan = clone(input);
     validatePlan(plan);
     const provider = this.providerFor(clone(scope), clone(plan.taskScope));
@@ -472,6 +473,7 @@ export class RsiTrainingController {
       fail('empty_training_reservation');
     return this.store.update(scope, (state) => {
       const session = sessionFor(state, sessionId);
+      this.store.assertAssetCapacity(scope, state, sessionId);
       this.provider(scope, session);
       if (session.status === 'cancelled') fail('training_session_cancelled');
       const expected =
@@ -839,10 +841,14 @@ export class RsiTrainingController {
   }
   cancel(scope: RsiScope, sessionId: string) {
     this.authorize(scope);
-    return this.store.update(scope, (state) => {
-      const session = sessionFor(state, sessionId);
-      session.status = 'cancelled';
-      return clone(session);
-    });
+    return this.store.update(
+      scope,
+      (state) => {
+        const session = sessionFor(state, sessionId);
+        session.status = 'cancelled';
+        return clone(session);
+      },
+      true
+    );
   }
 }

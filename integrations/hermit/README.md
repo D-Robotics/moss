@@ -105,7 +105,7 @@ acting/Judge receipts. These prove interfaces only: no paid model, board, histor
 bug task or self-improvement efficacy is claimed. Real acceptance needs fresh
 RDK historical bugs, hidden final evaluation and measured provider usage.
 
-## Daily experience references (SDK 0.32)
+## Daily experience references (SDK 0.33)
 
 `RsiDailyStore(rootDir)` uses the same owner/environment `state.json` as `RsiEngine`,
 including its cross-process writer lock and atomic replacement. The host must derive
@@ -163,8 +163,8 @@ references atomically, retaining consent, pause state and replay tombstones.
 Both methods share owner/environment isolation with the single-reference API.
 Metadata is bounded at 1,000 references and 10,000 deletion tombstones per owner/env;
 capacity failures are explicit. `metadataBytes` and `quotaBytes` cover daily index
-metadata only, not all training/workspace disk usage. Host-owned artifact quota and
-candidate lifecycle are separate integration work. Expired references are filtered
+metadata only, not all training/workspace disk usage. The asset store below handles
+managed filesystem payloads and workspace reservations. Expired references are filtered
 on reads and pruned on subsequent configuration or successful collection writes.
 
 After building, run `node scripts/verify/rsi-daily-store.mjs` and
@@ -178,3 +178,71 @@ independent of native RSI's legacy global policy. Read it with
 scope's version. A promotion or rollback in another project cannot replace it.
 The repository revision is an exact compatibility boundary: project updates require
 a separately admitted scope and evaluation, not an inferred broad match.
+
+## Local asset authority (SDK 0.33)
+
+`RsiAssetStore(rootDir)` shares the policy transaction lock. `status(scope, taskScope?)`
+reports actual owner-directory bytes (including training directories, pending uploads,
+backups and orphan files), reserved remaining capacity, quota and retention settings.
+The default quota is 1 GiB; raw evidence retention is 30 days, summaries 180 days,
+and failed/cancelled workspace cleanup is eligible after 7 days. `configure` accepts
+these settings with `expectedRevision`. Paths derive from authenticated scope only.
+
+Every state write now uses schema 3: runs, cases, candidates, evaluations, sessions
+and confirmations are immutable content-addressed JSON documents outside `state.json`.
+Public `RsiStore.read` hydrates these records and verifies every byte digest. `migrate`
+is idempotent; a schema-2 source is backed up before its atomic replacement. A failed
+transaction leaves the prior index intact; unreferenced files are safely collectible.
+Migration preserves native/legacy provenance and does not broaden scope or synthesize
+Hermit sessions. An unreadable/corrupt index fails closed; adapter capture falls back
+without trusting a damaged candidate.
+
+`put(scope, taskScope, { kind, content, expectedRevision, dependencies?, adapterDigest?,
+sessionId?, sourceId? })` stores explicitly admitted content. Kinds are experience,
+case, adapter, evaluation and manifest. `sourceId` binds a host case/run identifier;
+`sessionId` must reference an existing admitted session. Adapter text is limited to
+8 KiB; other payloads to 16 MiB. Hosts must redact secrets before calling the API;
+the SDK additionally rejects common credential/private-key patterns. `read` and `list`
+enforce owner and exact task scope; digest knowledge is not authorization.
+`exportAdapter` returns only text, compatibility scope and a minimal evaluation
+summary, excluding raw traces, project code and credentials.
+
+Before launching a worker, call `reserveWorkspace(scope, taskScope, { sessionId,
+maxBytes, kind: 'training' | 'upload', expectedRevision })`. Use its `directory` and
+check `checkWorkspace(scope, taskScope, lease.id)` before each actor/provider operation.
+The SDK's training-call reservation also checks actual disk consumption and revoked
+leases. Reserved capacity is charged before provider calls; unused capacity is released
+only with `finishWorkspace(scope, taskScope, id, outcome)` after the host has stopped
+the worker. These checks are not an OS filesystem quota: a trusted worker may write
+between checks, so hosts needing hard physical ceilings must use an enforced filesystem
+or container quota. Do not expose lease completion as a browser-trusted assertion.
+
+`beginDeletion(scope, taskScope, { assetIds, expectedRevision })` computes descendants,
+switches affected active/previous policies to baseline, invalidates derived candidates,
+cancels sessions and revokes workspace leases in one transaction. It returns a deletion
+ID and `requiredStopSessions`. Stop those workers, acknowledge their leases, then call
+`completeDeletion(scope, taskScope, deletionId)`. Running task receipts also block
+physical cleanup. Source blobs, related workspaces, superseded document versions and
+local migration backups are cleared; minimal content-free revocations remain. The
+host still owns deletion of its external conversation store or external caches.
+
+`prune(scope)` derives protection from persisted policies, live runs and session/lease
+references. Active, previous and in-flight versions and their required dependencies
+are retained; other records expire under configured retention. Deletion/holdout ledgers
+never reset through pruning. Metadata and small revocation writes may exceed a reduced
+quota so users can stop or clean an over-limit store.
+
+`backup(scope)` returns an owner-bound envelope signed with HMAC-SHA256 using a local
+0600 `backup-auth.key`, excluded from the envelope. No running/revoked leases may exist.
+`restore(scope, envelope, { expectedRevision })` requires the same protected key and
+rejects forged/rehashed policies before extracting payloads. Capacity is checked first;
+consumed holdouts, split exposures, proposal claims, budget reservations, daily tombstones
+and candidate revocations are merged monotonically. Deleted assets cannot reappear.
+Moving a backup to another installation requires separate secure host management of
+the authentication key; arbitrary imported bundles cannot establish trusted policy.
+Cloud synchronization is not implemented by this local store.
+
+The optional Python source is copied from this canonical directory into
+`dist/integrations/hermit/` during build; npm packages keep it under the existing
+`dist` closure and do not bundle Python dependencies. Run
+`node scripts/verify/rsi-assets.mjs` after building for the offline lifecycle probe.

@@ -114,6 +114,8 @@ function requiredText(value: unknown, max: number, code: string): string {
   return value;
 }
 function adapterFor(state: RsiState, digest = state.policy.activeDigest): RsiAdapter {
+  if (state.assets?.invalidatedAdapters.includes(digest))
+    throw new RsiError('adapter_revoked', 409);
   const adapter =
     digest === RSI_BASELINE.digest
       ? RSI_BASELINE

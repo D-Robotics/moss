@@ -5,6 +5,14 @@ import { ErrorCode, MossError } from '../../errors.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 import { hashHarnessAdapter } from '../agent/harness-adapter.js';
 import type { RsiDailyState } from './daily-store.js';
+import {
+  assetPath,
+  diskUsage,
+  documentPlan,
+  hydrateDocuments,
+  immutableBytes,
+} from './asset-io.js';
+import { defaultRsiAssets, type RsiAssetState } from './asset-types.js';
 import type {
   RsiAdapter,
   RsiCandidate,
@@ -91,11 +99,12 @@ export class RsiError extends MossError {
   }
 }
 export interface RsiState {
-  schemaVersion: 2;
+  schemaVersion: 2 | 3;
   scope: RsiScope;
   revision: number;
   /** Optional opt-in daily references. Legacy state is unchanged until configured. */
   daily?: RsiDailyState;
+  assets?: RsiAssetState;
   /** External training uses one independent active policy per trusted task scope. */
   trainingPolicies?: Record<string, RsiPolicy>;
   runs: RsiRun[];
@@ -138,6 +147,7 @@ export class RsiStore {
   }
   read(scope: RsiScope): RsiState {
     const file = this.file(scope);
+    assetPath(path.dirname(file), 'state.json');
     let state: RsiState;
     try {
       state = JSON.parse(fs.readFileSync(file, 'utf8')) as RsiState;
@@ -168,6 +178,26 @@ export class RsiStore {
         transitions: [],
       };
     }
+    if (state.scope?.ownerKey !== scope.ownerKey || state.scope?.environment !== scope.environment)
+      throw new RsiError('invalid_scope', 401);
+    hydrateDocuments(path.dirname(file), state);
+    if (
+      state.assets &&
+      (state.assets.schemaVersion !== 1 ||
+        !['records', 'leases', 'deletedIds', 'invalidatedAdapters', 'deletions'].every((key) =>
+          Array.isArray((state.assets as unknown as Record<string, unknown>)[key])
+        ) ||
+        ![
+          'quotaBytes',
+          'evidenceRetentionDays',
+          'summaryRetentionDays',
+          'failedWorkspaceRetentionDays',
+        ].every((key) => {
+          const value = (state.assets as unknown as Record<string, unknown>)[key];
+          return Number.isSafeInteger(value) && Number(value) > 0;
+        }))
+    )
+      throw new RsiError('asset_index_invalid', 503);
     // Schema-2 documents from before protocol support remain valid legacy evidence.
     if (state.protocols === undefined) state.protocols = [];
     if (state.protocolProposals === undefined) state.protocolProposals = [];
@@ -175,7 +205,7 @@ export class RsiStore {
     if (state.trainingConfirmations === undefined) state.trainingConfirmations = [];
     if (state.trainingReservations === undefined) state.trainingReservations = [];
     if (
-      state.schemaVersion !== 2 ||
+      ![2, 3].includes(state.schemaVersion) ||
       state.scope?.ownerKey !== scope.ownerKey ||
       state.scope?.environment !== scope.environment ||
       !Array.isArray(state.runs) ||
@@ -193,24 +223,39 @@ export class RsiStore {
       !state.policy
     )
       throw new RsiError('rsi_store_unavailable', 503);
-    const cutoff = Date.now() - RSI_RETENTION.days * 86_400_000;
-    state.runs = state.runs.filter((run) => run.startedAt >= cutoff).slice(-RSI_RETENTION.maxRuns);
-    state.cases = state.cases.filter((item) => item.createdAt >= cutoff).slice(-100);
-    state.evaluations = state.evaluations.filter((item) => item.createdAt >= cutoff).slice(-60);
+    // Retention is an explicit asset transaction, never a destructive side effect of reading.
     return state;
   }
-  update<T>(scope: RsiScope, mutate: (state: RsiState) => T): T {
+  update<T>(scope: RsiScope, mutate: (state: RsiState) => T, controlOnly = false): T {
     try {
-      return this.transact(scope, mutate);
+      return this.transact(scope, mutate, controlOnly);
     } catch (cause) {
       if (cause instanceof MossError) throw cause;
       throw new RsiError('rsi_store_unavailable', 503, cause);
     }
   }
-  private transact<T>(scope: RsiScope, mutate: (state: RsiState) => T): T {
+  /** Called under the same transaction lock immediately before a model/actor reservation. */
+  assertAssetCapacity(scope: RsiScope, state = this.read(scope), sessionId?: string): void {
+    const value = state.assets;
+    if (!value) return;
+    const directory = path.dirname(this.file(scope));
+    const open = value.leases.filter((lease) => ['running', 'revoked'].includes(lease.status));
+    let remaining = 0;
+    for (const lease of open) {
+      const bytes = diskUsage(assetPath(directory, 'training', lease.id));
+      if (bytes > lease.maxBytes) throw new RsiError('asset_quota_exceeded', 409);
+      if (lease.sessionId === sessionId && lease.status === 'revoked')
+        throw new RsiError('workspace_lease_revoked', 409);
+      remaining += Math.max(0, lease.maxBytes - bytes);
+    }
+    if (diskUsage(directory) + remaining >= value.quotaBytes)
+      throw new RsiError('asset_quota_exceeded', 409);
+  }
+  private transact<T>(scope: RsiScope, mutate: (state: RsiState) => T, controlOnly: boolean): T {
     const file = this.file(scope);
     if (this.workspaceDir) ensureMossRuntimeGitignore(this.workspaceDir);
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    assetPath(path.dirname(file), 'state.json');
     const lock = `${file}.lock`;
     let fd: number;
     try {
@@ -250,6 +295,8 @@ export class RsiStore {
     try {
       fs.writeFileSync(fd, String(process.pid));
       const state = this.read(scope);
+      const wasLegacy = state.schemaVersion === 2 && fs.existsSync(file);
+      const oldBytes = wasLegacy ? fs.readFileSync(file) : undefined;
       const result = mutate(state);
       state.revision += 1;
       state.runs = state.runs.slice(-RSI_RETENTION.maxRuns);
@@ -265,7 +312,40 @@ export class RsiStore {
         throw new RsiError('training_confirmation_retention_limit', 409);
       if ((state.trainingReservations?.length ?? 0) > 10000)
         throw new RsiError('training_reservation_retention_limit', 409);
-      fs.writeFileSync(temporary, `${JSON.stringify(state)}\n`, { mode: 0o600 });
+      state.assets ??= defaultRsiAssets();
+      if (
+        state.candidates.some((candidate) =>
+          state.assets!.invalidatedAdapters.includes(candidate.adapter.digest)
+        )
+      )
+        throw new RsiError('adapter_revoked', 409);
+      const directory = path.dirname(file);
+      const plan = documentPlan(directory, state);
+      const indexBytes = Buffer.from(`${JSON.stringify(plan.serialized)}\n`);
+      const backup = oldBytes
+        ? assetPath(directory, 'backups', `legacy-v2-${rsiDigest(oldBytes.toString('utf8'))}.json`)
+        : undefined;
+      const added =
+        plan.pending.reduce((sum, item) => sum + item.bytes.length, 0) +
+        (backup && !fs.existsSync(backup) ? oldBytes!.length : 0);
+      const reserved = state.assets.leases
+        .filter((lease) => ['running', 'revoked'].includes(lease.status))
+        .reduce(
+          (sum, lease) =>
+            sum +
+            Math.max(0, lease.maxBytes - diskUsage(assetPath(directory, 'training', lease.id))),
+          0
+        );
+      // Allow control-only updates over quota (pause, cancellation, deletion), never new payloads.
+      if (
+        !controlOnly &&
+        added > 0 &&
+        diskUsage(directory) + added + indexBytes.length + reserved > state.assets.quotaBytes
+      )
+        throw new RsiError('asset_quota_exceeded', 409);
+      if (backup && oldBytes) immutableBytes(backup, oldBytes);
+      for (const item of plan.pending) immutableBytes(item.file, item.bytes);
+      fs.writeFileSync(temporary, indexBytes, { mode: 0o600 });
       fs.renameSync(temporary, file);
       return structuredClone(result);
     } finally {
