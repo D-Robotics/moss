@@ -419,6 +419,9 @@ export class RsiTrainingController {
           )
           .flatMap((record) => [record.id, ...(record.sourceId ? [record.sourceId] : [])]) ?? []
       );
+      for (const source of state.deletedTrainingSources ?? [])
+        if (source.taskScopeDigest === rsiTaskScopeDigest(plan.taskScope))
+          deletedSources.add(source.id);
       if (
         Object.values(plan.cases)
           .flat()

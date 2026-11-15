@@ -240,6 +240,14 @@ consumed holdouts, split exposures, proposal claims, budget reservations, daily 
 and candidate revocations are merged monotonically. Deleted assets cannot reappear.
 Moving a backup to another installation requires separate secure host management of
 the authentication key; arbitrary imported bundles cannot establish trusted policy.
+The owner-bound HMAC `safety-ledger.json` persists consumptions and revocations before
+each main-index replacement. An interrupted commit may conservatively consume a claim,
+but it cannot refund it. `recoveryStatus(scope)` returns its trusted revision and whether
+live references remain. A signed backup can restore a corrupt main index only with a
+valid safety ledger and no unresolved live references; recovery selects baseline and
+preserves all restrictive history. A missing or tampered ledger fails explicitly with
+`safety_ledger_unavailable`; the SDK never invents lost consumption history. Keep the
+ledger and protected authentication key alongside backups for local recovery.
 Cloud synchronization is not implemented by this local store.
 
 The optional Python source is copied from this canonical directory into

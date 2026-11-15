@@ -13,6 +13,12 @@ import {
   immutableBytes,
 } from './asset-io.js';
 import { defaultRsiAssets, type RsiAssetState } from './asset-types.js';
+import {
+  applySafetyLedger,
+  readSafetyLedger,
+  repairSnapshotDocuments,
+  writeSafetyLedger,
+} from './safety-ledger.js';
 import type {
   RsiAdapter,
   RsiCandidate,
@@ -105,6 +111,8 @@ export interface RsiState {
   /** Optional opt-in daily references. Legacy state is unchanged until configured. */
   daily?: RsiDailyState;
   assets?: RsiAssetState;
+  safetyLedgerVersion?: 1;
+  deletedTrainingSources?: Array<{ id: string; taskScopeDigest: string }>;
   /** External training uses one independent active policy per trusted task scope. */
   trainingPolicies?: Record<string, RsiPolicy>;
   runs: RsiRun[];
@@ -153,6 +161,14 @@ export class RsiStore {
       state = JSON.parse(fs.readFileSync(file, 'utf8')) as RsiState;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        throw new RsiError('rsi_store_unavailable', 503, error);
+      // An existing owner directory with historical payloads is not a new account.
+      // Missing index/ledger must never silently reset consumed evaluation opportunities.
+      if (
+        ['backup-auth.key', 'safety-ledger.json', 'documents', 'backups', 'assets'].some((name) =>
+          fs.existsSync(assetPath(path.dirname(file), name))
+        )
+      )
         throw new RsiError('rsi_store_unavailable', 503, error);
       return {
         schemaVersion: 2,
@@ -224,7 +240,16 @@ export class RsiStore {
     )
       throw new RsiError('rsi_store_unavailable', 503);
     // Retention is an explicit asset transaction, never a destructive side effect of reading.
+    const ledger = readSafetyLedger(path.dirname(file), scope, state.safetyLedgerVersion === 1);
+    if (ledger) {
+      applySafetyLedger(state, ledger);
+      state.revision = Math.max(state.revision, ledger.revision);
+    }
     return state;
+  }
+  /** Internal recovery boundary. Caller must authenticate the fallback snapshot before invoking. */
+  recover<T>(scope: RsiScope, fallback: RsiState, mutate: (state: RsiState) => T): T {
+    return this.transact(scope, mutate, false, fallback);
   }
   update<T>(scope: RsiScope, mutate: (state: RsiState) => T, controlOnly = false): T {
     try {
@@ -251,7 +276,12 @@ export class RsiStore {
     if (diskUsage(directory) + remaining >= value.quotaBytes)
       throw new RsiError('asset_quota_exceeded', 409);
   }
-  private transact<T>(scope: RsiScope, mutate: (state: RsiState) => T, controlOnly: boolean): T {
+  private transact<T>(
+    scope: RsiScope,
+    mutate: (state: RsiState) => T,
+    controlOnly: boolean,
+    fallback?: RsiState
+  ): T {
     const file = this.file(scope);
     if (this.workspaceDir) ensureMossRuntimeGitignore(this.workspaceDir);
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -294,7 +324,24 @@ export class RsiStore {
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
       fs.writeFileSync(fd, String(process.pid));
-      const state = this.read(scope);
+      let state: RsiState;
+      let recovering = false;
+      try {
+        state = this.read(scope);
+      } catch (error) {
+        if (!fallback) throw error;
+        const ledger = readSafetyLedger(path.dirname(file), scope, true)!;
+        if (ledger.liveReferences) throw new RsiError('recovery_live_references_unresolved', 409);
+        state = structuredClone(fallback);
+        if (
+          state.scope.ownerKey !== scope.ownerKey ||
+          state.scope.environment !== scope.environment
+        )
+          throw new RsiError('invalid_scope', 401);
+        applySafetyLedger(state, ledger);
+        state.revision = ledger.revision;
+        recovering = true;
+      }
       const wasLegacy = state.schemaVersion === 2 && fs.existsSync(file);
       const oldBytes = wasLegacy ? fs.readFileSync(file) : undefined;
       const result = mutate(state);
@@ -318,6 +365,7 @@ export class RsiStore {
       if ((state.trainingReservations?.length ?? 0) > 10000)
         throw new RsiError('training_reservation_retention_limit', 409);
       state.assets ??= defaultRsiAssets();
+      state.safetyLedgerVersion = 1;
       if (
         state.candidates.some((candidate) =>
           state.assets!.invalidatedAdapters.includes(candidate.adapter.digest)
@@ -325,6 +373,7 @@ export class RsiStore {
       )
         throw new RsiError('adapter_revoked', 409);
       const directory = path.dirname(file);
+      if (recovering) repairSnapshotDocuments(directory, state);
       const plan = documentPlan(directory, state);
       const indexBytes = Buffer.from(`${JSON.stringify(plan.serialized)}\n`);
       const backup = oldBytes
@@ -350,7 +399,15 @@ export class RsiStore {
         throw new RsiError('asset_quota_exceeded', 409);
       if (backup && oldBytes) immutableBytes(backup, oldBytes);
       for (const item of plan.pending) immutableBytes(item.file, item.bytes);
+      // Safety claims become durable before the policy/index can advertise their result.
+      writeSafetyLedger(directory, state);
       fs.writeFileSync(temporary, indexBytes, { mode: 0o600 });
+      const indexFd = fs.openSync(temporary, 'r');
+      try {
+        fs.fsyncSync(indexFd);
+      } finally {
+        fs.closeSync(indexFd);
+      }
       fs.renameSync(temporary, file);
       return structuredClone(result);
     } finally {

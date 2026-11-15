@@ -279,12 +279,85 @@ try {
   store.update(scope, (state) => {
     state.runs = beforeRunning.runs;
   });
+  // A consumed claim written before a failed main-index replacement is never refunded.
+  const previousIndex = fs.readFileSync(file);
+  store.update(scope, (state) => {
+    state.holdoutConsumptions.push({
+      digest: rsiDigest('write-before-state-claim'),
+      at: Date.now(),
+    });
+  });
+  fs.writeFileSync(file, previousIndex);
+  assert.equal(
+    store.read(scope).holdoutConsumptions.length,
+    2,
+    'durable ledger wins over an older index'
+  );
+  const recoveryRevision = service.recoveryStatus(scope).revision;
+  fs.writeFileSync(file, '{broken index');
+  assert.throws(() => service.status(scope), /rsi_store_unavailable/);
+  service.restore(scope, backup, { expectedRevision: recoveryRevision });
+  assert.equal(store.read(scope).holdoutConsumptions.length, 2);
+  assert.equal(store.read(scope).candidates.length, 0);
+  assert.equal(
+    store.read(scope).trainingPolicies[rsiTaskScopeDigest(taskScope)].activeDigest,
+    RSI_BASELINE.digest,
+    'corrupt-index recovery always selects baseline'
+  );
+  const safetyFile = path.join(directory, 'safety-ledger.json');
+  const validLedger = fs.readFileSync(safetyFile);
+  fs.writeFileSync(file, '{broken again');
+  const forgedLedger = JSON.parse(validLedger);
+  forgedLedger.body.holdoutConsumptions = [];
+  fs.writeFileSync(safetyFile, JSON.stringify(forgedLedger));
+  assert.throws(
+    () => service.restore(scope, backup, { expectedRevision: recoveryRevision }),
+    /safety_ledger_unavailable/
+  );
+  fs.unlinkSync(safetyFile);
+  assert.throws(
+    () => service.restore(scope, backup, { expectedRevision: recoveryRevision }),
+    /safety_ledger_unavailable/,
+    'missing safety history is explicitly unrecoverable'
+  );
+  fs.writeFileSync(safetyFile, validLedger);
+  fs.unlinkSync(file);
+  assert.throws(
+    () => store.read(scope),
+    /rsi_store_unavailable/,
+    'missing owner index never resets history'
+  );
+  service.restore(scope, backup, { expectedRevision: service.recoveryStatus(scope).revision });
   const restored = new RsiAssetStore(root).status(scope);
   assert.equal(restored.schemaVersion, 3);
   assert.equal(restored.records.length, 0);
-  assert.equal(new RsiEngine({ rootDir: root }).store.read(scope).holdoutConsumptions.length, 1);
+  assert.equal(new RsiEngine({ rootDir: root }).store.read(scope).holdoutConsumptions.length, 2);
+  const repairScope = { ...scope, ownerKey: 'repair-owner' };
+  const repairAsset = service.put(repairScope, taskScope, {
+    kind: 'experience',
+    content: 'authenticated recovery bytes',
+    expectedRevision: 0,
+  });
+  const repairBackup = service.backup(repairScope);
+  const repairFile = path.join(
+    service.status(repairScope).storageDirectory,
+    'assets',
+    `${repairAsset.id}.bin`
+  );
+  fs.writeFileSync(repairFile, 'corrupted');
+  assert.throws(
+    () => service.read(repairScope, taskScope, repairAsset.id),
+    /asset_integrity_failed/
+  );
+  service.restore(repairScope, repairBackup, {
+    expectedRevision: service.status(repairScope).revision,
+  });
+  assert.equal(
+    service.read(repairScope, taskScope, repairAsset.id),
+    'authenticated recovery bytes'
+  );
   console.log(
-    'rsi-assets: migration/idempotence, immutable bytes, owner/scope isolation, export, CAS, lease quotas, protected retention, revoke/delete ordering, backup/monotonic restore passed'
+    'rsi-assets: migration, integrity, owner/scope isolation, cross-process CAS, lease quotas, protected retention, ordered deletion, authenticated backup, monotonic crash recovery and corrupt-ledger refusal passed'
   );
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

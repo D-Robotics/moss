@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { RsiError, rsiDigest } from './store.js';
 import type { RsiScope } from './types.js';
 import type { RsiState } from './store.js';
@@ -75,6 +75,22 @@ export function immutableBytes(file: string, bytes: Buffer): void {
     return;
   }
   fs.writeFileSync(file, bytes, { flag: 'wx', mode: 0o600 });
+}
+/** Only used after an owner-bound backup signature and payload digest have been verified. */
+export function restoreAuthenticatedBytes(file: string, bytes: Buffer): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  if (fs.existsSync(file)) {
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new RsiError('asset_integrity_failed', 409);
+    if (fs.readFileSync(file).equals(bytes)) return;
+  }
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, bytes, { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, file);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
 }
 export function hydrateDocuments(
   directory: string,

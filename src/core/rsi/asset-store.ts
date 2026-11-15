@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-import { randomUUID, randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
+import { randomUUID, createHmac, timingSafeEqual } from 'node:crypto';
+import { backupKey, readSafetyLedger } from './safety-ledger.js';
 import {
   RsiStore,
   RsiError,
@@ -14,6 +15,7 @@ import {
   byteDigest,
   diskUsage,
   immutableBytes,
+  restoreAuthenticatedBytes,
   verifiedBytes,
   recordCollections,
   type RsiDocumentIndex,
@@ -693,11 +695,7 @@ export class RsiAssetStore {
         payloads,
       };
       const digest = rsiDigest(JSON.stringify(body));
-      const file = assetPath(assetDirectory(this.rootDir, scope), 'backup-auth.key');
-      if (!fs.existsSync(file))
-        fs.writeFileSync(file, randomBytes(32), { flag: 'wx', mode: 0o600 });
-      const key = fs.readFileSync(file);
-      if (key.length !== 32) throw new RsiError('backup_key_invalid', 503);
+      const key = backupKey(assetDirectory(this.rootDir, scope), true);
       return { ...body, digest, signature: createHmac('sha256', key).update(digest).digest('hex') };
     });
   }
@@ -727,7 +725,13 @@ export class RsiAssetStore {
       digest !== rsiDigest(JSON.stringify(body))
     )
       throw new RsiError('backup_integrity_or_owner_mismatch', 409);
-    this.store.update(scope, (state) => {
+    let recovering = false;
+    try {
+      this.store.read(scope);
+    } catch {
+      recovering = true;
+    }
+    const mutate = (state: RsiState) => {
       cas(state, input.expectedRevision);
       const current = assets(state),
         restored = structuredClone(body.state),
@@ -816,6 +820,10 @@ export class RsiAssetStore {
           policy.activeDigest = RSI_BASELINE.digest;
         if (policy.previousDigest && value.invalidatedAdapters.includes(policy.previousDigest))
           policy.previousDigest = null;
+        if (recovering) {
+          policy.activeDigest = RSI_BASELINE.digest;
+          policy.previousDigest = null;
+        }
       }
       const directory = assetDirectory(this.rootDir, scope);
       let pending = 0;
@@ -834,10 +842,17 @@ export class RsiAssetStore {
         value.quotaBytes
       )
         throw new RsiError('asset_quota_exceeded', 409);
-      for (const file of files) immutableBytes(file.file, file.bytes);
+      for (const file of files) restoreAuthenticatedBytes(file.file, file.bytes);
       const revision = state.revision;
       Object.assign(state, restored, { revision });
-    });
+    };
+    if (recovering) this.store.recover(scope, body.state, mutate);
+    else this.store.update(scope, mutate);
     return this.status(scope);
+  }
+  /** Read-only recovery hint: never manufactures a missing consumption history. */
+  recoveryStatus(scope: RsiScope): { revision: number; liveReferences: boolean } {
+    const ledger = readSafetyLedger(assetDirectory(this.rootDir, scope), scope, true)!;
+    return { revision: ledger.revision, liveReferences: ledger.liveReferences };
   }
 }
