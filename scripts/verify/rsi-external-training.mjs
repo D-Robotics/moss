@@ -4,7 +4,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { RsiEngine, RSI_BASELINE, rsiDigest, rsiTaskScopeDigest } from '../../dist/index.js';
+import {
+  RsiEngine,
+  RsiAssetStore,
+  RSI_BASELINE,
+  rsiDigest,
+  rsiTaskScopeDigest,
+} from '../../dist/index.js';
 import { runProcess } from '../../dist/utils/run-process.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-rsi-protocol-'));
@@ -362,6 +368,98 @@ try {
     'unknown',
     'unknown reservations survive reload'
   );
+  const priorUnknown = engine.listTrainingReservations(scope, unknown.id)[0];
+  rejected(
+    () =>
+      engine.settleTrainingCall(scope, unknown.id, reservation.id, {
+        inputTokens: 1,
+        outputTokens: 1,
+      }),
+    'training_reservation_not_open'
+  );
+  assert.deepEqual(engine.listTrainingReservations(scope, unknown.id)[0], priorUnknown);
+
+  for (const fixture of [
+    {
+      name: 'known-output-overrun',
+      input: 8000,
+      output: 4096,
+      actual: { inputTokens: 5444, outputTokens: 4835 },
+      reasons: ['output_tokens'],
+    },
+    {
+      name: 'actual-exceeds-full-reserve',
+      input: 100,
+      output: 100,
+      actual: { inputTokens: 101, outputTokens: 200 },
+      reasons: ['input_tokens', 'output_tokens'],
+    },
+    {
+      name: 'valid-usage-after-deadline',
+      input: 100,
+      output: 100,
+      actual: { inputTokens: 1, outputTokens: 1 },
+      reasons: ['stage_wall_time'],
+      late: true,
+    },
+  ]) {
+    const location = path.join(root, fixture.name);
+    const metered = new RsiEngine({ rootDir: location, externalTraining: () => provider });
+    const assets = new RsiAssetStore(location);
+    const frozenPlan = plan(fixture.name);
+    frozenPlan.budget.training.maxTokens = 40000;
+    frozenPlan.budget.totalTokens = 60000;
+    frozenPlan.budget.maxOutputTokens = 4096;
+    const frozen = metered.freezeTrainingSession(scope, frozenPlan);
+    const claim = metered.reserveTrainingCall(scope, frozen.id, {
+      stage: 'training',
+      maxInputTokens: fixture.input,
+      maxOutputTokens: fixture.output,
+    });
+    if (fixture.late)
+      metered.store.update(scope, (state) => {
+        state.trainingReservations.find((item) => item.id === claim.id).createdAt -= 60001;
+      });
+    const backup = assets.backup(scope);
+    const index = path.join(assets.status(scope).storageDirectory, 'state.json');
+    const beforeSettlement = fs.readFileSync(index);
+    const settled = metered.settleTrainingCall(scope, frozen.id, claim.id, fixture.actual);
+    assert.equal(settled.status, 'unknown', 'overspend blocks further admission');
+    assert.deepEqual(
+      settled.usage,
+      fixture.actual,
+      'valid actual usage is never discarded or clamped'
+    );
+    assert.deepEqual(settled.budgetViolations, fixture.reasons);
+    assert.equal(
+      settled.maxInputTokens,
+      fixture.input,
+      'full reservation remains available for conservative charging'
+    );
+    assert.equal(settled.maxOutputTokens, fixture.output);
+    rejected(
+      () =>
+        metered.reserveTrainingCall(scope, frozen.id, {
+          stage: 'training',
+          maxInputTokens: 1,
+          maxOutputTokens: 1,
+        }),
+      'training_meter_blocked'
+    );
+    assert.equal(metered.store.read(scope).candidates.length, 0);
+    assert.equal(metered.store.read(scope).holdoutConsumptions.length, 0);
+    // Simulate interruption after signed journal commit but before index replacement.
+    fs.writeFileSync(index, beforeSettlement);
+    const reopened = new RsiEngine({ rootDir: location });
+    assert.deepEqual(reopened.listTrainingReservations(scope, frozen.id)[0], settled);
+    metered.cancelTrainingSession(scope, frozen.id);
+    assets.restore(scope, backup, { expectedRevision: assets.status(scope).revision });
+    assert.deepEqual(
+      reopened.listTrainingReservations(scope, frozen.id)[0],
+      settled,
+      'old signed backup cannot refund known overrun or reopen the reservation'
+    );
+  }
 
   const exhaustedPlan = plan('exhausted');
   exhaustedPlan.budget.training.maxTokens = 120;

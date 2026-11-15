@@ -176,6 +176,8 @@ export interface RsiTrainingReservation {
   maxOutputTokens: number;
   status: 'reserved' | 'settled' | 'unknown';
   usage?: Omit<RsiTrainingUsage, 'modelCalls'>;
+  /** Valid provider usage can still violate the frozen reservation or deadline. */
+  budgetViolations?: Array<'input_tokens' | 'output_tokens' | 'stage_wall_time'>;
 }
 export interface RsiTrainingPlan {
   taskScope: RsiTaskScope;

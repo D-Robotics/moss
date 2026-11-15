@@ -518,7 +518,10 @@ export class RsiTrainingController {
       const charged = (record: RsiTrainingReservation) =>
         record.status === 'settled'
           ? tokens(record.usage!)
-          : record.maxInputTokens + record.maxOutputTokens;
+          : Math.max(
+              record.maxInputTokens + record.maxOutputTokens,
+              record.usage ? tokens(record.usage) : 0
+            );
       const stageRecords = records.filter((item) => item.stage === request.stage),
         budget = session.budget[request.stage];
       if (stageRecords.length && Date.now() - stageRecords[0]!.createdAt > budget.maxWallMs)
@@ -572,17 +575,18 @@ export class RsiTrainingController {
       const stageStart = state.trainingReservations!.find(
         (item) => item.sessionId === sessionId && item.stage === reservation.stage
       )!.createdAt;
-      if (
-        !validUsage ||
-        !input ||
-        input.inputTokens > reservation.maxInputTokens ||
-        input.outputTokens > reservation.maxOutputTokens ||
-        Date.now() - stageStart > session.budget[reservation.stage].maxWallMs
-      )
-        reservation.status = 'unknown';
+      if (!validUsage || !input) reservation.status = 'unknown';
       else {
-        reservation.status = 'settled';
+        // Keep valid measured cost even when the provider ignored its requested
+        // limits. Such a call blocks admission and retains at least its reserve.
         reservation.usage = clone(input);
+        const violations: NonNullable<RsiTrainingReservation['budgetViolations']> = [];
+        if (input.inputTokens > reservation.maxInputTokens) violations.push('input_tokens');
+        if (input.outputTokens > reservation.maxOutputTokens) violations.push('output_tokens');
+        if (Date.now() - stageStart > session.budget[reservation.stage].maxWallMs)
+          violations.push('stage_wall_time');
+        reservation.status = violations.length ? 'unknown' : 'settled';
+        if (violations.length) reservation.budgetViolations = violations;
       }
       return clone(reservation);
     });
