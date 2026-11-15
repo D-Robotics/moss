@@ -236,8 +236,29 @@ export class RsiAssetStore {
       )
     )
       throw new RsiError('asset_contains_credentials');
+    if (
+      input.dependencies !== undefined &&
+      (!Array.isArray(input.dependencies) || input.dependencies.length > 1000)
+    )
+      throw new RsiError('asset_dependency_limit');
+    const dependencies = [...new Set(input.dependencies ?? [])].sort();
+    const binding = (value: {
+      kind: RsiAssetKind;
+      sessionId?: string;
+      sourceId?: string;
+      adapterDigest?: string;
+      dependencies?: string[];
+    }) =>
+      JSON.stringify([
+        value.kind,
+        value.sessionId ?? null,
+        value.sourceId ?? null,
+        value.adapterDigest ?? null,
+        [...new Set(value.dependencies ?? [])].sort(),
+      ]);
+    const frozenBinding = binding({ ...input, dependencies });
     const contentDigest = byteDigest(bytes);
-    const id = rsiDigest(JSON.stringify([taskScopeDigest, contentDigest]));
+    const id = rsiDigest(JSON.stringify([taskScopeDigest, contentDigest, frozenBinding]));
     return this.store.update(scope, (state) => {
       cas(state, input.expectedRevision);
       const value = assets(state);
@@ -247,7 +268,8 @@ export class RsiAssetStore {
         (item) =>
           item.id === id ||
           (item.taskScopeDigest === taskScopeDigest &&
-            (item.contentDigest ?? item.id) === contentDigest)
+            (item.contentDigest ?? item.id) === contentDigest &&
+            binding(item) === frozenBinding)
       );
       if (existing) {
         recordFor(state, taskScope, existing.id);
@@ -269,8 +291,6 @@ export class RsiAssetStore {
         if (!session || session.status === 'cancelled')
           throw new RsiError('training_session_invalid', 409);
       }
-      const dependencies = [...new Set(input.dependencies ?? [])];
-      if (dependencies.length > 1000) throw new RsiError('asset_dependency_limit');
       for (const dependency of dependencies) recordFor(state, taskScope, dependency);
       const usage = this.status(scope);
       if (usage.bytes + usage.reservedBytes + bytes.length + 4096 > value.quotaBytes)

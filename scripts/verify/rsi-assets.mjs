@@ -225,7 +225,7 @@ try {
     false,
     'local backup containing deleted text is removed'
   );
-  assert.throws(() => put('owner-scoped evidence'), /asset_deleted/);
+  assert.throws(() => put('owner-scoped evidence', { sourceId: 'case-one' }), /asset_deleted/);
   assert.throws(
     () => service.restore({ ...scope, ownerKey: 'other-owner' }, backup, { expectedRevision: 0 }),
     /backup_integrity_or_owner_mismatch/
@@ -408,6 +408,56 @@ try {
     expectedRevision: service.recoveryStatus(repairScope).revision,
   });
   assert.equal(store.read(repairScope).runs[0].runId, 'repair-document');
+  const bindingScope = { ...scope, ownerKey: 'binding-owner' };
+  store.update(bindingScope, (state) => {
+    state.trainingSessions = ['first-session', 'second-session'].map((id) => ({
+      id,
+      taskScope,
+      status: 'frozen',
+      cases: { training: [], validation: [], holdout: [], regression: [] },
+    }));
+  });
+  const boundAsset = (sessionId, adapterDigest, kind = 'adapter') =>
+    service.put(bindingScope, taskScope, {
+      kind,
+      content: 'identical learned instructions',
+      sessionId,
+      adapterDigest,
+      expectedRevision: service.status(bindingScope).revision,
+    });
+  const firstBinding = boundAsset('first-session', '1'.repeat(64));
+  const secondBinding = boundAsset('second-session', '2'.repeat(64));
+  assert.notEqual(
+    firstBinding.id,
+    secondBinding.id,
+    'same text with distinct candidate/session provenance must not alias'
+  );
+  assert.equal(firstBinding.contentDigest, secondBinding.contentDigest);
+  assert.equal(secondBinding.sessionId, 'second-session');
+  assert.equal(secondBinding.adapterDigest, '2'.repeat(64));
+  assert.equal(
+    boundAsset('second-session', '2'.repeat(64)).id,
+    secondBinding.id,
+    'identical binding remains idempotent'
+  );
+  assert.notEqual(
+    boundAsset('second-session', '2'.repeat(64), 'manifest').id,
+    secondBinding.id,
+    'distinct asset kinds do not alias'
+  );
+  const firstDeletion = service.beginDeletion(bindingScope, taskScope, {
+    assetIds: [firstBinding.id],
+    expectedRevision: service.status(bindingScope).revision,
+  });
+  service.completeDeletion(bindingScope, taskScope, firstDeletion.id);
+  assert.equal(
+    service.read(bindingScope, taskScope, secondBinding.id),
+    'identical learned instructions'
+  );
+  assert.equal(
+    store.read(bindingScope).trainingSessions.find((item) => item.id === 'second-session').status,
+    'frozen'
+  );
   console.log(
     'rsi-assets: migration, integrity, owner/scope isolation, cross-process CAS, lease quotas, protected retention, ordered deletion, authenticated backup, monotonic crash recovery and corrupt-ledger refusal passed'
   );
