@@ -158,6 +158,30 @@ try {
     expectedRevision: current(),
   });
   fs.writeFileSync(path.join(lease.directory, 'work.txt'), 'running material');
+  // Official Hermit creates learning_material/current -> step_0002. Aliases must
+  // neither poison the owner's quota scan nor multiply the target's byte count.
+  const material = path.join(lease.directory, 'output', 'learning_material');
+  fs.mkdirSync(path.join(material, 'step_0002'), { recursive: true });
+  fs.writeFileSync(path.join(material, 'step_0002', 'evidence'), 'actual material');
+  const beforeLinks = service.status(scope).bytes;
+  for (const name of ['current', 'also-current'])
+    fs.symlinkSync('step_0002', path.join(material, name));
+  assert.equal(service.status(scope).bytes, beforeLinks + 2 * Buffer.byteLength('step_0002'));
+  service.checkWorkspace(scope, taskScope, lease.id);
+  store.assertAssetCapacity(scope);
+  store.update(scope, () => {}); // The transactional quota writer uses the same rule.
+  for (const target of [directory, path.join(directory, 'training', 'unregistered'), '.']) {
+    const link = path.join(material, 'forbidden');
+    fs.symlinkSync(target, link);
+    assert.throws(() => service.status(scope), /asset_symlink_(refused|cycle)/);
+    fs.unlinkSync(link);
+  }
+  fs.symlinkSync('cycle-b', path.join(material, 'cycle-a'));
+  fs.symlinkSync('cycle-a', path.join(material, 'cycle-b'));
+  assert.throws(() => service.status(scope), /asset_symlink_(refused|cycle)/);
+  fs.unlinkSync(path.join(material, 'cycle-a'));
+  fs.unlinkSync(path.join(material, 'cycle-b'));
+  fs.rmSync(path.join(lease.directory, 'output'), { recursive: true });
   service.checkWorkspace(scope, taskScope, lease.id);
   assert.equal(service.status(scope).reservedBytes, 10000 - Buffer.byteLength('running material'));
   assert.throws(() => service.backup(scope), /backup_jobs_still_running/);
@@ -183,6 +207,9 @@ try {
     kind: 'upload',
     expectedRevision: current(),
   });
+  fs.symlinkSync(lease.directory, path.join(second.directory, 'cross-lease'));
+  assert.throws(() => service.status(scope), /asset_symlink_refused/);
+  fs.unlinkSync(path.join(second.directory, 'cross-lease'));
   store.update(scope, (state) => {
     state.holdoutConsumptions.push({ digest: rsiDigest('consumed-after-backup'), at: Date.now() });
   });

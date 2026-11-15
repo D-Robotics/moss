@@ -8,6 +8,7 @@ import type { RsiDailyState } from './daily-store.js';
 import {
   assetPath,
   diskUsage,
+  workspacePaths,
   documentPlan,
   hydrateDocuments,
   immutableBytes,
@@ -263,13 +264,16 @@ export class RsiStore {
     const open = value.leases.filter((lease) => ['running', 'revoked'].includes(lease.status));
     let remaining = 0;
     for (const lease of open) {
-      const bytes = diskUsage(assetPath(directory, 'training', lease.id));
+      const bytes = diskUsage(
+        assetPath(directory, 'training', lease.id),
+        workspacePaths(directory, state)
+      );
       if (bytes > lease.maxBytes) throw new RsiError('asset_quota_exceeded', 409);
       if (lease.sessionId === sessionId && lease.status === 'revoked')
         throw new RsiError('workspace_lease_revoked', 409);
       remaining += Math.max(0, lease.maxBytes - bytes);
     }
-    if (diskUsage(directory) + remaining >= value.quotaBytes)
+    if (diskUsage(directory, workspacePaths(directory, state)) + remaining >= value.quotaBytes)
       throw new RsiError('asset_quota_exceeded', 409);
   }
   private transact<T>(
@@ -382,14 +386,25 @@ export class RsiStore {
         .reduce(
           (sum, lease) =>
             sum +
-            Math.max(0, lease.maxBytes - diskUsage(assetPath(directory, 'training', lease.id))),
+            Math.max(
+              0,
+              lease.maxBytes -
+                diskUsage(
+                  assetPath(directory, 'training', lease.id),
+                  workspacePaths(directory, state)
+                )
+            ),
           0
         );
       // Allow control-only updates over quota (pause, cancellation, deletion), never new payloads.
       if (
         !controlOnly &&
         added > 0 &&
-        diskUsage(directory) + added + indexBytes.length + reserved > state.assets.quotaBytes
+        diskUsage(directory, workspacePaths(directory, state)) +
+          added +
+          indexBytes.length +
+          reserved >
+          state.assets.quotaBytes
       )
         throw new RsiError('asset_quota_exceeded', 409);
       if (backup && oldBytes) immutableBytes(backup, oldBytes);

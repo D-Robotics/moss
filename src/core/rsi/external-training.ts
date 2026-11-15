@@ -611,6 +611,7 @@ export class RsiTrainingController {
     text(provenance.runId, 128);
     digest(provenance.instructionsDigest);
     if (
+      !/^[a-f0-9]{40}$/.test(provenance.adapterCommit) ||
       !Array.isArray(provenance.steps) ||
       provenance.steps.length !== 2 ||
       provenance.steps.some(
@@ -619,11 +620,7 @@ export class RsiTrainingController {
           !/^[a-f0-9]{40}$/.test(step.adapterCommit) ||
           !/^[a-f0-9]{64}$/.test(step.instructionsDigest)
       ) ||
-      !provenance.steps.some(
-        (step) =>
-          step.adapterCommit === provenance.adapterCommit &&
-          step.instructionsDigest === provenance.instructionsDigest
-      ) ||
+      !provenance.steps.some((step) => step.instructionsDigest === provenance.instructionsDigest) ||
       provenance.instructionsDigest !== rsiDigest(adapter.instructions)
     )
       fail('untrusted_training_provenance');

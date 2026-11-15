@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { RsiEngine, RSI_BASELINE, rsiDigest, rsiTaskScopeDigest } from '../../dist/index.js';
+import { runProcess } from '../../dist/utils/run-process.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-rsi-protocol-'));
 const scope = { ownerKey: 'probe-owner', environment: 'test' };
@@ -169,6 +170,44 @@ function rejected(action, code) {
 }
 try {
   const { session, input } = await enrolled('positive');
+  // Official Trainer finalization creates a CARD commit even when instructions
+  // are unchanged. Use actual Git objects, not invented intermediate hashes.
+  const checkout = path.join(root, 'finalization-checkout');
+  fs.mkdirSync(checkout);
+  const git = async (...args) => {
+    const result = await runProcess('git', { args, cwd: checkout, timeoutMs: 10000 });
+    assert.equal(result.exitCode, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  await git('init');
+  await git('config', 'user.name', 'Offline Probe');
+  await git('config', 'user.email', 'probe@example.invalid');
+  fs.writeFileSync(path.join(checkout, 'ADAPTER.md'), input.instructions);
+  await git('add', 'ADAPTER.md');
+  await git('commit', '-m', 'Two unchanged official steps use this actual adapter');
+  const stepCommit = await git('rev-parse', 'HEAD');
+  fs.mkdirSync(path.join(checkout, '.hermit'));
+  fs.writeFileSync(path.join(checkout, '.hermit', 'CARD.md'), 'Final trainer metadata');
+  await git('add', '.hermit/CARD.md');
+  await git('commit', '-m', 'Finalize metadata only');
+  input.provenance.adapterCommit = await git('rev-parse', 'HEAD');
+  assert.notEqual(input.provenance.adapterCommit, stepCommit);
+  for (const step of input.provenance.steps) {
+    step.adapterCommit = stepCommit;
+    await git('merge-base', '--is-ancestor', stepCommit, input.provenance.adapterCommit);
+    assert.equal(await git('show', `${stepCommit}:ADAPTER.md`), input.instructions);
+  }
+  assert.equal(
+    await git('show', `${input.provenance.adapterCommit}:ADAPTER.md`),
+    input.instructions
+  );
+  await assert.rejects(
+    engine.admitTrainingCandidate(scope, session.id, {
+      ...input,
+      provenance: { ...input.provenance, adapterCommit: 'invalid-final-commit' },
+    }),
+    { rsiCode: 'untrusted_training_provenance' }
+  );
   const foreign = { ownerKey: 'another-account', environment: 'test' };
   rejected(
     () =>

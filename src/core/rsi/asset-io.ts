@@ -40,9 +40,27 @@ export function assetPath(directory: string, ...parts: string[]): string {
   }
   return current;
 }
-export function diskUsage(directory: string): number {
+/** Only persisted SDK leases grant workspace-local symlink traversal. */
+export function workspacePaths(directory: string, state: RsiState): string[] {
+  return (state.assets?.leases ?? []).map((lease) => assetPath(directory, 'training', lease.id));
+}
+export function diskUsage(directory: string, workspaces: readonly string[] = []): number {
   let count = 0;
-  function walk(file: string): number {
+  const roots = new Map(
+    workspaces
+      .filter((file) => fs.existsSync(file))
+      .map((file) => [path.resolve(file), fs.realpathSync(file)])
+  );
+  const seen = new Set<string>(),
+    active = new Set<string>();
+  const inside = (root: string, file: string) => {
+    const relative = path.relative(root, file);
+    return (
+      relative === '' ||
+      (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))
+    );
+  };
+  function walk(file: string, workspace?: string): number {
     if (++count > 100_000) throw new RsiError('asset_scan_limit', 409);
     let stat: fs.Stats;
     try {
@@ -51,10 +69,41 @@ export function diskUsage(directory: string): number {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0;
       throw error;
     }
-    if (stat.isSymbolicLink()) throw new RsiError('asset_symlink_refused', 409);
+    workspace ??= roots.get(path.resolve(file));
+    const key = `${stat.dev}:${stat.ino}`;
+    if (active.has(key)) throw new RsiError('asset_symlink_cycle', 409);
+    if (stat.isSymbolicLink()) {
+      if (!workspace) throw new RsiError('asset_symlink_refused', 409);
+      let target: string;
+      try {
+        const lexical = path.resolve(fs.realpathSync(path.dirname(file)), fs.readlinkSync(file));
+        if (!inside(workspace, lexical)) throw new Error('outside workspace');
+        target = fs.realpathSync(file);
+        if (!inside(workspace, target)) throw new Error('outside workspace');
+      } catch {
+        throw new RsiError('asset_symlink_refused', 409);
+      }
+      if (seen.has(key)) return 0;
+      seen.add(key);
+      active.add(key);
+      try {
+        return stat.size + walk(target, workspace);
+      } finally {
+        active.delete(key);
+      }
+    }
+    if (seen.has(key)) return 0;
+    seen.add(key);
     if (stat.isFile()) return stat.size;
     if (!stat.isDirectory()) throw new RsiError('asset_special_file_refused', 409);
-    return fs.readdirSync(file).reduce((sum, name) => sum + walk(path.join(file, name)), 0);
+    active.add(key);
+    try {
+      return fs
+        .readdirSync(file)
+        .reduce((sum, name) => sum + walk(path.join(file, name), workspace), 0);
+    } finally {
+      active.delete(key);
+    }
   }
   return walk(directory);
 }

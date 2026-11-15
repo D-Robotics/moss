@@ -14,6 +14,7 @@ import {
   assetPath,
   byteDigest,
   diskUsage,
+  workspacePaths,
   immutableBytes,
   restoreAuthenticatedBytes,
   verifiedBytes,
@@ -138,12 +139,20 @@ export class RsiAssetStore {
     const state = this.store.read(scope),
       value = assets(state),
       directory = assetDirectory(this.rootDir, scope);
-    const bytes = diskUsage(directory);
+    const bytes = diskUsage(directory, workspacePaths(directory, state));
     const reservedBytes = value.leases
       .filter((lease) => ['running', 'revoked'].includes(lease.status))
       .reduce(
         (sum, lease) =>
-          sum + Math.max(0, lease.maxBytes - diskUsage(assetPath(directory, 'training', lease.id))),
+          sum +
+          Math.max(
+            0,
+            lease.maxBytes -
+              diskUsage(
+                assetPath(directory, 'training', lease.id),
+                workspacePaths(directory, state)
+              )
+          ),
         0
       );
     const digest = taskScope ? rsiTaskScopeDigest(taskScope) : undefined;
@@ -418,8 +427,10 @@ export class RsiAssetStore {
     );
     if (!lease || lease.status !== 'running') throw new RsiError('workspace_lease_revoked', 409);
     if (
-      diskUsage(assetPath(assetDirectory(this.rootDir, scope), 'training', lease.id)) >
-        lease.maxBytes ||
+      diskUsage(
+        assetPath(assetDirectory(this.rootDir, scope), 'training', lease.id),
+        workspacePaths(assetDirectory(this.rootDir, scope), state)
+      ) > lease.maxBytes ||
       this.status(scope).quotaExceeded
     )
       throw new RsiError('asset_quota_exceeded', 409);
@@ -890,7 +901,9 @@ export class RsiAssetStore {
           files.push({ file, bytes });
         }
       if (
-        diskUsage(directory) + pending + Buffer.byteLength(JSON.stringify(restored)) >
+        diskUsage(directory, workspacePaths(directory, state)) +
+          pending +
+          Buffer.byteLength(JSON.stringify(restored)) >
         value.quotaBytes
       )
         throw new RsiError('asset_quota_exceeded', 409);
