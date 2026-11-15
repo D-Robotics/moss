@@ -299,7 +299,12 @@ export class RsiStore {
       const oldBytes = wasLegacy ? fs.readFileSync(file) : undefined;
       const result = mutate(state);
       state.revision += 1;
-      state.runs = state.runs.slice(-RSI_RETENTION.maxRuns);
+      const running = state.runs.filter((run) => run.outcome === 'running');
+      if (running.length > RSI_RETENTION.maxRuns)
+        throw new RsiError('running_retention_limit', 409);
+      const ended = state.runs.filter((run) => run.outcome !== 'running');
+      const remaining = RSI_RETENTION.maxRuns - running.length;
+      state.runs = [...(remaining ? ended.slice(-remaining) : []), ...running];
       state.transitions = state.transitions.slice(-100);
       // Candidate artifacts and their minimal promotion validation outlive the
       // bounded evaluation/transition history, including active and rollback versions.

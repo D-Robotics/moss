@@ -411,6 +411,20 @@ export class RsiTrainingController {
     validateProvider(provider);
     return this.store.update(scope, (state) => {
       const policy = trainingPolicyFor(state, plan.taskScope);
+      const deletedSources = new Set(
+        state.assets?.records
+          .filter(
+            (record) =>
+              record.deletedAt && record.taskScopeDigest === rsiTaskScopeDigest(plan.taskScope)
+          )
+          .flatMap((record) => [record.id, ...(record.sourceId ? [record.sourceId] : [])]) ?? []
+      );
+      if (
+        Object.values(plan.cases)
+          .flat()
+          .some((item) => deletedSources.has(item.id))
+      )
+        fail('training_evidence_deleted');
       const active = state.candidates.find((item) => item.adapter.digest === policy.activeDigest);
       const eligible =
         active?.trainingSessionId &&

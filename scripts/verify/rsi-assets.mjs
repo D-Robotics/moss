@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { runProcess } from '../../dist/utils/run-process.js';
 import {
   RsiAssetStore,
   RsiStore,
@@ -237,6 +239,46 @@ try {
   assert.throws(() => put('cannot exceed filesystem quota'), /asset_quota_exceeded/);
   assert.throws(() => store.assertAssetCapacity(scope), /asset_quota_exceeded/);
   service.configure(scope, { expectedRevision: current(), quotaBytes: 1_073_741_824 });
+  // Separate processes race one CAS revision; at most one may commit, no lost update.
+  const sdkUrl = pathToFileURL(path.resolve('dist/index.js')).href;
+  const raceRevision = current();
+  const childSource = `import { RsiAssetStore } from ${JSON.stringify(sdkUrl)};
+    const store = new RsiAssetStore(${JSON.stringify(root)});
+    try { store.configure(${JSON.stringify(scope)}, { expectedRevision: ${raceRevision}, quotaBytes: 1073741824 }); console.log('committed'); }
+    catch (error) { if (!['asset_revision_conflict','rsi_store_busy'].includes(error.rsiCode)) throw error; console.log('rejected'); }`;
+  const races = await Promise.all(
+    [0, 1].map(() =>
+      runProcess(process.execPath, {
+        args: ['--input-type=module', '-e', childSource],
+        timeout: 10000,
+        maxBuffer: 4096,
+      })
+    )
+  );
+  assert.deepEqual(races.map((result) => result.stdout.trim()).sort(), ['committed', 'rejected']);
+  assert.equal(current(), raceRevision + 1);
+  const beforeRunning = store.read(scope);
+  store.update(scope, (state) => {
+    state.runs = [
+      { runId: 'in-flight', outcome: 'running', adapter: { digest: RSI_BASELINE.digest } },
+      ...Array.from({ length: 201 }, (_, index) => ({
+        runId: `ended-${index}`,
+        outcome: 'completed',
+      })),
+    ];
+  });
+  assert.equal(
+    store.read(scope).runs.some((run) => run.runId === 'in-flight'),
+    true,
+    'bounded run retention must preserve in-flight references'
+  );
+  assert.throws(
+    () => service.restore(scope, backup, { expectedRevision: current() }),
+    /restore_runs_still_running/
+  );
+  store.update(scope, (state) => {
+    state.runs = beforeRunning.runs;
+  });
   const restored = new RsiAssetStore(root).status(scope);
   assert.equal(restored.schemaVersion, 3);
   assert.equal(restored.records.length, 0);

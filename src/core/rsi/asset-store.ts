@@ -678,6 +678,8 @@ export class RsiAssetStore {
         payloads: Record<string, string> = {};
       if (value.leases.some((lease) => ['running', 'revoked'].includes(lease.status)))
         throw new RsiError('backup_jobs_still_running', 409);
+      if (state.runs.some((run) => run.outcome === 'running'))
+        throw new RsiError('backup_runs_still_running', 409);
       for (const record of value.records)
         if (!record.deletedAt)
           payloads[record.id] = verifiedBytes(
@@ -732,6 +734,13 @@ export class RsiAssetStore {
         value = assets(restored);
       if (current.leases.some((lease) => ['running', 'revoked'].includes(lease.status)))
         throw new RsiError('restore_jobs_still_running', 409);
+      if (state.runs.some((run) => run.outcome === 'running'))
+        throw new RsiError('restore_runs_still_running', 409);
+      for (const run of restored.runs)
+        if (run.outcome === 'running') {
+          run.outcome = 'interrupted';
+          run.endedAt = Date.now();
+        }
       const merge = <T>(left: T[], right: T[], key: (item: T) => string) => [
         ...new Map([...left, ...right].map((item) => [key(item), item])).values(),
       ];
@@ -778,9 +787,15 @@ export class RsiAssetStore {
       restored.candidates = restored.candidates.filter(
         (item) => !value.invalidatedAdapters.includes(item.adapter.digest)
       );
+      const cancelledSessions = new Set(
+        (state.trainingSessions ?? [])
+          .filter((session) => session.status === 'cancelled')
+          .map((session) => session.id)
+      );
       for (const session of restored.trainingSessions ?? [])
         if (
           session.status !== 'confirmed' ||
+          cancelledSessions.has(session.id) ||
           (session.candidateDigest && value.invalidatedAdapters.includes(session.candidateDigest))
         )
           session.status = 'cancelled';
