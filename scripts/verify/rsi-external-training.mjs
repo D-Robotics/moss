@@ -175,7 +175,7 @@ try {
   const checkout = path.join(root, 'finalization-checkout');
   fs.mkdirSync(checkout);
   const git = async (...args) => {
-    const result = await runProcess('git', { args, cwd: checkout, timeoutMs: 10000 });
+    const result = await runProcess('git', { args, cwd: checkout, timeout: 10000 });
     assert.equal(result.exitCode, 0, result.stderr);
     return result.stdout.trim();
   };
