@@ -1,4 +1,9 @@
 import path from 'node:path';
+import {
+  RsiTrainingController,
+  rsiTaskScopeDigest,
+  trainingPolicyFor,
+} from './external-training.js';
 import { randomUUID } from 'node:crypto';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { HarnessAdapter } from '../agent/harness-adapter.js';
@@ -20,6 +25,12 @@ import type {
   RsiTaskFixtureEvidence,
   RsiProtocol,
   RsiProtocolRuntimeConfig,
+  RsiExternalTrainingProviderFactory,
+  RsiTrainingPlan,
+  RsiTrainingProvenance,
+  RsiTrainingStage,
+  RsiTrainingUsage,
+  RsiTaskScope,
 } from './types.js';
 import {
   RSI_BASELINE,
@@ -61,7 +72,7 @@ export interface RsiSelectedAdapter {
   adapter: RsiAdapter;
   receipt: RsiAdapterReceipt;
   harnessAdapter?: HarnessAdapter;
-  reason?: 'adapter_model_mismatch';
+  reason?: 'adapter_model_mismatch' | 'adapter_scope_mismatch';
 }
 export interface RsiRunObserver {
   observeMiniEvent(event: Readonly<MiniAgentEvent>): void;
@@ -331,11 +342,13 @@ export class RsiEngine {
   readonly store: RsiStore;
   private learning?: RsiLearningProvider | RsiLearningProviderFactory;
   private readonly authorize: (scope: RsiScope) => void;
+  private readonly training: RsiTrainingController;
   constructor(
     options: {
       rootDir?: string;
       learning?: RsiLearningProvider | RsiLearningProviderFactory;
       authorize?: (scope: RsiScope) => void;
+      externalTraining?: RsiExternalTrainingProviderFactory;
     } = {}
   ) {
     this.store = new RsiStore(
@@ -344,6 +357,68 @@ export class RsiEngine {
     );
     this.learning = options.learning;
     this.authorize = options.authorize ?? (() => {});
+    this.training = new RsiTrainingController(
+      this.store,
+      this.authorize,
+      options.externalTraining ?? (() => null),
+      adapterFor
+    );
+  }
+  freezeTrainingSession(scope: RsiScope, plan: RsiTrainingPlan) {
+    return this.training.freeze(scope, plan);
+  }
+  listTrainingSessions(scope: RsiScope) {
+    return this.training.listSessions(scope);
+  }
+  listTrainingConfirmations(scope: RsiScope) {
+    return this.training.listConfirmations(scope);
+  }
+  listTrainingReservations(scope: RsiScope, sessionId: string) {
+    return this.training.listReservations(scope, sessionId);
+  }
+  reserveTrainingCall(
+    scope: RsiScope,
+    sessionId: string,
+    input: { stage: RsiTrainingStage; maxInputTokens: number; maxOutputTokens: number }
+  ) {
+    return this.training.reserve(scope, sessionId, input);
+  }
+  settleTrainingCall(
+    scope: RsiScope,
+    sessionId: string,
+    reservationId: string,
+    usage: Omit<RsiTrainingUsage, 'modelCalls'> | null
+  ) {
+    return this.training.settle(scope, sessionId, reservationId, usage);
+  }
+  admitTrainingCandidate(
+    scope: RsiScope,
+    sessionId: string,
+    input: Pick<RsiAdapter, 'id' | 'version' | 'instructions'> & {
+      provenance: RsiTrainingProvenance;
+    }
+  ) {
+    return this.training.admit(scope, sessionId, input);
+  }
+  confirmTrainingCandidate(scope: RsiScope, sessionId: string) {
+    return this.training.confirm(scope, sessionId);
+  }
+  promoteTrainingCandidate(
+    scope: RsiScope,
+    sessionId: string,
+    input: { confirmationId: string; expectedPolicyVersion: number }
+  ) {
+    return this.training.promote(scope, sessionId, input);
+  }
+  cancelTrainingSession(scope: RsiScope, sessionId: string) {
+    return this.training.cancel(scope, sessionId);
+  }
+  getTrainingPolicy(scope: RsiScope, taskScope: RsiTaskScope) {
+    return this.training.policy(scope, taskScope);
+  }
+  rollbackTrainingPolicy(scope: RsiScope, taskScope: RsiTaskScope, expectedPolicyVersion: number) {
+    this.requireEnabled(scope);
+    return this.training.rollback(scope, taskScope, expectedPolicyVersion);
   }
   setLearningProvider(provider: RsiLearningProvider | RsiLearningProviderFactory) {
     this.learning = provider;
@@ -716,6 +791,8 @@ export class RsiEngine {
       baseline = adapterFor(state);
     const cases = selectCases(state, input.caseIds);
     const candidateRecord = state.candidates.find((item) => item.adapter.digest === digest);
+    if (candidateRecord?.trainingSessionId)
+      throw new RsiError('external_training_protocol_required', 409);
     let protocol: RsiProtocol | undefined;
     if (
       candidateRecord?.protocolId !== undefined ||
@@ -869,6 +946,8 @@ export class RsiEngine {
       const candidate = adapterFor(state, digest);
       const evaluation = state.evaluations.find((item) => item.id === input.evaluationId);
       const candidateRecord = state.candidates.find((item) => item.adapter.digest === digest);
+      if (candidateRecord?.trainingSessionId)
+        throw new RsiError('external_training_protocol_required', 409);
       if (
         candidateRecord?.protocolId !== undefined ||
         candidateRecord?.protocolDigest !== undefined ||
@@ -991,12 +1070,50 @@ export class RsiEngine {
   }
   captureAdapter(
     scope: RsiScope,
-    expected?: { model?: string; providerIdentityDigest?: string }
+    expected?: { model?: string; providerIdentityDigest?: string; taskScope?: RsiTaskScope }
   ): RsiSelectedAdapter | null {
     try {
       this.requireEnabled(scope);
-      const state = this.store.read(scope),
-        adapter = adapterFor(state);
+      const state = this.store.read(scope);
+      let policy = state.policy;
+      if (expected?.taskScope) {
+        try {
+          policy = trainingPolicyFor(state, expected.taskScope);
+        } catch {
+          return freezeSnapshot({
+            adapter: RSI_BASELINE,
+            receipt: receipt(RSI_BASELINE, 0),
+            reason: 'adapter_scope_mismatch' as const,
+          });
+        }
+      }
+      const adapter = adapterFor(state, policy.activeDigest);
+      const candidate = state.candidates.find((item) => item.adapter.digest === adapter.digest);
+      if (
+        adapter.digest !== RSI_BASELINE.digest &&
+        (candidate?.trainingSessionId || expected?.taskScope)
+      ) {
+        let matches = false;
+        try {
+          matches = Boolean(
+            candidate?.trainingSessionId &&
+            this.training.canCapture(scope, candidate.trainingSessionId, adapter.digest) &&
+            candidate.taskScope &&
+            expected?.taskScope &&
+            rsiTaskScopeDigest(candidate.taskScope) === rsiTaskScopeDigest(expected.taskScope)
+          );
+        } catch {
+          /* Unknown scope selects baseline. */
+        }
+        if (!matches || !expected?.model || !expected.providerIdentityDigest)
+          return freezeSnapshot(
+            structuredClone({
+              adapter: RSI_BASELINE,
+              receipt: receipt(RSI_BASELINE, policy.version),
+              reason: 'adapter_scope_mismatch' as const,
+            })
+          );
+      }
       if (adapter.digest !== RSI_BASELINE.digest && expected) {
         const validation = state.candidates.find(
           (item) => item.adapter.digest === adapter.digest
@@ -1009,7 +1126,7 @@ export class RsiEngine {
           return freezeSnapshot(
             structuredClone({
               adapter: RSI_BASELINE,
-              receipt: receipt(RSI_BASELINE, state.policy.version),
+              receipt: receipt(RSI_BASELINE, policy.version),
               reason: 'adapter_model_mismatch' as const,
             })
           );
@@ -1017,7 +1134,12 @@ export class RsiEngine {
       return freezeSnapshot(
         structuredClone({
           adapter,
-          receipt: receipt(adapter, state.policy.version),
+          receipt: {
+            ...receipt(adapter, policy.version),
+            ...(candidate?.taskScope
+              ? { taskScopeDigest: rsiTaskScopeDigest(candidate.taskScope) }
+              : {}),
+          },
           ...(adapter.instructions
             ? {
                 harnessAdapter: {

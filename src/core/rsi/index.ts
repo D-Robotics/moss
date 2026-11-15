@@ -26,3 +26,19 @@ export {
 export { createRsiTaskEvaluator } from './task-evaluator.js';
 export type { RsiTaskRunner, RsiTaskRunResult, RsiTaskInput } from './task-evaluator.js';
 export type * from './types.js';
+export { rsiTaskScopeDigest } from './external-training.js';
+export { HERMIT_WORKER_PIN, probeHermitWorker, runHermitWorker } from './hermit-worker.js';
+export type {
+  HermitWorkerRuntime,
+  HermitWorkerCapability,
+  HermitWorkerResult,
+  HermitWorkerRun,
+} from './hermit-worker.js';
+export { RsiDailyStore, RSI_DAILY_ALL_PROJECTS } from './daily-store.js';
+export type {
+  RsiDailyState,
+  RsiDailyExperience,
+  RsiDailyView,
+  RsiDailyCollectionStatus,
+  RsiDailyMetadataExport,
+} from './daily-store.js';

@@ -16,6 +16,7 @@ export interface RsiAdapterReceipt {
   digest: string;
   applicationMode: 'host-prompt-layer' | 'native-sdk' | 'baseline';
   policyVersion: number;
+  taskScopeDigest?: string;
 }
 export interface RsiRunEvent {
   seq: number;
@@ -119,7 +120,149 @@ export interface RsiCandidate {
   protocolDigest?: string;
   /** Minimal authorization retained independently of evaluation/case telemetry retention. */
   validation?: RsiValidationIdentity;
+  trainingSessionId?: string;
+  taskScope?: RsiTaskScope;
 }
+
+/** Trusted host admission, never inferred from the assistant's claim of relevance. */
+export interface RsiTaskScope {
+  projectId: string;
+  repositoryRevision: string;
+  taskFamily: string;
+  taskFamilyVersion: string;
+  capabilitiesDigest: string;
+}
+export interface RsiHermitIdentity {
+  version: string;
+  commit: string;
+  method: 'prompt-only' | 'gepa';
+  configDigest: string;
+  templateDigest: string;
+}
+export interface RsiTrainingCase {
+  id: string;
+  groupDigest: string;
+  fixtureDigest: string;
+}
+export interface RsiTrainingStageBudget {
+  maxModelCalls: number;
+  maxTokens: number;
+  maxWallMs: number;
+}
+export interface RsiTrainingBudget {
+  totalTokens: number;
+  training: RsiTrainingStageBudget;
+  confirmation: RsiTrainingStageBudget;
+  adoptionRollback: RsiTrainingStageBudget;
+  maxTaskModelCalls: number;
+  maxTaskToolCalls: number;
+  maxTaskWallMs: number;
+  maxOutputTokens: number;
+}
+export interface RsiTrainingUsage {
+  modelCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** A subset of inputTokens, not an additional token charge. */
+  cacheReadTokens?: number;
+}
+export type RsiTrainingStage = 'training' | 'confirmation' | 'adoptionRollback';
+export interface RsiTrainingReservation {
+  id: string;
+  sessionId: string;
+  stage: RsiTrainingStage;
+  createdAt: number;
+  maxInputTokens: number;
+  maxOutputTokens: number;
+  status: 'reserved' | 'settled' | 'unknown';
+  usage?: Omit<RsiTrainingUsage, 'modelCalls'>;
+}
+export interface RsiTrainingPlan {
+  taskScope: RsiTaskScope;
+  cases: Record<'training' | 'validation' | 'holdout' | 'regression', RsiTrainingCase[]>;
+  budget: RsiTrainingBudget;
+  seed: number;
+}
+export interface RsiTrainingProvenance {
+  runId: string;
+  adapterCommit: string;
+  instructionsDigest: string;
+  steps: Array<{ step: number; adapterCommit: string; instructionsDigest: string }>;
+  trainingUsage: RsiTrainingUsage;
+}
+export interface RsiTrainingSession extends RsiTrainingPlan {
+  schemaVersion: 1;
+  id: string;
+  digest: string;
+  createdAt: number;
+  baselineDigest: string;
+  policyVersion: number;
+  hermit: RsiHermitIdentity;
+  scopeDigest: string;
+  /** Active policy and effective scoped baseline may differ. */
+  policyActiveDigest: string;
+  validationIdentity: { model: string; evaluatorVersion: string; providerIdentityDigest: string };
+  runtimeConfig: RsiProtocolRuntimeConfig;
+  status: 'frozen' | 'candidate-admitted' | 'confirming' | 'confirmed' | 'cancelled';
+  candidateDigest?: string;
+  provenance?: RsiTrainingProvenance;
+  confirmationId?: string;
+}
+export interface RsiFunctionalAttempt {
+  runId: string;
+  adapterDigest: string;
+  taskScopeDigest: string;
+  evidenceDigest: string;
+  status: 'completed' | 'failed' | 'unavailable';
+  functionalPassed: boolean;
+  formatPassed?: boolean;
+  durationMs: number;
+  usage: RsiTrainingUsage;
+  toolCalls: number;
+}
+export interface RsiFunctionalResult {
+  caseId: string;
+  split: 'holdout' | 'regression';
+  repetition: 0 | 1;
+  baseline: RsiFunctionalAttempt;
+  candidate: RsiFunctionalAttempt;
+}
+export interface RsiTrainingConfirmation {
+  schemaVersion: 1;
+  id: string;
+  sessionId: string;
+  sessionDigest: string;
+  candidateDigest: string;
+  baselineDigest: string;
+  createdAt: number;
+  completedAt?: number;
+  status: 'running' | 'passed' | 'failed' | 'unavailable';
+  results: RsiFunctionalResult[];
+  usage?: RsiTrainingUsage;
+  errorCode?: string;
+}
+/** Callbacks are configured by the trusted host, not deserialized from a client request. */
+export interface RsiExternalTrainingProvider {
+  hermit: RsiHermitIdentity;
+  model: string;
+  evaluatorVersion: string;
+  providerIdentityDigest: string;
+  runtimeConfig: RsiProtocolRuntimeConfig;
+  verifyCandidate(input: {
+    session: RsiTrainingSession;
+    adapter: RsiAdapter;
+    provenance: RsiTrainingProvenance;
+  }): Promise<boolean>;
+  confirm(input: {
+    session: RsiTrainingSession;
+    baseline: RsiAdapter;
+    candidate: RsiAdapter;
+  }): Promise<{ results: RsiFunctionalResult[]; usage: RsiTrainingUsage }>;
+}
+export type RsiExternalTrainingProviderFactory = (
+  scope: RsiScope,
+  taskScope: RsiTaskScope
+) => RsiExternalTrainingProvider | null;
 export interface RsiLearningBudget {
   maxModelCalls: number;
   maxOutputTokens: number;
@@ -165,6 +308,7 @@ export interface RsiPolicyTransition {
   toDigest: string;
   policyVersion: number;
   evaluationId?: string;
+  taskScopeDigest?: string;
 }
 export interface RsiEngineStatus {
   learningAvailable: boolean;
