@@ -282,6 +282,7 @@ export async function runHermitWorker(input: HermitWorkerRun): Promise<HermitWor
     url.password ||
     url.hash ||
     url.search ||
+    url.pathname !== '/' ||
     !input.bridgeToken ||
     /[\r\n\0]/.test(input.bridgeToken)
   )

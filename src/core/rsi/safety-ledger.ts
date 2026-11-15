@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { assetPath, byteDigest } from './asset-io.js';
+import { assetPath } from './asset-io.js';
 import { RsiError, RSI_BASELINE, type RsiState } from './store.js';
 import { defaultRsiAssets } from './asset-types.js';
 import type { RsiScope } from './types.js';
@@ -215,30 +215,5 @@ export function writeSafetyLedger(directory: string, state: RsiState): void {
     fs.renameSync(temporary, file);
   } finally {
     fs.rmSync(temporary, { force: true });
-  }
-}
-/** Authenticated snapshots can repair corrupted immutable files; unrelated bytes remain untouched. */
-export function repairSnapshotDocuments(directory: string, state: RsiState): void {
-  for (const key of [
-    'runs',
-    'cases',
-    'candidates',
-    'evaluations',
-    'trainingSessions',
-    'trainingConfirmations',
-  ] as const) {
-    for (const record of state[key] ?? []) {
-      const bytes = Buffer.from(JSON.stringify(record));
-      const file = assetPath(directory, 'documents', key, `${byteDigest(bytes)}.json`);
-      if (!fs.existsSync(file)) continue;
-      if (fs.readFileSync(file).equals(bytes)) continue;
-      const temporary = `${file}.${randomUUID()}.tmp`;
-      try {
-        fs.writeFileSync(temporary, bytes, { mode: 0o600, flag: 'wx' });
-        fs.renameSync(temporary, file);
-      } finally {
-        fs.rmSync(temporary, { force: true });
-      }
-    }
   }
 }

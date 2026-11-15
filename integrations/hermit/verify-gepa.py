@@ -65,7 +65,7 @@ try:
             "agent": {"name": worker + ":run_task", "concurrency": 1}, "judge": {"path": worker, "name": "score_task"},
             "template": "prompt-only@1.0", "evolver": {"name": "gepa", "params": {"files": ["ADAPTER.md"], "max_tokens": 100}},
             "sandbox": {"enabled": False, "env": ["MOSS_HERMIT_JOB_BRIDGE", "MOSS_HERMIT_JOB_TOKEN"]},
-            "llm": {"base_url": bridge_url + "/v1", "model": "scripted-contract", "api_key_env": "MOSS_HERMIT_JOB_TOKEN"},
+            "llm": {"base_url": "moss-job-bridge://v1", "model": "scripted-contract", "api_key_env": "MOSS_HERMIT_JOB_TOKEN"},
             "trainer": {"run_name": "gepa-interface", "output_dir": str(root / "output"), "epochs": 2, "budget": {"tokens": 1000, "hours": 0.01}}}
         config_path = input_dir / "run.yaml"
         config_path.write_text(yaml.safe_dump(config))
@@ -73,7 +73,14 @@ try:
         os.environ["MOSS_HERMIT_JOB_TOKEN"] = "offline-contract-only"
         os.environ["HOME"] = str(root / "home")
         os.environ["HA_BACKENDS"] = str(input_dir / "absent-user-backends.yaml")
-        result = train(args.source_root, root, digest(config_path.read_bytes()), 1000)
+        frozen_bytes = config_path.read_bytes()
+        try:
+            train(args.source_root, root, "0" * 64, 1000)
+            raise AssertionError("mismatched frozen digest was accepted")
+        except ValueError as error:
+            assert str(error) == "config_digest_mismatch"
+        result = train(args.source_root, root, digest(frozen_bytes), 1000)
+        assert config_path.read_bytes() == frozen_bytes
         assert len(result["steps"]) == 2 and len(model_requests) >= 1
         assert "offline-contract marker" in result["instructions"]
         print(json.dumps({"purpose": "official GEPA/Trainer scripted HTTP interface ONLY; NOT efficacy", "modelHttpRequests": len(model_requests), "actingRuns": len(runs), **result}))

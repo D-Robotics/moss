@@ -3,6 +3,8 @@ import type { RsiTaskScope } from './types.js';
 export type RsiAssetKind = 'experience' | 'case' | 'adapter' | 'evaluation' | 'manifest';
 export interface RsiAssetRecord {
   id: string;
+  /** Exact payload digest; legacy records used id before scope-qualified identities. */
+  contentDigest?: string;
   kind: RsiAssetKind;
   taskScopeDigest: string;
   taskScope: RsiTaskScope;

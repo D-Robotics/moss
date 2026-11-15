@@ -115,17 +115,23 @@ export function hydrateDocuments(
   }
 }
 /** Plan first: quota rejection happens before immutable writes; interrupted writes leave only orphans. */
-export function documentPlan(directory: string, state: RsiState) {
+export function documentPlan(directory: string, state: RsiState, authenticatedRecovery = false) {
   const documents: RsiDocumentIndex = {};
-  const pending: Array<{ file: string; bytes: Buffer }> = [];
+  const pending: Array<{ file: string; bytes: Buffer; repair?: boolean }> = [];
   const serialized: Record<string, unknown> = { ...state, schemaVersion: 3 };
   for (const key of recordCollections) {
     documents[key] = (state[key] ?? []).map((value) => {
       const bytes = Buffer.from(JSON.stringify(value));
       const hash = byteDigest(bytes);
       const file = assetPath(directory, 'documents', key, `${hash}.json`);
-      if (fs.existsSync(file)) verifiedBytes(file, hash);
-      else pending.push({ file, bytes });
+      if (fs.existsSync(file)) {
+        try {
+          verifiedBytes(file, hash);
+        } catch (error) {
+          if (!authenticatedRecovery) throw error;
+          pending.push({ file, bytes, repair: true });
+        }
+      } else pending.push({ file, bytes });
       return hash;
     });
     delete serialized[key];

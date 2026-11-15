@@ -20,6 +20,7 @@ VERSION = "0.2.0"
 TEMPLATE = "prompt-only@1.0"
 MAX_BYTES = 8192
 GEPA_COMMIT = "d771eb21b5dd3228bc3f567293d2ccfc423fc900"
+MODEL_PROXY_SENTINEL = "moss-job-bridge://v1"
 
 
 def digest(data):
@@ -111,13 +112,24 @@ def adapter_text(adapter):
     return data.decode("utf-8")
 
 
-def bridge(route, payload):
+def job_bridge():
     from urllib.parse import urlsplit
     base = os.environ["MOSS_HERMIT_JOB_BRIDGE"]
     parsed = urlsplit(base)
-    if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "::1") or parsed.username or parsed.password or parsed.query or parsed.fragment:
+    if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "::1") or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/"):
         raise ValueError("bridge_invalid")
-    request = urllib.request.Request(base.rstrip("/") + route,
+    return base.rstrip("/")
+
+
+def bind_model_proxy(llm):
+    # Only the validated in-memory Config field is late-bound. Frozen bytes stay unchanged.
+    if not isinstance(llm, dict) or llm.get("cli") or llm.get("api_key_env") != "MOSS_HERMIT_JOB_TOKEN" or llm.get("base_url") != MODEL_PROXY_SENTINEL:
+        raise ValueError("metered_job_model_proxy_required")
+    llm["base_url"] = job_bridge() + "/v1"
+
+
+def bridge(route, payload):
+    request = urllib.request.Request(job_bridge() + route,
         data=json.dumps(payload).encode(), headers={"Content-Type": "application/json",
         "Authorization": "Bearer " + os.environ["MOSS_HERMIT_JOB_TOKEN"]}, method="POST")
     # No proxy environment or redirects; job capability must stay at the loopback host.
@@ -200,9 +212,7 @@ def train(source, job, expected, training_token_limit):
         if not output.resolve().is_relative_to(job / "output") or output.exists():
             raise ValueError("fresh_owned_output_required")
     # Reflection model must go through the job host's per-HTTP token reservation proxy.
-    llm = d["llm"]
-    if not isinstance(llm, dict) or llm.get("cli") or llm.get("api_key_env") != "MOSS_HERMIT_JOB_TOKEN" or llm.get("base_url") != os.environ["MOSS_HERMIT_JOB_BRIDGE"] + "/v1":
-        raise ValueError("metered_job_model_proxy_required")
+    bind_model_proxy(d["llm"])
     (job / "home").mkdir(exist_ok=True)
     with contextlib.redirect_stdout(sys.stderr):
         trainer = Trainer(config, python=sys.executable, log=lambda _message: None)

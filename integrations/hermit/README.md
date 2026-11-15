@@ -54,7 +54,8 @@ worker's `run_task` and `score_task`; both delegate to the host:
 - `POST /score`: `{taskId,runId,adapterDigest}` → `{score,feedback?,extra?}`.
   The host checks the receipt and returns the frozen functional Judge result.
 - `POST /v1/chat/completions`: the official GEPA reflection model's API. The
-  configured `llm.base_url` must equal `bridgeUrl + '/v1'` and its `api_key_env`
+  frozen `llm.base_url` must equal `moss-job-bridge://v1` (runtime-bound to
+  `bridgeUrl + '/v1'`) and its `api_key_env`
   must be `MOSS_HERMIT_JOB_TOKEN`. This proxy **must reserve and settle each actual
   HTTP request and retry** against the SDK budget. Unknown usage blocks further
   calls. Hermit's own budget is an additional guard, not the authoritative ledger.
@@ -225,6 +226,9 @@ ID and `requiredStopSessions`. Stop those workers, acknowledge their leases, the
 physical cleanup. Source blobs, related workspaces, superseded document versions and
 local migration backups are cleared; minimal content-free revocations remain. The
 host still owns deletion of its external conversation store or external caches.
+`status().pendingDeletions` retains scoped IDs, scope, asset IDs and required stop
+sessions while cleanup is waiting. The trusted host can retry `completeDeletion`
+using that persisted ID; hiding tombstoned assets does not hide pending work.
 
 `prune(scope)` derives protection from persisted policies, live runs and session/lease
 references. Active, previous and in-flight versions and their required dependencies
@@ -254,3 +258,12 @@ The optional Python source is copied from this canonical directory into
 `dist/integrations/hermit/` during build; npm packages keep it under the existing
 `dist` closure and do not bundle Python dependencies. Run
 `node scripts/verify/rsi-assets.mjs` after building for the offline lifecycle probe.
+
+Frozen worker YAML must use the exact `llm.base_url: moss-job-bridge://v1` sentinel.
+The worker verifies the digest of the original file, rejects literal URLs or other
+sentinels, then substitutes only the in-memory `llm.base_url` with the validated
+private loopback job bridge plus `/v1`. It never rewrites the frozen config file or
+changes model/auth fields. This keeps the preregistered config independent of an
+ephemeral listening port while retaining per-request host metering. Run
+`python integrations/hermit/verify-config.py` for mismatch/non-loopback refusal checks;
+the official GEPA fixture also verifies unchanged config bytes through two steps.

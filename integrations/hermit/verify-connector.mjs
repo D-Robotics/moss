@@ -59,6 +59,10 @@ try {
     /hermit_bridge_invalid/
   );
   await assert.rejects(
+    runHermitWorker({ ...base, bridgeUrl: 'http://127.0.0.1:12345/untrusted-prefix' }),
+    /hermit_bridge_invalid/
+  );
+  await assert.rejects(
     runHermitWorker({ ...base, configSha256: '0'.repeat(64) }),
     /hermit_config_digest_mismatch/
   );

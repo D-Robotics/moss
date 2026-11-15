@@ -83,6 +83,13 @@ try {
     /asset_not_found/
   );
   assert.throws(() => service.read(scope, otherTask, experience.id), /asset_not_found/);
+  const otherExperience = service.put(scope, otherTask, {
+    kind: 'experience',
+    content: 'owner-scoped evidence',
+    expectedRevision: current(),
+  });
+  assert.notEqual(otherExperience.id, experience.id);
+  assert.equal(otherExperience.contentDigest, experience.contentDigest);
   assert.throws(
     () =>
       service.put(scope, taskScope, {
@@ -134,7 +141,9 @@ try {
       createdAt: Date.now(),
       cases: { training: [{ id: 'case-one' }], validation: [], holdout: [], regression: [] },
     });
-    for (const record of state.assets.records) record.createdAt = Date.now() - 200 * 86_400_000;
+    for (const record of state.assets.records)
+      if (record.taskScopeDigest === rsiTaskScopeDigest(taskScope))
+        record.createdAt = Date.now() - 200 * 86_400_000;
   });
   service.prune(scope);
   assert.equal(
@@ -182,6 +191,8 @@ try {
     expectedRevision: current(),
   });
   assert.deepEqual(new Set(deletion.assetIds), new Set([experience.id, adapterAsset.id]));
+  assert.equal(service.status(scope, taskScope).pendingDeletions[0].id, deletion.id);
+  assert.deepEqual(service.status(scope, otherTask).pendingDeletions, []);
   assert.equal(
     store.read(scope).trainingPolicies[rsiTaskScopeDigest(taskScope)].activeDigest,
     RSI_BASELINE.digest
@@ -197,6 +208,12 @@ try {
   );
   service.finishWorkspace(scope, taskScope, second.id, 'cancelled');
   service.completeDeletion(scope, taskScope, deletion.id);
+  assert.deepEqual(service.status(scope, taskScope).pendingDeletions, []);
+  assert.equal(
+    service.read(scope, otherTask, otherExperience.id),
+    'owner-scoped evidence',
+    'deleting identical bytes in one project does not affect another'
+  );
   assert.equal(fs.existsSync(blob), false);
   assert.equal(
     fs.existsSync(candidateFile),
@@ -330,7 +347,8 @@ try {
   service.restore(scope, backup, { expectedRevision: service.recoveryStatus(scope).revision });
   const restored = new RsiAssetStore(root).status(scope);
   assert.equal(restored.schemaVersion, 3);
-  assert.equal(restored.records.length, 0);
+  assert.equal(restored.records.length, 1);
+  assert.equal(restored.records[0].id, otherExperience.id);
   assert.equal(new RsiEngine({ rootDir: root }).store.read(scope).holdoutConsumptions.length, 2);
   const repairScope = { ...scope, ownerKey: 'repair-owner' };
   const repairAsset = service.put(repairScope, taskScope, {
@@ -356,6 +374,40 @@ try {
     service.read(repairScope, taskScope, repairAsset.id),
     'authenticated recovery bytes'
   );
+  store.update(repairScope, (state) => {
+    state.runs.push({ runId: 'repair-document', outcome: 'completed' });
+  });
+  const documentBackup = service.backup(repairScope);
+  service.configure(repairScope, {
+    expectedRevision: service.status(repairScope).revision,
+    quotaBytes: 1,
+  });
+  const lowQuotaBackup = service.backup(repairScope);
+  const repairDirectory = service.status(repairScope).storageDirectory;
+  const repairIndex = JSON.parse(fs.readFileSync(path.join(repairDirectory, 'state.json')));
+  const documentFile = path.join(
+    repairDirectory,
+    'documents',
+    'runs',
+    `${repairIndex.documents.runs[0]}.json`
+  );
+  fs.writeFileSync(documentFile, 'corrupted document');
+  assert.throws(
+    () =>
+      service.restore(repairScope, lowQuotaBackup, {
+        expectedRevision: service.recoveryStatus(repairScope).revision,
+      }),
+    /asset_quota_exceeded/
+  );
+  assert.equal(
+    fs.readFileSync(documentFile, 'utf8'),
+    'corrupted document',
+    'quota refusal precedes authenticated document repair'
+  );
+  service.restore(repairScope, documentBackup, {
+    expectedRevision: service.recoveryStatus(repairScope).revision,
+  });
+  assert.equal(store.read(repairScope).runs[0].runId, 'repair-document');
   console.log(
     'rsi-assets: migration, integrity, owner/scope isolation, cross-process CAS, lease quotas, protected retention, ordered deletion, authenticated backup, monotonic crash recovery and corrupt-ledger refusal passed'
   );

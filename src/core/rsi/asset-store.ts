@@ -110,6 +110,14 @@ export interface RsiAssetStatus {
   failedWorkspaceRetentionDays: number;
   records: RsiAssetRecord[];
   leases: RsiWorkspaceLease[];
+  pendingDeletions: Array<{
+    id: string;
+    taskScopeDigest: string;
+    taskScope?: RsiTaskScope;
+    assetIds: string[];
+    requiredStopSessions: string[];
+    createdAt: number;
+  }>;
 }
 export interface RsiAssetBackup {
   schemaVersion: 1;
@@ -154,6 +162,16 @@ export class RsiAssetStore {
         (item) => !item.deletedAt && (!digest || item.taskScopeDigest === digest)
       ),
       leases: value.leases.filter((item) => !digest || item.taskScopeDigest === digest),
+      pendingDeletions: value.deletions
+        .filter((item) => !item.completedAt && (!digest || item.taskScopeDigest === digest))
+        .map((item) => ({
+          id: item.id,
+          taskScopeDigest: item.taskScopeDigest,
+          taskScope: value.records.find((record) => item.assetIds.includes(record.id))?.taskScope,
+          assetIds: item.assetIds,
+          requiredStopSessions: item.sessionIds,
+          createdAt: item.at,
+        })),
     });
   }
   migrate(scope: RsiScope): RsiAssetStatus {
@@ -218,15 +236,25 @@ export class RsiAssetStore {
       )
     )
       throw new RsiError('asset_contains_credentials');
-    const id = byteDigest(bytes);
+    const contentDigest = byteDigest(bytes);
+    const id = rsiDigest(JSON.stringify([taskScopeDigest, contentDigest]));
     return this.store.update(scope, (state) => {
       cas(state, input.expectedRevision);
       const value = assets(state);
-      if (value.deletedIds.includes(id)) throw new RsiError('asset_deleted', 409);
-      const existing = value.records.find((item) => item.id === id);
+      if (value.deletedIds.includes(id) || value.deletedIds.includes(contentDigest))
+        throw new RsiError('asset_deleted', 409);
+      const existing = value.records.find(
+        (item) =>
+          item.id === id ||
+          (item.taskScopeDigest === taskScopeDigest &&
+            (item.contentDigest ?? item.id) === contentDigest)
+      );
       if (existing) {
-        recordFor(state, taskScope, id);
-        verifiedBytes(assetPath(assetDirectory(this.rootDir, scope), 'assets', `${id}.bin`), id);
+        recordFor(state, taskScope, existing.id);
+        verifiedBytes(
+          assetPath(assetDirectory(this.rootDir, scope), 'assets', `${existing.id}.bin`),
+          existing.contentDigest ?? existing.id
+        );
         return existing;
       }
       if (value.records.length >= 10000) throw new RsiError('asset_index_limit', 409);
@@ -249,6 +277,7 @@ export class RsiAssetStore {
         throw new RsiError('asset_quota_exceeded', 409);
       const record: RsiAssetRecord = {
         id,
+        contentDigest,
         kind: input.kind,
         taskScopeDigest,
         taskScope: structuredClone(taskScope),
@@ -265,10 +294,10 @@ export class RsiAssetStore {
     });
   }
   read(scope: RsiScope, taskScope: RsiTaskScope, id: string): string {
-    recordFor(this.store.read(scope), taskScope, id);
+    const record = recordFor(this.store.read(scope), taskScope, id);
     return verifiedBytes(
       assetPath(assetDirectory(this.rootDir, scope), 'assets', `${id}.bin`),
-      id
+      record.contentDigest ?? id
     ).toString('utf8');
   }
   list(scope: RsiScope, taskScope: RsiTaskScope): RsiAssetRecord[] {
@@ -686,7 +715,7 @@ export class RsiAssetStore {
         if (!record.deletedAt)
           payloads[record.id] = verifiedBytes(
             assetPath(assetDirectory(this.rootDir, scope), 'assets', `${record.id}.bin`),
-            record.id
+            record.contentDigest ?? record.id
           ).toString('base64');
       const body = {
         schemaVersion: 1 as const,
@@ -831,7 +860,10 @@ export class RsiAssetStore {
       for (const record of value.records)
         if (!record.deletedAt) {
           const bytes = Buffer.from(body.payloads[record.id] ?? '', 'base64');
-          if (byteDigest(bytes) !== record.id || bytes.length !== record.bytes)
+          if (
+            byteDigest(bytes) !== (record.contentDigest ?? record.id) ||
+            bytes.length !== record.bytes
+          )
             throw new RsiError('backup_asset_invalid', 409);
           const file = assetPath(directory, 'assets', `${record.id}.bin`);
           if (!fs.existsSync(file)) pending += bytes.length;

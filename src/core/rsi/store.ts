@@ -11,14 +11,10 @@ import {
   documentPlan,
   hydrateDocuments,
   immutableBytes,
+  restoreAuthenticatedBytes,
 } from './asset-io.js';
 import { defaultRsiAssets, type RsiAssetState } from './asset-types.js';
-import {
-  applySafetyLedger,
-  readSafetyLedger,
-  repairSnapshotDocuments,
-  writeSafetyLedger,
-} from './safety-ledger.js';
+import { applySafetyLedger, readSafetyLedger, writeSafetyLedger } from './safety-ledger.js';
 import type {
   RsiAdapter,
   RsiCandidate,
@@ -373,8 +369,7 @@ export class RsiStore {
       )
         throw new RsiError('adapter_revoked', 409);
       const directory = path.dirname(file);
-      if (recovering) repairSnapshotDocuments(directory, state);
-      const plan = documentPlan(directory, state);
+      const plan = documentPlan(directory, state, recovering);
       const indexBytes = Buffer.from(`${JSON.stringify(plan.serialized)}\n`);
       const backup = oldBytes
         ? assetPath(directory, 'backups', `legacy-v2-${rsiDigest(oldBytes.toString('utf8'))}.json`)
@@ -398,7 +393,10 @@ export class RsiStore {
       )
         throw new RsiError('asset_quota_exceeded', 409);
       if (backup && oldBytes) immutableBytes(backup, oldBytes);
-      for (const item of plan.pending) immutableBytes(item.file, item.bytes);
+      for (const item of plan.pending) {
+        if (item.repair) restoreAuthenticatedBytes(item.file, item.bytes);
+        else immutableBytes(item.file, item.bytes);
+      }
       // Safety claims become durable before the policy/index can advertise their result.
       writeSafetyLedger(directory, state);
       fs.writeFileSync(temporary, indexBytes, { mode: 0o600 });
