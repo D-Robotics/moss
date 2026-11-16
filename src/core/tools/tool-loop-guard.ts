@@ -2,6 +2,7 @@ import { stableSerializeToolInput } from './tool-idempotent-replay.js';
 import {
   isDiscoveryTool,
   isFileMutationTool,
+  isFileReadTool,
   isShellCommandTool,
   isSingleCallExemptTool,
   isSurgicalEditTool,
@@ -12,6 +13,7 @@ import { readEnv } from '../../utils/env-compat.js';
 import { windowsMissingCommand } from '../../utils/windows-missing-command.js';
 import path from 'node:path';
 import { canonicalPath, findProtectedWrite } from '../../safety/shell-write-detect.js';
+import { FILE_UNCHANGED_TRUNCATED_STUB } from '../../contracts/file-read-observation.js';
 
 const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
 // No matter how often an observation changes, bounded probes cannot extend a
@@ -136,6 +138,9 @@ export function collectSurgicalEditPathKeys(input?: Record<string, unknown>): st
   if (typeof input.path === 'string' && input.path.trim()) {
     add(input.path);
   }
+  if (typeof input.file_path === 'string' && input.file_path.trim()) {
+    add(input.file_path);
+  }
 
   // multi_edit: every edits[].path
   if (Array.isArray(input.edits)) {
@@ -170,6 +175,7 @@ export function rawMutationPaths(toolName: string, input?: Record<string, unknow
   if (!input) return [];
   const out: string[] = [];
   if (typeof input.path === 'string' && input.path.trim()) out.push(input.path);
+  if (typeof input.file_path === 'string' && input.file_path.trim()) out.push(input.file_path);
   if (Array.isArray(input.edits)) {
     for (const e of input.edits) {
       const p = (e as { path?: unknown } | null)?.path;
@@ -195,14 +201,30 @@ function trackReadScopeLocks(
   toolName: string,
   isError: boolean,
   resultText: string | undefined,
-  input: Record<string, unknown> | undefined
+  input: Record<string, unknown> | undefined,
+  outputTruncated: boolean
 ): void {
   const locks = state.readScopeLockedPaths;
   if (!locks) return;
-  if (toolName === 'read_file') {
-    const full = input && input.offset === undefined && input.limit === undefined;
-    if (full && !isError && typeof input?.path === 'string') {
-      locks.delete(lockKey(state, input.path));
+  if (toolName === 'read_file' || isFileReadTool(toolName)) {
+    const full =
+      input && input.offset === undefined && input.limit === undefined && input.format !== 'csv';
+    const readPath = input?.path ?? input?.file_path;
+    const complete =
+      typeof resultText === 'string' &&
+      resultText !== FILE_UNCHANGED_TRUNCATED_STUB &&
+      !/(?:^|\n)\[\.\.\.(?: truncated\b|输出已)/.test(resultText) &&
+      !outputTruncated;
+    if (full && !isError && complete && typeof readPath === 'string') {
+      const readKey = lockKey(state, readPath);
+      locks.delete(readKey);
+      // A new full observation is the recovery promised by the edit guard.
+      // Resolve aliases so reading an absolute path also recovers relative edits.
+      for (const key of state.byEditPathFailure.keys()) {
+        if (lockKey(state, state.editPathRaw?.get(key) ?? key) !== readKey) continue;
+        state.byEditPathFailure.delete(key);
+        state.editPathRaw?.delete(key);
+      }
     }
     return;
   }
@@ -484,7 +506,8 @@ export function recordToolLoopOutcome(
   isError: boolean,
   resultText?: string,
   input?: Record<string, unknown>,
-  platform: NodeJS.Platform | string = process.platform
+  platform: NodeJS.Platform | string = process.platform,
+  options: { outputTruncated?: boolean } = {}
 ): void {
   if (
     toolName === 'web_search' &&
@@ -495,7 +518,14 @@ export function recordToolLoopOutcome(
   ) {
     state.hasSufficientRssNewsEvidence = true;
   }
-  trackReadScopeLocks(state, toolName, isError, resultText, input);
+  trackReadScopeLocks(
+    state,
+    toolName,
+    isError,
+    resultText,
+    input,
+    options.outputTruncated === true
+  );
   if (!isError && !isSoftToolFailureResult(resultText)) {
     // O96: trust is_error only (set by execute-tool-call anchored
     // isStringToolFailureResult). Never text-scan successful output.
