@@ -1,3 +1,5 @@
+import type { RsiSharedAdapterSource } from './shared-types.js';
+
 /** Bounded RSI records contain metadata and explicitly enrolled instruction data only. */
 export type RsiEnvironment = 'production' | 'staging' | 'development' | 'test';
 export interface RsiScope {
@@ -17,6 +19,8 @@ export interface RsiAdapterReceipt {
   applicationMode: 'host-prompt-layer' | 'native-sdk' | 'baseline';
   policyVersion: number;
   taskScopeDigest?: string;
+  /** Present only when a trusted shared package was selected for this actual run. */
+  registry?: RsiSharedAdapterSource;
 }
 export interface RsiRunEvent {
   seq: number;

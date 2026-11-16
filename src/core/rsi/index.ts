@@ -44,6 +44,18 @@ export type {
 } from './daily-store.js';
 export { RsiAssetStore } from './asset-store.js';
 export { RsiReplayCaseStore } from './replay-store.js';
+export { RsiSharedAdapterStore } from './shared-store.js';
+export {
+  canonicalRsiSharedJson,
+  rsiSharedDigest,
+  createRsiSharedEnvelope,
+  verifyRsiSharedIndex,
+  verifyRsiSharedPackage,
+  validateRsiSharedIndex,
+  validateRsiSharedPackage,
+  rsiSharedIndexContentDigest,
+} from './shared-package.js';
+export type * from './shared-types.js';
 export type * from './replay-types.js';
 export type { RsiAssetStatus, RsiAssetBackup } from './asset-store.js';
 export type {

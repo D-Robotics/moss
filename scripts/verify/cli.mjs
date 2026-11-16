@@ -131,6 +131,7 @@ import { stage as workflowRunRecordStage } from './stages/workflow-run-record.mj
 import { stage as runResumeStage } from './stages/run-resume.mjs';
 import { stage as runModesStage } from './stages/run-modes.mjs';
 import { stage as superagentLedgerStage } from './stages/superagent-ledger.mjs';
+import { stage as rsiSharedStage } from './stages/rsi-shared.mjs';
 
 const STAGES = new Map(
   [
@@ -138,6 +139,7 @@ const STAGES = new Map(
     buildStage,
     smokeStage,
     examplesStage,
+    rsiSharedStage,
     hooksContractStage,
     verificationGateStage,
     reviewPipelineStage,

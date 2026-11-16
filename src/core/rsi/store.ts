@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { ErrorCode, MossError } from '../../errors.js';
+import { MossError } from '../../errors.js';
+import { RsiError } from './error.js';
+export { RsiError } from './error.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 import { hashHarnessAdapter } from '../agent/harness-adapter.js';
 import type { RsiDailyState } from './daily-store.js';
@@ -80,28 +82,6 @@ export const RSI_BASELINE: RsiAdapter = Object.freeze({
   ...baseline,
   digest: rsiAdapterDigest(baseline),
 });
-/** Stable domain identity plus the ordinary Moss error boundary. */
-export class RsiError extends MossError {
-  constructor(
-    readonly rsiCode: string,
-    readonly status = 400,
-    cause?: unknown
-  ) {
-    super({
-      code: ['rsi_model_call_failed', 'rsi_task_evaluation_failed'].includes(rsiCode)
-        ? ErrorCode.PROVIDER_UPSTREAM_ERROR
-        : status >= 500
-          ? ErrorCode.EXECUTION_STORE_FAILED
-          : ErrorCode.USER_INPUT_INVALID,
-      message: rsiCode,
-      cause,
-    });
-    this.name = 'RsiError';
-  }
-  override toJSON(): Record<string, unknown> {
-    return { ...super.toJSON(), rsiCode: this.rsiCode, status: this.status };
-  }
-}
 export interface RsiState {
   schemaVersion: 2 | 3;
   scope: RsiScope;
