@@ -74,7 +74,7 @@ export function replayJson(content: string, maximum = 262144): RsiReplayJson {
         if (['__proto__', 'prototype', 'constructor'].includes(key))
           replayFail('replay_json_invalid');
         if (
-          /^(password|passwd|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|credentials?|private[_-]?key|secret)$/i.test(
+          /^(password|passwd|api[_-]?key|access[_-]?token|refresh[_-]?token|token|auth|authentication|authorization|client[_-]?secret|session[_-]?(token|secret)|credentials?|private[_-]?key|secret([_-]?key)?)$/i.test(
             key
           ) &&
           child !== '' &&

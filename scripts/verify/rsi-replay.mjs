@@ -66,6 +66,25 @@ try {
   profile = configure();
   assert.throws(() => replay.beginCapture(scope, input(0)), /replay_index_consent_required/);
   daily.configure(scope, { projectId: 'project', enabled: true, expectedRevision: revision() });
+  for (const key of [
+    'token',
+    'auth',
+    'authentication',
+    'clientSecret',
+    'client_secret',
+    'secretKey',
+    'session_token',
+  ]) {
+    assert.throws(
+      () =>
+        replay.beginCapture(scope, {
+          ...input(0),
+          initialContent: JSON.stringify({ [key]: 'not-a-real-secret' }),
+        }),
+      /asset_contains_credentials/,
+      `credential-looking key ${key} must be rejected before asset persistence`
+    );
+  }
   assert.throws(
     () => replay.beginCapture(scope, { ...input(0), initialContent: '{"password":"secret"}' }),
     /asset_contains_credentials/
