@@ -284,6 +284,7 @@ export interface ToolMetadata {
   classification?: {
     singleCallExempt?: boolean;
     discovery?: boolean;
+    fileRead?: boolean;
     surgicalEdit?: boolean;
     verifyShell?: boolean;
     fileMutation?: boolean;

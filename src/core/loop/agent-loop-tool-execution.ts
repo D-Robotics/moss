@@ -363,7 +363,17 @@ function recordToolOutcome(
     ctx.metrics.consecutiveToolErrors = 0;
   }
 
-  recordToolLoopOutcome(ctx.toolLoopGuard, call.name, isError, result, call.input);
+  recordToolLoopOutcome(
+    ctx.toolLoopGuard,
+    call.name,
+    isError,
+    result,
+    call.input,
+    process.platform,
+    {
+      outputTruncated: truncatedResult !== result,
+    }
+  );
   recordFailingVerifyStreak(ctx.state, call.name, call.input, result, isError);
 
   const preview =

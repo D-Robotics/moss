@@ -21,6 +21,8 @@ export interface ToolClassification {
   singleCallExempt?: boolean;
   /** A discovery/observation probe: repeated failures should stop sooner. */
   discovery?: boolean;
+  /** Reads a workspace file, using path or file_path, with optional offset/limit. */
+  fileRead?: boolean;
   /** Surgical edit whose stale body thrashes per path (edit_file, apply_patch). */
   surgicalEdit?: boolean;
   /** Shell tool whose non-zero exit is a verification result, not a tool failure. */
@@ -115,6 +117,10 @@ export function isVerifyShellTool(name: string): boolean {
 
 export function isFileMutationTool(name: string): boolean {
   return toolClassification(name).fileMutation === true;
+}
+
+export function isFileReadTool(name: string): boolean {
+  return toolClassification(name).fileRead === true;
 }
 
 export function isShellCommandTool(name: string): boolean {
