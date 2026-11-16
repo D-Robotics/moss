@@ -11,7 +11,8 @@ export function resolveMossMaxAgentTurns(envValue?: string | undefined): number 
   return MOSS_DEFAULT_MAX_AGENT_TURNS;
 }
 
-export function resolveToolFollowupBypassCap(maxTurns: number): number {
+export function resolveToolFollowupBypassCap(maxTurns: number | null): number {
+  if (maxTurns === null) return 0; // No post-limit bypass is needed for unlimited turns.
   const scaled = maxTurns + Math.floor(maxTurns / 2) + 32;
   return Math.min(192, scaled);
 }

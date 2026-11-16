@@ -27,7 +27,7 @@ export interface PostLlmContext {
   maxOutputContinuations: number;
   missingToolNudgeAttempts: number;
   finalText: string;
-  maxTurns: number;
+  maxTurns: number | null;
   turns: number;
   shouldNudge: boolean;
   abortAborted: boolean;
@@ -107,7 +107,7 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     if (
       !isNudgeDisabled('reasoning-only') &&
       ctx.postToolThinkingOnlyRetryAttempts < THINKING_ONLY_RETRY_BUDGET &&
-      ctx.turns < ctx.maxTurns &&
+      (ctx.maxTurns === null || ctx.turns < ctx.maxTurns) &&
       !ctx.abortAborted
     ) {
       const reasoningOverride = thinkingOnlyReasoningOverride(
@@ -136,7 +136,7 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
   if (
     !isNudgeDisabled('missing-tool-call') &&
     ctx.missingToolNudgeAttempts < 1 &&
-    ctx.turns < ctx.maxTurns &&
+    (ctx.maxTurns === null || ctx.turns < ctx.maxTurns) &&
     ctx.shouldNudge
   ) {
     return {
@@ -155,7 +155,7 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     if (
       !isNudgeDisabled('empty-response') &&
       ctx.emptyResponseRetryAttempts < 1 &&
-      ctx.turns < ctx.maxTurns &&
+      (ctx.maxTurns === null || ctx.turns < ctx.maxTurns) &&
       !ctx.abortAborted
     ) {
       return { kind: 'empty_retry' };
