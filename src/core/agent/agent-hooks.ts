@@ -62,7 +62,7 @@ export interface AgentHooks {
 
   onError?(error: unknown, context: { attempt: number; sessionKey: string }): Promise<boolean>;
 
-  onTurnComplete?(opts: { turn: number; maxTurns: number; toolCallCount: number }): void;
+  onTurnComplete?(opts: { turn: number; maxTurns: number | null; toolCallCount: number }): void;
 
   enrichToolContext?(baseCtx: ToolContext, sessionKey: string): ToolContext;
 }

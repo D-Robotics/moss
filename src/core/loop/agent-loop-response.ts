@@ -74,7 +74,7 @@ export interface ProcessLlmResponseParams {
   /** O13: provider id of the active model, for per-provider thinking-only recovery. */
   provider?: string;
   modelId?: string;
-  maxTurns: number;
+  maxTurns: number | null;
   maxOutputContinuations: number;
   abortSignal: AbortSignal;
   isQuiet: boolean;

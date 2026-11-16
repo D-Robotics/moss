@@ -1275,12 +1275,13 @@ ${result.stderr ?? ''}`.trim();
     const store = this.config.sessionStore;
     const provider = this.config.llmProvider;
     const hooks = this.config.hooks;
+    const requestedTurns = options?.maxTurns ?? this.config.maxAgentTurns;
     const maxTurns =
-      options?.maxTurns !== undefined
-        ? resolveMossMaxAgentTurns(String(options.maxTurns))
-        : this.config.maxAgentTurns
-          ? resolveMossMaxAgentTurns(String(this.config.maxAgentTurns))
-          : resolveMossMaxAgentTurns();
+      requestedTurns === 'unlimited'
+        ? null
+        : resolveMossMaxAgentTurns(
+            requestedTurns === undefined ? undefined : String(requestedTurns)
+          );
     const contextTokens = this.config.contextTokens ?? 32_000; // conservative; real value probed at startup
     const modelId = this.config.model ?? 'moss-default-model';
     const explicitOutputTokens = options?.maxOutputTokens ?? this.config.maxTokens;
