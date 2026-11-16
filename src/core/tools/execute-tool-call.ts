@@ -751,20 +751,30 @@ async function executeOneToolCallInner(
         if (attempt === 0) emitStart();
         reachedExecute = true;
         const runInvocation = async (input: Record<string, unknown>, signal = attemptSignal) => {
+          const validation = validateToolInputObject(tool, input);
+          if (!validation.ok) {
+            throw new MossError({
+              code: ErrorCode.USER_INPUT_INVALID,
+              message: validation.message,
+            });
+          }
           const rpcDeadline = AbortSignal.timeout(deps.toolTimeoutMs);
           const rpcSignal = AbortSignal.any([signal, rpcDeadline]);
           const rpcCtx = { ...attemptCtx, abortSignal: rpcSignal };
           structuralError = false;
           try {
             if (tool.executeStructured) {
-              const structured = await abortable(tool.executeStructured(input, rpcCtx), rpcSignal);
+              const structured = await abortable(
+                tool.executeStructured(validation.value, rpcCtx),
+                rpcSignal
+              );
               structuredBlocks = structured.content;
               return {
                 text: textFromStructuredContent(structured.content),
                 isError: structured.isError || structuralError,
               };
             }
-            const text = await abortable(tool.execute(input, rpcCtx), rpcSignal);
+            const text = await abortable(tool.execute(validation.value, rpcCtx), rpcSignal);
             return { text, isError: structuralError || isStringToolFailureResult(text) };
           } catch (error) {
             if (rpcDeadline.aborted && !signal.aborted) {

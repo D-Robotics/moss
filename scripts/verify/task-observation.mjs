@@ -144,6 +144,29 @@ try {
   );
   ok('final MCP envelopes, artifact text and structured image attachments survive observation');
 
+  let constrainedCalls = 0;
+  const constrained = makeTool('constrained_job_state', async () => {
+    constrainedCalls++;
+    return JSON.stringify({
+      jobId: 'strict',
+      status: 'running',
+      lines: [{ n: 1, text: 'validated evidence' }],
+    });
+  });
+  constrained.inputSchema.properties = {
+    jobId: { type: 'string' },
+    idempotencyKey: { type: 'string', enum: ['allowed-key'] },
+  };
+  const constrainedResult = await invoke(constrained, {
+    jobId: 'strict',
+    idempotencyKey: 'allowed-key',
+  });
+  assert.equal(constrainedCalls, 1, 'derived keys must pass validation before another RPC');
+  assert.equal(constrainedResult.result.isError, true);
+  assert.match(constrainedResult.result.text, /must be one of/);
+  assert.match(constrainedResult.result.text, /validated evidence/);
+  ok('derived polling inputs are schema validated and reject strict keys before sending an RPC');
+
   const plain = { runId: 'r', status: 'running', progress: 0.4 };
   assert.equal(readTaskObservation(plain, { runId: 'r' }).progress, 0.4);
   assert.equal(
@@ -215,6 +238,28 @@ try {
   assert.equal(errorCalls, 2);
   assert.equal(failed.result.isError, true);
   ok('ID mismatches and tool errors return immediately without autonomous retries');
+
+  let thrownCalls = 0;
+  const thrown = await invoke(
+    makeTool(
+      'failing_build_state',
+      async () => {
+        if (++thrownCalls > 1) throw new Error('query connection dropped');
+        return JSON.stringify({
+          runId: 'r',
+          status: 'running',
+          lines: [{ n: 1, text: 'previous evidence' }],
+        });
+      },
+      { transientRetry: true }
+    ),
+    { runId: 'r' }
+  );
+  assert.equal(thrownCalls, 2, 'a failed wait must not restart its whole window');
+  assert.equal(thrown.result.isError, true);
+  assert.match(thrown.result.text, /previous evidence/);
+  assert.match(thrown.result.text, /query connection dropped/);
+  ok('RPC exceptions retain previous evidence and do not restart the observation window');
 
   let initialRetryCalls = 0;
   const initialRetry = await invoke(

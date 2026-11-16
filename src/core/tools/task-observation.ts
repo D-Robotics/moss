@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { abortable } from '../agent/abort.js';
+import { ErrorCode, MossError, errorMessage, isMossError } from '../../errors.js';
 
 /** Host opt-in for observing an existing task; never enables mutation retries. */
 export interface TaskObservationPolicy {
@@ -196,6 +197,10 @@ export async function waitForTaskObservation(options: {
       ...(timedOut ? { waitTimeout: { taskId, status: current.status, elapsedMs } } : {}),
     };
   };
+  const historyText = () =>
+    logs.size > 0
+      ? `\n\n[Earlier observations; not the current task state]\n${JSON.stringify({ taskId, lines: [...logs.values()], ...(omittedLines ? { omittedLines } : {}) })}`
+      : '';
   collectLogs(observation);
   while (ACTIVE.has(observation.status)) {
     options.signal?.throwIfAborted();
@@ -234,18 +239,23 @@ export async function waitForTaskObservation(options: {
     try {
       latest = await abortable(options.execute(input, signal), signal);
     } catch (error) {
-      if (options.signal?.aborted || !deadline.aborted) throw error;
+      if (options.signal?.aborted) throw error;
+      if (!deadline.aborted) {
+        const previous = historyText();
+        if (!previous) throw error;
+        throw new MossError({
+          code: isMossError(error) ? error.code : ErrorCode.TOOL_EXECUTION_FAILED,
+          message: errorMessage(error) + previous,
+          cause: error,
+          ...(isMossError(error) ? { recoverable: error.recoverable, hint: error.hint } : {}),
+        });
+      }
       continue;
     }
     const next = !latest.isError ? readTaskObservation(latest.text, options.input) : null;
     if (!next || next.taskId !== taskId) {
       options.onProgress?.({ state: 'resumed', elapsedMs: Date.now() - startedAt, pollCount });
-      return logs.size > 0
-        ? {
-            ...latest,
-            text: `${latest.text}\n\n[Earlier observations; not the current task state]\n${JSON.stringify({ taskId, lines: [...logs.values()], ...(omittedLines ? { omittedLines } : {}) })}`,
-          }
-        : latest;
+      return { ...latest, text: latest.text + historyText() };
     }
     observation = next;
     collectLogs(observation);
