@@ -17,6 +17,11 @@ import { isEffectiveUiZh } from '../../utils/ui-language.js';
 import type { DenialClass } from '../../contracts/tool-denial.js';
 import { createStreamingTextRedactor } from '../../safety/redact-stream.js';
 import { ToolSuspension, type SuspendedToolCall } from './tool-suspension.js';
+import {
+  taskObservationWaitMs,
+  waitForTaskObservation,
+  type ToolWaitTimeout,
+} from './task-observation.js';
 
 /**
  * O88: text the model (and the tool row) gets when approval is refused. It
@@ -382,6 +387,7 @@ export type ExecuteToolCallOutcome =
   | {
       kind: 'completed';
       suspendedTool?: SuspendedToolCall;
+      waitTimeout?: ToolWaitTimeout;
       text: string;
       isError: boolean;
       durationMs: number;
@@ -593,6 +599,13 @@ async function executeOneToolCallInner(
     let aborted: { by: 'user' | 'timeout' } | undefined;
     let structuredBlocks: ToolContentBlock[] | undefined;
     let toolError: MossError | undefined;
+    let waitTimeout: ToolWaitTimeout | undefined;
+    let observationStarted = false;
+    const observationPolicy =
+      tool.metadata?.sideEffectClass === 'readonly' ? tool.metadata.taskObservation : undefined;
+    const attemptTimeoutMs = observationPolicy
+      ? taskObservationWaitMs(observationPolicy) + deps.toolTimeoutMs
+      : deps.toolTimeoutMs;
     // O152 F9b: structured L3 result (survives output truncation).
     const protectedPathChanges: ProtectedPathChangeReport[] = [];
 
@@ -663,7 +676,7 @@ async function executeOneToolCallInner(
                   hint: toolTimeoutHint(),
                 })
               );
-            }, deps.toolTimeoutMs))
+            }, attemptTimeoutMs))
         );
 
         const attemptSignal =
@@ -685,6 +698,17 @@ async function executeOneToolCallInner(
             }
             publishOutput(outputRedactor.push(chunk));
           },
+          onToolWait: (toolWait) => {
+            if (!outputOpen || attemptSignal.aborted) return;
+            deps.push({
+              type: 'tool_execution_progress',
+              toolCallId: call.id,
+              toolName: call.name,
+              elapsed_sec: Math.round((Date.now() - startMs) / 1000),
+              toolWait,
+            });
+            callToolCtx.onToolWait?.(toolWait);
+          },
           markResultError: () => {
             structuralError = true;
           },
@@ -698,7 +722,7 @@ async function executeOneToolCallInner(
         if (!skipAgentHeartbeat) {
           const heartbeatIntervalMs = Math.max(1, deps.heartbeatIntervalMs);
           const maxMissed = resolveMaxMissedHeartbeats(
-            deps.toolTimeoutMs,
+            attemptTimeoutMs,
             heartbeatIntervalMs,
             deps.maxMissedHeartbeats
           );
@@ -726,35 +750,77 @@ async function executeOneToolCallInner(
 
         if (attempt === 0) emitStart();
         reachedExecute = true;
-        if (tool.executeStructured) {
-          const structured = await Promise.race([
-            abortable(tool.executeStructured(call.input, attemptCtx), attemptSignal),
-            toolTimeoutPromise,
-          ]);
-          structuredBlocks = structured.content;
-          attemptText = textFromStructuredContent(structured.content);
-          if (structured.isError) {
-            attemptErrFlag = true;
-            attemptError = new MossError({
-              code: ErrorCode.TOOL_EXECUTION_FAILED,
-              message: attemptText || `Tool ${call.name} returned an error result.`,
-            });
+        const runInvocation = async (input: Record<string, unknown>, signal = attemptSignal) => {
+          const rpcDeadline = AbortSignal.timeout(deps.toolTimeoutMs);
+          const rpcSignal = AbortSignal.any([signal, rpcDeadline]);
+          const rpcCtx = { ...attemptCtx, abortSignal: rpcSignal };
+          structuralError = false;
+          try {
+            if (tool.executeStructured) {
+              const structured = await abortable(tool.executeStructured(input, rpcCtx), rpcSignal);
+              structuredBlocks = structured.content;
+              return {
+                text: textFromStructuredContent(structured.content),
+                isError: structured.isError || structuralError,
+              };
+            }
+            const text = await abortable(tool.execute(input, rpcCtx), rpcSignal);
+            return { text, isError: structuralError || isStringToolFailureResult(text) };
+          } catch (error) {
+            if (rpcDeadline.aborted && !signal.aborted) {
+              throw new MossError({
+                code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
+                message: `Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`,
+                cause: error,
+              });
+            }
+            throw error;
           }
-        } else {
-          attemptText = await Promise.race([
-            abortable(tool.execute(call.input, attemptCtx), attemptSignal),
-            toolTimeoutPromise,
-          ]);
-          // Many tools (exec, edit_file, …) return error as a string instead of
-          // throwing. Detect those so is_error / failure gates / loop-guard
-          // see a real failure (Claude/Codex: non-zero shell is not success).
-          if (!attemptErrFlag && (structuralError || isStringToolFailureResult(attemptText))) {
-            attemptErrFlag = true;
-            attemptError = new MossError({
-              code: ErrorCode.TOOL_EXECUTION_FAILED,
-              message: attemptText,
-            });
+        };
+        const invocation = async () => {
+          const initial = await runInvocation(call.input);
+          if (!observationPolicy) return initial;
+          const observed = await waitForTaskObservation({
+            input: call.input,
+            initial,
+            policy: {
+              ...observationPolicy,
+              ...(attemptCtx.taskObservationDeadlineAt !== undefined
+                ? {
+                    maxWaitMs: Math.max(
+                      1,
+                      Math.min(
+                        taskObservationWaitMs(observationPolicy),
+                        attemptCtx.taskObservationDeadlineAt - Date.now()
+                      )
+                    ),
+                  }
+                : {}),
+            },
+            execute: runInvocation,
+            signal: attemptSignal,
+            onProgress: (progress) => {
+              observationStarted = true;
+              attemptCtx.onToolWait?.(progress);
+            },
+          });
+          waitTimeout = observed.waitTimeout;
+          if (observed.text !== initial.text && structuredBlocks) {
+            structuredBlocks = [
+              { type: 'text', text: observed.text },
+              ...structuredBlocks.filter((block) => block.type !== 'text'),
+            ];
           }
+          return observed;
+        };
+        const executed = await Promise.race([invocation(), toolTimeoutPromise]);
+        attemptText = executed.text;
+        if (executed.isError) {
+          attemptErrFlag = true;
+          attemptError = new MossError({
+            code: ErrorCode.TOOL_EXECUTION_FAILED,
+            message: attemptText || `Tool ${call.name} returned an error result.`,
+          });
         }
         if (!attemptSignal.aborted) publishOutput(outputRedactor.flush());
       } catch (err) {
@@ -850,7 +916,13 @@ async function executeOneToolCallInner(
         if (heartbeatHandle) clearInterval(heartbeatHandle);
       }
 
-      if (attemptErrFlag && eligibleForRetry && attempt < MAX_RETRY_ATTEMPTS && !aborted) {
+      if (
+        attemptErrFlag &&
+        eligibleForRetry &&
+        !observationStarted &&
+        attempt < MAX_RETRY_ATTEMPTS &&
+        !aborted
+      ) {
         const rawMsg = attemptText.replace(/^Execution error:\s*/, '');
         const retryable =
           failureClassification?.retryable ??
@@ -944,6 +1016,7 @@ async function executeOneToolCallInner(
         : {}),
       ...(toolError ? { error: toolError } : {}),
       ...(protectedPathChanges.length > 0 ? { protectedPathChanges } : {}),
+      ...(waitTimeout ? { waitTimeout } : {}),
     };
   } catch (err) {
     if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) {

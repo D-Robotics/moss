@@ -400,6 +400,7 @@ export type MossAgentEvent =
   | { type: 'tool_start'; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | {
       type: 'tool_progress';
+      toolWait?: import('../tools/task-observation.js').ToolWaitProgress;
       toolName: string;
       toolCallId: string;
       elapsedSec: number;

@@ -1030,7 +1030,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
               zh,
             })}`
           );
-          if (stopReason === 'max_turns_reached' || stopReason === 'tool_followup_cap_reached') {
+          if (
+            stopReason === 'max_turns_reached' ||
+            stopReason === 'tool_followup_cap_reached' ||
+            stopReason === 'tool_wait_timeout'
+          ) {
             stderrLine(
               isZhLocale()
                 ? `${mark('fail')} 可用 ${ui.bold('moss resume --last')}（或 ${ui.bold('moss --continue')}）继续。`

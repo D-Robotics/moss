@@ -55,6 +55,7 @@ type MiniAgentEventPayload =
       toolName: string;
       elapsed_sec: number;
       chunk?: string;
+      toolWait?: import('../tools/task-observation.js').ToolWaitProgress;
     }
   | { type: 'tool_skipped'; toolCallId: string; toolName: string }
   | { type: 'tool_approval_request'; toolCallId: string; toolName: string; args: unknown }
@@ -169,6 +170,7 @@ export interface RunMetrics {
 
 export interface MiniAgentResult {
   suspendedTool?: import('../tools/tool-suspension.js').SuspendedToolCall;
+  taskWaitTimeout?: import('../tools/task-observation.js').ToolWaitTimeout;
   finalText: string;
   turns: number;
   totalToolCalls: number;

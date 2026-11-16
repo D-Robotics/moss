@@ -1,6 +1,7 @@
 import type { MossAsyncTaskRegistry } from '../../contracts/index.js';
 import type { ToolContentBlock, ToolResultOutcome } from '../../contracts/messages.js';
 import type { Message } from '../session/session-jsonl.js';
+import type { TaskObservationPolicy, ToolWaitProgress } from './task-observation.js';
 
 export type { ToolContentBlock, ToolResultOutcome } from '../../contracts/messages.js';
 
@@ -95,6 +96,10 @@ export interface ToolContext {
    *  uses this to show incremental output from long-running commands (e.g.
    *  `npm install`, `pytest`) instead of buffering until the tool finishes. */
   onToolOutput?: (text: string) => void;
+  /** Structured wait facts; never a text/protocol channel. */
+  onToolWait?: (progress: ToolWaitProgress) => void;
+  /** Runtime deadline that also bounds autonomous task observation. */
+  taskObservationDeadlineAt?: number;
   /** Host-owned interactive question channel scoped to this agent instance. */
   askUserQuestion?: (question: string, abortSignal?: AbortSignal) => Promise<string>;
   /**
@@ -229,6 +234,8 @@ export interface ToolMetadata {
    * failure limits or per-run observation budgets.
    */
   freshObservation?: boolean;
+  /** Host opt-in; honored only for readonly queries of an existing task ID. */
+  taskObservation?: TaskObservationPolicy;
   planMode?: ToolPlanMode;
 
   requiresApproval?: boolean;

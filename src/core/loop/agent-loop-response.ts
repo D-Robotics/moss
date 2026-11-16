@@ -525,7 +525,7 @@ export async function processLlmResponse(
   state.lastTurnEndMs = Date.now();
   state.pendingMessages = toolExecution.pendingMessages;
 
-  if (state.taskAcceptanceCommitted || state.suspendedTool) {
+  if (state.taskAcceptanceCommitted || state.suspendedTool || state.taskWaitTimeout) {
     state.hasMoreToolCalls = false;
     state.pendingMessages = [];
     return { control: 'break' };

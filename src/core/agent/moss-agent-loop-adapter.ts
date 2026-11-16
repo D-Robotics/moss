@@ -123,10 +123,11 @@ export function createMossAgentLoopEventAdapter(
           ? 'end_turn'
           : stopReason;
     return {
-      response:
-        result.suspendedTool ||
-        isInterruptedOutput(resolvedStopReason) ||
-        isOutputLimitStopReason(resolvedStopReason)
+      response: result.taskWaitTimeout
+        ? redactEgress(result.finalText)
+        : result.suspendedTool ||
+            isInterruptedOutput(resolvedStopReason) ||
+            isOutputLimitStopReason(resolvedStopReason)
           ? publishedResponse
           : redactEgress(response || result.finalText),
       ...(result.suspendedTool ? { suspendedTool: result.suspendedTool } : {}),
@@ -191,6 +192,7 @@ export function createMossAgentLoopEventAdapter(
               toolCallId: event.toolCallId,
               toolName: event.toolName,
               elapsedSec: event.elapsed_sec,
+              ...(event.toolWait ? { toolWait: event.toolWait } : {}),
               ...(event.chunk !== undefined ? { chunk: event.chunk } : {}),
             },
           ];

@@ -184,6 +184,11 @@ export function unfinishedReasonFromStop(
   zh: boolean
 ): string | undefined {
   if (!stopReason) return undefined;
+  if (stopReason === 'tool_wait_timeout') {
+    return zh
+      ? '等待窗口已结束，外部任务未被取消；可继续查询并接着完成任务'
+      : 'observation window elapsed; the external task was not cancelled; continue to check it';
+  }
   if (stopReason === 'max_turns_reached' || stopReason === 'tool_followup_cap_reached') {
     return zh ? '已到回合上限，任务暂停未完成' : 'hit the turn limit before finishing';
   }

@@ -158,7 +158,7 @@ export function findLoopReplay(
   input: Record<string, unknown>,
   toolMeta: Tool['metadata'] | undefined
 ): string | null {
-  if (toolMeta?.noReplay || toolMeta?.canSuspend) return null;
+  if (toolMeta?.noReplay || toolMeta?.canSuspend || toolMeta?.taskObservation) return null;
   return findReplayableToolResultContent(history, toolName, input, 32, toolMeta?.sideEffectClass);
 }
 
@@ -255,6 +255,9 @@ function recordToolOutcome(
   ctx: OutcomeRecordingContext,
   toolResults: ContentBlock[]
 ): void {
+  if (outcome.kind === 'completed' && outcome.waitTimeout) {
+    ctx.state.taskWaitTimeout = outcome.waitTimeout;
+  }
   syncAssistantToolUseInput(ctx.assistantContent, call);
   if (outcome.kind !== 'completed') {
     ctx.push({
@@ -521,7 +524,9 @@ export async function executeAgentLoopToolCalls(
         type: 'tool_result',
         tool_use_id: skipped.id,
         name: skipped.name,
-        content: 'Task acceptance committed; skipped remaining tool call.',
+        content: state.taskWaitTimeout
+          ? 'Task observation window elapsed; skipped remaining tool call. The external task was not cancelled.'
+          : 'Task acceptance committed; skipped remaining tool call.',
         is_error: true,
       });
     }
@@ -545,7 +550,7 @@ export async function executeAgentLoopToolCalls(
       }
       continue;
     }
-    if (state.taskAcceptanceCommitted) {
+    if (state.taskAcceptanceCommitted || state.taskWaitTimeout) {
       skipRemainingToolCalls(group.calls);
       continue;
     }
@@ -622,7 +627,7 @@ export async function executeAgentLoopToolCalls(
           break;
         }
         recordToolOutcome(call, outcome, recordCtx, toolResults);
-        if (state.taskAcceptanceCommitted) {
+        if (state.taskAcceptanceCommitted || state.taskWaitTimeout) {
           skipRemainingToolCalls(group.calls.slice(gi + 1));
           break;
         }
@@ -688,7 +693,7 @@ export async function executeAgentLoopToolCalls(
     await appendMessage(sessionKey, resultMsg);
     toolResultMsgPersisted = true;
 
-    newSteering = state.taskAcceptanceCommitted ? [] : evaluateSteering();
+    newSteering = state.taskAcceptanceCommitted || state.taskWaitTimeout ? [] : evaluateSteering();
     metrics.prepNextTurnParallelMs += Date.now() - parallelStartMs;
   } finally {
     if (abortSignal.aborted && !toolResultMsgPersisted) {
