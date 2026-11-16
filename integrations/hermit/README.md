@@ -267,3 +267,57 @@ changes model/auth fields. This keeps the preregistered config independent of an
 ephemeral listening port while retaining per-request host metering. Run
 `python integrations/hermit/verify-config.py` for mismatch/non-loopback refusal checks;
 the official GEPA fixture also verifies unchanged config bytes through two steps.
+
+## Replayable daily JSON cases (SDK 0.34)
+
+`RsiReplayCaseStore(rootDir)` composes with the same owner/environment `RsiStore`,
+`RsiDailyStore` and `RsiAssetStore`; it does not create a second learning database.
+`configureProfile(scope, { projectId, file, enabled, contentConsent, expectedRevision })`
+selects one relative JSON file per project. Both content consent and daily-reference
+collection must be enabled. Configuration never grants an actor filesystem access;
+that remains the trusted host's execution boundary.
+
+Before the first model/tool call, the host calls `beginCapture(scope, input)` with
+`profileId`, `runId`, exact `taskScope`, `request`, `initialContent`, the actual
+`contractDigest` and a conservative `sourceGroupDigest`. At terminal completion,
+`completeCapture(scope, { captureId, finalContent })` requires the persisted native
+Moss receipt and matching daily source. `replay_source_pending` allows a retry after
+asynchronous daily collection; a current file cannot stand in for a missing initial
+snapshot. Baseline receipts need not invent a task-scope digest; scoped candidate
+receipts must match the captured scope.
+
+`qualify(scope, { captureId, rules, kind, graderVersion }, trustedGrader)` runs a
+synchronous host-registered data-only grader twice on fresh rule copies. It requires
+initial fail/reference pass for `problem`, or both pass for `regression`. Rules are
+bounded JSON; the host validates its rule vocabulary and the user's confirmation.
+No arbitrary script, browser verdict or model completion statement is accepted as
+the grader. An inconsistent grader or missing reference proof cannot qualify.
+
+`listCaptures` and `listCases` return metadata. `readActorInput` returns only request
+and initial content. `readGraderInput` and `readCaptureReview` are trusted host
+accessors: never put their rules/reference results into actor context or expose
+storage paths as actor tools. The host's bridge must still isolate private grading
+and prevent training/validation callers from accessing holdout/regression cases.
+
+`freezeManifest(scope, { taskScope, cases, expectedRevision })` takes four case IDs
+in each of training/validation/holdout/regression. It freezes exact scope, contract,
+fixture and source identities, plus an initial-content alias preventing differently
+named copies of the same JSON from crossing splits. `readManifest` rechecks consent
+and dependency liveness. `getManifestSourceAssetIds` supplies the dependency root for
+training artifacts; never omit it when saving a session's evidence or adapter.
+Training admission and existing-session provider lookup repeat source checks.
+
+For deletion, call `beginSourceDeletion(scope, { captureId, expectedRevision })`,
+stop every returned session through its real worker coordinator, then call
+`completeSourceDeletion(scope, { captureId, deletionId })`. The first call atomically
+revokes descendants and tombstones the source; the second requires stopped leases
+before deleting content and the daily reference. Legacy daily-index deletion refuses
+sources that still have replay assets. Signed backup recovery cannot undo those
+revocations and disables replay profiles until content consent is explicitly renewed.
+
+A provider factory may accept a third `session` argument. Resolve that immutable
+session's registered config when supplied; resolve the current pack only when absent
+(new training). Exact model/provider/runtime/Hermit identity checks remain mandatory.
+
+Offline protocol probe: `node scripts/verify/rsi-replay.mjs`. This proves storage,
+receipts, isolation and lifecycle behavior, not a real model's learning improvement.

@@ -263,7 +263,9 @@ export interface RsiExternalTrainingProvider {
 }
 export type RsiExternalTrainingProviderFactory = (
   scope: RsiScope,
-  taskScope: RsiTaskScope
+  taskScope: RsiTaskScope,
+  /** Existing sessions resolve their immutable provider version; omitted for new training. */
+  session?: Readonly<RsiTrainingSession>
 ) => RsiExternalTrainingProvider | null;
 export interface RsiLearningBudget {
   maxModelCalls: number;

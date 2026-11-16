@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { assertReplayTrainingPlan, replayAdditionalClaim } from './replay-validation.js';
 import {
   RSI_BASELINE,
   RsiError,
@@ -366,7 +367,12 @@ export class RsiTrainingController {
     private readonly adapterFor: (state: RsiState, digest?: string) => RsiAdapter
   ) {}
   private provider(scope: RsiScope, session: RsiTrainingSession) {
-    const provider = this.providerFor(clone(scope), clone(session.taskScope));
+    assertReplayTrainingPlan(this.store.read(scope), session);
+    const provider = this.providerFor(
+      clone(scope),
+      clone(session.taskScope),
+      Object.freeze(clone(session))
+    );
     validateProvider(provider);
     if (
       !same(provider.hermit, session.hermit) ||
@@ -411,6 +417,7 @@ export class RsiTrainingController {
     validateProvider(provider);
     return this.store.update(scope, (state) => {
       const policy = trainingPolicyFor(state, plan.taskScope);
+      assertReplayTrainingPlan(state, plan);
       const deletedSources = new Set(
         state.assets?.records
           .filter(
@@ -460,7 +467,11 @@ export class RsiTrainingController {
           item.split === 'regression'
             ? 'holdout'
             : (item.split as 'training' | 'validation' | 'holdout');
-        for (const claim of [item.fixtureClaim, item.groupClaim]) {
+        for (const claim of [
+          item.fixtureClaim,
+          item.groupClaim,
+          ...replayAdditionalClaim(state, item.id),
+        ]) {
           if (state.holdoutConsumptions.some((old) => old.digest === claim))
             fail('holdout_already_consumed');
           const old = state.caseExposures.find((old) => old.digest === claim);
@@ -690,7 +701,13 @@ export class RsiTrainingController {
       )
         fail('confirmation_already_claimed');
       const claims = [
-        ...new Set(fixtures(session, true).flatMap((item) => [item.fixtureClaim, item.groupClaim])),
+        ...new Set(
+          fixtures(session, true).flatMap((item) => [
+            item.fixtureClaim,
+            item.groupClaim,
+            ...replayAdditionalClaim(state, item.id),
+          ])
+        ),
       ];
       if (claims.some((d) => state.holdoutConsumptions.some((old) => old.digest === d)))
         fail('holdout_already_consumed');

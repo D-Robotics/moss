@@ -107,9 +107,12 @@ const provider = {
     };
   },
 };
+let currentProvider = provider;
+const providerVersions = new Map([[provider.hermit.configDigest, provider]]);
 engine = new RsiEngine({
   rootDir: root,
-  externalTraining: () => provider,
+  externalTraining: (_scope, _taskScope, session) =>
+    session ? (providerVersions.get(session.hermit.configDigest) ?? null) : currentProvider,
   authorize: () => {
     if (!enabled) throw new Error('revoked');
   },
@@ -262,6 +265,29 @@ try {
     taskScope: identity,
   };
   assert.equal(engine.captureAdapter(scope, expected).adapter.digest, candidate.digest);
+  const nextProvider = {
+    ...provider,
+    hermit: { ...provider.hermit, configDigest: rsiDigest('new-manifest-and-budget') },
+  };
+  providerVersions.set(nextProvider.hermit.configDigest, nextProvider);
+  currentProvider = nextProvider;
+  const nextPlan = plan('next-manifest-and-budget');
+  nextPlan.budget.training.maxTokens = 9000;
+  const nextSession = engine.freezeTrainingSession(scope, nextPlan);
+  assert.equal(nextSession.hermit.configDigest, nextProvider.hermit.configDigest);
+  assert.equal(
+    engine.captureAdapter(scope, expected).adapter.digest,
+    candidate.digest,
+    'new training config/budget does not replace an existing champion provider identity'
+  );
+  providerVersions.delete(provider.hermit.configDigest);
+  assert.equal(
+    engine.captureAdapter(scope, expected).adapter.digest,
+    RSI_BASELINE.digest,
+    'unavailable immutable provider fails closed rather than using latest'
+  );
+  providerVersions.set(provider.hermit.configDigest, provider);
+  currentProvider = provider;
   assert.equal(
     engine.captureAdapter(scope).adapter.digest,
     RSI_BASELINE.digest,

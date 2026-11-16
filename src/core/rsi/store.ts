@@ -5,6 +5,7 @@ import { ErrorCode, MossError } from '../../errors.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 import { hashHarnessAdapter } from '../agent/harness-adapter.js';
 import type { RsiDailyState } from './daily-store.js';
+import type { RsiReplayState } from './replay-types.js';
 import {
   assetPath,
   diskUsage,
@@ -107,6 +108,7 @@ export interface RsiState {
   revision: number;
   /** Optional opt-in daily references. Legacy state is unchanged until configured. */
   daily?: RsiDailyState;
+  replay?: RsiReplayState;
   assets?: RsiAssetState;
   safetyLedgerVersion?: 1;
   deletedTrainingSources?: Array<{ id: string; taskScopeDigest: string }>;

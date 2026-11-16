@@ -286,6 +286,15 @@ export class RsiDailyStore {
     this.store.update(scope, (state) => {
       assertRevision(state.revision, input.expectedRevision);
       const value = daily(state.daily);
+      if (
+        state.replay?.captures.some(
+          (capture) =>
+            value.experiences.some(
+              (item) => item.runId === capture.runId && item.projectId === capture.projectId
+            ) && state.assets?.records.some((item) => item.id === capture.sourceAssetId)
+        )
+      )
+        throw new RsiError('replay_source_requires_deletion', 409);
       const deleted = [
         ...new Set([...value.deletedRunDigests, ...value.experiences.map((item) => item.id)]),
       ];
@@ -303,6 +312,14 @@ export class RsiDailyStore {
       const value = daily(state.daily);
       if (!value.experiences.some((item) => item.id === id))
         throw new RsiError('daily_experience_not_found', 404);
+      if (
+        state.replay?.captures.some(
+          (capture) =>
+            rsiDigest(JSON.stringify([capture.projectId, capture.runId])) === id &&
+            state.assets?.records.some((item) => item.id === capture.sourceAssetId)
+        )
+      )
+        throw new RsiError('replay_source_requires_deletion', 409);
       if (value.deletedRunDigests.length >= 10000)
         throw new RsiError('daily_deletion_retention_limit', 409);
       value.experiences = value.experiences.filter((item) => item.id !== id);

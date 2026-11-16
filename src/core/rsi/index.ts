@@ -43,6 +43,8 @@ export type {
   RsiDailyMetadataExport,
 } from './daily-store.js';
 export { RsiAssetStore } from './asset-store.js';
+export { RsiReplayCaseStore } from './replay-store.js';
+export type * from './replay-types.js';
 export type { RsiAssetStatus, RsiAssetBackup } from './asset-store.js';
 export type {
   RsiAssetKind,

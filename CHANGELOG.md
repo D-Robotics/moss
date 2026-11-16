@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Replayable daily cases (SDK 0.34)
+
+- Adds public `RsiReplayCaseStore` and replay profile, capture, grade, case and manifest
+  types. Explicit content consent is separate from daily-reference collection; bounded
+  JSON snapshots require an owner-matched native receipt and daily source before a
+  trusted host's independent data grader can qualify them.
+- Immutable source/case/manifest dependencies share asset quota, transactional deletion
+  and signed revocation history. Frozen manifests retain source and initial-content split
+  exposure; training rechecks consent and source availability. Actor projections omit
+  reference outputs and grading rules.
+- Daily metadata deletion now requires the replay source deletion flow when derived
+  content remains. Backup restore retains revoked source history and disables replay
+  content consent until the owner explicitly enables it again.
+- External-training provider factories accept an optional immutable session argument
+  when resolving existing proofs. New training still resolves the current provider;
+  registering a new manifest/config does not replace an older champion's exact provider.
+
 ### Optional Hermit training and daily experience references (SDK 0.33)
 
 - Adds `RsiAssetStore` and asset/lease/status/backup types for local immutable payloads,

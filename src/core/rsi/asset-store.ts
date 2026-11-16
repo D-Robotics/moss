@@ -91,6 +91,30 @@ function protectedRecords(state: RsiState): Set<string> {
       )
       .map((record) => record.id)
   );
+  // Frozen replay sources are in flight before the host has written session artifacts.
+  for (const session of state.trainingSessions ?? []) {
+    if (
+      !sessions.has(session.id) &&
+      !['frozen', 'candidate-admitted', 'confirming'].includes(session.status)
+    )
+      continue;
+    const cases = new Set(
+      Object.values(session.cases)
+        .flat()
+        .map((item) => item.id)
+    );
+    for (const id of cases)
+      if (assets(state).records.some((record) => record.id === id)) ids.add(id);
+    for (const manifest of state.replay?.manifests ?? []) {
+      if (
+        rsiTaskScopeDigest(manifest.taskScope) === rsiTaskScopeDigest(session.taskScope) &&
+        Object.values(manifest.cases)
+          .flat()
+          .every((item) => cases.has(item.id))
+      )
+        ids.add(manifest.id);
+    }
+  }
   for (;;) {
     const before = ids.size;
     for (const record of assets(state).records)
@@ -217,110 +241,8 @@ export class RsiAssetStore {
     });
     return this.status(scope);
   }
-  put(
-    scope: RsiScope,
-    taskScope: RsiTaskScope,
-    input: {
-      kind: RsiAssetKind;
-      content: string;
-      dependencies?: string[];
-      adapterDigest?: string;
-      sessionId?: string;
-      sourceId?: string;
-      expectedRevision: number;
-    }
-  ): RsiAssetRecord {
-    const taskScopeDigest = rsiTaskScopeDigest(taskScope);
-    if (
-      !['experience', 'case', 'adapter', 'evaluation', 'manifest'].includes(input.kind) ||
-      typeof input.content !== 'string'
-    )
-      throw new RsiError('invalid_asset');
-    const bytes = Buffer.from(input.content);
-    if (bytes.length > (input.kind === 'adapter' ? 8192 : 16 * 1024 * 1024))
-      throw new RsiError('asset_too_large');
-    if (
-      /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:api[_-]?key|access[_-]?token|password)\s*[:=]\s*["']?[^\s"']{8,}/i.test(
-        input.content
-      )
-    )
-      throw new RsiError('asset_contains_credentials');
-    if (
-      input.dependencies !== undefined &&
-      (!Array.isArray(input.dependencies) || input.dependencies.length > 1000)
-    )
-      throw new RsiError('asset_dependency_limit');
-    const dependencies = [...new Set(input.dependencies ?? [])].sort();
-    const binding = (value: {
-      kind: RsiAssetKind;
-      sessionId?: string;
-      sourceId?: string;
-      adapterDigest?: string;
-      dependencies?: string[];
-    }) =>
-      JSON.stringify([
-        value.kind,
-        value.sessionId ?? null,
-        value.sourceId ?? null,
-        value.adapterDigest ?? null,
-        [...new Set(value.dependencies ?? [])].sort(),
-      ]);
-    const frozenBinding = binding({ ...input, dependencies });
-    const contentDigest = byteDigest(bytes);
-    const id = rsiDigest(JSON.stringify([taskScopeDigest, contentDigest, frozenBinding]));
-    return this.store.update(scope, (state) => {
-      cas(state, input.expectedRevision);
-      const value = assets(state);
-      if (value.deletedIds.includes(id) || value.deletedIds.includes(contentDigest))
-        throw new RsiError('asset_deleted', 409);
-      const existing = value.records.find(
-        (item) =>
-          item.id === id ||
-          (item.taskScopeDigest === taskScopeDigest &&
-            (item.contentDigest ?? item.id) === contentDigest &&
-            binding(item) === frozenBinding)
-      );
-      if (existing) {
-        recordFor(state, taskScope, existing.id);
-        verifiedBytes(
-          assetPath(assetDirectory(this.rootDir, scope), 'assets', `${existing.id}.bin`),
-          existing.contentDigest ?? existing.id
-        );
-        return existing;
-      }
-      if (value.records.length >= 10000) throw new RsiError('asset_index_limit', 409);
-      if (input.adapterDigest && !/^[a-f0-9]{64}$/.test(input.adapterDigest))
-        throw new RsiError('invalid_asset_reference');
-      if (input.sourceId) identifier(input.sourceId);
-      if (input.sessionId) {
-        const session = state.trainingSessions?.find(
-          (item) =>
-            item.id === input.sessionId && rsiTaskScopeDigest(item.taskScope) === taskScopeDigest
-        );
-        if (!session || session.status === 'cancelled')
-          throw new RsiError('training_session_invalid', 409);
-      }
-      for (const dependency of dependencies) recordFor(state, taskScope, dependency);
-      const usage = this.status(scope);
-      if (usage.bytes + usage.reservedBytes + bytes.length + 4096 > value.quotaBytes)
-        throw new RsiError('asset_quota_exceeded', 409);
-      const record: RsiAssetRecord = {
-        id,
-        contentDigest,
-        kind: input.kind,
-        taskScopeDigest,
-        taskScope: structuredClone(taskScope),
-        bytes: bytes.length,
-        createdAt: Date.now(),
-        dependencies,
-        ...(input.adapterDigest ? { adapterDigest: input.adapterDigest } : {}),
-        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-        ...(input.sourceId ? { sourceId: input.sourceId } : {}),
-      };
-      immutableBytes(assetPath(assetDirectory(this.rootDir, scope), 'assets', `${id}.bin`), bytes);
-      value.records.push(record);
-      return record;
-    });
+  put(scope: RsiScope, taskScope: RsiTaskScope, input: RsiAssetInput): RsiAssetRecord {
+    return this.store.update(scope, (state) => putRsiAsset(this.rootDir, state, taskScope, input));
   }
   read(scope: RsiScope, taskScope: RsiTaskScope, id: string): string {
     const record = recordFor(this.store.read(scope), taskScope, id);
@@ -461,122 +383,7 @@ export class RsiAssetStore {
   ): { id: string; assetIds: string[]; requiredStopSessions: string[] } {
     return this.store.update(
       scope,
-      (state) => {
-        cas(state, input.expectedRevision);
-        const value = assets(state),
-          taskScopeDigest = rsiTaskScopeDigest(taskScope);
-        if (
-          !Array.isArray(input.assetIds) ||
-          !input.assetIds.length ||
-          input.assetIds.length > 1000
-        )
-          throw new RsiError('invalid_asset_reference');
-        const ids = new Set(input.assetIds);
-        for (const id of ids) recordFor(state, taskScope, id);
-        for (;;) {
-          const before = ids.size;
-          for (const record of value.records)
-            if (!record.deletedAt && record.dependencies.some((id) => ids.has(id)))
-              ids.add(record.id);
-          if (ids.size === before) break;
-        }
-        const records = value.records.filter((item) => ids.has(item.id));
-        if (records.some((item) => item.taskScopeDigest !== taskScopeDigest))
-          throw new RsiError('asset_scope_mismatch', 409);
-        const sourceIds = new Set(
-          records.flatMap((item) => [item.id, ...(item.sourceId ? [item.sourceId] : [])])
-        );
-        const sessionIds = new Set(
-          records.flatMap((item) => (item.sessionId ? [item.sessionId] : []))
-        );
-        const revoked = new Set(
-          records.flatMap((item) => (item.adapterDigest ? [item.adapterDigest] : []))
-        );
-        for (;;) {
-          const before = revoked.size + sessionIds.size;
-          for (const session of state.trainingSessions ?? [])
-            if (
-              rsiTaskScopeDigest(session.taskScope) === taskScopeDigest &&
-              (Object.values(session.cases)
-                .flat()
-                .some((item) => sourceIds.has(item.id)) ||
-                (session.candidateDigest && revoked.has(session.candidateDigest)))
-            )
-              sessionIds.add(session.id);
-          for (const candidate of state.candidates)
-            if (
-              candidate.taskScope &&
-              rsiTaskScopeDigest(candidate.taskScope) === taskScopeDigest &&
-              (candidate.caseIds.some((id) => sourceIds.has(id)) ||
-                revoked.has(candidate.baseDigest) ||
-                (candidate.trainingSessionId && sessionIds.has(candidate.trainingSessionId)))
-            )
-              revoked.add(candidate.adapter.digest);
-          if (before === revoked.size + sessionIds.size) break;
-        }
-        // Policy and revocations commit together, before physical deletion can begin.
-        const reset = (policy: RsiPolicy, scopeDigest?: string) => {
-          if (
-            !revoked.has(policy.activeDigest) &&
-            !(policy.previousDigest && revoked.has(policy.previousDigest))
-          )
-            return;
-          const from = policy.activeDigest;
-          policy.version += 1;
-          policy.activeDigest = RSI_BASELINE.digest;
-          policy.previousDigest = null;
-          policy.updatedAt = Date.now();
-          state.transitions.push({
-            at: Date.now(),
-            kind: 'rollback',
-            fromDigest: from,
-            toDigest: RSI_BASELINE.digest,
-            policyVersion: policy.version,
-            ...(scopeDigest ? { taskScopeDigest: scopeDigest } : {}),
-          });
-        };
-        reset(state.policy);
-        for (const [digest, policy] of Object.entries(state.trainingPolicies ?? {}))
-          reset(policy, digest);
-        for (const session of state.trainingSessions ?? [])
-          if (sessionIds.has(session.id)) session.status = 'cancelled';
-        for (const lease of value.leases)
-          if (sessionIds.has(lease.sessionId) && lease.status === 'running')
-            lease.status = 'revoked';
-        for (const record of value.records) if (ids.has(record.id)) record.deletedAt = Date.now();
-        value.deletedIds = [...new Set([...value.deletedIds, ...ids])];
-        value.invalidatedAdapters = [...new Set([...value.invalidatedAdapters, ...revoked])];
-        if (
-          value.deletedIds.length > 10000 ||
-          value.invalidatedAdapters.length > 10000 ||
-          value.deletions.length >= 1000
-        )
-          throw new RsiError('asset_deletion_ledger_limit', 409);
-        state.candidates = state.candidates.filter(
-          (candidate) => !revoked.has(candidate.adapter.digest)
-        );
-        state.cases = state.cases.filter((item) => !sourceIds.has(item.id));
-        state.evaluations = state.evaluations.filter((item) => !revoked.has(item.candidateDigest));
-        for (const confirmation of state.trainingConfirmations ?? [])
-          if (sessionIds.has(confirmation.sessionId)) {
-            confirmation.status = 'unavailable';
-            confirmation.results = [];
-            confirmation.errorCode = 'asset_deleted';
-          }
-        const deletion = {
-          id: randomUUID(),
-          taskScopeDigest,
-          assetIds: [...ids],
-          sessionIds: [...sessionIds],
-          at: Date.now(),
-        };
-        value.deletions.push(deletion);
-        return {
-          id: deletion.id,
-          assetIds: deletion.assetIds,
-          requiredStopSessions: deletion.sessionIds,
-        };
-      },
+      (state) => beginRsiAssetDeletion(state, taskScope, input),
       true
     );
   }
@@ -910,6 +717,12 @@ export class RsiAssetStore {
       for (const file of files) restoreAuthenticatedBytes(file.file, file.bytes);
       const revision = state.revision;
       Object.assign(state, restored, { revision });
+      // Restoring payloads is not renewed permission to collect or train on content.
+      if (state.replay)
+        for (const profile of state.replay.profiles) {
+          profile.enabled = false;
+          profile.contentConsent = false;
+        }
     };
     if (recovering) this.store.recover(scope, body.state, mutate);
     else this.store.update(scope, mutate);
@@ -920,4 +733,225 @@ export class RsiAssetStore {
     const ledger = readSafetyLedger(assetDirectory(this.rootDir, scope), scope, true)!;
     return { revision: ledger.revision, liveReferences: ledger.liveReferences };
   }
+}
+
+export type RsiAssetInput = {
+  kind: RsiAssetKind;
+  content: string;
+  dependencies?: string[];
+  adapterDigest?: string;
+  sessionId?: string;
+  sourceId?: string;
+  expectedRevision: number;
+};
+
+/** Internal composition: caller owns the SDK transaction lock. */
+export function putRsiAsset(
+  rootDir: string,
+  state: RsiState,
+  taskScope: RsiTaskScope,
+  input: RsiAssetInput
+): RsiAssetRecord {
+  const scope = state.scope;
+  const taskScopeDigest = rsiTaskScopeDigest(taskScope);
+  if (
+    !['experience', 'case', 'adapter', 'evaluation', 'manifest'].includes(input.kind) ||
+    typeof input.content !== 'string'
+  )
+    throw new RsiError('invalid_asset');
+  const bytes = Buffer.from(input.content);
+  if (bytes.length > (input.kind === 'adapter' ? 8192 : 16 * 1024 * 1024))
+    throw new RsiError('asset_too_large');
+  if (
+    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:api[_-]?key|access[_-]?token|password)\s*[:=]\s*["']?[^\s"']{8,}/i.test(
+      input.content
+    )
+  )
+    throw new RsiError('asset_contains_credentials');
+  if (
+    input.dependencies !== undefined &&
+    (!Array.isArray(input.dependencies) || input.dependencies.length > 1000)
+  )
+    throw new RsiError('asset_dependency_limit');
+  const dependencies = [...new Set(input.dependencies ?? [])].sort();
+  const binding = (value: {
+    kind: RsiAssetKind;
+    sessionId?: string;
+    sourceId?: string;
+    adapterDigest?: string;
+    dependencies?: string[];
+  }) =>
+    JSON.stringify([
+      value.kind,
+      value.sessionId ?? null,
+      value.sourceId ?? null,
+      value.adapterDigest ?? null,
+      [...new Set(value.dependencies ?? [])].sort(),
+    ]);
+  const frozenBinding = binding({ ...input, dependencies });
+  const contentDigest = byteDigest(bytes);
+  const id = rsiDigest(JSON.stringify([taskScopeDigest, contentDigest, frozenBinding]));
+  cas(state, input.expectedRevision);
+  const value = assets(state);
+  if (value.deletedIds.includes(id) || value.deletedIds.includes(contentDigest))
+    throw new RsiError('asset_deleted', 409);
+  const existing = value.records.find(
+    (item) =>
+      item.id === id ||
+      (item.taskScopeDigest === taskScopeDigest &&
+        (item.contentDigest ?? item.id) === contentDigest &&
+        binding(item) === frozenBinding)
+  );
+  if (existing) {
+    recordFor(state, taskScope, existing.id);
+    verifiedBytes(
+      assetPath(assetDirectory(rootDir, scope), 'assets', `${existing.id}.bin`),
+      existing.contentDigest ?? existing.id
+    );
+    return existing;
+  }
+  if (value.records.length >= 10000) throw new RsiError('asset_index_limit', 409);
+  if (input.adapterDigest && !/^[a-f0-9]{64}$/.test(input.adapterDigest))
+    throw new RsiError('invalid_asset_reference');
+  if (input.sourceId) identifier(input.sourceId);
+  if (input.sessionId) {
+    const session = state.trainingSessions?.find(
+      (item) =>
+        item.id === input.sessionId && rsiTaskScopeDigest(item.taskScope) === taskScopeDigest
+    );
+    if (!session || session.status === 'cancelled')
+      throw new RsiError('training_session_invalid', 409);
+  }
+  for (const dependency of dependencies) recordFor(state, taskScope, dependency);
+  const usage = new RsiAssetStore(rootDir).status(scope);
+  if (usage.bytes + usage.reservedBytes + bytes.length + 4096 > value.quotaBytes)
+    throw new RsiError('asset_quota_exceeded', 409);
+  const record: RsiAssetRecord = {
+    id,
+    contentDigest,
+    kind: input.kind,
+    taskScopeDigest,
+    taskScope: structuredClone(taskScope),
+    bytes: bytes.length,
+    createdAt: Date.now(),
+    dependencies,
+    ...(input.adapterDigest ? { adapterDigest: input.adapterDigest } : {}),
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    ...(input.sourceId ? { sourceId: input.sourceId } : {}),
+  };
+  immutableBytes(assetPath(assetDirectory(rootDir, scope), 'assets', `${id}.bin`), bytes);
+  value.records.push(record);
+  return record;
+}
+
+/** Internal composition: revocation and source tombstones share one transaction. */
+export function beginRsiAssetDeletion(
+  state: RsiState,
+  taskScope: RsiTaskScope,
+  input: { assetIds: string[]; expectedRevision: number }
+): { id: string; assetIds: string[]; requiredStopSessions: string[] } {
+  cas(state, input.expectedRevision);
+  const value = assets(state),
+    taskScopeDigest = rsiTaskScopeDigest(taskScope);
+  if (!Array.isArray(input.assetIds) || !input.assetIds.length || input.assetIds.length > 1000)
+    throw new RsiError('invalid_asset_reference');
+  const ids = new Set(input.assetIds);
+  for (const id of ids) recordFor(state, taskScope, id);
+  for (;;) {
+    const before = ids.size;
+    for (const record of value.records)
+      if (!record.deletedAt && record.dependencies.some((id) => ids.has(id))) ids.add(record.id);
+    if (ids.size === before) break;
+  }
+  const records = value.records.filter((item) => ids.has(item.id));
+  if (records.some((item) => item.taskScopeDigest !== taskScopeDigest))
+    throw new RsiError('asset_scope_mismatch', 409);
+  const sourceIds = new Set(
+    records.flatMap((item) => [item.id, ...(item.sourceId ? [item.sourceId] : [])])
+  );
+  const sessionIds = new Set(records.flatMap((item) => (item.sessionId ? [item.sessionId] : [])));
+  const revoked = new Set(
+    records.flatMap((item) => (item.adapterDigest ? [item.adapterDigest] : []))
+  );
+  for (;;) {
+    const before = revoked.size + sessionIds.size;
+    for (const session of state.trainingSessions ?? [])
+      if (
+        rsiTaskScopeDigest(session.taskScope) === taskScopeDigest &&
+        (Object.values(session.cases)
+          .flat()
+          .some((item) => sourceIds.has(item.id)) ||
+          (session.candidateDigest && revoked.has(session.candidateDigest)))
+      )
+        sessionIds.add(session.id);
+    for (const candidate of state.candidates)
+      if (
+        candidate.taskScope &&
+        rsiTaskScopeDigest(candidate.taskScope) === taskScopeDigest &&
+        (candidate.caseIds.some((id) => sourceIds.has(id)) ||
+          revoked.has(candidate.baseDigest) ||
+          (candidate.trainingSessionId && sessionIds.has(candidate.trainingSessionId)))
+      )
+        revoked.add(candidate.adapter.digest);
+    if (before === revoked.size + sessionIds.size) break;
+  }
+  // Policy and revocations commit together, before physical deletion can begin.
+  const reset = (policy: RsiPolicy, scopeDigest?: string) => {
+    if (
+      !revoked.has(policy.activeDigest) &&
+      !(policy.previousDigest && revoked.has(policy.previousDigest))
+    )
+      return;
+    const from = policy.activeDigest;
+    policy.version += 1;
+    policy.activeDigest = RSI_BASELINE.digest;
+    policy.previousDigest = null;
+    policy.updatedAt = Date.now();
+    state.transitions.push({
+      at: Date.now(),
+      kind: 'rollback',
+      fromDigest: from,
+      toDigest: RSI_BASELINE.digest,
+      policyVersion: policy.version,
+      ...(scopeDigest ? { taskScopeDigest: scopeDigest } : {}),
+    });
+  };
+  reset(state.policy);
+  for (const [digest, policy] of Object.entries(state.trainingPolicies ?? {}))
+    reset(policy, digest);
+  for (const session of state.trainingSessions ?? [])
+    if (sessionIds.has(session.id)) session.status = 'cancelled';
+  for (const lease of value.leases)
+    if (sessionIds.has(lease.sessionId) && lease.status === 'running') lease.status = 'revoked';
+  for (const record of value.records) if (ids.has(record.id)) record.deletedAt = Date.now();
+  value.deletedIds = [...new Set([...value.deletedIds, ...ids])];
+  value.invalidatedAdapters = [...new Set([...value.invalidatedAdapters, ...revoked])];
+  if (
+    value.deletedIds.length > 10000 ||
+    value.invalidatedAdapters.length > 10000 ||
+    value.deletions.length >= 1000
+  )
+    throw new RsiError('asset_deletion_ledger_limit', 409);
+  state.candidates = state.candidates.filter((candidate) => !revoked.has(candidate.adapter.digest));
+  state.cases = state.cases.filter((item) => !sourceIds.has(item.id));
+  state.evaluations = state.evaluations.filter((item) => !revoked.has(item.candidateDigest));
+  for (const confirmation of state.trainingConfirmations ?? [])
+    if (sessionIds.has(confirmation.sessionId)) {
+      confirmation.status = 'unavailable';
+      confirmation.results = [];
+      confirmation.errorCode = 'asset_deleted';
+    }
+  const deletion = {
+    id: randomUUID(),
+    taskScopeDigest,
+    assetIds: [...ids],
+    sessionIds: [...sessionIds],
+    at: Date.now(),
+  };
+  value.deletions.push(deletion);
+  return {
+    id: deletion.id,
+    assetIds: deletion.assetIds,
+    requiredStopSessions: deletion.sessionIds,
+  };
 }
