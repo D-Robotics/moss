@@ -379,6 +379,7 @@ function isErrorStopReason(stopReason: string | undefined): boolean {
     stopReason === 'error' ||
     stopReason === 'aborted_by_user' ||
     stopReason === 'tool_budget_reached' ||
+    stopReason === 'tool_wait_timeout' ||
     isOutputLimitStop(stopReason) ||
     isBudgetStopReason(stopReason) ||
     isMaxTurnsStopReason(stopReason)

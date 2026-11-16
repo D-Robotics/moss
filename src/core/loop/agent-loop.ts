@@ -14,6 +14,7 @@ import {
   wasConnectionReused,
 } from '../../provider/keep-alive-dispatcher.js';
 import { resolveToolFollowupBypassCap } from '../../utils/max-agent-turns.js';
+import { uiText } from '../../utils/ui-language.js';
 import { checkRunBudgetBreach } from './agent-loop-types.js';
 import {
   resolveContextCharsPerTokenUnit,
@@ -440,7 +441,7 @@ export function runAgentLoop(
             const steeringMessages = await getSteeringMessages();
             if (steeringMessages.length > 0) state.pendingMessages.push(...steeringMessages);
           }
-          if (state.turns >= maxTurns) {
+          if (maxTurns !== null && state.turns >= maxTurns) {
             const needsToolFollow = lastMessageNeedsToolFollowUpLlm(currentMessages);
             if (needsToolFollow && state.postLimitToolFollowUpsUsed < toolFollowupBypassCap) {
               state.postLimitToolFollowUpsUsed += 1;
@@ -548,7 +549,7 @@ export function runAgentLoop(
               previousPrefixSnapshot,
               previousToolNames,
               prefixDebugEnabled,
-              maxTurns,
+              maxTurns: maxTurns ?? undefined,
             });
 
             previousPrefixSnapshot = ctxResult.updatedSnapshots.previousPrefixSnapshot;
@@ -626,7 +627,12 @@ export function runAgentLoop(
               currentMessages,
               assistantBuffer: turnAssistantBuffer,
               resolveToolsForRun,
-              toolCtx,
+              toolCtx: {
+                ...toolCtx,
+                ...(budget?.maxWallMs !== undefined
+                  ? { taskObservationDeadlineAt: runStartMs + budget.maxWallMs }
+                  : {}),
+              },
               toolHooks: params.toolHooks,
               toolTimeoutMs,
               toolHeartbeatIntervalMs,
@@ -653,6 +659,23 @@ export function runAgentLoop(
             state.consecutiveTurnErrors = 0;
 
             await flushAssistantBuffer(turnAssistantBuffer);
+
+            if (state.taskWaitTimeout) {
+              const waited = state.taskWaitTimeout;
+              state.finalText = uiText(
+                `Task ${waited.taskId} is still ${waited.status}. The observation window elapsed; the external task was not cancelled. Continue to check this task and resume the remaining work.`,
+                `任务 ${waited.taskId} 的状态仍为 ${waited.status}。等待窗口已结束，外部任务未被取消；可继续查询此任务，并接着完成后续工作。`
+              );
+              stream.push({
+                type: 'turn_transition',
+                turn: state.turns,
+                reason:
+                  budget?.maxWallMs !== undefined && Date.now() - runStartMs >= budget.maxWallMs
+                    ? 'budget_wall_ms_reached'
+                    : 'tool_wait_timeout',
+              });
+              break outerLoop;
+            }
 
             if (
               responseResult.control === 'break' &&
@@ -857,6 +880,7 @@ export function runAgentLoop(
       stream.end({
         finalText: state.finalText,
         ...(state.suspendedTool ? { suspendedTool: state.suspendedTool } : {}),
+        ...(state.taskWaitTimeout ? { taskWaitTimeout: state.taskWaitTimeout } : {}),
         turns: state.turns,
         totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
         messages: currentMessages,

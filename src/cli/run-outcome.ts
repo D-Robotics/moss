@@ -468,6 +468,9 @@ export function stuckClassFromUnfinished(runError: string): { en: string; zh: st
   const s = runError.replace(/\s+/g, ' ').trim();
   if (!s) return undefined;
   const lower = s.toLowerCase();
+  if (/tool_wait_timeout|observation window|等待窗口/.test(lower)) {
+    return { en: 'waiting for external task', zh: '等待外部任务' };
+  }
   if (
     /error_max_turns|max_turns_reached|tool_followup_cap|turn limit|回合上限/.test(lower) ||
     /hit the turn limit/.test(lower)

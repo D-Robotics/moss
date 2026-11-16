@@ -5,6 +5,7 @@ import type { AgentLoopToolExecutionMetrics } from './agent-loop-tool-execution.
 
 export interface AgentLoopMutableState {
   suspendedTool?: import('../tools/tool-suspension.js').SuspendedToolCall;
+  taskWaitTimeout?: import('../tools/task-observation.js').ToolWaitTimeout;
   turns: number;
   compactionRetries: number;
   outputContinuationCount: number;

@@ -13,7 +13,7 @@ export interface AgentLoopRun {
   params: AgentLoopParams;
   state: AgentLoopRunState;
   hooks: AgentHooks | undefined;
-  maxTurns: number;
+  maxTurns: number | null;
   abortSignal: AbortSignal;
   adapter: ReturnType<typeof createMossAgentLoopEventAdapter>;
   sessionKey: string;

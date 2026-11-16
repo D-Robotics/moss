@@ -240,3 +240,9 @@ export type {
 } from './contracts/superagent.js';
 export { suspendToolCall } from './core/tools/tool-suspension.js';
 export type { SuspendedToolCall } from './core/tools/tool-suspension.js';
+export { readTaskObservation } from './core/tools/task-observation.js';
+export type {
+  TaskObservationPolicy,
+  TaskObservation,
+  ToolWaitProgress,
+} from './core/tools/task-observation.js';

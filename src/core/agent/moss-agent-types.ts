@@ -199,7 +199,8 @@ export interface MossAgentConfig
   /** v0.12 model routing tiers (same gateway/key). */
   modelTiers?: { cheap?: string; balanced?: string; strong?: string };
 
-  maxAgentTurns?: number;
+  /** Explicit unlimited turns for host-managed runs; budgets and no-progress guards still apply. */
+  maxAgentTurns?: number | 'unlimited';
 
   hooks?: AgentHooks;
 
@@ -351,7 +352,8 @@ export interface ChatOptions {
   approvedPreflightSubagents?: ApprovedPreflightAssignment[];
   onApprovedPreflightProgress?: (event: ApprovedPreflightProgress) => void;
 
-  maxTurns?: number;
+  /** Overrides the agent turn policy. Unlimited does not disable explicit RunBudget limits. */
+  maxTurns?: number | 'unlimited';
 
   maxToolCalls?: number;
 
@@ -400,6 +402,7 @@ export type MossAgentEvent =
   | { type: 'tool_start'; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | {
       type: 'tool_progress';
+      toolWait?: import('../tools/task-observation.js').ToolWaitProgress;
       toolName: string;
       toolCallId: string;
       elapsedSec: number;

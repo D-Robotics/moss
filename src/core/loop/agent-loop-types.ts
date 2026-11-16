@@ -114,7 +114,7 @@ export interface AgentLoopHardCaps {
 }
 
 export interface AgentLoopPolicy {
-  maxTurns: number;
+  maxTurns: number | null;
   maxToolCalls?: number;
   contextTokens: number;
   pruningSettings?: Partial<ContextPruningSettings>;

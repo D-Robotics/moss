@@ -74,7 +74,7 @@ export interface ProcessLlmResponseParams {
   /** O13: provider id of the active model, for per-provider thinking-only recovery. */
   provider?: string;
   modelId?: string;
-  maxTurns: number;
+  maxTurns: number | null;
   maxOutputContinuations: number;
   abortSignal: AbortSignal;
   isQuiet: boolean;
@@ -525,7 +525,7 @@ export async function processLlmResponse(
   state.lastTurnEndMs = Date.now();
   state.pendingMessages = toolExecution.pendingMessages;
 
-  if (state.taskAcceptanceCommitted || state.suspendedTool) {
+  if (state.taskAcceptanceCommitted || state.suspendedTool || state.taskWaitTimeout) {
     state.hasMoreToolCalls = false;
     state.pendingMessages = [];
     return { control: 'break' };

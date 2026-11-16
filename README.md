@@ -251,3 +251,9 @@ CI 把同一条门禁拆成两片并行、每片仍是 60s 预算；改坏会在
 ## License
 
 MIT（见 [LICENSE](LICENSE)）。
+
+Host-managed SDK runs may opt in to `maxAgentTurns: 'unlimited'` (or per-run
+`maxTurns: 'unlimited'`). The default finite turn policy is unchanged. The loop
+reports `maxTurns: null` to turn hooks for this mode. Explicit `budget` limits,
+permissions, cancellation, context/output constraints, and tool no-progress
+guards remain effective; hosts must omit cumulative budgets separately.
