@@ -440,7 +440,7 @@ export function runAgentLoop(
             const steeringMessages = await getSteeringMessages();
             if (steeringMessages.length > 0) state.pendingMessages.push(...steeringMessages);
           }
-          if (state.turns >= maxTurns) {
+          if (maxTurns !== null && state.turns >= maxTurns) {
             const needsToolFollow = lastMessageNeedsToolFollowUpLlm(currentMessages);
             if (needsToolFollow && state.postLimitToolFollowUpsUsed < toolFollowupBypassCap) {
               state.postLimitToolFollowUpsUsed += 1;
@@ -548,7 +548,7 @@ export function runAgentLoop(
               previousPrefixSnapshot,
               previousToolNames,
               prefixDebugEnabled,
-              maxTurns,
+              maxTurns: maxTurns ?? undefined,
             });
 
             previousPrefixSnapshot = ctxResult.updatedSnapshots.previousPrefixSnapshot;

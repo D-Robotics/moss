@@ -11,6 +11,7 @@ const EXAMPLES = [
   'examples/custom-tool-approval.mjs',
   'examples/skill-catalog.mjs',
   'examples/tool-continuation.mjs',
+  'scripts/verify/uncapped-agent.mjs',
 ];
 
 export const stage = {
