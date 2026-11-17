@@ -47,6 +47,7 @@ export { RsiReplayCaseStore } from './replay-store.js';
 export { RsiSharedAdapterStore } from './shared-store.js';
 export { RsiManagedAdapterStore } from './managed-store.js';
 export type { RsiManagedOverview } from './managed-store.js';
+export { rsiManagedTaskScopeDigest } from './managed-scope.js';
 export { selectRsiManagedCandidate } from './managed-selection.js';
 export {
   createRsiManagedEnvelope,

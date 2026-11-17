@@ -1,5 +1,6 @@
 import type { RsiSelectedAdapter } from './engine.js';
-import { rsiTaskScopeDigest } from './external-training.js';
+import { rsiManagedTaskScopeDigest } from './managed-scope.js';
+import { sharedFail } from './shared-validation.js';
 import { managedGatewayIdentity, managedTargets, managedTexts } from './managed-validation.js';
 import { sharedInteger, sharedText } from './shared-validation.js';
 import type {
@@ -62,7 +63,7 @@ function selection(
       digest: adapter.digest,
       applicationMode: 'native-sdk',
       policyVersion: manifest.revision,
-      taskScopeDigest: rsiTaskScopeDigest(context.taskScope),
+      taskScopeDigest: rsiManagedTaskScopeDigest(context.taskScope),
       registry: {
         registryId: pkg.registryId,
         packageId: pkg.packageId,
@@ -93,6 +94,12 @@ export function selectRsiManagedCandidate(
   packages: ReadonlyArray<{ digest: string; package: RsiManagedPackage }>,
   context: RsiManagedRunContext
 ): RsiManagedDecision {
+  rsiManagedTaskScopeDigest(context.taskScope);
+  if (
+    'kind' in context.taskScope &&
+    (context.profile !== 'board-readonly-diagnostics' || !context.boardPlatform)
+  )
+    sharedFail('device_scope_profile');
   sharedText(context.profile);
   sharedText(context.profileVersion);
   managedTexts([...context.tools], true);

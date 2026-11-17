@@ -70,14 +70,23 @@ export interface RsiManagedEnvelope<T extends RsiManagedPayload = RsiManagedPayl
   digest: string;
   signature: string;
 }
-/** The host supplies facts from actual admission, never an assistant/brower claim. */
+/** Managed readonly device runs have no Git revision and never enter Hermit training scope. */
+export interface RsiManagedDeviceScope {
+  kind: 'device-binding';
+  projectId: string;
+  deviceId: string;
+  bindingRevision: string;
+  capabilitiesDigest: string;
+}
+export type RsiManagedTaskScope = RsiTaskScope | RsiManagedDeviceScope;
+/** The host supplies facts from actual admission, never an assistant/browser claim. */
 export interface RsiManagedRunContext {
   profile: string;
   profileVersion: string;
   gateway?: RsiManagedGatewayIdentity;
   tools: readonly string[];
   boardPlatform?: string;
-  taskScope: RsiTaskScope;
+  taskScope: RsiManagedTaskScope;
   /** Stable, account-isolated deployment bucket in [0, 99]. No raw owner is published. */
   cohort: number;
 }

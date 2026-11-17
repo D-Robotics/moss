@@ -13,6 +13,8 @@ import {
   InMemorySessionStore,
   rsiAdapterDigest,
   rsiDigest,
+  rsiManagedTaskScopeDigest,
+  rsiTaskScopeDigest,
 } from '../dist/index.js';
 import {
   createRsiManagedEnvelope,
@@ -117,6 +119,30 @@ const store = new RsiManagedAdapterStore(root, { now: () => now });
 const select = (overrides = {}) =>
   store.select(scope, { trust, context: { ...context, ...overrides } });
 try {
+  const deviceScope = {
+    kind: 'device-binding',
+    projectId: 'registered-board-project',
+    deviceId: 'actual-x5',
+    bindingRevision: rsiDigest('registered-device-binding-v1'),
+    capabilitiesDigest: rsiDigest('actual-readonly-tools'),
+  };
+  const deviceDigest = rsiManagedTaskScopeDigest(deviceScope);
+  assert.match(deviceDigest, /^[a-f0-9]{64}$/);
+  assert.throws(() => rsiTaskScopeDigest(deviceScope), /invalid_training_shape/);
+  assert.throws(() =>
+    rsiManagedTaskScopeDigest({ ...deviceScope, repositoryRevision: 'a'.repeat(40) })
+  );
+  assert.throws(() =>
+    rsiManagedTaskScopeDigest({ ...deviceScope, bindingRevision: 'a'.repeat(40) })
+  );
+  assert.notEqual(
+    deviceDigest,
+    rsiManagedTaskScopeDigest({ ...deviceScope, deviceId: 'other-x5' })
+  );
+  assert.notEqual(
+    deviceDigest,
+    rsiManagedTaskScopeDigest({ ...deviceScope, bindingRevision: 'b'.repeat(64) })
+  );
   assert.equal(select().reason, 'cache_cold');
   assert.equal(verifyRsiManagedEnvelope(pkg, trust, now).digest, pkg.digest);
   const tampered = structuredClone(pkg);
@@ -183,6 +209,45 @@ try {
   assert.equal(selected.receipt.registry.packageDigest, pkg.digest);
   const reopened = new RsiManagedAdapterStore(root, { now: () => now });
   assert.equal(reopened.select(scope, { trust, context }).packageDigest, pkg.digest);
+
+  const boardScope = { ...scope, ownerKey: 'board-owner' };
+  const boardPackage = packageFor('2.0.0', [targetA, targetB], {
+    profiles: [{ id: 'board-readonly-diagnostics', version: '1' }],
+    boardPlatforms: ['rdk-x5'],
+    requiredTools: ['device_file_read'],
+  });
+  const boardManifest = manifestFor(1, [
+    {
+      policyId: 'board-default',
+      packageDigest: boardPackage.digest,
+      priority: 10,
+      rolloutPercent: 100,
+    },
+  ]);
+  store.sync(boardScope, { trust, manifest: boardManifest, packages: [boardPackage] });
+  const boardContext = {
+    ...context,
+    profile: 'board-readonly-diagnostics',
+    boardPlatform: 'rdk-x5',
+    tools: ['device_file_read'],
+    taskScope: deviceScope,
+  };
+  const boardSelected = store.select(boardScope, { trust, context: boardContext });
+  assert.equal(boardSelected.reason, 'selected');
+  assert.equal(boardSelected.selection.receipt.taskScopeDigest, deviceDigest);
+  assert.throws(
+    () =>
+      store.select(boardScope, {
+        trust,
+        context: { ...boardContext, profile: 'studio-development' },
+      }),
+    /device_scope_profile/
+  );
+  assert.throws(
+    () =>
+      store.select(boardScope, { trust, context: { ...boardContext, boardPlatform: undefined } }),
+    /device_scope_profile/
+  );
 
   // Actual Moss native loop proves injection and receipt, not just selection intent.
   const engine = new RsiEngine({ rootDir: root });
