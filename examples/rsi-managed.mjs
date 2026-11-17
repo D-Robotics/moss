@@ -15,6 +15,7 @@ import {
   rsiDigest,
   rsiManagedTaskScopeDigest,
   rsiTaskScopeDigest,
+  selectRsiManagedCandidate,
 } from '../dist/index.js';
 import {
   createRsiManagedEnvelope,
@@ -235,19 +236,27 @@ try {
   const boardSelected = store.select(boardScope, { trust, context: boardContext });
   assert.equal(boardSelected.reason, 'selected');
   assert.equal(boardSelected.selection.receipt.taskScopeDigest, deviceDigest);
-  assert.throws(
-    () =>
-      store.select(boardScope, {
-        trust,
-        context: { ...boardContext, profile: 'studio-development' },
-      }),
-    /device_scope_profile/
-  );
-  assert.throws(
-    () =>
-      store.select(boardScope, { trust, context: { ...boardContext, boardPlatform: undefined } }),
-    /device_scope_profile/
-  );
+  for (const invalidContext of [
+    { ...boardContext, profile: 'studio-development' },
+    { ...boardContext, boardPlatform: undefined },
+  ]) {
+    assert.throws(
+      () =>
+        selectRsiManagedCandidate(
+          boardManifest.payload,
+          [{ digest: boardPackage.digest, package: boardPackage.payload }],
+          invalidContext
+        ),
+      /device_scope_profile/
+    );
+    const fallback = store.select(boardScope, { trust, context: invalidContext });
+    assert.equal(
+      fallback.selection,
+      undefined,
+      'An invalid device scope never injects a candidate'
+    );
+    assert.equal(fallback.reason, 'gateway_identity_unresolved');
+  }
 
   // Actual Moss native loop proves injection and receipt, not just selection intent.
   const engine = new RsiEngine({ rootDir: root });
