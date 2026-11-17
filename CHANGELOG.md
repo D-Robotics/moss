@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Managed shared instruction consumption (SDK 0.36)
+
+- Adds the versioned `rsi-managed-package` protocol entry, signed stable manifests
+  and instruction packages, gateway target-set compatibility and deterministic
+  rollout/priority selection without per-project installation approval.
+- Adds `RsiManagedAdapterStore` with account/environment-isolated atomic cache,
+  manifest-first revocation checkpoints, immutable versions and replay/fork guards.
+  Missing packages, unknown gateway identities and expired data keep the baseline.
+- Native receipts retain the frozen managed policy, gateway and task profile. The
+  host still supplies credentials, task admission and actual routing guarantees;
+  the SDK does not fetch services, collect content, train or invoke a model.
+
 ### Replayable daily cases (SDK 0.34)
 
 - Adds public `RsiReplayCaseStore` and replay profile, capture, grade, case and manifest

@@ -1,6 +1,6 @@
 {
   "name": "@rdk-moss/agent",
-  "version": "0.35.0",
+  "version": "0.36.0",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -35,6 +35,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./rsi-managed-package": {
+      "types": "./dist/core/rsi/managed-package.d.ts",
+      "import": "./dist/core/rsi/managed-package.js",
+      "default": "./dist/core/rsi/managed-package.js"
     },
     "./rsi-shared": {
       "types": "./dist/core/rsi/shared-package.d.ts",

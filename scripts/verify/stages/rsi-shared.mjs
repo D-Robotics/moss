@@ -15,8 +15,22 @@ export const stage = {
         timeoutMs: 60000,
       }
     );
-    return result.status === 0 && !result.timedOut
+    if (result.status !== 0 || result.timedOut)
+      return {
+        ok: false,
+        detail: `shared registry probe exited ${result.status ?? result.signal}`,
+      };
+    const managed = await runProcess(
+      process.execPath,
+      [path.join(context.root, 'examples/rsi-managed.mjs')],
+      {
+        cwd: context.root,
+        env: { ...process.env, MOSS_NO_RDK_DOCS: '1' },
+        timeoutMs: 60000,
+      }
+    );
+    return managed.status === 0 && !managed.timedOut
       ? { ok: true }
-      : { ok: false, detail: `shared registry probe exited ${result.status ?? result.signal}` };
+      : { ok: false, detail: `managed registry probe exited ${managed.status ?? managed.signal}` };
   },
 };

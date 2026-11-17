@@ -45,6 +45,18 @@ export type {
 export { RsiAssetStore } from './asset-store.js';
 export { RsiReplayCaseStore } from './replay-store.js';
 export { RsiSharedAdapterStore } from './shared-store.js';
+export { RsiManagedAdapterStore } from './managed-store.js';
+export type { RsiManagedOverview } from './managed-store.js';
+export { selectRsiManagedCandidate } from './managed-selection.js';
+export {
+  createRsiManagedEnvelope,
+  verifyRsiManagedEnvelope,
+  validateRsiManagedPackage,
+  validateRsiManagedManifest,
+  rsiManagedDigest,
+  rsiManagedManifestContentDigest,
+} from './managed-package.js';
+export type * from './managed-types.js';
 export {
   canonicalRsiSharedJson,
   rsiSharedDigest,

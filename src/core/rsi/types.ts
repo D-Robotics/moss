@@ -1,4 +1,5 @@
 import type { RsiSharedAdapterSource } from './shared-types.js';
+import type { RsiManagedReceipt } from './managed-types.js';
 
 /** Bounded RSI records contain metadata and explicitly enrolled instruction data only. */
 export type RsiEnvironment = 'production' | 'staging' | 'development' | 'test';
@@ -21,6 +22,8 @@ export interface RsiAdapterReceipt {
   taskScopeDigest?: string;
   /** Present only when a trusted shared package was selected for this actual run. */
   registry?: RsiSharedAdapterSource;
+  /** Frozen managed policy provenance; native observer still confirms actual application. */
+  managed?: RsiManagedReceipt;
 }
 export interface RsiRunEvent {
   seq: number;
