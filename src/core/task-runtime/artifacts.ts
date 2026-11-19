@@ -7,6 +7,7 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import type { DeploymentRecord } from '../../contracts/deployment.js';
 import type { EvidenceRecord } from '../../contracts/evidence.js';
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
@@ -16,7 +17,11 @@ import { redactEgress } from '../../safety/tool-output-redact.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 import { ErrorCode, MossError } from '../../errors.js';
 import { TaskExecutionSupersededError } from '../task/task-execution-guard.js';
-import { withTaskEventLock, withTaskArtifactReadLock } from '../task/task-store.js';
+import {
+  withTaskEventLock,
+  withTaskArtifactReadLock,
+  getTaskStateSnapshot,
+} from '../task/task-store.js';
 
 import {
   acceptanceAppendDispatched,
@@ -277,7 +282,19 @@ export async function appendTaskRecord(
   signal?: AbortSignal
 ): Promise<void> {
   await withTaskEventLock(workspaceDir, async () => {
-    const current = (await listTaskRecords(workspaceDir)).find((row) => row.taskId === task.taskId);
+    const current = (await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+      (row) => row.taskId === task.taskId
+    );
+    if (
+      current?.status === 'accepted' &&
+      (await getTaskStateSnapshot(workspaceDir, task.taskId))?.phase === 'accepted' &&
+      !isDeepStrictEqual({ ...current, updatedAt: 0 }, { ...task, updatedAt: 0 })
+    ) {
+      throw new MossError({
+        code: ErrorCode.EXECUTION_STATE_INVALID,
+        message: `task ${task.taskId}: accepted tasks are immutable; create a new task`,
+      });
+    }
     if (current && (current.revision ?? 0) > 0) {
       if ((task.revision ?? 0) !== current.revision) {
         throw new TaskExecutionSupersededError(`task ${task.taskId}: stale task revision`);
@@ -350,7 +367,9 @@ export async function appendEvidenceRecordWithSignal(
 ): Promise<void> {
   await withTaskEventLock(workspaceDir, async () => {
     const task = record.taskId
-      ? (await listTaskRecords(workspaceDir)).find((row) => row.taskId === record.taskId)
+      ? (await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+          (row) => row.taskId === record.taskId
+        )
       : undefined;
     const revision = task?.revision ?? 0;
     if (record.taskRevision !== undefined && record.taskRevision !== revision) {
@@ -416,7 +435,9 @@ export async function appendAcceptanceVerdict(
   signal?: AbortSignal
 ): Promise<void> {
   await withTaskEventLock(workspaceDir, async () => {
-    const task = (await listTaskRecords(workspaceDir)).find((row) => row.taskId === verdict.taskId);
+    const task = (await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+      (row) => row.taskId === verdict.taskId
+    );
     const revision = task?.revision ?? 0;
     if ((verdict.taskRevision ?? 0) !== revision) {
       throw new TaskExecutionSupersededError(`task ${verdict.taskId}: stale acceptance revision`);

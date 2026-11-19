@@ -82,6 +82,16 @@ try {
   checks++;
 
   const task = await activeTask('revised');
+  for (let index = 0; index < 51; index++) {
+    await artifacts.appendTaskRecord(task.workspaceDir, {
+      taskId: `later-task-${index}`,
+      goal: 'An unrelated later task',
+      status: 'draft',
+      acceptanceCriteria: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  }
   await evidence(task);
   assert.equal(await verdicts.acceptanceAlreadySatisfied(task.workspaceDir, task.taskId), true);
   const change = {
@@ -95,7 +105,9 @@ try {
   assert.equal(revised.goal, change.changes.goal);
   assert.equal(revised.needsReplan, true);
   assert.deepEqual(revised.plan, []);
-  const effective = (await artifacts.listTaskRecords(task.workspaceDir))[0];
+  const effective = (
+    await artifacts.listTaskRecords(task.workspaceDir, Number.MAX_SAFE_INTEGER)
+  ).find((record) => record.taskId === task.taskId);
   assert.deepEqual(effective.constraints, ['read-only', 'reply in English']);
   assert.equal(effective.targetDeviceId, 'x5');
   assert.equal(effective.originalGoal, 'Read the X5 kernel');
@@ -133,7 +145,9 @@ try {
     { workspaceDir: task.workspaceDir }
   );
   assert.deepEqual(
-    (await artifacts.listTaskRecords(task.workspaceDir))[0].constraints,
+    (await artifacts.listTaskRecords(task.workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+      (record) => record.taskId === task.taskId
+    ).constraints,
     effective.constraints
   );
   const refused = await tools.taskDefineTool.execute(
@@ -171,6 +185,26 @@ try {
   assert.equal(resumed.outcome, 'pass');
   assert.equal(resumed.snapshot.revision, 1);
   assert.equal(resumed.snapshot.needsReplan, false);
+  assert.match(
+    await tools.taskDefineTool.execute(
+      {
+        task_id: task.taskId,
+        goal: 'Rewrite accepted history',
+        acceptance_criteria: [{ metric: 'observed', expected: '== true' }],
+      },
+      { workspaceDir: task.workspaceDir }
+    ),
+    /accepted; create a new task/
+  );
+  await assert.rejects(
+    artifacts.appendTaskRecord(task.workspaceDir, {
+      ...(await artifacts.listTaskRecords(task.workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+        (record) => record.taskId === task.taskId
+      ),
+      goal: 'Rewrite accepted history',
+    }),
+    /accepted tasks are immutable/
+  );
   await assert.rejects(
     revision.applyTaskRevision(task.workspaceDir, task.taskId, {
       ...change,

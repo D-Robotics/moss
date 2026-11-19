@@ -192,7 +192,9 @@ export async function appendTaskEventUnlocked(
   signal?.throwIfAborted();
   const events = await listTaskEvents(workspaceDir, taskId);
   signal?.throwIfAborted();
-  const contract = (await listTaskRecords(workspaceDir)).find((task) => task.taskId === taskId);
+  const contract = (await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+    (task) => task.taskId === taskId
+  );
   const revision = contract?.revision ?? 0;
   if (
     type === 'task_revised' &&
@@ -442,7 +444,7 @@ export async function getTaskStateSnapshot(
   taskId: string
 ): Promise<TaskStateSnapshot | null> {
   return withTaskArtifactReadLock(workspaceDir, async () => {
-    const tasks = await listTaskRecords(workspaceDir);
+    const tasks = await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER);
     const contract = tasks.find((task) => task.taskId === taskId);
     if (!contract) return null;
 
@@ -508,7 +510,7 @@ export async function getTaskStateSnapshot(
 }
 
 export async function listTaskStateSnapshots(workspaceDir: string): Promise<TaskStateSnapshot[]> {
-  const tasks = await listTaskRecords(workspaceDir);
+  const tasks = await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER);
   const snapshots = await Promise.all(
     tasks.map((task) => getTaskStateSnapshot(workspaceDir, task.taskId))
   );

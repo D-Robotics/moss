@@ -78,8 +78,9 @@ function commandVerdictProvider(
     source: 'command',
     async evaluate(taskId, signal) {
       const revision = workspaceDir
-        ? ((await listTaskRecords(workspaceDir)).find((task) => task.taskId === taskId)?.revision ??
-          0)
+        ? ((await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+            (task) => task.taskId === taskId
+          )?.revision ?? 0)
         : 0;
       if (workspaceDir && (await getTaskStateSnapshot(workspaceDir, taskId))?.needsReplan)
         throw new TaskExecutionSupersededError(`task ${taskId}: a current plan is required`);
@@ -147,7 +148,7 @@ export async function acceptanceAlreadySatisfied(
   taskId: string
 ): Promise<boolean> {
   if ((await getTaskStateSnapshot(workspaceDir, taskId))?.needsReplan) return false;
-  const tasks = await listTaskRecords(workspaceDir);
+  const tasks = await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER);
   const task = tasks.find((candidate) => candidate.taskId === taskId);
   if (!task || task.acceptanceCriteria.length === 0) return false;
   const evidence = await listTaskEvidenceRecords(workspaceDir, task.taskId);
@@ -171,7 +172,7 @@ async function evaluateContractWithAuthority(
   expectedRevision?: number
 ): Promise<{ verdict: AcceptanceVerdict; task: TaskContract } | null> {
   signal?.throwIfAborted();
-  const tasks = await listTaskRecords(workspaceDir);
+  const tasks = await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER);
   signal?.throwIfAborted();
   if (tasks.length === 0) return null;
   const task = taskId
@@ -255,7 +256,7 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
           signal?.throwIfAborted();
           // Guard: a draft contract with no criteria would trivially "pass"
           // (nothing to fail). No criteria = no defined done = not accepted.
-          const tasks = await listTaskRecords(workspaceDir);
+          const tasks = await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER);
           signal?.throwIfAborted();
           const task = tasks.find((candidate) => candidate.taskId === taskId);
           if (task && task.acceptanceCriteria.length === 0) {
@@ -411,7 +412,9 @@ async function assertCurrentRevision(
   taskId: string,
   expectedRevision: number
 ): Promise<void> {
-  const current = (await listTaskRecords(workspaceDir)).find((task) => task.taskId === taskId);
+  const current = (await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+    (task) => task.taskId === taskId
+  );
   if ((current?.revision ?? 0) !== expectedRevision)
     throw new TaskExecutionSupersededError(`task ${taskId}: acceptance revision changed`);
 }

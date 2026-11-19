@@ -109,7 +109,9 @@ export async function applyTaskRevision(
       const restored = await getTaskStateSnapshot(workspaceDir, taskId);
       if (restored) return restored;
     }
-    const contract = (await listTaskRecords(workspaceDir)).find((task) => task.taskId === taskId);
+    const contract = (await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+      (task) => task.taskId === taskId
+    );
     const snapshot = await getTaskStateSnapshot(workspaceDir, taskId);
     if (!contract || !snapshot) {
       throw new MossError({
