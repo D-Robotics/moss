@@ -479,6 +479,7 @@ export function runAgentLoop(
 
           // Sample after awaited host steering. This request's declarations and
           // reminders share one snapshot; tool execution still resolves live.
+          await params.taskIntentTurn?.prepare();
           const toolsForTurn = [...resolveToolsForRun()];
           state.pendingMessages.splice(
             nudgeInsertionIndex,
@@ -609,6 +610,7 @@ export function runAgentLoop(
             turnToolCalls = llmResult.toolCalls;
 
             const responseResult = await processLlmResponse({
+              taskIntentTurn: params.taskIntentTurn,
               provider: modelDef.provider,
               modelId: modelDef.id,
               state,
@@ -679,7 +681,7 @@ export function runAgentLoop(
 
             if (
               responseResult.control === 'break' &&
-              (state.taskAcceptanceCommitted || state.suspendedTool)
+              (state.taskAcceptanceCommitted || state.suspendedTool || state.taskIntentHalted)
             ) {
               break outerLoop;
             }

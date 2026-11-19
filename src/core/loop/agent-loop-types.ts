@@ -123,6 +123,7 @@ export interface AgentLoopPolicy {
 }
 
 export interface AgentLoopExtensions {
+  taskIntentTurn?: import('../session/task-intent-turn.js').TaskIntentTurn;
   /** Observation only; exceptions are ignored and cannot change loop execution. */
   onAgentLoopEvent?: AgentLoopEventObserver;
   getSteeringMessages?: () => Promise<Message[]>;
@@ -145,6 +146,8 @@ export interface AgentLoopExtensions {
   compactHooks?: CompactHookRegistry;
   steeringEngine?: SteeringEngine;
   completionGate?: (request: {
+    /** Immutable intent of this response, never the latest state at callback wakeup. */
+    taskIntentBinding?: import('../../contracts/task-intent.js').TaskIntentSnapshot;
     sessionKey: string;
     runId: string;
     turn: number;

@@ -120,6 +120,9 @@ import {
   type SessionInboxDelivery,
 } from '../session/session-inbox.js';
 import { runSessionDrain, type SessionDrainResult } from '../session/session-drain.js';
+import { TaskIntentCoordinator } from '../session/task-intent-coordinator.js';
+import { TaskIntentTurn } from '../session/task-intent-turn.js';
+import type { TaskIntentInput, TaskIntentSnapshot } from '../../contracts/task-intent.js';
 import { loadSessionInbox, updateSessionInbox } from '../session/session-inbox-store.js';
 import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
 import { SessionEventLog, type SessionEvent } from '../session/session-event.js';
@@ -298,6 +301,7 @@ export class MossAgent {
     instanceId: crypto.randomUUID(),
   };
   private readonly activeRunIds = new Map<string, Set<string>>();
+  private readonly taskIntentTaskIds = new Map<string, string>();
   /** Polling claims an entry only until its canonical append acknowledges it. */
   private readonly claimedSteers = new Map<string, Set<string>>();
   private readonly steeringDeliveries = new WeakMap<InternalMessage, string>();
@@ -801,10 +805,50 @@ export class MossAgent {
     return this.inboxFor(sessionKey).pending();
   }
 
-  steer(sessionKey: string, prompt: string): SessionInboxEntry | null {
+  private intentFor(sessionKey: string): TaskIntentCoordinator {
+    return new TaskIntentCoordinator(
+      {
+        read: () => this.inboxFor(sessionKey),
+        mutate: (operation) => this.mutateInbox(sessionKey, operation),
+      },
+      path.resolve(this.config.workspaceDir ?? process.cwd())
+    );
+  }
+
+  admitTaskInput(sessionKey: string, input: TaskIntentInput): SessionInboxEntry | undefined {
+    return this.config.taskIntent ? this.intentFor(sessionKey).admit(input) : undefined;
+  }
+
+  getTaskIntent(sessionKey: string) {
+    return this.config.taskIntent ? this.intentFor(sessionKey).read() : undefined;
+  }
+
+  getTaskIntentReceipt(sessionKey: string, messageId: string) {
+    return this.config.taskIntent ? this.intentFor(sessionKey).receipt(messageId) : undefined;
+  }
+
+  assertTaskIntentCurrent(sessionKey: string, binding?: TaskIntentSnapshot): void {
+    if (this.config.taskIntent) this.intentFor(sessionKey).assertCurrent(binding);
+  }
+
+  steer(
+    sessionKey: string,
+    prompt: string,
+    options?: { id?: string; taskId?: string }
+  ): SessionInboxEntry | null {
     const activeRuns = this.activeRunIds.get(sessionKey);
     if (!activeRuns || activeRuns.size !== 1) return null;
     const runId = activeRuns.values().next().value as string;
+    if (this.config.taskIntent) {
+      return this.intentFor(sessionKey).admit(
+        {
+          id: options?.id ?? crypto.randomUUID(),
+          text: prompt,
+          taskId: options?.taskId ?? this.taskIntentTaskIds.get(sessionKey),
+        },
+        { runId, producer: this.inboxProducer }
+      );
+    }
     return this.mutateInbox(sessionKey, (inbox) =>
       inbox.admit({
         prompt,
@@ -1334,6 +1378,21 @@ ${result.stderr ?? ''}`.trim();
       }
     }
 
+    const nativeTaskId =
+      options?.taskId || (options?.userInput && options.userInput.taskId) || undefined;
+    if (nativeTaskId) this.taskIntentTaskIds.set(sessionKey, nativeTaskId);
+    if (this.config.taskIntent && !continuingTool && options?.userInput !== false) {
+      this.admitTaskInput(sessionKey, {
+        id: options?.userInput?.id ?? `user:${runId}`,
+        text: options?.userInput?.text ?? activeUserMessage,
+        ...(nativeTaskId ? { taskId: nativeTaskId } : {}),
+      });
+    }
+    const intentTurn = this.config.taskIntent
+      ? new TaskIntentTurn(this.intentFor(sessionKey), nativeTaskId)
+      : undefined;
+    await intentTurn?.prepare();
+
     const deferredEntries = this.inboxFor(sessionKey)
       .promotableSteers()
       .filter((entry) => entry.deferred);
@@ -1383,6 +1442,10 @@ ${result.stderr ?? ''}`.trim();
         ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
         ...(tinyToolSurface ? { omitSubagentExperts: true, compactGuidance: true } : {}),
       });
+      if (intentTurn) {
+        composed.dynamic = [composed.dynamic, intentTurn.prompt()].filter(Boolean).join('\n\n');
+        composed.full = [composed.stable, composed.dynamic].filter(Boolean).join('\n\n');
+      }
       if (harnessAdapter) {
         composed.stable += `\n\n## Host-selected harness instructions\nThese instructions do not grant permissions or change tool access.\n${harnessAdapter.instructions}`;
         composed.full = composed.dynamic
@@ -1532,11 +1595,16 @@ ${result.stderr ?? ''}`.trim();
         metadata: { ...(tool.metadata ?? {}), leanDescription: slim },
       };
     };
-    const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
-      filterToolsForRun(
+    const resolveRunTools = (): ReturnType<typeof filterToolsForRun> => {
+      const tools = filterToolsForRun(
         [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
         visibleForRun
       ).map(slimTinyWindowTool);
+      const declaration = intentTurn?.tool();
+      return declaration
+        ? [...tools.filter((tool) => tool.name !== declaration.name), declaration]
+        : tools;
+    };
     const allTools = resolveRunTools();
     const hostResolveMissingTool = this.config.resolveMissingTool;
     // A name that appears after the tool list was built (MCP handshake, or
@@ -2155,6 +2223,7 @@ ${result.stderr ?? ''}`.trim();
         loadToolsMetaName: TOOL_SEARCH_NAME,
       },
       getSteeringMessages: async () => this.takeSteeringMessages(sessionKey, runId),
+      ...(intentTurn ? { taskIntentTurn: intentTurn } : {}),
       getFollowUpMessages:
         this.config.enableFollowUpGuard !== false
           ? async () => {
@@ -2187,7 +2256,8 @@ ${result.stderr ?? ''}`.trim();
             })
         : undefined,
       // Buffer only when a host completionGate may rewrite or discard the answer.
-      shouldBufferAssistantOutput: () => this.config.bufferAssistantUntilComplete === true,
+      shouldBufferAssistantOutput: () =>
+        Boolean(intentTurn) || this.config.bufferAssistantUntilComplete === true,
       completionGate,
       onAgentLoopEvent: this.config.onAgentLoopEvent,
       // Per-instance epochs isolate same-session streams across embedded agents.

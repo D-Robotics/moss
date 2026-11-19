@@ -234,6 +234,14 @@ export type {
 
 // Unified task runtime (Task OS M5): one model, four interfaces.
 export { runTask, resumeTask, summarizeTaskRun } from './task/task-engine.js';
+export { applyTaskRevision } from './task/task-revision.js';
+export type { ApplyTaskRevisionInput, TaskRevisionChanges } from './task/task-revision.js';
+export {
+  withTaskExecutionGuard,
+  assertTaskExecutionCurrent,
+  TaskExecutionSupersededError,
+  isTaskExecutionSupersededError,
+} from './task/task-execution-guard.js';
 export type { TaskEngineDeps, TaskEngineProgress, TaskRunResult } from './task/task-engine.js';
 export { createAgentTurnRunner } from './task/agent-turn.js';
 export type { AgentTurnRunner, AgentTurnRunnerOptions } from './task/agent-turn.js';
