@@ -18,6 +18,11 @@ import type { DenialClass } from '../../contracts/tool-denial.js';
 import { createStreamingTextRedactor } from '../../safety/redact-stream.js';
 import { ToolSuspension, type SuspendedToolCall } from './tool-suspension.js';
 import {
+  assertTaskExecutionCurrent,
+  isTaskExecutionSupersededError,
+  withTaskExecutionGuard,
+} from '../task/task-execution-guard.js';
+import {
   taskObservationWaitMs,
   waitForTaskObservation,
   type ToolWaitTimeout,
@@ -341,6 +346,7 @@ function toolTimeoutHint(): string {
 }
 
 export interface ExecuteToolCallDeps {
+  assertExecutionCurrent?: () => void;
   toolsForRun: Tool[];
   toolCtx: ToolContext;
   sessionKey: string;
@@ -423,7 +429,22 @@ export async function executeOneToolCall(
   call: { id: string; name: string; input: Record<string, unknown> },
   deps: ExecuteToolCallDeps
 ): Promise<ExecuteToolCallOutcome> {
-  return executeOneToolCallInner(call, deps);
+  try {
+    return await (deps.assertExecutionCurrent
+      ? withTaskExecutionGuard(deps.assertExecutionCurrent, () =>
+          executeOneToolCallInner(call, deps)
+        )
+      : executeOneToolCallInner(call, deps));
+  } catch (error) {
+    if (!isTaskExecutionSupersededError(error)) throw error;
+    return {
+      kind: 'completed',
+      text: '[Task intent superseded] Not executed or interrupted before a task commit: newer user input replaced this call.',
+      isError: true,
+      durationMs: 0,
+      outcome: 'suppressed',
+    };
+  }
 }
 
 async function executeOneToolCallInner(
@@ -751,6 +772,7 @@ async function executeOneToolCallInner(
         if (attempt === 0) emitStart();
         reachedExecute = true;
         const runInvocation = async (input: Record<string, unknown>, signal = attemptSignal) => {
+          assertTaskExecutionCurrent();
           const validation = validateToolInputObject(tool, input);
           if (!validation.ok) {
             throw new MossError({
@@ -834,6 +856,7 @@ async function executeOneToolCallInner(
         }
         if (!attemptSignal.aborted) publishOutput(outputRedactor.flush());
       } catch (err) {
+        if (isTaskExecutionSupersededError(err)) throw err;
         if (
           err instanceof ToolSuspension &&
           tool.metadata?.canSuspend &&
@@ -1029,6 +1052,7 @@ async function executeOneToolCallInner(
       ...(waitTimeout ? { waitTimeout } : {}),
     };
   } catch (err) {
+    if (isTaskExecutionSupersededError(err)) throw err;
     if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) {
       return {
         kind: 'completed',
