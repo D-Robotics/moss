@@ -1381,6 +1381,8 @@ ${result.stderr ?? ''}`.trim();
     const nativeTaskId =
       options?.taskId || (options?.userInput && options.userInput.taskId) || undefined;
     if (nativeTaskId) this.taskIntentTaskIds.set(sessionKey, nativeTaskId);
+    else if (!continuingTool && options?.userInput !== false)
+      this.taskIntentTaskIds.delete(sessionKey);
     if (this.config.taskIntent && !continuingTool && options?.userInput !== false) {
       this.admitTaskInput(sessionKey, {
         id: options?.userInput?.id ?? `user:${runId}`,

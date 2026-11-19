@@ -187,6 +187,24 @@ try {
   assert.equal(rejected.read().taskId, fresh.taskId);
   assert.equal((await getTaskStateSnapshot(workspace, accepted.taskId)).goal, 'Completed goal');
   console.log('PASS rejected completed-task projection does not wedge later fresh-task inputs');
+  recovered.admit({ id: 'unbound', text: 'Explain a different topic' });
+  const unbound = await recovered.capture();
+  assert.equal(unbound.snapshot.taskId, undefined);
+  await recovered.commit(
+    unbound,
+    proposal(unbound, 'answer', [
+      {
+        field: 'goal',
+        operation: 'set',
+        value: 'Explain a different topic',
+        messageId: 'unbound',
+        quote: 'Explain a different topic',
+      },
+    ])
+  );
+  assert.equal(recovered.read().taskId, undefined);
+  assert.equal((await getTaskStateSnapshot(workspace, task.taskId)).goal, 'Original goal');
+  console.log('PASS a host-unbound follow-up does not rewrite the preceding native task');
 } finally {
   await fs.rm(workspace, { recursive: true, force: true });
 }

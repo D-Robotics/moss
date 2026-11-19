@@ -115,7 +115,13 @@ export class TaskIntentCoordinator {
     const inbox = this.port.read();
     const snapshot = readTaskIntent(inbox.toEntries());
     const inputs = structuredClone(pendingInputs(inbox));
-    const effectiveTaskId = taskId ?? inputs.at(-1)?.intent?.taskId ?? snapshot.taskId;
+    // A fresh host-unbound user turn must not revise the previous native task
+    // implicitly, especially after it has completed. Engine turns carry taskId.
+    const effectiveTaskId =
+      taskId ??
+      inputs.at(-1)?.intent?.taskId ??
+      (inputs.length === 0 ? snapshot.taskId : undefined);
+    if (!effectiveTaskId) delete snapshot.taskId;
     let taskRevision = 0;
     if (effectiveTaskId) {
       const task = await getTaskStateSnapshot(this.workspaceDir, effectiveTaskId);
