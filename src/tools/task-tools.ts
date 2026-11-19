@@ -100,6 +100,7 @@ export const taskDefineTool: Tool = {
       expected_behavior: { type: 'string' },
       verification_plan: { type: 'array', items: { type: 'string' } },
       task_id: { type: 'string', description: 'Existing task id when redefining (optional)' },
+      expected_revision: { type: 'integer', description: 'Current task revision when updating' },
     },
     required: ['goal', 'acceptance_criteria'],
   },
@@ -116,11 +117,20 @@ export const taskDefineTool: Tool = {
     let taskId: string;
     let status: TaskContractStatus = 'active';
     let createdAt = now;
+    let existingTask: TaskContract | undefined;
     if (input.task_id && typeof input.task_id === 'string') {
       taskId = input.task_id;
       const existing = (await listTaskRecords(ctx.workspaceDir)).find((t) => t.taskId === taskId);
       if (!existing)
         return `Error: task_define: task_id ${taskId} not found; omit it to create a new task.`;
+      existingTask = existing;
+      if (
+        input.expected_revision !== undefined &&
+        input.expected_revision !== (existing.revision ?? 0)
+      )
+        return `Error: task_define: task ${taskId} revision changed; read the current task first.`;
+      if ((existing.revision ?? 0) > 0 && goal !== existing.goal)
+        return 'Error: task_define: the revised user goal is authoritative; use the current goal unchanged.';
       createdAt = existing.createdAt;
       if (existing.status === 'accepted' || existing.status === 'abandoned') {
         status = existing.status;
@@ -130,6 +140,7 @@ export const taskDefineTool: Tool = {
     }
 
     const task: TaskContract = {
+      ...existingTask,
       taskId,
       goal,
       acceptanceCriteria: criteria,
@@ -264,6 +275,7 @@ export const taskPlanUpdateTool: Tool = {
     type: 'object',
     properties: {
       task_id: { type: 'string', description: 'Task id from task_define' },
+      expected_revision: { type: 'integer', description: 'Current task revision when updating' },
       steps: {
         type: 'array',
         items: {
@@ -316,10 +328,18 @@ export const taskPlanUpdateTool: Tool = {
       });
     }
     const snapshot = await getTaskStateSnapshot(ctx.workspaceDir, taskId);
+    if (
+      input.expected_revision !== undefined &&
+      input.expected_revision !== (snapshot?.revision ?? 0)
+    )
+      return `Error: task_plan_update: task ${taskId} revision changed; read the current task first.`;
     if (snapshot && isTerminalTaskPhase(snapshot.phase)) {
       return `Error: task_plan_update: task ${taskId} is ${snapshot.phase}; plans are frozen on settled tasks.`;
     }
-    await tryAppendTaskEvent(ctx.workspaceDir, taskId, 'plan_step_updated', { steps });
+    await tryAppendTaskEvent(ctx.workspaceDir, taskId, 'plan_step_updated', {
+      steps,
+      taskRevision: snapshot?.revision ?? 0,
+    });
     const marks = steps.map(
       (s) =>
         `  [${

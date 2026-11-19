@@ -9,6 +9,7 @@
 import type { EvidenceRecord } from '../../contracts/evidence.js';
 import { appendEvidenceRecordWithSignal } from '../task-runtime/artifacts.js';
 import { findLatestLiveTaskSnapshot } from './task-store.js';
+import { isTaskExecutionSupersededError } from './task-execution-guard.js';
 
 function evidenceId(metric: string): string {
   return `ev_${Date.now().toString(36)}_${metric}_${Math.random().toString(36).slice(2, 6)}`;
@@ -17,6 +18,7 @@ function evidenceId(metric: string): string {
 export async function recordHarnessSuiteEvidence(input: {
   workspaceDir: string;
   taskId?: string;
+  taskRevision?: number;
   /** True only inside a goal/task engine turn. */
   taskTurn?: boolean;
   /** `verify_fix` stays accepted so evidence files written before the merge still parse. */
@@ -52,6 +54,7 @@ export async function recordHarnessSuiteEvidence(input: {
       const record: EvidenceRecord = {
         evidenceId: evidenceId(row.metric),
         taskId,
+        ...(input.taskRevision !== undefined ? { taskRevision: input.taskRevision } : {}),
         source: input.source,
         metric: row.metric,
         expected: '==true',
@@ -63,7 +66,8 @@ export async function recordHarnessSuiteEvidence(input: {
       await appendEvidenceRecordWithSignal(input.workspaceDir, record, input.signal);
     }
     return rows.length;
-  } catch {
+  } catch (error) {
+    if (isTaskExecutionSupersededError(error)) throw error;
     input.signal?.throwIfAborted();
     return 0;
   }

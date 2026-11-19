@@ -23,6 +23,10 @@ export interface AcceptanceCriterion {
 
 export interface TaskContract {
   taskId: string;
+  /** Legacy contracts without this field belong to revision zero. */
+  revision?: number;
+  /** Original user goal, retained when a later input revises the effective goal. */
+  originalGoal?: string;
   goal: string;
   constraints?: string[];
   targetDeviceId?: string;
@@ -51,6 +55,7 @@ export interface CriterionVerdict {
 
 export interface AcceptanceVerdict {
   taskId: string;
+  taskRevision?: number;
   verdict: 'pass' | 'fail' | 'partial';
   acceptedAt: number;
   criteriaResults: CriterionVerdict[];
@@ -81,7 +86,9 @@ export function evaluateAcceptance(
   task: TaskContract,
   evidence: EvidenceRecord[]
 ): AcceptanceVerdict {
-  const taskEvidence = evidence.filter((record) => record.taskId === task.taskId);
+  const taskEvidence = evidence.filter(
+    (record) => record.taskId === task.taskId && (record.taskRevision ?? 0) === (task.revision ?? 0)
+  );
   const latestByMetric = new Map<string, EvidenceRecord>();
   for (const record of taskEvidence) {
     const existing = latestByMetric.get(record.metric);
@@ -163,6 +170,7 @@ export function evaluateAcceptance(
 
   return {
     taskId: task.taskId,
+    taskRevision: task.revision ?? 0,
     verdict,
     acceptedAt: Date.now(),
     criteriaResults,

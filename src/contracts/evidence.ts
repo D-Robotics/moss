@@ -24,6 +24,8 @@ export interface EvidenceRecord {
   evidenceId: string;
   /** Task/acceptance this evidence belongs to (task contract id, bench task, …). */
   taskId?: string;
+  /** Assigned by the task runtime when the observation is recorded. */
+  taskRevision?: number;
   deviceId?: string;
   /** Where the observation came from: 'device_exec', 'device_deploy', 'run_tests', 'human', … */
   source: string;

@@ -43,6 +43,7 @@ import {
 } from '../task-runtime/artifacts.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 import { ensureDirectoryDurably } from '../session/jsonl-session-store.js';
+import { TaskExecutionSupersededError } from './task-execution-guard.js';
 
 const log = getRootLogger().child('task-store');
 
@@ -180,7 +181,8 @@ export async function appendTaskEvent(
   );
 }
 
-async function appendTaskEventUnlocked(
+/** Internal write primitive for callers already holding the workspace writer lock. */
+export async function appendTaskEventUnlocked(
   workspaceDir: string,
   taskId: string,
   type: TaskEventType,
@@ -190,6 +192,29 @@ async function appendTaskEventUnlocked(
   signal?.throwIfAborted();
   const events = await listTaskEvents(workspaceDir, taskId);
   signal?.throwIfAborted();
+  const contract = (await listTaskRecords(workspaceDir)).find((task) => task.taskId === taskId);
+  const revision = contract?.revision ?? 0;
+  if (
+    type === 'task_revised' &&
+    (data?.previousRevision !== revision ||
+      data?.revision !== revision + 1 ||
+      !data.contract ||
+      typeof data.contract !== 'object' ||
+      (data.contract as TaskContract).taskId !== taskId ||
+      (data.contract as TaskContract).revision !== revision + 1)
+  ) {
+    throw new MossError({
+      code: ErrorCode.USER_INPUT_INVALID,
+      message: `task ${taskId}: invalid task revision event`,
+    });
+  }
+  if (
+    type !== 'task_revised' &&
+    data?.taskRevision !== undefined &&
+    data.taskRevision !== revision
+  ) {
+    throw new TaskExecutionSupersededError(`task ${taskId}: stale lifecycle revision`);
+  }
   const current = events.length > 0 ? replayTaskPhase(events) : 'draft';
   const next = nextTaskPhase(
     current,
@@ -211,7 +236,7 @@ async function appendTaskEventUnlocked(
     type,
     timestamp: Date.now(),
     phase: next,
-    ...(data ? { data } : {}),
+    data: { ...data, taskRevision: type === 'task_revised' ? data?.revision : revision },
   };
   await appendJsonl(workspaceDir, EVENTS_FILE, event, signal);
   if (experienceEnabled()) {
@@ -239,6 +264,7 @@ export async function tryAppendTaskEvent(
   try {
     return await appendTaskEvent(workspaceDir, taskId, type, data, signal);
   } catch (err) {
+    if (err instanceof TaskExecutionSupersededError) throw err;
     if (err instanceof MossError && err.code === ErrorCode.EXECUTION_STATE_INVALID) {
       return null;
     }
@@ -270,7 +296,8 @@ export async function emitAcceptanceLifecycle(
   passed: boolean,
   detail: string,
   source?: 'command' | 'contract',
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  taskRevision?: number
 ): Promise<void> {
   const events = await listTaskEvents(workspaceDir, taskId);
   if (events.length === 0) return;
@@ -278,7 +305,13 @@ export async function emitAcceptanceLifecycle(
   if (isTerminalTaskPhase(phase)) return;
   signal?.throwIfAborted();
   if (['ready', 'executing', 'diagnosing', 'repairing'].includes(phase)) {
-    await tryAppendTaskEvent(workspaceDir, taskId, 'verification_started', undefined, signal);
+    await tryAppendTaskEvent(
+      workspaceDir,
+      taskId,
+      'verification_started',
+      taskRevision === undefined ? undefined : { taskRevision },
+      signal
+    );
   }
   await tryAppendTaskEvent(
     workspaceDir,
@@ -287,6 +320,7 @@ export async function emitAcceptanceLifecycle(
     {
       detail: detail.slice(0, 400),
       ...(source ? { acceptanceSource: source } : {}),
+      ...(taskRevision !== undefined ? { taskRevision } : {}),
     },
     signal
   );
@@ -371,8 +405,10 @@ export async function createDraftTask(
 
 // --- snapshots ----------------------------------------------------------------
 
-function planFromEvents(events: TaskEvent[]): TaskPlanStep[] {
+function planFromEvents(events: TaskEvent[], revision: number): TaskPlanStep[] {
   for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i].type === 'task_revised' || events[i].type === 'replanning_started') return [];
+    if ((events[i].data?.taskRevision ?? 0) !== revision) continue;
     const raw = events[i].data?.steps;
     if (Array.isArray(raw)) return raw as TaskPlanStep[];
   }
@@ -431,23 +467,38 @@ export async function getTaskStateSnapshot(
     const attempt = applied.filter((event) => event.type === 'verification_started').length;
     const aborted = phase === 'failed' && latestTaskFailureDetail(applied) === 'aborted';
     const outcome = aborted ? 'aborted' : deriveTaskOutcome(phase);
-    const lastVerdict = latestAcceptanceVerdict(verdicts);
+    const revision = contract.revision ?? 0;
+    const lastVerdict = latestAcceptanceVerdict(
+      verdicts.filter((verdict) => (verdict.taskRevision ?? 0) === revision)
+    );
+    const revisedAt = applied.reduce(
+      (last, event, index) =>
+        event.type === 'task_revised' || event.type === 'replanning_started' ? index : last,
+      -1
+    );
+    const plannedAt = applied.reduce(
+      (last, event, index) =>
+        event.type === 'plan_ready' && (event.data?.taskRevision ?? 0) === revision ? index : last,
+      -1
+    );
 
     return {
       taskId,
+      revision,
+      needsReplan: revisedAt > plannedAt,
       goal: contract.goal,
       phase,
       statusView: taskStatusView(phase),
       ...(outcome ? { outcome } : {}),
       ...(contract.targetDeviceId ? { targetDeviceId: contract.targetDeviceId } : {}),
       contractStatus: contract.status,
-      plan: planFromEvents(applied),
+      plan: planFromEvents(applied, revision),
       acceptanceCriteria: contract.acceptanceCriteria,
       ...(contract.verificationPlan ? { verificationPlan: contract.verificationPlan } : {}),
       attempt,
       failures,
       repairs,
-      evidenceCount: evidence.length,
+      evidenceCount: evidence.filter((record) => (record.taskRevision ?? 0) === revision).length,
       ...(lastVerdict ? { lastVerdict } : {}),
       ...(phase === 'blocked' ? { blockedReason: blockedReasonFromEvents(applied) } : {}),
       createdAt: contract.createdAt,
@@ -473,6 +524,8 @@ export async function buildTaskContextBrief(workspaceDir: string): Promise<strin
   const snapshot = await findLatestLiveTaskSnapshot(workspaceDir);
   if (!snapshot) return '';
   const lines = ['[Task context you are part of]', `goal: ${snapshot.goal}`];
+  if (snapshot.revision > 0) lines.push(`task revision: ${snapshot.revision}`);
+  if (snapshot.needsReplan) lines.push('Previous plan invalidated by user input; form a new plan.');
   if (snapshot.targetDeviceId) lines.push(`device: ${snapshot.targetDeviceId}`);
   lines.push(`phase: ${snapshot.phase} · verification attempt ${snapshot.attempt}`);
   if (snapshot.plan.length > 0) {
@@ -517,6 +570,10 @@ function timelineLabel(type: TaskEventType): string {
       return uiText('Goal understood', '已理解目标');
     case 'planning_started':
       return uiText('Planning', '计划中');
+    case 'replanning_started':
+      return uiText('Replanning', '重新规划');
+    case 'task_revised':
+      return uiText('Task revised — old plan invalidated', '任务已修订 — 旧计划已失效');
     case 'plan_ready':
       return uiText('Plan ready', '计划就绪');
     case 'execution_started':
