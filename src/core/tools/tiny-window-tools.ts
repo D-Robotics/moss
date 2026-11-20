@@ -86,6 +86,24 @@ const TINY_WINDOW_TOOL_PROPERTIES: Readonly<Record<string, readonly string[]>> =
   list_directory: ['path', 'depth'],
 };
 
+function containsSchemaReference(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (!value || typeof value !== 'object' || seen.has(value)) return false;
+  seen.add(value);
+  if (['$ref', '$dynamicRef', '$recursiveRef'].some((key) => key in value)) return true;
+  return Object.values(value).some((child) => containsSchemaReference(child, seen));
+}
+
+const SIMPLE_OBJECT_SCHEMA_KEYS = new Set([
+  'type',
+  'properties',
+  'required',
+  'additionalProperties',
+  'description',
+  'title',
+  '$schema',
+  '$id',
+]);
+
 export function compactToolSchema(
   name: string,
   schema: Record<string, unknown> | undefined
@@ -94,6 +112,16 @@ export function compactToolSchema(
   if (!keep || !schema || typeof schema !== 'object') return schema;
   const properties = schema.properties;
   if (!properties || typeof properties !== 'object') return schema;
+  // SDK hosts can reuse these names with a different contract. Do not hide a
+  // required field or break cross-field constraints / reference targets.
+  if (
+    (Array.isArray(schema.required) && schema.required.some((key) => !keep.includes(key))) ||
+    Object.keys(schema).some((key) => !SIMPLE_OBJECT_SCHEMA_KEYS.has(key)) ||
+    (schema.additionalProperties !== undefined &&
+      typeof schema.additionalProperties !== 'boolean') ||
+    containsSchemaReference(schema)
+  )
+    return schema;
   const pruned: Record<string, unknown> = {};
   for (const key of keep) {
     const value = (properties as Record<string, unknown>)[key];

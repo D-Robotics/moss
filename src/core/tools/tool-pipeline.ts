@@ -1,4 +1,6 @@
 import type { Tool } from './tool-types.js';
+import { isDeepStrictEqual } from 'node:util';
+import { validateToolJsonSchema } from './tool-input-schema.js';
 
 export type PreToolHookContext = {
   toolName: string;
@@ -85,61 +87,51 @@ export function validateToolInputObject(
     return { ok: false, message: `${tool.name}: tool input must be a JSON object` };
   }
   const obj = input as Record<string, unknown>;
-  const schema = tool.inputSchema as
-    | {
-        type?: string;
-        required?: string[];
-        properties?: Record<string, JsonSchemaProperty>;
-      }
-    | undefined;
+  const schema = tool.inputSchema;
   if (!schema || schema.type !== 'object') {
-    return { ok: true, value: obj };
+    return { ok: false, message: `${tool.name}: invalid or unsupported input schema` };
   }
-  const props = schema.properties;
-  // Snap before the required check so `{ timeOutMs: 5000 }` can satisfy
-  // `required: ['timeout_ms']`.
-  const value = props ? snapParamAliases(obj, props) : obj;
-  const required = schema.required ?? [];
-  for (const key of required) {
-    if (!(key in value) || value[key] === undefined) {
-      return { ok: false, message: `${tool.name}: missing required parameter "${key}"` };
-    }
-  }
-  if (props) {
-    for (const key of Object.keys(value)) {
-      const spec = props[key];
-      if (!spec) continue;
-      const v = value[key];
-      if (v === undefined) continue;
-      if (spec.enum !== undefined && spec.enum.length > 0) {
-        if (!spec.enum.some((e) => Object.is(e, v))) {
-          // Name the allowed values: "must be one of the enum values" made the
-          // model guess a second time.
-          return {
-            ok: false,
-            message:
-              `${tool.name}: parameter "${key}" must be one of ` +
-              `${spec.enum.map((e) => JSON.stringify(e)).join(', ')} (got ${JSON.stringify(v)})`,
-          };
-        }
-        continue;
+  const props = schema.properties as Record<string, JsonSchemaProperty>;
+  // Alias compatibility precedes both parsers and recursive schema validation.
+  let value = props ? snapParamAliases(obj, props) : obj;
+  if (tool.inputZodSchema) {
+    const parserFailure = () => {
+      const jsonCheck = validateToolJsonSchema(tool.name, schema, value);
+      return jsonCheck.ok
+        ? { ok: false as const, message: `${tool.name}: tool input failed its input parser` }
+        : jsonCheck;
+    };
+    try {
+      const parsed = tool.inputZodSchema.safeParse(structuredClone(value));
+      if (parsed && typeof parsed === 'object' && 'then' in parsed) {
+        // JS hosts can violate the synchronous parser interface. Consume a
+        // rejected promise without awaiting it or letting it reach execution.
+        void Promise.resolve(parsed as unknown).catch(() => undefined);
+        return parserFailure();
       }
-      if (!spec.type) continue;
-      const t = spec.type;
-      if (t === 'string' && typeof v !== 'string')
-        return { ok: false, message: `${tool.name}: parameter "${key}" should be string` };
-      if (t === 'number' && (typeof v !== 'number' || Number.isNaN(v)))
-        return { ok: false, message: `${tool.name}: parameter "${key}" should be number` };
-      if (t === 'integer' && (typeof v !== 'number' || !Number.isInteger(v)))
-        return { ok: false, message: `${tool.name}: parameter "${key}" should be integer` };
-      if (t === 'boolean' && typeof v !== 'boolean')
-        return { ok: false, message: `${tool.name}: parameter "${key}" should be boolean` };
-      if (t === 'array' && !Array.isArray(v))
-        return { ok: false, message: `${tool.name}: parameter "${key}" should be array` };
-      if (t === 'object' && (v === null || typeof v !== 'object' || Array.isArray(v)))
-        return { ok: false, message: `${tool.name}: parameter "${key}" should be object` };
+      if (
+        !parsed.success ||
+        parsed.data === null ||
+        typeof parsed.data !== 'object' ||
+        Array.isArray(parsed.data)
+      ) {
+        return parserFailure();
+      }
+      const stable = tool.inputZodSchema.safeParse(structuredClone(parsed.data));
+      if (stable && typeof stable === 'object' && 'then' in stable) {
+        void Promise.resolve(stable as unknown).catch(() => undefined);
+        return parserFailure();
+      }
+      if (!stable.success || !isDeepStrictEqual(parsed.data, stable.data)) {
+        return { ok: false, message: `${tool.name}: input parser must be idempotent` };
+      }
+      value = parsed.data as Record<string, unknown>;
+    } catch {
+      return parserFailure();
     }
   }
+  const checked = validateToolJsonSchema(tool.name, schema, value);
+  if (!checked.ok) return checked;
   return { ok: true, value };
 }
 

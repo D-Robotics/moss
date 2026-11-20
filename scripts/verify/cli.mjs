@@ -95,6 +95,7 @@ import { stage as loopPruneStage } from './stages/loop-prune.mjs';
 import { stage as loopFollowStage } from './stages/loop-follow.mjs';
 import { stage as loopCheckTimeoutStage } from './stages/loop-check-timeout.mjs';
 import { stage as taskObservationStage } from './stages/task-observation.mjs';
+import { stage as toolInputSchemaStage } from './stages/tool-input-schema.mjs';
 import { stage as editRecoveryStage } from './stages/edit-recovery.mjs';
 import { stage as loopHealthStage } from './stages/loop-health.mjs';
 import { stage as runTestsVerdictStage } from './stages/run-tests-verdict.mjs';
@@ -208,6 +209,7 @@ const STAGES = new Map(
     loopFollowStage,
     loopCheckTimeoutStage,
     taskObservationStage,
+    toolInputSchemaStage,
     editRecoveryStage,
     loopHealthStage,
     runTestsVerdictStage,
@@ -251,6 +253,7 @@ const STAGES = new Map(
 
 const ORDER = [...STAGES.keys()];
 const FAST_GATE = [
+  'tool-input-schema',
   'edit-recovery',
   'static',
   'smoke',

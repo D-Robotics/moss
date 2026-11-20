@@ -77,6 +77,8 @@
     "examples": "node scripts/verify/cli.mjs --stage examples"
   },
   "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "ink": "^7.1.1",
     "micromatch": "^4.0.8",
     "picocolors": "^1.1.1",
