@@ -318,6 +318,18 @@ export interface Tool<TInput = any> {
     required?: string[];
   };
 
+  /**
+   * Optional synchronous parser (for example a Zod schema). Explicit parser
+   * coercion/normalization is allowed; its object output must still satisfy
+   * inputSchema. The parser must be pure and idempotent: execution boundaries
+   * revalidate after hooks and approval rewrites. No Zod dependency is needed.
+   */
+  inputZodSchema?: {
+    safeParse(
+      input: unknown
+    ): { success: true; data: unknown } | { success: false; error?: unknown };
+  };
+
   normalizeInput?: (input: TInput, ctx?: Pick<ToolContext, 'sessionKey' | 'sessionId'>) => TInput;
   execute: (input: TInput, ctx: ToolContext) => Promise<string>;
   executeStructured?: (input: TInput, ctx: ToolContext) => Promise<StructuredToolResult>;
