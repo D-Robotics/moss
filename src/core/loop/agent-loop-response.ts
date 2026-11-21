@@ -255,6 +255,10 @@ export async function processLlmResponse(
     }
   }
 
+  if (intentResponse?.answer && !turnTextParts.some((part) => part.trim())) {
+    turnTextParts.push(intentResponse.answer);
+    assistantContent.push({ type: 'text', text: intentResponse.answer });
+  }
   const turnText = turnTextParts.join('');
 
   const hasThinkingOnly = isThinkingOnlyAssistantTurn({

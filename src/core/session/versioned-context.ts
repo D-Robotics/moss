@@ -12,6 +12,7 @@ import { hashContextSources, type VersionedSessionStore } from './versioned-sess
 import { abortable } from '../agent/abort.js';
 import { CONTEXT_CLAIMS_TOOL } from './context-claim-declaration.js';
 import { TURN_DECISION_TOOL } from './task-intent-state.js';
+import { estimateTokensForText } from '../../context/tokens.js';
 import type { SummarizeFn } from '../../context/compaction.js';
 import { isCompactionSummaryMessage } from '../../context/summary-checkpoint-merge.js';
 import {
@@ -22,8 +23,9 @@ import {
 const SUMMARY_PROMPT = [
   'Summarize the supplied historical data. Corrections supersede past assistant interpretations.',
   'Return only a JSON array of entries with fields kind, text and sourceIds.',
-  'Allowed kinds: observation (original tool result), user_decision (actual user instruction or correction), proposal, unverified.',
-  'Every entry needs at least one original ID from the input data.',
+  'Copy sourceIds exactly from sources[].id, using at most two decisive sources per entry.',
+  'An observation needs a source with origin tool. A user_decision needs a source with origin user.',
+  'Classify assistant statements as proposal or unverified. Do not treat an assistant claim as evidence.',
   'Preserve useful decisions, uncertainty, failures and pending work. Never infer approval, task acceptance or completion.',
 ].join(' ');
 
@@ -34,9 +36,12 @@ const RECENT_GROUP_MESSAGES = 8;
 const SUMMARY_POLICY = createHash('sha256').update(SUMMARY_PROMPT).digest('hex');
 
 function decodeEntries(raw: string, sources: ContextSourceMessage[]): ContextSummaryEntry[] {
-  const value: unknown = JSON.parse(
-    raw.trim().replace(/^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$/gi, '')
-  );
+  let value: unknown;
+  try {
+    value = JSON.parse(raw.trim().replace(/^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$/gi, ''));
+  } catch {
+    throw invalidSummary();
+  }
   const known = new Map(sources.map((source) => [source.id, source]));
   if (!Array.isArray(value) || value.length > MAX_SUMMARY_ENTRIES) throw invalidSummary();
   return value.map((entry: unknown) => {
@@ -55,12 +60,14 @@ function decodeEntries(raw: string, sources: ContextSourceMessage[]): ContextSum
     )
       throw invalidSummary();
     const origins = sourceIds.map((id) => known.get(id)!.origin);
-    if (
-      (kind === 'observation' && !origins.includes('tool')) ||
-      (kind === 'user_decision' && !origins.includes('user'))
-    )
-      throw invalidSummary();
-    return { kind, text: text.trim(), sourceIds: [...new Set(sourceIds)] };
+    const supported =
+      (kind !== 'observation' || origins.includes('tool')) &&
+      (kind !== 'user_decision' || origins.includes('user'));
+    return {
+      kind: supported ? kind : 'unverified',
+      text: text.trim(),
+      sourceIds: [...new Set(sourceIds)],
+    };
   });
 }
 
@@ -203,19 +210,19 @@ function historicalChunks(
   let current: ContextSourceMessage[] = [];
   let size = 0;
   for (const source of sources) {
-    const bytes = Buffer.byteLength(JSON.stringify(source));
-    if (bytes > budget)
+    const tokens = estimateTokensForText(JSON.stringify(source)) + 1;
+    if (tokens > budget)
       throw new MossError({
         code: ErrorCode.PROVIDER_CONTEXT_OVERFLOW,
         message: 'A historical source exceeds the summary input budget',
       });
-    if (current.length && size + bytes > budget) {
+    if (current.length && size + tokens > budget) {
       chunks.push(current);
       current = [];
       size = 0;
     }
     current.push(source);
-    size += bytes;
+    size += tokens;
   }
   if (current.length) chunks.push(current);
   if (chunks.length > MAX_CHUNKS)
@@ -251,6 +258,40 @@ export class VersionedContextPipeline {
   private readonly jobs = new Map<string, Promise<ContextCheckpoint>>();
 
   constructor(private readonly store: VersionedSessionStore) {}
+
+  intentSources(sessionKey: string, policyKey: string, pendingTexts: readonly string[]) {
+    const snapshot = this.store.snapshot(sessionKey);
+    const sources = contextSourceView(snapshot);
+    const checkpoint = this.store.checkpoint(
+      sessionKey,
+      snapshot.revision,
+      `${SUMMARY_POLICY}:${policyKey}`
+    );
+    const cited = new Set(checkpoint?.entries.flatMap((entry) => entry.sourceIds) ?? []);
+    const recent = sources.slice(-12);
+    const older = sources.slice(0, Math.max(0, sources.length - 12));
+    const historical = older.filter((source) => cited.has(source.id)).slice(-8);
+    // A terse summary can omit a claim. Expose a bounded set of earlier assistant messages too.
+    const earliest = older
+      .filter((source) => source.origin === 'assistant' || source.message.role === 'assistant')
+      .slice(0, 4);
+    return [...new Set([...earliest, ...historical, ...recent])]
+      .filter((source) => source.origin !== 'runtime')
+      .map(({ id, origin, message }) => ({
+        id,
+        origin,
+        text:
+          typeof message.content === 'string'
+            ? message.content
+            : message.content
+                .map((part) =>
+                  part.type === 'text' ? part.text : part.type === 'tool_result' ? part.content : ''
+                )
+                .join(' '),
+      }))
+      .filter(({ text }) => text.trim() && !pendingTexts.includes(text))
+      .map(({ id, origin, text }) => ({ id, origin, text: text.slice(0, 160) }));
+  }
 
   async prepare(input: ProjectionInput): Promise<PreparedContextProjection> {
     const snapshot = this.store.snapshot(input.sessionKey);
@@ -301,12 +342,15 @@ export class VersionedContextPipeline {
         stages.push('S2');
       }
     }
-    const boundary = closureBoundary(sources, RECENT_GROUP_MESSAGES);
     const candidate = this.store.checkpoint(input.sessionKey, snapshot.revision, policy);
-    const rebuildDue =
-      !candidate &&
-      snapshot.revision > 0 &&
-      this.store.hasEarlierCheckpoint(input.sessionKey, snapshot.revision, policy);
+    const retired =
+      !candidate && snapshot.revision > 0
+        ? this.store.earlierCheckpoint(input.sessionKey, snapshot.revision, policy)
+        : undefined;
+    const boundary = Math.max(
+      closureBoundary(sources, RECENT_GROUP_MESSAGES),
+      retired?.throughOrdinal ?? 0
+    );
     const isCompatible =
       candidate &&
       candidate.sourceHash ===
@@ -322,7 +366,7 @@ export class VersionedContextPipeline {
           ),
         ])
       );
-    if (isCompatible && (input.force || !selected.legal || selected.tokens >= capacity * 0.8)) {
+    if (isCompatible) {
       const projection = projected(candidate);
       if (projection.legal && projection.tokens < selected.tokens) {
         selected = projection;
@@ -330,7 +374,7 @@ export class VersionedContextPipeline {
         stages.push('S4');
       }
     }
-    if (boundary && (!selected.legal || (input.force && !stages.includes('S4')))) {
+    if (boundary && (retired || !selected.legal || (input.force && !stages.includes('S4')))) {
       try {
         const checkpoint = await this.prepareSummary(input, snapshot, sources, boundary, policy);
         const projection = projected(checkpoint);
@@ -345,7 +389,7 @@ export class VersionedContextPipeline {
       }
     } else if (
       boundary &&
-      (rebuildDue || selected.tokens >= capacity * 0.6) &&
+      selected.tokens >= capacity * 0.6 &&
       (!isCompatible || candidate.throughOrdinal < boundary)
     ) {
       void this.prepareSummary(input, snapshot, sources, boundary, policy).catch(() => {});
@@ -441,11 +485,18 @@ export class VersionedContextPipeline {
         !trustedUser(row)
     );
     const output = Math.min(1600, Math.max(128, Math.floor(input.window / 8)));
-    const budget = Math.max(0, input.window - output - Buffer.byteLength(SUMMARY_PROMPT) - 512);
+    const budget =
+      input.window -
+      output -
+      estimateTokensForText(SUMMARY_PROMPT) -
+      Math.max(512, Math.ceil(input.window * 0.05));
     const corrections = correctionMessage(snapshot)
       .map((message) => message.content)
       .join('\n');
-    const chunks = historicalChunks(eligible, budget - Buffer.byteLength(corrections));
+    const chunks = historicalChunks(
+      eligible,
+      budget - estimateTokensForText(JSON.stringify(corrections))
+    );
     const entries: ContextSummaryEntry[] = [...(previous?.entries ?? [])];
     for (const chunk of chunks) {
       signal.throwIfAborted();
@@ -459,7 +510,25 @@ export class VersionedContextPipeline {
         signal
       );
       signal.throwIfAborted();
-      entries.push(...decodeEntries(raw, chunk));
+      try {
+        entries.push(...decodeEntries(raw, chunk));
+      } catch (error) {
+        if (!(error instanceof MossError) || error.code !== ErrorCode.EXECUTION_STATE_INVALID)
+          throw error;
+        const repaired = await abortable(
+          input.summarize({
+            system:
+              SUMMARY_PROMPT +
+              ' The previous result was rejected. Output valid JSON and cite only source IDs present in this request.',
+            userPrompt: JSON.stringify({ corrections, sources: chunk }),
+            maxTokens: output,
+            abortSignal: signal,
+          }),
+          signal
+        );
+        signal.throwIfAborted();
+        entries.push(...decodeEntries(repaired, chunk));
+      }
     }
     const checkpoint = {
       revision: snapshot.revision,

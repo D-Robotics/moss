@@ -647,12 +647,13 @@ export class VersionedSessionStore implements SessionStore {
     });
   }
 
-  hasEarlierCheckpoint(key: string, revision: number, policy: string): boolean {
-    return Boolean(
-      this.db
-        .prepare('SELECT 1 FROM checkpoints WHERE session=? AND revision<? AND policy=? LIMIT 1')
-        .get(key, revision, policy)
-    );
+  earlierCheckpoint(key: string, revision: number, policy: string): ContextCheckpoint | undefined {
+    const row = this.db
+      .prepare(
+        'SELECT body FROM checkpoints WHERE session=? AND revision<? AND policy=? ORDER BY revision DESC, covered DESC LIMIT 1'
+      )
+      .get(key, revision, policy);
+    return row ? parse<ContextCheckpoint>(row.body) : undefined;
   }
 
   checkpoint(key: string, revision: number, policy: string): ContextCheckpoint | undefined {

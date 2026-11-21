@@ -66,7 +66,11 @@ import { createPlanCompletionGate } from '../loop/plan-completion-gate.js';
 import type { CompletionGateBlock } from './moss-agent-types.js';
 import { createBackgroundLifecycleGate } from '../loop/background-lifecycle-gate.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
-import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
+import {
+  resolveContextCharsPerTokenUnit,
+  estimateMessagesTokens,
+  estimatePromptUnitsForContextWindow,
+} from '../../context/tokens.js';
 import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
 import { resolveModelOutputBudget } from '../loop/output-limit.js';
 import { resolveMossMaxAgentTurns } from '../../utils/max-agent-turns.js';
@@ -123,7 +127,7 @@ import {
 import { runSessionDrain, type SessionDrainResult } from '../session/session-drain.js';
 import { TaskIntentCoordinator } from '../session/task-intent-coordinator.js';
 import { VersionedSessionStore } from '../session/versioned-session-store.js';
-import { VersionedContextPipeline, contextSourceView } from '../session/versioned-context.js';
+import { VersionedContextPipeline } from '../session/versioned-context.js';
 import { TaskExecutionSupersededError } from '../task/task-execution-guard.js';
 import type { ContextCorrection } from '../../contracts/versioned-context.js';
 import { TaskIntentTurn } from '../session/task-intent-turn.js';
@@ -1264,8 +1268,13 @@ export class MossAgent {
         window: contextTokens,
         output: maxOutputTokens,
         minOutput: maxOutputTokens,
-        measure: (messages, output) =>
-          Buffer.byteLength(JSON.stringify({ system, messages, max_tokens: output })),
+        measure: (messages) =>
+          estimatePromptUnitsForContextWindow({
+            messages,
+            systemPrompt: system,
+            charsPerTokenUnit: resolveContextCharsPerTokenUnit(),
+            effectiveContextWindowTokens: effectiveContextTokens,
+          }),
         summarize: this.buildSummarizeFn(
           { sessionKey, runId: `compact:${sessionKey}:${crypto.randomUUID()}` },
           (usage) => this.versionedStore?.recordSummaryUsage(sessionKey, 'manual', usage)
@@ -1561,25 +1570,13 @@ ${result.stderr ?? ''}`.trim();
       ? new TaskIntentTurn(
           this.intentFor(sessionKey),
           nativeTaskId,
-          versionedStore
-            ? () =>
-                contextSourceView(versionedStore.snapshot(sessionKey))
-                  .slice(-16)
-                  .map((source) => ({
-                    id: source.id,
-                    origin: source.origin,
-                    text: (typeof source.message.content === 'string'
-                      ? source.message.content
-                      : source.message.content
-                          .map((part) => {
-                            if (part.type === 'text') return part.text;
-                            if (part.type === 'tool_result') return part.content;
-                            return '';
-                          })
-                          .join(' ')
-                    ).slice(0, 160),
-                  }))
-                  .filter((source) => source.text.trim())
+          this.contextPipeline
+            ? (pendingTexts) =>
+                this.contextPipeline!.intentSources(
+                  sessionKey,
+                  this.contextPolicyKey(),
+                  pendingTexts
+                )
             : undefined
         )
       : undefined;

@@ -271,3 +271,49 @@ export const turnDecisionSchema = {
   required: ['baseRevision', 'inputSeq', 'messageIds', 'changes', 'disposition', 'plan'],
   additionalProperties: false,
 };
+
+/** The session runtime already captured the receipt envelope for this model request. */
+export const versionedTurnDecisionSchema = {
+  type: 'object' as const,
+  properties: {
+    disposition: turnDecisionSchema.properties.disposition,
+    contextCorrections: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          targetId: {
+            type: 'string',
+            description: 'ID of the superseded assistant conclusion or active claim.',
+          },
+          quote: {
+            type: 'string',
+            description: 'Copy an exact substring from the pending user correction.',
+          },
+          messageId: {
+            type: 'string',
+            description: 'Only needed when the same quote occurs in multiple pending user inputs.',
+          },
+        },
+        required: ['targetId', 'quote'],
+        additionalProperties: false,
+      },
+    },
+    changes: {
+      ...turnDecisionSchema.properties.changes,
+      description:
+        'Omit for a read-only answer or historical correction. Only include actual task amendments.',
+    },
+    plan: {
+      ...turnDecisionSchema.properties.plan,
+      description: 'Required for execute. Omit for answer, clarify and cancel.',
+    },
+    planDependsOn: turnDecisionSchema.properties.planDependsOn,
+    answer: {
+      type: 'string',
+      description: 'For answer, clarify and cancel, include the complete user-facing reply here.',
+    },
+  },
+  required: ['disposition'],
+  additionalProperties: false,
+};

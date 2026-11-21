@@ -548,13 +548,17 @@ export function runAgentLoop(
                     window: Math.floor(contextTokens * Math.pow(0.85, projectionOverflowRetries)),
                     output: maxOut,
                     force: projectionOverflowRetries > 0,
-                    measure: (messages, output) =>
-                      Buffer.byteLength(
-                        JSON.stringify({
-                          ...wire(messages),
-                          max_tokens: output,
-                        })
-                      ),
+                    measure: (messages) => {
+                      const context = wire(messages);
+                      return estimatePromptUnitsForContextWindow({
+                        messages,
+                        systemPrompt: context.systemPrompt ?? '',
+                        charsPerTokenUnit: charsPerUnit,
+                        effectiveContextWindowTokens: effectiveContextTokens,
+                        includeThinking: shouldIncludeThinkingInBudget(messages, modelDef),
+                        toolsChars: JSON.stringify(context.tools ?? []).length,
+                      });
+                    },
                   })
                 : undefined;
             const projectionRevision = projection?.revision;

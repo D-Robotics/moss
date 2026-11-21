@@ -357,7 +357,10 @@ async function testSummarySourceValidation(workspace) {
       const rebuilt = await agent.compactSession(session);
       assert.equal(rebuilt.compacted, true);
       assert.doesNotMatch(rebuilt.summary, /FABRICATED_EVIDENCE/);
-      assert.match(rebuilt.summary, /sources: [a-f0-9-]+/);
+      assert.match(
+        rebuilt.summary,
+        /\[unverified\] Unsupported assistant observation \[sources: [a-f0-9-]+\]/
+      );
     },
     {
       onSummary(input) {
@@ -373,11 +376,23 @@ async function testSummarySourceValidation(workspace) {
                 ])
               )
             )
-          : summarize(input);
+          : response(
+              text(
+                JSON.stringify([
+                  {
+                    kind: 'observation',
+                    text: 'Unsupported assistant observation',
+                    sourceIds: [input.sources.find(({ origin }) => origin === 'assistant').id],
+                  },
+                ])
+              )
+            );
       },
     }
   );
-  console.log('PASS invalid structured source references cannot be stored as a checkpoint');
+  console.log(
+    'PASS unknown source references are rejected and a cited assistant observation is downgraded'
+  );
 }
 
 async function testApproval(workspace) {
@@ -504,6 +519,71 @@ async function testModelDeclaredCorrection(workspace) {
   );
   console.log(
     'PASS a natural-language correction commits a source-linked declaration and resamples before action'
+  );
+}
+
+async function testCapturedCorrection(workspace) {
+  let targetId;
+  const answer = 'Full acceptance is pending.';
+  await usingAgent(
+    workspace,
+    async ({ agent, store, modelRequests }) => {
+      const session = 'captured-correction';
+      await add(store, session, 'assistant', oldClaim);
+      for (let index = 0; index < 18; index++) {
+        await add(store, session, 'assistant', `Independent historical note ${index}. `.repeat(60));
+      }
+      for (let index = 0; index < 10; index++) {
+        await add(store, session, 'user', `Retain requirement ${index}.`);
+      }
+      targetId = (await store.sourceMessages(session))[0].id;
+      const initial = await agent.compactSession(session);
+      assert.match(initial.summary, new RegExp(oldSummary));
+
+      const corrected = await agent.chat(session, correctionText, {
+        userInput: { id: 'captured-user-correction' },
+        taskFlow: false,
+      });
+      assert.equal(corrected.response, answer);
+      assert.equal(
+        agent.getTaskIntentReceipt(session, 'captured-user-correction').status,
+        'committed'
+      );
+      assert.equal(store.snapshot(session).corrections[0].targetId, targetId);
+      assert.doesNotMatch(
+        JSON.stringify(modelRequests.slice(1)),
+        new RegExp(`${oldClaim}|${oldSummary}`)
+      );
+
+      const followUp = await agent.chat(session, 'What still needs testing?', {
+        userInput: { id: 'captured-follow-up' },
+        taskFlow: false,
+      });
+      assert.equal(followUp.response, answer);
+      assert.equal(modelRequests.length, 3);
+    },
+    {
+      onMain(request, count) {
+        if (count === 2) return response(text(answer));
+        const previous = request.systemPrompt
+          .split('\n')
+          .find((line) => line.startsWith('{"contextSources":'));
+        assert(previous);
+        const { contextSources } = JSON.parse(previous);
+        assert(!contextSources.some(({ text }) => text === correctionText) || count === 3);
+        if (count === 1) assert(contextSources.some(({ id }) => id === targetId));
+        return response(
+          toolCall('turn_decision', `capture-${count}`, {
+            disposition: 'answer',
+            answer,
+            ...(count === 1 ? { contextCorrections: [{ targetId, quote: correctionText }] } : {}),
+          })
+        );
+      },
+    }
+  );
+  console.log(
+    'PASS a quote-only correction resolves the captured input and an older compacted target'
   );
 }
 
@@ -918,6 +998,7 @@ try {
     ['source-validation', testSummarySourceValidation],
     ['approval', testApproval],
     ['declaration', testModelDeclaredCorrection],
+    ['captured-correction', testCapturedCorrection],
     ['claims', testClaimDependencies],
     ['acceptance', testLateAcceptance],
     ['restart', testProcessRestart],
