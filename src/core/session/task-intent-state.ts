@@ -322,7 +322,16 @@ export const readOnlyTurnDecisionSchema = {
   ...versionedTurnDecisionSchema,
   properties: {
     disposition: { type: 'string', enum: ['answer', 'clarify', 'cancel'] },
-    answer: versionedTurnDecisionSchema.properties.answer,
-    contextCorrections: versionedTurnDecisionSchema.properties.contextCorrections,
+    answer: {
+      type: 'string',
+      description: 'Only supply the reply when there is no new correction.',
+    },
+    contextCorrections: {
+      type: 'array',
+      items: {
+        ...versionedTurnDecisionSchema.properties.contextCorrections.items,
+        required: ['targetId'],
+      },
+    },
   },
 };

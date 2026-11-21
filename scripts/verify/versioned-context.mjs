@@ -610,7 +610,9 @@ async function testReadOnlyIntentPrompt(workspace) {
         userInput: { id: 'lean-correction' },
       });
       assert.equal(result.response, answer);
-      assert.equal(store.snapshot(session).corrections.length, 1);
+      const [committed] = store.snapshot(session).corrections;
+      assert.equal(committed.targetId, targetId);
+      assert.equal(committed.text, correctionText);
       assert.doesNotMatch(JSON.stringify(modelRequests.slice(1)), new RegExp(oldClaim));
       const prompt = 'Report the operator input.';
       const hostText = 'This input is provided separately by the host.';
@@ -639,15 +641,14 @@ async function testReadOnlyIntentPrompt(workspace) {
           assert.deepEqual(intentFrame(request).pendingInputs, [
             { id: 'lean-correction', inHistory: true },
           ]);
-          assert.match(request.systemPrompt, new RegExp(targetId));
+          assert.doesNotMatch(request.systemPrompt, new RegExp(targetId));
+          assert.match(request.systemPrompt, /"id":"s1"/);
           assert.doesNotMatch(request.systemPrompt, new RegExp(correctionText));
         }
         return response(
           toolCall('turn_decision', `lean-${count}`, {
             disposition: 'answer',
-            ...(count === 1
-              ? { contextCorrections: [{ targetId, quote: correctionText }] }
-              : { answer }),
+            ...(count === 1 ? { contextCorrections: [{ targetId: 's1' }] } : { answer }),
           })
         );
       },

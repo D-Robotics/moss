@@ -32,6 +32,8 @@ export class TaskIntentTurn {
   private binding?: TaskIntentSnapshot;
   private attempts = 0;
   private attemptSeq = -1;
+  private readonly correctionAliases = new Map<string, string>();
+  private wholeInputCitation?: { messageId: string; quote: string };
 
   constructor(
     readonly coordinator: TaskIntentCoordinator,
@@ -45,6 +47,8 @@ export class TaskIntentTurn {
   async prepare(): Promise<void> {
     this.batch = await this.coordinator.capture(this.taskId);
     this.binding = this.batch.snapshot;
+    this.correctionAliases.clear();
+    this.wholeInputCitation = undefined;
     if (this.attemptSeq !== this.batch.snapshot.inputSeq) {
       this.attemptSeq = this.batch.snapshot.inputSeq;
       this.attempts = 0;
@@ -83,16 +87,26 @@ export class TaskIntentTurn {
         '\n'
       );
     }
+    const onlyInput = batch.inputs.length === 1 ? batch.inputs[0] : undefined;
+    if (onlyInput && onlyInput.prompt.length <= 4000) {
+      this.wholeInputCitation = { messageId: onlyInput.id, quote: onlyInput.prompt };
+    }
     const targets = this.correctionTargets!(
       batch.inputs.map(({ prompt }) => prompt),
       true
-    );
+    ).map((source, index) => {
+      const alias = `s${index + 1}`;
+      this.correctionAliases.set(alias, source.id);
+      return { ...source, id: alias };
+    });
     if (targets.length) header.push(JSON.stringify({ contextSources: targets }));
     return [
       ...header,
-      'Return exactly one turn_decision call. Put the reply in answer, with no plain-text response or task changes.',
-      'For a new correction, provide targetId from contextSources or an active claim, and omit answer. Copy quote verbatim from the pending user input (the latest user message if marked inHistory). Never quote the old assistant text or repeat an applied correction.',
-      'Use clarify if the corrected conclusion is ambiguous.',
+      'Return one turn_decision call with no plain text. If a pending input corrects an older conclusion, return its targetId from contextSources or an active claim; omit answer.',
+      this.wholeInputCitation
+        ? 'For a correction, omit quote and messageId. The runtime cites the pending user input.'
+        : 'For a correction, copy an exact quote from the pending user input. Never quote old assistant text.',
+      'Never repeat an applied correction. For other requests return the reply in answer, or clarify if uncertain.',
     ].join('\n');
   }
 
@@ -185,9 +199,17 @@ export class TaskIntentTurn {
     const corrections: unknown = Array.isArray(input.contextCorrections)
       ? (input.contextCorrections as unknown[]).flatMap((item) => {
           if (!item || typeof item !== 'object') return [item];
-          const correction = item as Record<string, unknown>;
+          const correction = { ...(item as Record<string, unknown>) };
+          const alias =
+            typeof correction.targetId === 'string'
+              ? this.correctionAliases.get(correction.targetId)
+              : undefined;
+          if (alias) correction.targetId = alias;
           const { quote, targetId, messageId } = correction;
-          if (typeof quote !== 'string' || !quote.trim()) return [item];
+          if (quote === undefined && messageId === undefined && this.wholeInputCitation) {
+            return [{ ...correction, ...this.wholeInputCitation }];
+          }
+          if (typeof quote !== 'string' || !quote.trim()) return [correction];
           const matches = batch.inputs.filter((entry) => entry.prompt.includes(quote));
           if (
             matches.length === 0 &&
@@ -195,7 +217,7 @@ export class TaskIntentTurn {
             this.coordinator.hasRecordedCorrection(targetId, quote)
           )
             return [];
-          if (messageId !== undefined) return [item];
+          if (messageId !== undefined) return [correction];
           if (matches.length !== 1) {
             throw new Error(
               'Copy an exact correction quote unique to one pending input or specify its pending messageId'
