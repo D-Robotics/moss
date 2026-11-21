@@ -647,13 +647,26 @@ export class VersionedSessionStore implements SessionStore {
     });
   }
 
-  earlierCheckpoint(key: string, revision: number, policy: string): ContextCheckpoint | undefined {
+  earlierCheckpointBoundary(key: string, revision: number, policyKey: string): number | undefined {
     const row = this.db
       .prepare(
-        'SELECT body FROM checkpoints WHERE session=? AND revision<? AND policy=? ORDER BY revision DESC, covered DESC LIMIT 1'
+        `SELECT covered FROM checkpoints WHERE session=? AND revision<? AND substr(policy,instr(policy,':')+1)=? ORDER BY revision DESC, covered DESC LIMIT 1`
       )
-      .get(key, revision, policy);
-    return row ? parse<ContextCheckpoint>(row.body) : undefined;
+      .get(key, revision, policyKey);
+    return row ? Number(row.covered) : undefined;
+  }
+
+  hasRecordedCorrection(key: string, targetId: string, text: string): boolean {
+    const clean = parse<Pick<ContextCorrection, 'targetId' | 'text'>>(
+      redactJsonLine({ targetId, text })
+    );
+    return this.db
+      .prepare('SELECT body FROM corrections WHERE session=?')
+      .all(key)
+      .some((row) => {
+        const correction = parse<CommittedContextCorrection>(row.body);
+        return correction.targetId === clean.targetId && correction.text === clean.text;
+      });
   }
 
   checkpoint(key: string, revision: number, policy: string): ContextCheckpoint | undefined {

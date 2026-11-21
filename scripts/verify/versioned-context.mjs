@@ -560,6 +560,7 @@ async function testCapturedCorrection(workspace) {
         taskFlow: false,
       });
       assert.equal(followUp.response, answer);
+      assert.equal(store.snapshot(session).corrections.length, 1);
       assert.equal(modelRequests.length, 3);
     },
     {
@@ -576,14 +577,14 @@ async function testCapturedCorrection(workspace) {
           toolCall('turn_decision', `capture-${count}`, {
             disposition: 'answer',
             answer,
-            ...(count === 1 ? { contextCorrections: [{ targetId, quote: correctionText }] } : {}),
+            contextCorrections: [{ targetId, quote: correctionText }],
           })
         );
       },
     }
   );
   console.log(
-    'PASS a quote-only correction resolves the captured input and an older compacted target'
+    'PASS a quote-only correction resolves the older target and an exact replay is idempotent'
   );
 }
 

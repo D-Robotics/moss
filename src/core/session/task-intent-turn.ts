@@ -73,7 +73,7 @@ export class TaskIntentTurn {
             }),
             ...(this.needsDecision
               ? [
-                  'When a pending user input explicitly corrects or supplies facts that contradict an older assistant conclusion, include contextCorrections with the old assistant/claim ID as targetId and copy an exact quote from the pending input. The runtime matches a unique quote to its input ID. Clarify when you cannot identify the old conclusion.',
+                  'When a pending user input explicitly corrects or supplies facts that contradict an older assistant conclusion, include contextCorrections with the old assistant/claim ID as targetId and copy an exact quote from the pending input. The runtime matches a unique quote to its input ID. Never resubmit a recorded correction during a follow-up. Clarify when you cannot identify the old conclusion.',
                   'For a read-only answer or historical correction, call turn_decision with disposition: "answer", the answer, and any contextCorrections. Omit changes and plan unless updating a real task. Do not copy runtime metadata or add a task change for the requested answer format.',
                 ]
               : []),
@@ -127,20 +127,25 @@ export class TaskIntentTurn {
   private parseDecision(input: Record<string, unknown>, batch: TaskIntentBatch) {
     if (!this.correctionTargets) return parseTurnDecision(input);
     const corrections: unknown = Array.isArray(input.contextCorrections)
-      ? (input.contextCorrections as unknown[]).map((item) => {
-          if (!item || typeof item !== 'object') return item;
+      ? (input.contextCorrections as unknown[]).flatMap((item) => {
+          if (!item || typeof item !== 'object') return [item];
           const correction = item as Record<string, unknown>;
-          const { quote } = correction;
-          if (correction.messageId !== undefined || typeof quote !== 'string' || !quote.trim()) {
-            return item;
-          }
+          const { quote, targetId, messageId } = correction;
+          if (typeof quote !== 'string' || !quote.trim()) return [item];
           const matches = batch.inputs.filter((entry) => entry.prompt.includes(quote));
+          if (
+            matches.length === 0 &&
+            typeof targetId === 'string' &&
+            this.coordinator.hasRecordedCorrection(targetId, quote)
+          )
+            return [];
+          if (messageId !== undefined) return [item];
           if (matches.length !== 1) {
             throw new Error(
               'Copy an exact correction quote unique to one pending input or specify its pending messageId'
             );
           }
-          return { ...correction, messageId: matches[0]!.id };
+          return [{ ...correction, messageId: matches[0]!.id }];
         })
       : input.contextCorrections;
     return parseTurnDecision({

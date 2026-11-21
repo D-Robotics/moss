@@ -903,6 +903,8 @@ export class MossAgent {
       store
         ? {
             correct: (correction) => store.correctInTransaction(sessionKey, correction),
+            hasRecordedCorrection: (targetId, text) =>
+              store.hasRecordedCorrection(sessionKey, targetId, text),
             registerClaims: (drafts) => store.registerClaimsInTransaction(sessionKey, drafts),
             claimsActive: (ids) => store.assertClaimsActive(sessionKey, ids),
           }

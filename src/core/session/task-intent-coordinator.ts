@@ -55,6 +55,7 @@ export class TaskIntentCoordinator {
     private readonly workspaceDir: string,
     private readonly context?: {
       correct(correction: ContextCorrection): void;
+      hasRecordedCorrection(targetId: string, text: string): boolean;
       registerClaims(drafts: ContextClaimDraft[]): ContextClaim[];
       claimsActive(ids: string[]): boolean;
     }
@@ -189,6 +190,10 @@ export class TaskIntentCoordinator {
       this.assertCurrent(binding, true);
       return this.context!.registerClaims(drafts);
     });
+  }
+
+  hasRecordedCorrection(targetId: string, text: string): boolean {
+    return this.context?.hasRecordedCorrection(targetId, text) ?? false;
   }
 
   async commit(batch: TaskIntentBatch, decision: TurnDecision): Promise<TaskIntentSnapshot> {

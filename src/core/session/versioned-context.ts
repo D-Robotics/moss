@@ -21,7 +21,7 @@ import {
 } from '../../context/stale-read-invalidate.js';
 
 const SUMMARY_PROMPT = [
-  'Summarize the supplied historical data. Corrections supersede past assistant interpretations.',
+  'Summarize the supplied historical data. Use corrections to filter obsolete interpretations. Do not produce entries for corrections themselves, which are already retained in the context.',
   'Return only a JSON array of entries with fields kind, text and sourceIds.',
   'Copy sourceIds exactly from sources[].id, using at most two decisive sources per entry.',
   'An observation needs a source with origin tool. A user_decision needs a source with origin user.',
@@ -137,13 +137,9 @@ function correctionMessage(snapshot: VersionedContextSnapshot): Message[] {
       role: 'user',
       timestamp: 0,
       content:
-        '[Runtime-recorded user corrections. Previous assistant conclusions in the affected ranges require fresh verification.]\n' +
+        '[Runtime-recorded user corrections already applied. Do not resubmit these as new corrections. Previous assistant conclusions in the affected ranges require fresh verification.]\n' +
         JSON.stringify({
-          corrections: snapshot.corrections.map(({ id, targetId, text }) => ({
-            id,
-            targetId,
-            text,
-          })),
+          corrections: snapshot.corrections.map(({ text }) => text),
           historicalClaims: claims.map(({ id, sourceIds, dependsOn, text }) => ({
             id,
             sourceIds,
@@ -345,11 +341,11 @@ export class VersionedContextPipeline {
     const candidate = this.store.checkpoint(input.sessionKey, snapshot.revision, policy);
     const retired =
       !candidate && snapshot.revision > 0
-        ? this.store.earlierCheckpoint(input.sessionKey, snapshot.revision, policy)
+        ? this.store.earlierCheckpointBoundary(input.sessionKey, snapshot.revision, input.policyKey)
         : undefined;
     const boundary = Math.max(
       closureBoundary(sources, RECENT_GROUP_MESSAGES),
-      retired?.throughOrdinal ?? 0
+      Math.min(retired ?? 0, snapshot.messages.at(-1)?.ordinal ?? 0)
     );
     const isCompatible =
       candidate &&
