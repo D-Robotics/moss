@@ -669,13 +669,15 @@ export function TuiAppRoot({
   const pendingDialogRef = useRef<PendingDialog | null>(null);
   /** Timer behind the D-7 two-press Ctrl+C quit confirmation. */
   const quitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const queueRef = useRef<Array<{ display: string; text: string }>>([]);
+  const queueRef = useRef<Array<{ display: string; text: string; internal?: boolean }>>([]);
   const queuePausedRef = useRef(false);
   /** Re-entry guard: draining a queued line must not start a second drain. */
   const drainingRef = useRef(false);
   /** The line being executed came from the queue, so the composer stays put. */
   const fromQueueRef = useRef(false);
-  const submitRef = useRef<(text: string) => Promise<void>>(async () => undefined);
+  const submitRef = useRef<(text: string, internal?: boolean) => Promise<void>>(
+    async () => undefined
+  );
   /** `/goal` proposal waiting for Enter (accept) or `n` (contract verdict only). */
   const pendingGoalRef = useRef<{ goal: string; maxRepairs?: number; maxTurns?: number } | null>(
     null
@@ -1227,7 +1229,7 @@ export function TuiAppRoot({
    * mock agents only implement `streamChat` and fall back cleanly.
    */
   const streamTurn = useCallback(
-    (message: string, abortSignal: AbortSignal, extraContext?: string) => {
+    (message: string, abortSignal: AbortSignal, extraContext?: string, userIntentText?: string) => {
       const agent = options.agent as MossAgent & {
         streamChatRecorded?: typeof options.agent.streamChat;
       };
@@ -1236,6 +1238,7 @@ export function TuiAppRoot({
         abortSignal,
         taskFlow,
         ...(extraContext ? { extraContext } : {}),
+        ...(userIntentText ? { userIntentText } : {}),
       };
       return typeof agent.streamChatRecorded === 'function'
         ? agent.streamChatRecorded(sessionKey, message, runOptions)
@@ -1316,7 +1319,7 @@ export function TuiAppRoot({
   }, [handle, options.locale, options.workspaceDir]);
 
   const runTurn = useCallback(
-    async (message: string) => {
+    async (message: string, userIntentText?: string) => {
       await options.onTurnStart?.(message);
       // Rows committed from this run on — the plan gate asks whether the run
       // actually produced a plan (tools were used, or a substantial answer).
@@ -1337,7 +1340,12 @@ export function TuiAppRoot({
       if (mcpMention.notes.length > 0) handle.notify();
       const completionTracker = createRunCompletionTracker();
       try {
-        for await (const event of streamTurn(message, controller.signal, mcpMention.extraContext)) {
+        for await (const event of streamTurn(
+          message,
+          controller.signal,
+          mcpMention.extraContext,
+          userIntentText
+        )) {
           noteRunCompletionEvent(completionTracker, event);
           if (event.type === 'error' && isInterruptEvent(controller, event.error)) {
             // D-9: the loop reports the user's own abort as an `error` event
@@ -1487,7 +1495,7 @@ export function TuiAppRoot({
         setQueueRevision((n) => n + 1);
         fromQueueRef.current = true;
         try {
-          await submitRef.current(next.text);
+          await submitRef.current(next.text, next.internal);
         } finally {
           fromQueueRef.current = false;
         }
@@ -1631,7 +1639,7 @@ export function TuiAppRoot({
   const dispatchRun = useCallback(
     (message: string): Promise<void> => {
       if (store.run.running) {
-        queueRef.current.push({ display: message, text: message });
+        queueRef.current.push({ display: message, text: message, internal: true });
         setQueueRevision((n) => n + 1);
         return Promise.resolve();
       }
@@ -2234,7 +2242,7 @@ export function TuiAppRoot({
   );
 
   const submit = useCallback(
-    async (raw: string) => {
+    async (raw: string, internal = false) => {
       if (setupViewRef.current) return;
       const submittedTokens = tokensRef.current.slice();
       let text = raw.trim();
@@ -2804,7 +2812,7 @@ export function TuiAppRoot({
           handle.notify();
           return;
         }
-        queueRef.current.push({ display, text: expanded });
+        queueRef.current.push({ display, text: expanded, internal });
         setQueueRevision((n) => n + 1);
         // The run can finish between the running check and steer() returning
         // null. Nothing else will drain that line.
@@ -2814,7 +2822,7 @@ export function TuiAppRoot({
       appendRow(store, 'user', display);
       handle.notify();
       {
-        const turn = runTurn(expanded);
+        const turn = runTurn(expanded, internal ? undefined : expanded);
         if (drainingRef.current) await turn;
         else void turn.then(() => void drainQueue());
       }

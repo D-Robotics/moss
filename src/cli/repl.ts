@@ -95,6 +95,7 @@ async function runReplTurn(
     sessionKey: string;
     onAgentEvent: (event: MossAgentEvent) => void;
     taskFlow: boolean;
+    userIntentText?: string;
     /** readline turns ^C into its own SIGINT event instead of a process signal. */
     readline?: {
       on(event: 'SIGINT', listener: () => void): unknown;
@@ -1230,6 +1231,7 @@ export async function runInteractive(
     pendingRunContext = '';
     const stop = await runReplTurn(agent, msg, {
       sessionKey,
+      userIntentText: msg,
       onAgentEvent: (event) => recordAgentEvent(event),
       taskFlow: messageRequestsTaskContract(msg),
       readline: rl,

@@ -497,6 +497,8 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_NO_COLOR',
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',
+      'MOSS_JEV_INTENT (shadow opts into TypeSafe Jev intent classification; startup env only)',
+      'TYPESAFE_API_KEY (required for Jev shadow mode; startup env only)',
       'MOSS_SHOW_THINKING',
       'MOSS_CLI_DETAIL',
       'MOSS_VERBOSE_CLI',

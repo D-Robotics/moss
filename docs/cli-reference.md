@@ -73,6 +73,21 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 
 交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为英语。
 
+## Jev 意图识别（实验）
+
+在启动环境设置 `TYPESAFE_API_KEY`，再显式开启 shadow 模式。
+
+```bash
+MOSS_JEV_INTENT=shadow MOSS_LOG_LEVEL=info MOSS_LOG_JSON=1 \
+  moss -p '先帮我读一下 README，整理启动步骤'
+```
+
+诊断日志里的 `Jev intent decision` 包含输入来源、分类、概率和耗时。分类包括新任务、任务纠正、插问、继续、停止和不明确。分类结果仅用于观察，Agent 仍按原有流程处理输入。识别请求与模型执行并行发出，收尾最多等待请求的两秒超时。
+
+这个开关适用于 CLI 参数、交互式自然语言输入和实时 steering。开启后，Moss 会向 [TypeSafe System One API](https://docs.typesafe.ai/api/system-one) 发送经过凭据脱敏和长度限制的用户文本。判断实时补充时，如果本轮有原始用户请求，会一起提供。诊断日志只记分类元数据。开关和密钥均从启动进程环境读取。
+
+SDK 宿主也可通过 `MossAgentConfig.observeUserIntent` 注入观察器，并用 `ChatOptions.userIntentText` 标记原始用户输入。
+
 ## 调优开关（环境变量）
 
 这些开关默认都不需要；只有遇到明确症状时才设。每一条都能用一次真实运行验证。

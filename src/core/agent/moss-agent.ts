@@ -139,6 +139,7 @@ import type {
   ChatResult as SharedChatResult,
   MossAgentEvent as SharedMossAgentEvent,
   InternalMessage as SharedInternalMessage,
+  UserIntentInput,
 } from './moss-agent-types.js';
 import { toSessionMessages, fromSessionMessages, toLLMMessages } from './moss-agent-types.js';
 
@@ -147,6 +148,9 @@ export type ChatOptions = SharedChatOptions;
 export type ChatResult = SharedChatResult;
 export type MossAgentEvent = SharedMossAgentEvent;
 export type InternalMessage = SharedInternalMessage;
+
+type ScheduleIntentObservation = (input: UserIntentInput, signal: AbortSignal) => void;
+const INTENT_OBSERVATION_TIMEOUT_MS = 2_000;
 import {
   buildUserMessageContent,
   appendTurnExtraContext,
@@ -849,7 +853,11 @@ export class MossAgent {
     });
   }
 
-  private takeSteeringMessages(sessionKey: string, runId: string): InternalMessage[] {
+  private takeSteeringMessages(
+    sessionKey: string,
+    runId: string,
+    onClaim?: (prompt: string) => void
+  ): InternalMessage[] {
     const inbox = this.inboxFor(sessionKey);
     const claimed = this.claimedSteers.get(runId) ?? new Set<string>();
     const entries = inbox.promotableSteers().filter((entry) => {
@@ -864,6 +872,7 @@ export class MossAgent {
     const timestamp = Date.now();
     const messages = entries.map((entry) => {
       claimed.add(entry.id);
+      onClaim?.(entry.prompt);
       const message: InternalMessage = {
         role: 'user' as const,
         content: [
@@ -1261,7 +1270,8 @@ ${result.stderr ?? ''}`.trim();
     sessionKey: string,
     userMessage: string,
     options?: ChatOptions,
-    continuingTool = false
+    continuingTool = false,
+    observeIntent?: ScheduleIntentObservation
   ): Promise<AgentLoopRun> {
     this.assertOpen();
     const harnessAdapter = snapshotHarnessAdapter(options?.harnessAdapter);
@@ -1334,6 +1344,8 @@ ${result.stderr ?? ''}`.trim();
       }
     }
 
+    const intentText =
+      !continuingTool && activeUserMessage === userMessage ? options?.userIntentText : undefined;
     const deferredEntries = this.inboxFor(sessionKey)
       .promotableSteers()
       .filter((entry) => entry.deferred);
@@ -1437,8 +1449,10 @@ ${result.stderr ?? ''}`.trim();
       };
       messages[messages.length - 1] = persistedMsg;
     }
-    if (!continuingTool)
+    if (!continuingTool) {
       await store.appendMessage(sessionKey, persistedMsg as unknown as LLMMessage);
+      if (intentText) observeIntent?.({ source: 'prompt', text: intentText }, abortSignal);
+    }
     const systemPrompt = composedPrompt.full;
     const promptCacheEnabled = this.config.promptCache?.enabled !== false;
     const systemPromptParts =
@@ -2154,7 +2168,23 @@ ${result.stderr ?? ''}`.trim();
         promptPrefixDebug: this.config.promptCache?.debug,
         loadToolsMetaName: TOOL_SEARCH_NAME,
       },
-      getSteeringMessages: async () => this.takeSteeringMessages(sessionKey, runId),
+      getSteeringMessages: async () =>
+        this.takeSteeringMessages(
+          sessionKey,
+          runId,
+          observeIntent
+            ? (text) => {
+                observeIntent(
+                  {
+                    source: 'steering',
+                    text,
+                    ...(intentText ? { activeRequest: intentText } : {}),
+                  },
+                  abortSignal
+                );
+              }
+            : undefined
+        ),
       getFollowUpMessages:
         this.config.enableFollowUpGuard !== false
           ? async () => {
@@ -2280,8 +2310,40 @@ ${result.stderr ?? ''}`.trim();
     let run: AgentLoopRun | undefined;
     let miniStream: ReturnType<typeof runAgentLoop> | undefined;
     let done: Extract<MossAgentEvent, { type: 'done' }> | undefined;
+    const observer = this.config.observeUserIntent;
+    const pendingObservations = new Set<Promise<void>>();
+    const observeIntent: ScheduleIntentObservation | undefined = observer
+      ? (input, signal) => {
+          if (!input.text.trim() || signal.aborted) return;
+          const timeout = AbortSignal.timeout(INTENT_OBSERVATION_TIMEOUT_MS);
+          const observationSignal = AbortSignal.any([signal, timeout]);
+          const request = Promise.resolve().then(() => {
+            observationSignal.throwIfAborted();
+            return observer(input, observationSignal);
+          });
+          const pending = abortable(request, observationSignal)
+            .catch(() => {
+              if (!signal.aborted) {
+                log.warn('Intent observation failed', {
+                  source: input.source,
+                  reason: timeout.aborted ? 'timeout' : 'observer-error',
+                });
+              }
+            })
+            .finally(() => {
+              pendingObservations.delete(pending);
+            });
+          pendingObservations.add(pending);
+        }
+      : undefined;
     try {
-      run = await this.createAgentLoopRun(sessionKey, userMessage, options, continuingTool);
+      run = await this.createAgentLoopRun(
+        sessionKey,
+        userMessage,
+        options,
+        continuingTool,
+        observeIntent
+      );
       this.noteRunStarted(sessionKey, run.params.runId);
       miniStream = runAgentLoop(run.params);
       for await (const ev of this.adaptMiniStreamEvents(miniStream, run)) {
@@ -2296,6 +2358,7 @@ ${result.stderr ?? ''}`.trim();
       }
     }
 
+    await Promise.all(pendingObservations);
     yield done!;
   }
 

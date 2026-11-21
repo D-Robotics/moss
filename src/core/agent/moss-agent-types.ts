@@ -154,9 +154,17 @@ export interface CompletionGateBlock {
   turn?: number;
 }
 
+export interface UserIntentInput {
+  source: 'prompt' | 'steering';
+  text: string;
+  activeRequest?: string;
+}
+
 export interface MossAgentConfig
   extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
   sessionStore: SessionStore;
+  /** Optional shadow observer for host-marked input and live steering. Its result is never used by the loop. */
+  observeUserIntent?: (input: UserIntentInput, signal: AbortSignal) => Promise<void>;
 
   /** Host provider id (`deepseek`, `openai-compatible`, …). Updated by `switchModel`. */
   provider?: string;
@@ -300,6 +308,8 @@ export interface ChatOptions {
 
   platform?: string;
   abortSignal?: AbortSignal;
+  /** Original user text for the optional intent observer. Leave unset for generated prompts. */
+  userIntentText?: string;
 
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   onStream?: (event: LLMStreamEvent) => void;

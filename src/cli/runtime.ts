@@ -40,6 +40,7 @@ import { countRememberedFacts } from './remember-command.js';
 import { exitCodeForError, ExitCode } from './exit-codes.js';
 import { createStartupTiming } from './startup-timing.js';
 import { resolveCliAgentRuntimeOptions, deriveMaxOutputTokens } from './agent-runtime.js';
+import { createJevIntentObserver } from './jev-intent.js';
 import {
   createCliToolApprovalHook,
   getCliInteractionMode,
@@ -960,7 +961,9 @@ export async function runCli(): Promise<void> {
     }
   }
 
+  const observeUserIntent = createJevIntentObserver(envBeforeDotenv);
   const agent = new MossAgent({
+    ...(observeUserIntent ? { observeUserIntent } : {}),
     llmProvider: cliLlmProvider,
     sessionStore,
     model,
@@ -1745,6 +1748,7 @@ export async function runCli(): Promise<void> {
       for (const line of mcpMention.notes) console.error(line);
       await runOneShotWithCliCancellation(agent, oneShotMessage, {
         sessionKey: session.sessionKey,
+        userIntentText: oneShotMessage,
         ...(process.env.MOSS_RUN_ID ? { runId: process.env.MOSS_RUN_ID } : {}),
         outputFormat: parsedArgs.print ? parsedArgs.outputFormat : 'text',
         headless: parsedArgs.print || parsedArgs.maxTurns !== undefined,
