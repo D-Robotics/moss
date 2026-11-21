@@ -255,7 +255,12 @@ export class VersionedContextPipeline {
 
   constructor(private readonly store: VersionedSessionStore) {}
 
-  intentSources(sessionKey: string, policyKey: string, pendingTexts: readonly string[]) {
+  intentSources(
+    sessionKey: string,
+    policyKey: string,
+    pendingTexts: readonly string[],
+    correctionsOnly = false
+  ) {
     const snapshot = this.store.snapshot(sessionKey);
     const sources = contextSourceView(snapshot);
     const checkpoint = this.store.checkpoint(
@@ -272,7 +277,10 @@ export class VersionedContextPipeline {
       .filter((source) => source.origin === 'assistant' || source.message.role === 'assistant')
       .slice(0, 4);
     return [...new Set([...earliest, ...historical, ...recent])]
-      .filter((source) => source.origin !== 'runtime')
+      .filter(
+        (source) =>
+          source.origin !== 'runtime' && (!correctionsOnly || source.message.role === 'assistant')
+      )
       .map(({ id, origin, message }) => ({
         id,
         origin,

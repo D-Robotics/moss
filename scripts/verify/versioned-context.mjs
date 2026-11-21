@@ -595,6 +595,68 @@ async function testCapturedCorrection(workspace) {
   );
 }
 
+async function testReadOnlyIntentPrompt(workspace) {
+  let targetId;
+  const answer = 'Full acceptance is pending.';
+  await usingAgent(
+    workspace,
+    async ({ agent, store, modelRequests }) => {
+      const session = 'read-only-intent';
+      await add(store, session, 'assistant', oldClaim);
+      targetId = (await store.sourceMessages(session))[0].id;
+      const options = { taskFlow: false, toolFilter: () => false };
+      const result = await agent.chat(session, correctionText, {
+        ...options,
+        userInput: { id: 'lean-correction' },
+      });
+      assert.equal(result.response, answer);
+      assert.equal(store.snapshot(session).corrections.length, 1);
+      assert.doesNotMatch(JSON.stringify(modelRequests.slice(1)), new RegExp(oldClaim));
+      const prompt = 'Report the operator input.';
+      const hostText = 'This input is provided separately by the host.';
+      await agent.chat(session, prompt, {
+        ...options,
+        userInput: { id: 'host-input', text: hostText },
+      });
+      assert.equal(modelRequests.length, 3);
+      assert.equal(intentFrame(modelRequests[2]).pendingInputs[0].text, hostText);
+    },
+    {
+      onMain(request, count) {
+        if (count === 2) {
+          assert(!request.tools?.length);
+          assert(!request.systemPrompt.includes('contextSources'));
+          assert.match(JSON.stringify(request.messages), /Health check returned HTTP 200/);
+          return response(text(answer));
+        }
+        assert.deepEqual(
+          request.tools.map(({ name }) => name),
+          ['turn_decision']
+        );
+        assert.doesNotMatch(request.systemPrompt, /After a successful/);
+        if (count === 1) {
+          assert.deepEqual(intentFrame(request).pendingInputs, [
+            { id: 'lean-correction', inHistory: true },
+          ]);
+          assert.match(request.systemPrompt, new RegExp(targetId));
+          assert.doesNotMatch(request.systemPrompt, new RegExp(correctionText));
+        }
+        return response(
+          toolCall('turn_decision', `lean-${count}`, {
+            disposition: 'answer',
+            ...(count === 1
+              ? { contextCorrections: [{ targetId, quote: correctionText }] }
+              : { answer }),
+          })
+        );
+      },
+    }
+  );
+  console.log(
+    'PASS read-only intent sends canonical input once and refreshes context after correction'
+  );
+}
+
 async function testClaimDependencies(workspace) {
   const baseText = 'INVALIDATED_CLAIM_ROOT';
   const dependentText = 'INVALIDATED_CLAIM_DEPENDENT';
@@ -1007,6 +1069,7 @@ try {
     ['approval', testApproval],
     ['declaration', testModelDeclaredCorrection],
     ['captured-correction', testCapturedCorrection],
+    ['read-only-intent', testReadOnlyIntentPrompt],
     ['claims', testClaimDependencies],
     ['acceptance', testLateAcceptance],
     ['restart', testProcessRestart],

@@ -317,3 +317,13 @@ export const versionedTurnDecisionSchema = {
   required: ['disposition'],
   additionalProperties: false,
 };
+
+export const readOnlyTurnDecisionSchema = {
+  ...versionedTurnDecisionSchema,
+  properties: {
+    disposition: { type: 'string', enum: ['answer', 'clarify', 'cancel'] },
+    answer: versionedTurnDecisionSchema.properties.answer,
+    contextCorrections: versionedTurnDecisionSchema.properties.contextCorrections,
+    changes: versionedTurnDecisionSchema.properties.changes,
+  },
+};

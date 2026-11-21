@@ -10,6 +10,7 @@ import type { ContentBlock } from './session-jsonl.js';
 import { type TaskIntentCoordinator, type TaskIntentBatch } from './task-intent-coordinator.js';
 import {
   parseTurnDecision,
+  readOnlyTurnDecisionSchema,
   TURN_DECISION_TOOL,
   turnDecisionSchema,
   versionedTurnDecisionSchema,
@@ -36,7 +37,8 @@ export class TaskIntentTurn {
     readonly coordinator: TaskIntentCoordinator,
     private readonly taskId?: string,
     private readonly correctionTargets?: (
-      pendingTexts: readonly string[]
+      pendingTexts: readonly string[],
+      correctionsOnly?: boolean
     ) => Array<{ id: string; origin: string; text: string }>
   ) {}
 
@@ -49,13 +51,59 @@ export class TaskIntentTurn {
     }
   }
 
+  get hasBoundTask(): boolean {
+    return this.batch?.snapshot.taskId !== undefined;
+  }
+
   get needsDecision(): boolean {
     return (this.batch?.inputs.length ?? 0) > 0;
   }
 
-  prompt(): string {
+  private readOnlyPrompt(batch: TaskIntentBatch, renderedInputId?: string): string {
+    const frame = {
+      revision: batch.snapshot.revision,
+      inputSeq: batch.snapshot.inputSeq,
+      pendingInputs: batch.inputs.map(({ id, prompt }) =>
+        id === renderedInputId ? { id, inHistory: true } : { id, text: prompt }
+      ),
+    };
+    const header = ['[Runtime-owned current task intent]', JSON.stringify(frame)];
+    const { target, executionSurface, constraints, responseRequirements } = batch.snapshot.state;
+    const requirements = [
+      target && { target },
+      executionSurface && { executionSurface },
+      constraints.length && { constraints },
+      responseRequirements.length && { responseRequirements },
+    ].filter(Boolean);
+    if (requirements.length) header.push(JSON.stringify({ requirements }));
+    if (!this.needsDecision) {
+      return [...header, 'Answer the latest user request from the current conversation.'].join(
+        '\n'
+      );
+    }
+    const targets = this.correctionTargets!(
+      batch.inputs.map(({ prompt }) => prompt),
+      true
+    );
+    if (targets.length) header.push(JSON.stringify({ contextSources: targets }));
+    return [
+      ...header,
+      'Call turn_decision once. Pending inputs marked inHistory are already in the user messages.',
+      'For a contradiction of prior assistant or claim text, give its targetId and an exact quote from the pending user input. Never repeat an applied correction.',
+      'For corrections, omit answer; it will be generated from the updated context. Otherwise put the complete reply in answer. Use clarify for uncertainty.',
+    ].join('\n');
+  }
+
+  prompt(readOnly = false, renderedInputId?: string): string {
     const batch = this.batch;
     if (!batch) return '';
+    if (
+      this.correctionTargets &&
+      !this.hasBoundTask &&
+      (readOnly || (!this.needsDecision && batch.snapshot.disposition !== 'execute'))
+    ) {
+      return this.readOnlyPrompt(batch, renderedInputId);
+    }
     return [
       '[Runtime-owned current task intent]',
       JSON.stringify({
@@ -92,13 +140,18 @@ export class TaskIntentTurn {
     ].join('\n');
   }
 
-  tool(): Tool | undefined {
+  tool(readOnly = false): Tool | undefined {
     if (!this.needsDecision) return undefined;
     return {
       name: TURN_DECISION_TOOL,
-      description:
-        'Runtime control declaration: propose the pending user input update and plan in the same response. This does not grant tool permissions.',
-      inputSchema: this.correctionTargets ? versionedTurnDecisionSchema : turnDecisionSchema,
+      description: readOnly
+        ? 'Submit the reply or pending user correction.'
+        : 'Runtime control declaration: propose the pending user input update and plan in the same response. This does not grant tool permissions.',
+      inputSchema: this.correctionTargets
+        ? readOnly
+          ? readOnlyTurnDecisionSchema
+          : versionedTurnDecisionSchema
+        : turnDecisionSchema,
       metadata: { sideEffectClass: 'runtime_state', noReplay: true },
       async execute() {
         throw new Error('turn_decision must be processed by the response coordinator');

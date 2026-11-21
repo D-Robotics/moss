@@ -574,6 +574,7 @@ export class MossAgent {
   private buildBaseSystemPromptParts(options?: {
     omitSubagentExperts?: boolean;
     compactGuidance?: boolean;
+    readOnlyGuidance?: boolean;
   }): string[] {
     const parts: string[] = [];
 
@@ -605,6 +606,12 @@ export class MossAgent {
       // = most of the conversation budget). Keep the operational rules that
       // matter when every token counts and drop the rest.
       parts.push(SMALL_CONTEXT_GUIDANCE_SECTION);
+    } else if (options?.readOnlyGuidance && this.config.includeAgentBehaviorPrompt !== 'full') {
+      if (this.config.includeAgentBehaviorPrompt !== false) {
+        parts.push(
+          'Answer from the available conversation. Use GitHub-flavored Markdown. Do not invent workspace facts or report work you did not verify.'
+        );
+      }
     } else if (this.config.includeAgentBehaviorPrompt !== false) {
       parts.push(
         this.config.includeAgentBehaviorPrompt === 'full'
@@ -629,15 +636,9 @@ export class MossAgent {
     omitExtraPromptLayers?: boolean;
     omitSubagentExperts?: boolean;
     compactGuidance?: boolean;
+    readOnlyGuidance?: boolean;
   }): string {
-    const parts = this.buildBaseSystemPromptParts(
-      options?.omitSubagentExperts === true || options?.compactGuidance === true
-        ? {
-            ...(options.omitSubagentExperts === true ? { omitSubagentExperts: true } : {}),
-            ...(options.compactGuidance === true ? { compactGuidance: true } : {}),
-          }
-        : undefined
-    );
+    const parts = this.buildBaseSystemPromptParts(options);
 
     // Host layers: the declared table wins when a host provides one; the two
     // legacy arrays stay for SDK hosts that never adopted PromptLayersPort.
@@ -684,6 +685,7 @@ export class MossAgent {
     omitExtraPromptLayers?: boolean;
     omitSubagentExperts?: boolean;
     compactGuidance?: boolean;
+    readOnlyGuidance?: boolean;
   }): {
     stable: string;
     dynamic: string;
@@ -694,6 +696,7 @@ export class MossAgent {
       ...(options?.omitExtraPromptLayers ? { omitExtraPromptLayers: true } : {}),
       ...(options?.omitSubagentExperts ? { omitSubagentExperts: true } : {}),
       ...(options?.compactGuidance ? { compactGuidance: true } : {}),
+      ...(options?.readOnlyGuidance ? { readOnlyGuidance: true } : {}),
     });
     const dynamicLayers =
       this.config.promptLayers?.dynamic ?? this.config.dynamicPromptLayers ?? [];
@@ -1573,11 +1576,12 @@ ${result.stderr ?? ''}`.trim();
           this.intentFor(sessionKey),
           nativeTaskId,
           this.contextPipeline
-            ? (pendingTexts) =>
+            ? (pendingTexts, correctionsOnly) =>
                 this.contextPipeline!.intentSources(
                   sessionKey,
                   this.contextPolicyKey(),
-                  pendingTexts
+                  pendingTexts,
+                  correctionsOnly
                 )
             : undefined
         )
@@ -1627,14 +1631,22 @@ ${result.stderr ?? ''}`.trim();
     };
     if (!continuingTool) messages.push(userMsg);
 
+    let readOnlyIntentSurface = false;
+    let renderedInputId: string | undefined;
     const composeRunPrompt = (): { stable: string; dynamic: string; full: string } => {
       const composed = this.composeSystemPrompt({
         ...(options?.platform ? { platform: options.platform } : {}),
         ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
         ...(tinyToolSurface ? { omitSubagentExperts: true, compactGuidance: true } : {}),
+        ...(readOnlyIntentSurface ? { omitSubagentExperts: true, readOnlyGuidance: true } : {}),
       });
       if (intentTurn) {
-        composed.dynamic = [composed.dynamic, intentTurn.prompt()].filter(Boolean).join('\n\n');
+        composed.dynamic = [
+          composed.dynamic,
+          intentTurn.prompt(readOnlyIntentSurface, renderedInputId),
+        ]
+          .filter(Boolean)
+          .join('\n\n');
         composed.full = [composed.stable, composed.dynamic].filter(Boolean).join('\n\n');
       }
       if (harnessAdapter) {
@@ -1701,13 +1713,16 @@ ${result.stderr ?? ''}`.trim();
         const input = options?.userInput;
         const nativePrompt = input && input.text !== undefined && input.text !== activeUserMessage;
         if (input) {
-          await versionedStore.appendMessageOnce(
+          const appended = await versionedStore.appendMessageOnce(
             sessionKey,
             `user-source:${input.id}`,
             nativePrompt
               ? { role: 'user', content: input.text! }
               : (persistedMsg as unknown as LLMMessage)
           );
+          if (appended && !nativePrompt && typeof persistedMsg.content === 'string') {
+            renderedInputId = input.id;
+          }
         }
         if (nativePrompt || !input) {
           await versionedStore.appendMessage(
@@ -1818,9 +1833,22 @@ ${result.stderr ?? ''}`.trim();
         [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
         visibleForRun
       ).map(slimTinyWindowTool);
-      const declarations = [intentTurn?.tool(), intentTurn?.claimTool()].filter(
-        (tool) => tool !== undefined
+      const claimTool = intentTurn?.claimTool();
+      const hostFiltersTools = options?.toolFilter;
+      readOnlyIntentSurface = Boolean(
+        versionedStore &&
+        intentTurn &&
+        !intentTurn.hasBoundTask &&
+        options?.taskFlow === false &&
+        !ledgerVisible &&
+        tools.length === 0 &&
+        hostFiltersTools &&
+        (!claimTool || !hostFiltersTools(claimTool))
       );
+      const declarations = [
+        intentTurn?.tool(readOnlyIntentSurface),
+        readOnlyIntentSurface ? undefined : claimTool,
+      ].filter((tool) => tool !== undefined);
       if (!declarations.length) return tools;
       const names = new Set(declarations.map((tool) => tool.name));
       return [...tools.filter((tool) => !names.has(tool.name)), ...declarations];
