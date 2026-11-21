@@ -92,6 +92,7 @@ export interface ProcessLlmResponseParams {
   loadToolsMetaName?: string;
   toolLoopGuard: ToolLoopGuardState;
   maxToolCalls?: number;
+  toolStartGuard?: AgentLoopExtensions['toolStartGuard'];
   checkToolApproval?: (call: {
     id: string;
     name: string;
@@ -280,6 +281,7 @@ export async function processLlmResponse(
 
   if (
     completionGate &&
+    !params.toolStartGuard?.superseded() &&
     !outputLimited &&
     !state.hasMoreToolCalls &&
     state.finalText.trim().length > 0 &&
@@ -508,6 +510,7 @@ export async function processLlmResponse(
     toolHeartbeatIntervalMs,
     skipHeartbeatToolNames,
     checkToolApproval,
+    toolStartGuard: params.toolStartGuard,
     toolAbortSignalFor,
     enrichToolContext,
     parallelSafeTools,

@@ -160,11 +160,22 @@ export interface UserIntentInput {
   activeRequest?: string;
 }
 
+export interface UserIntentDecision {
+  intent: 'new_task' | 'task_correction' | 'question' | 'continue_task' | 'stop_task' | 'unclear';
+  probability: number;
+  editPolicy?: { choice: 'read_only' | 'allow_edits' | 'unchanged'; probability: number };
+}
+
 export interface MossAgentConfig
   extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
   sessionStore: SessionStore;
   /** Optional shadow observer for host-marked input and live steering. Its result is never used by the loop. */
   observeUserIntent?: (input: UserIntentInput, signal: AbortSignal) => Promise<void>;
+  /** Opt-in decision port for steering that can invalidate tools from the current turn. */
+  decideSteeringIntent?: (
+    input: UserIntentInput,
+    signal: AbortSignal
+  ) => Promise<UserIntentDecision | undefined>;
 
   /** Host provider id (`deepseek`, `openai-compatible`, …). Updated by `switchModel`. */
   provider?: string;

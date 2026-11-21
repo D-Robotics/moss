@@ -408,6 +408,7 @@ export function runAgentLoop(
           // sub-agents (host-provided engine), once per run.
           if (
             params.bestOfNFix &&
+            (params.toolStartGuard?.allowsPriorRecovery() ?? true) &&
             !state.bestOfNEscalated &&
             state.failingVerifyStreak &&
             state.failingVerifyStreak.count >= 2 &&
@@ -488,7 +489,8 @@ export function runAgentLoop(
               currentMessages,
               lastUserText: lastUserTextForNudge,
               buildCorrectionMessage,
-              taskPhaseNudges: params.taskPhaseNudges,
+              taskPhaseNudges:
+                params.taskPhaseNudges && (params.toolStartGuard?.allowsPriorRecovery() ?? true),
               todoWriteAvailable: toolsForTurn.some((tool) => tool.name === 'todo_write'),
               userQuestionsAvailable: toolsForTurn.some(
                 (tool) => tool.name === 'ask_user_question'
@@ -642,6 +644,7 @@ export function runAgentLoop(
               toolLoopGuard,
               maxToolCalls,
               checkToolApproval: params.checkToolApproval,
+              toolStartGuard: params.toolStartGuard,
               guardAssistantOutput: params.guardAssistantOutput,
               completionGate: params.completionGate,
               delayedVisibleDeltas: Boolean(

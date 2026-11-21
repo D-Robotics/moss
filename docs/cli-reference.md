@@ -92,7 +92,11 @@ MOSS_JEV_PROVIDER=opencode MOSS_JEV_INTENT=shadow MOSS_LOG_LEVEL=info \
 
 这个开关适用于 CLI 参数、交互式自然语言输入和实时 steering。开启后，Moss 会向所选服务商的 System One API 发送经过凭据脱敏和长度限制的用户文本。判断实时补充时，如果本轮有原始用户请求，会一起提供。诊断日志只记分类元数据。开关和密钥均从启动进程环境读取。
 
-SDK 宿主也可通过 `MossAgentConfig.observeUserIntent` 注入观察器，并用 `ChatOptions.userIntentText` 标记原始用户输入。
+SDK 宿主也可通过 `MossAgentConfig.observeUserIntent` 注入观察器，或通过 `MossAgentConfig.decideSteeringIntent` 注入参与执行的判定器。用 `ChatOptions.userIntentText` 标记原始用户输入。
+
+把 `MOSS_JEV_INTENT` 改成 `active`，即可在交互运行中使用 Jev 判定。运行中发送「改一下，只解释，别改代码」后，Moss 会在下一次工具启动前检查新消息。确认纠正后，本轮尚未启动的工具会收到跳过结果，模型按最新用户消息继续。已经启动的工具保留实际结果。对明确的只读要求，当前运行的后续轮次也只允许使用声明为只读的工具，直到收到明确允许编辑的新指令。
+
+判定失败、超时或概率低于 `0.8` 时，Moss 会按最新用户消息重新规划，并保守地继续只读。被纠正的 `/goal` 会停在 `BLOCKED`，后续验收使用按新要求创建的目标。
 
 ## 调优开关（环境变量）
 

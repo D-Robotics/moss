@@ -340,6 +340,13 @@ function toolTimeoutHint(): string {
   );
 }
 
+export interface ToolStartGuard {
+  prepare(signal: AbortSignal): Promise<void>;
+  denialReason(tool: Tool): string | undefined;
+  superseded(): boolean;
+  allowsPriorRecovery(): boolean;
+}
+
 export interface ExecuteToolCallDeps {
   toolsForRun: Tool[];
   toolCtx: ToolContext;
@@ -361,6 +368,7 @@ export interface ExecuteToolCallDeps {
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
 
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
+  toolStartGuard?: ToolStartGuard;
 
   checkToolApproval?: (call: {
     id: string;
@@ -446,6 +454,19 @@ async function executeOneToolCallInner(
         text,
         error: new MossError({ code: ErrorCode.TOOL_NOT_FOUND, message: text }),
       };
+    }
+
+    const startGuard = deps.toolStartGuard;
+    if (startGuard) {
+      await startGuard.prepare(deps.abortSignal);
+      const reason = startGuard.denialReason(tool);
+      if (reason) {
+        return {
+          kind: 'pre-blocked',
+          text: reason,
+          error: new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: reason }),
+        };
+      }
     }
 
     const schemaCheck = validateToolInputObject(tool, call.input);
@@ -748,8 +769,6 @@ async function executeOneToolCallInner(
           }, heartbeatIntervalMs);
         }
 
-        if (attempt === 0) emitStart();
-        reachedExecute = true;
         const runInvocation = async (input: Record<string, unknown>, signal = attemptSignal) => {
           const validation = validateToolInputObject(tool, input);
           if (!validation.ok) {
@@ -758,6 +777,14 @@ async function executeOneToolCallInner(
               message: validation.message,
             });
           }
+          if (startGuard) {
+            await startGuard.prepare(signal);
+            signal.throwIfAborted();
+          }
+          emitStart();
+          const reason = startGuard?.denialReason(tool);
+          if (reason) throw new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: reason });
+          reachedExecute = true;
           const rpcDeadline = AbortSignal.timeout(deps.toolTimeoutMs);
           const rpcSignal = AbortSignal.any([signal, rpcDeadline]);
           const rpcCtx = { ...attemptCtx, abortSignal: rpcSignal };
@@ -983,7 +1010,7 @@ async function executeOneToolCallInner(
 
     let postHookModified = false;
     const textBeforePostHooks = text;
-    if (deps.toolHooks) {
+    if (deps.toolHooks && (reachedExecute || !startGuard)) {
       text = await deps.toolHooks.runPostHooks({
         tool,
         input: call.input,

@@ -497,7 +497,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_NO_COLOR',
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',
-      'MOSS_JEV_INTENT (shadow opts into Jev intent classification; startup env only)',
+      'MOSS_JEV_INTENT (shadow observes; active applies live steering decisions; startup env only)',
       'MOSS_JEV_PROVIDER (typesafe by default, or openrouter / opencode; startup env only)',
       'TYPESAFE_API_KEY (for the TypeSafe Jev provider; startup env only)',
       'OPENROUTER_API_KEY (for the OpenRouter Jev provider; startup env only)',

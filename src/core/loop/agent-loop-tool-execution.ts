@@ -82,6 +82,7 @@ export interface ExecuteAgentLoopToolCallsParams {
     reason?: string;
     updatedInput?: Record<string, unknown>;
   } | null>;
+  toolStartGuard?: ExecuteToolCallDeps['toolStartGuard'];
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
   parallelSafeTools: Set<string>;
@@ -503,6 +504,7 @@ export async function executeAgentLoopToolCalls(
       heartbeatIntervalMs: toolHeartbeatIntervalMs,
       skipHeartbeatToolNames,
       checkToolApproval,
+      toolStartGuard: params.toolStartGuard,
       toolAbortSignalFor,
       enrichToolContext,
       push,

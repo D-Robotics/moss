@@ -225,18 +225,26 @@ function readAgentTurnResult(
  * Esc returns ok so the caller continues to the loop top, which records
  * aborted; a `budget_*` stop records the failure and does not open another turn.
  */
+export const INTENT_REVISED_REASON =
+  'The user changed the intent during the run. Start a new goal with the updated instructions and acceptance criteria.';
+
 async function runAgentTurn(
   deps: TaskEngineDeps,
   state: RunLoopState,
   prompt: string,
   phase: string
-): Promise<'ok' | 'budget'> {
+): Promise<'ok' | 'budget' | 'blocked'> {
   const { stopReason } = readAgentTurnResult(await deps.runTurn(prompt, phase), deps.runTurn);
-  // Normal turns are reconciled by their caller; only a budget stop needs
-  // this extra snapshot before deciding whether to append a failure.
-  if (!stopReason?.startsWith('budget_')) return 'ok';
+  const revised = stopReason === 'intent_revised';
+  if (!revised && !stopReason?.startsWith('budget_')) return 'ok';
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
   if (phaseIsSettled(snapshot?.phase) || deps.signal?.aborted) return 'ok';
+  if (revised) {
+    await appendTaskEvent(deps.workspaceDir, state.taskId, 'blocked_on_user', {
+      reason: INTENT_REVISED_REASON,
+    });
+    return 'blocked';
+  }
   await appendTaskEvent(deps.workspaceDir, state.taskId, 'task_failed', {
     detail: `run budget exceeded (${stopReason})`,
   });
@@ -390,7 +398,7 @@ async function verifyRepairLoop(
         executionPrompt(current.goal ?? '', state.taskId, state.repairsUsed + 1),
         'executing'
       );
-      if (executed === 'budget') return 'budget';
+      if (executed !== 'ok') return executed;
 
       // The turn may already have accepted, failed, abandoned, or blocked the
       // task (task_acceptance, /goal clear). Do not reopen it with
@@ -453,7 +461,7 @@ async function verifyRepairLoop(
       ),
       'repairing'
     );
-    if (repaired === 'budget') return 'budget';
+    if (repaired !== 'ok') return repaired;
     // task_acceptance during the repair turn can accept the task. repair_applied
     // is illegal from a terminal or blocked phase and would surface as
     // "run crashed" even though the goal already finished.
@@ -669,7 +677,7 @@ export async function runTask(
     // A budget stop must not open the execution or repair loop. A settled
     // turn is not a budget stop. An aborted planning turn returns normally;
     // do not hand off into execution or a repair turn.
-    if (planning !== 'budget') {
+    if (planning === 'ok') {
       if (deps.signal?.aborted) {
         await failAborted(deps.workspaceDir, taskId);
         return buildRunResult(deps.workspaceDir, taskId, state);
@@ -720,6 +728,9 @@ export async function resumeTask(
 ): Promise<TaskRunResult> {
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, taskId);
   if (!snapshot) throw new Error(`task ${taskId} not found`);
+  if (snapshot.phase === 'blocked' && snapshot.blockedReason === INTENT_REVISED_REASON) {
+    return buildRunResult(deps.workspaceDir, taskId, { taskId, turns: 0, repairsUsed: 0 });
+  }
   if (snapshot.phase === 'accepted') throw new Error(`task ${taskId} is already accepted`);
   if (!isResumableTaskPhase(snapshot.phase)) {
     throw new Error(`task ${taskId} is ${snapshot.phase}; nothing to resume`);
@@ -792,6 +803,9 @@ function runNextStepLines(result: TaskRunResult, zh: boolean): string[] {
     return line.trim().slice(0, max);
   };
   if (outcome === 'blocked') {
+    if (blockedReason === INTENT_REVISED_REASON) {
+      return [zh ? '目标意图已更新。请以更正后的要求和验收条件启动新目标。' : blockedReason];
+    }
     const reason = blockedReason ? firstLine(blockedReason) : '';
     return [
       ...(reason ? [zh ? `阻塞：${reason}` : `blocked: ${reason}`] : []),
