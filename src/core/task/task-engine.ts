@@ -29,6 +29,7 @@ import {
   setPersistedAcceptanceCommand,
 } from './acceptance-authority.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
+import { withTaskExecutionGuard } from './task-execution-guard.js';
 import type { AgentTurnResult } from './agent-turn.js';
 import {
   acceptanceAlreadySatisfied,
@@ -49,7 +50,15 @@ export interface TaskEngineDeps {
    * An `AgentTurnResult` object may carry `stopReason` instead. A reason
    * that starts with `budget_` ends the run unless the task is already settled.
    */
-  runTurn: (prompt: string, phase: string) => Promise<string | AgentTurnResult>;
+  runTurn: {
+    (
+      prompt: string,
+      phase: string,
+      binding?: import('./agent-turn.js').TaskTurnBinding
+    ): Promise<string | AgentTurnResult>;
+    captureAcceptanceGuard?(taskId: string): (() => void) | undefined;
+    pendingUserInput?(): boolean;
+  };
   /** Defaults to contract acceptance; a command provider overrides it. */
   verdictProvider?: VerdictProvider;
   /** Repair cycles before the task is declared failed (default 5). */
@@ -231,9 +240,13 @@ async function runAgentTurn(
   deps: TaskEngineDeps,
   state: RunLoopState,
   prompt: string,
-  phase: string
+  phase: string,
+  userGoal?: string
 ): Promise<'ok' | 'budget' | 'hold'> {
-  const { stopReason } = readAgentTurnResult(await deps.runTurn(prompt, phase), deps.runTurn);
+  const { stopReason } = readAgentTurnResult(
+    await deps.runTurn(prompt, phase, { taskId: state.taskId, userGoal }),
+    deps.runTurn
+  );
   if (stopReason === 'task_intent_hold') {
     await pauseForNewInput(deps, state.taskId);
     return 'hold';
@@ -288,6 +301,17 @@ type VerificationResult =
   | { kind: 'failed'; verdict: TaskVerdict };
 
 async function runVerification(
+  deps: TaskEngineDeps,
+  state: RunLoopState,
+  provider: VerdictProvider
+): Promise<VerificationResult> {
+  const guard = deps.runTurn.captureAcceptanceGuard?.(state.taskId);
+  return guard
+    ? withTaskExecutionGuard(guard, () => evaluateTaskVerification(deps, state, provider))
+    : evaluateTaskVerification(deps, state, provider);
+}
+
+async function evaluateTaskVerification(
   deps: TaskEngineDeps,
   state: RunLoopState,
   provider: VerdictProvider
@@ -707,7 +731,8 @@ export async function runTask(
       deps,
       state,
       await injectExperienceIntoPrompt(prompt, goal, deps.workspaceDir),
-      'planning'
+      'planning',
+      goal
     );
     // A budget stop must not open the execution or repair loop. A settled
     // turn is not a budget stop. An aborted planning turn returns normally;
@@ -808,7 +833,7 @@ export async function resumeTask(
       provider,
       options.maxRepairAttempts ?? deps.maxRepairAttempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS,
       options.maxTurns,
-      !options.replan && !snapshot.needsReplan
+      !options.replan && !snapshot.needsReplan && !deps.runTurn.pendingUserInput?.()
     );
   } catch (err) {
     if (isTaskExecutionSupersededError(err)) {

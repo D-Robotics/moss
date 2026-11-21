@@ -1,3 +1,8 @@
+import type {
+  ContextClaimDraft,
+  ContextClaim,
+  ContextCorrection,
+} from '../../contracts/versioned-context.js';
 import crypto from 'node:crypto';
 import type {
   TaskIntentInput,
@@ -47,7 +52,12 @@ function sameFields(a: TaskIntentSnapshot['state'], b: TaskIntentSnapshot['state
 export class TaskIntentCoordinator {
   constructor(
     private readonly port: InboxPort,
-    private readonly workspaceDir: string
+    private readonly workspaceDir: string,
+    private readonly context?: {
+      correct(correction: ContextCorrection): void;
+      registerClaims(drafts: ContextClaimDraft[]): ContextClaim[];
+      claimsActive(ids: string[]): boolean;
+    }
   ) {}
 
   read(): TaskIntentSnapshot {
@@ -105,7 +115,11 @@ export class TaskIntentCoordinator {
         delivery: steering ? 'steer' : 'queue',
         metadata: steering ?? { intentOnly: true },
       });
-      entry.intent = { status: 'pending', ...(input.taskId ? { taskId: input.taskId } : {}) };
+      entry.intent = {
+        status: 'pending',
+        ...(input.taskId ? { taskId: input.taskId } : {}),
+        ...(input.invalidateTask ? { invalidateTask: true } : {}),
+      };
       return entry;
     });
   }
@@ -138,6 +152,7 @@ export class TaskIntentCoordinator {
           constraints: [...(contract?.constraints ?? [])],
         };
         snapshot.plan = [];
+        snapshot.planDependsOn = [];
         snapshot.planId = '';
       }
       snapshot.taskId = effectiveTaskId;
@@ -154,12 +169,26 @@ export class TaskIntentCoordinator {
         (binding.revision !== current.revision ||
           binding.inputSeq !== current.inputSeq ||
           binding.planId !== current.planId)) ||
-      (!allowHold && current.disposition !== 'execute')
+      (!allowHold &&
+        (current.disposition !== 'execute' ||
+          ((current.planDependsOn?.length ?? 0) > 0 &&
+            !this.context?.claimsActive(current.planDependsOn!))))
     ) {
       throw new TaskExecutionSupersededError(
         'Task input changed or the current decision does not authorize execution'
       );
     }
+  }
+
+  publishClaims(
+    binding: TaskIntentSnapshot | undefined,
+    drafts: ContextClaimDraft[]
+  ): ContextClaim[] {
+    if (!this.context) throw new Error('Context claims are unavailable');
+    return this.port.mutate(() => {
+      this.assertCurrent(binding, true);
+      return this.context!.registerClaims(drafts);
+    });
   }
 
   async commit(batch: TaskIntentBatch, decision: TurnDecision): Promise<TaskIntentSnapshot> {
@@ -175,7 +204,21 @@ export class TaskIntentCoordinator {
       state.goal = batch.inputs[0]!.prompt;
       state.sources.goal = [{ messageId: batch.inputs[0]!.id, quote: batch.inputs[0]!.prompt }];
     }
-    const changed = !sameFields(batch.snapshot.state, state);
+    const corrections = decision.contextCorrections ?? [];
+    if (corrections.length && !this.context) throw new Error('Context corrections are unavailable');
+    for (const correction of corrections) {
+      if (
+        !batch.inputs.some(
+          (entry) => entry.id === correction.messageId && entry.prompt.includes(correction.quote)
+        )
+      ) {
+        throw new Error('Context corrections must cite an exact quote from pending user input');
+      }
+    }
+    const changed =
+      !sameFields(batch.snapshot.state, state) ||
+      corrections.length > 0 ||
+      batch.inputs.some((entry) => entry.intent?.invalidateTask);
     const snapshot: TaskIntentSnapshot = {
       ...batch.snapshot,
       state,
@@ -185,6 +228,7 @@ export class TaskIntentCoordinator {
       disposition: decision.disposition,
       planId: decision.disposition === 'execute' ? crypto.randomUUID() : '',
       plan: [...decision.plan],
+      planDependsOn: [...(decision.planDependsOn ?? [])],
     };
     const lastId = batch.inputs.at(-1)?.id;
     if (!lastId) throw new Error('No pending user input to commit');
@@ -198,6 +242,16 @@ export class TaskIntentCoordinator {
           JSON.stringify(decision.messageIds)
       ) {
         throw new TaskExecutionSupersededError('A newer user input superseded this response');
+      }
+      for (const correction of corrections) {
+        this.context?.correct({
+          id: `intent:${correction.messageId}:${correction.targetId}`,
+          targetId: correction.targetId,
+          text: correction.quote,
+        });
+      }
+      if (snapshot.planDependsOn!.length && !this.context?.claimsActive(snapshot.planDependsOn!)) {
+        throw new Error('The new plan depends on an invalidated or unknown claim');
       }
       const last = inbox.toEntries().find((entry) => entry.id === lastId)!;
       // Publish the recovery journal before any asynchronous task projection.

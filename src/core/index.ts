@@ -1,3 +1,9 @@
+export { VersionedSessionStore } from './session/versioned-session-store.js';
+export type {
+  ContextCorrection,
+  ContextSourceMessage,
+  CommittedContextCorrection,
+} from '../contracts/versioned-context.js';
 export { combineAbortSignals, wrapToolWithAbortSignal, abortable } from './agent/index.js';
 export type {
   AgentHooks,

@@ -29,3 +29,39 @@ Host callbacks outside normal tool execution must freeze the binding at callback
 The SDK defaults to the existing path when this option is absent. Studio enables it for ordinary runs, while fixed JSON execution profiles retain their own protocol.
 
 Verification: `npm run verify` includes the `task-intent` stage, which exercises a scripted provider, durable recovery and native task revision/acceptance. These offline probes do not measure model interpretation accuracy or real-device behavior.
+
+## Versioned context
+
+Set `MOSS_VERSIONED_CONTEXT=1` for a CLI workspace, or supply
+`new VersionedSessionStore(databasePath, legacyStore)` together with
+`taskIntent: true` when embedding. Once initialized, the CLI reopens the same
+database on later launches. The store is scoped by the host's account and session
+identity. Close the agent before closing a store owned by the host.
+
+- `/context sources` lists original message IDs, and `/context claims` shows
+  recorded conclusions and their status.
+- `/context correct <id> <text>` records a correction to an assistant message or
+  claim. `MossAgent.correctContext(sessionKey, { id, targetId, text })` is the
+  idempotent SDK equivalent.
+- `/compact` prepares or selects a source-checked checkpoint. It preserves
+  original source rows. `MossAgent.listContextSources` can inspect them after
+  a restart. Imported sessions can only retain messages still present on disk.
+
+The request pipeline progressively adjusts the output reservation, shortens old
+tool results, prepares checkpoints in the background, reuses compatible
+checkpoints, or performs bounded synchronous summarization. Provider-independent
+admission uses a conservative serialized-size estimate. Provider-reported
+overflow triggers a bounded retry with a smaller budget. Structured summaries
+are historical data, and do not authorize work or commit acceptance.
+
+On correction, the store invalidates dependent claims and supersedes all prior
+checkpoint revisions. Legacy unstructured replies in the affected range are
+excluded from the model view conservatively. In-flight provider responses and
+business tool dispatch check their captured version. Tools already started can
+have side effects. After an uncertain interruption their invocation record
+remains unsettled. Use `/context unsettled` to inspect these records. After
+checking the external state, record the observed outcome with
+`/context reconcile <invocation-id> <observed outcome>` to resume mutations.
+
+Run `node scripts/verify/cli.mjs --stage versioned-context,task-intent` for the
+scripted provider and restart probes.

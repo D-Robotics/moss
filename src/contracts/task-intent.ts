@@ -3,6 +3,7 @@ export interface TaskIntentInput {
   id: string;
   text: string;
   taskId?: string;
+  invalidateTask?: boolean;
 }
 
 export interface TaskIntentState {
@@ -22,6 +23,7 @@ export interface TaskIntentSnapshot {
   taskId?: string;
   planId: string;
   plan: string[];
+  planDependsOn?: string[];
   disposition: 'answer' | 'execute' | 'clarify' | 'cancel';
   pending: boolean;
 }
@@ -39,8 +41,10 @@ export interface TurnDecision {
   inputSeq: number;
   messageIds: string[];
   changes: TaskIntentChange[];
+  contextCorrections?: { targetId: string; messageId: string; quote: string }[];
   disposition: TaskIntentSnapshot['disposition'];
   plan: string[];
+  planDependsOn?: string[];
 }
 
 export interface TaskIntentReceipt {
@@ -51,6 +55,7 @@ export interface TaskIntentReceipt {
 /** Stored inside the existing durable inbox; a projection is replayable. */
 export interface TaskIntentEntryState {
   taskId?: string;
+  invalidateTask?: boolean;
   status: TaskIntentReceipt['status'] | 'projecting';
   revision?: number;
   /** Compact dedupe tombstones retain identity after full inbox payload pruning. */

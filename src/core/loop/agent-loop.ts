@@ -5,7 +5,7 @@ import { toMossErrorOutcome } from './agent-error-outcome.js';
 
 const log = getRootLogger().child('agent:loop');
 import type { Message } from '../session/session-jsonl.js';
-import { describeError } from '../../provider/errors.js';
+import { describeError, isContextOverflowError } from '../../provider/errors.js';
 import { classifyLlmError } from '../../provider/llm-error-classifier.js';
 import {
   ensureKeepAliveDispatcherInstalled,
@@ -38,7 +38,11 @@ import { createToolLoopGuardState } from '../tools/tool-loop-guard.js';
 import type { AgentLoopHardCaps, AgentLoopParams } from './agent-loop-types.js';
 import { createInitialLoopState, resetIterationState } from './agent-loop-state.js';
 import type { SteeringContext } from './steering.js';
-import { prepareTurnContext, shouldIncludeThinkingInBudget } from './agent-loop-context-prep.js';
+import {
+  prepareProjectionWire,
+  prepareTurnContext,
+  shouldIncludeThinkingInBudget,
+} from './agent-loop-context-prep.js';
 import { executeLlmTurn } from './agent-loop-llm-call.js';
 import { processLlmResponse } from './agent-loop-response.js';
 import {
@@ -191,6 +195,7 @@ export function runAgentLoop(
       steeringEngine,
     } = params;
 
+    let projectionOverflowRetries = 0;
     const persistCurrentMessages = async (messages?: Message[]): Promise<void> => {
       if (params.replaceMessages) {
         await params.replaceMessages(sessionKey, messages ?? currentMessages);
@@ -528,52 +533,85 @@ export function runAgentLoop(
           let turnToolCalls: { id: string; name: string; input: Record<string, unknown> }[] = [];
           try {
             refreshActiveSystemPrompt();
-            const ctxResult = await prepareTurnContext({
-              state,
-              currentMessages,
-              systemPrompt: activeSystemPrompt,
-              systemPromptParts: activeSystemPromptParts,
-              effectiveContextTokens,
-              charsPerUnit,
-              modelDef,
-              getToolsForRun: () => toolsForTurn,
-              sessionKey,
-              runId,
-              prepareCompaction,
-              compactHooks,
-              persistCurrentMessages,
-              push: (e) => stream.push(e),
-              abortSignal,
-              pruningSettings,
-              hardCapMessageCount: effectiveCaps.maxMessageCount,
-              hardCapTotalTokens: effectiveCaps.maxTotalTokens,
-              previousPrefixSnapshot,
-              previousToolNames,
-              prefixDebugEnabled,
-              maxTurns: maxTurns ?? undefined,
-            });
+            const wire = params.prepareContextProjection
+              ? prepareProjectionWire({
+                  systemPrompt: activeSystemPrompt,
+                  systemPromptParts: activeSystemPromptParts,
+                  modelDef,
+                  tools: toolsForTurn,
+                  effectiveContextTokens,
+                })
+              : undefined;
+            const projection =
+              wire && params.prepareContextProjection
+                ? await params.prepareContextProjection({
+                    window: Math.floor(contextTokens * Math.pow(0.85, projectionOverflowRetries)),
+                    output: maxOut,
+                    force: projectionOverflowRetries > 0,
+                    measure: (messages, output) =>
+                      Buffer.byteLength(
+                        JSON.stringify({
+                          ...wire(messages),
+                          max_tokens: output,
+                        })
+                      ),
+                  })
+                : undefined;
+            const projectionRevision = projection?.revision;
+            if (projectionRevision !== undefined)
+              params.assertContextRevision?.(projectionRevision);
+            const ctxResult: Awaited<ReturnType<typeof prepareTurnContext>> | undefined =
+              projection && wire
+                ? undefined
+                : await prepareTurnContext({
+                    state,
+                    currentMessages,
+                    systemPrompt: activeSystemPrompt,
+                    systemPromptParts: activeSystemPromptParts,
+                    effectiveContextTokens,
+                    charsPerUnit,
+                    modelDef,
+                    getToolsForRun: () => toolsForTurn,
+                    sessionKey,
+                    runId,
+                    prepareCompaction,
+                    compactHooks,
+                    persistCurrentMessages,
+                    push: (e) => stream.push(e),
+                    abortSignal,
+                    pruningSettings,
+                    hardCapMessageCount: effectiveCaps.maxMessageCount,
+                    hardCapTotalTokens: effectiveCaps.maxTotalTokens,
+                    previousPrefixSnapshot,
+                    previousToolNames,
+                    prefixDebugEnabled,
+                    maxTurns: maxTurns ?? undefined,
+                  });
 
-            previousPrefixSnapshot = ctxResult.updatedSnapshots.previousPrefixSnapshot;
-            previousToolNames = ctxResult.updatedSnapshots.previousToolNames;
-            promptCacheTelemetry.prefixChecks += ctxResult.promptCacheTelemetry.prefixChecks;
-            promptCacheTelemetry.prefixChanges += ctxResult.promptCacheTelemetry.prefixChanges;
-            promptCacheTelemetry.toolOrderChecks += ctxResult.promptCacheTelemetry.toolOrderChecks;
-            promptCacheTelemetry.toolOrderChanges +=
-              ctxResult.promptCacheTelemetry.toolOrderChanges;
+            if (ctxResult) {
+              previousPrefixSnapshot = ctxResult.updatedSnapshots.previousPrefixSnapshot;
+              previousToolNames = ctxResult.updatedSnapshots.previousToolNames;
+              promptCacheTelemetry.prefixChecks += ctxResult.promptCacheTelemetry.prefixChecks;
+              promptCacheTelemetry.prefixChanges += ctxResult.promptCacheTelemetry.prefixChanges;
+              promptCacheTelemetry.toolOrderChecks +=
+                ctxResult.promptCacheTelemetry.toolOrderChecks;
+              promptCacheTelemetry.toolOrderChanges +=
+                ctxResult.promptCacheTelemetry.toolOrderChanges;
 
-            if (ctxResult.control === 'break') break;
-            if (ctxResult.control === 'retry') {
-              state.compactionRetries++;
-              state.turns--;
-              continue;
+              if (ctxResult.control === 'break') break;
+              if (ctxResult.control === 'retry') {
+                state.compactionRetries++;
+                state.turns--;
+                continue;
+              }
             }
-
+            const projectedContext = projection && wire ? wire(projection.messages) : undefined;
             const llmResult = await executeLlmTurn({
               reasoningBudget: params.reasoningBudget,
               modelTiers: params.modelTiers,
               state,
               modelDef,
-              piContext: ctxResult.piContext,
+              piContext: projectedContext ?? ctxResult!.piContext,
               streamFn,
               apiKey,
               temperature,
@@ -581,9 +619,10 @@ export function runAgentLoop(
               maxLLMRetries,
               topP,
               abortSignal,
-              maxTokens: activeOutputTokens(),
-              messagesForModel: ctxResult.messagesForModel,
-              toolsForRun: ctxResult.toolsForRun,
+              maxTokens: projection?.output ?? activeOutputTokens(),
+              messagesForModel: projection?.messages ?? ctxResult!.messagesForModel,
+              toolsForRun: ctxResult?.toolsForRun ?? toolsForTurn,
+              ...(projection ? { preserveSourceHistory: true } : {}),
               sessionKey,
               runId,
               runStartMs,
@@ -598,7 +637,7 @@ export function runAgentLoop(
               // completionGate alone must NOT suppress streaming — that made
               // every coding turn non-streamed.
               suppressVisibleDeltas: Boolean(
-                params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
+                projection || params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
               ),
             });
 
@@ -611,6 +650,21 @@ export function runAgentLoop(
 
             const responseResult = await processLlmResponse({
               taskIntentTurn: params.taskIntentTurn,
+              assertContextCurrent:
+                projectionRevision === undefined
+                  ? undefined
+                  : () => params.assertContextRevision?.(projectionRevision),
+              registerToolInvocation:
+                projectionRevision === undefined || !params.registerToolInvocation
+                  ? undefined
+                  : (id, name, mutates, assertIntent) =>
+                      params.registerToolInvocation!(
+                        projectionRevision,
+                        id,
+                        name,
+                        mutates,
+                        assertIntent
+                      ),
               provider: modelDef.provider,
               modelId: modelDef.id,
               state,
@@ -647,7 +701,7 @@ export function runAgentLoop(
               guardAssistantOutput: params.guardAssistantOutput,
               completionGate: params.completionGate,
               delayedVisibleDeltas: Boolean(
-                params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
+                projection || params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
               ),
               toolAbortSignalFor: params.toolAbortSignalFor,
               enrichToolContext: params.enrichToolContext,
@@ -707,6 +761,16 @@ export function runAgentLoop(
               break;
             }
           } catch (turnErr) {
+            if (
+              params.prepareContextProjection &&
+              !abortSignal.aborted &&
+              isContextOverflowError(describeError(turnErr)) &&
+              projectionOverflowRetries < 1
+            ) {
+              projectionOverflowRetries++;
+              state.turns--;
+              continue;
+            }
             if (abortSignal.aborted) {
               stream.push({
                 type: 'turn_transition',

@@ -384,6 +384,8 @@ export interface ExecuteToolCallDeps {
 
   push: (event: MiniAgentEvent) => void;
 
+  registerToolInvocation?(id: string, name: string, mutates: boolean): () => void;
+
   onBeforeStartEmit?: (mutatedInput: Record<string, unknown>) => void;
 
   maxMissedHeartbeats?: number;
@@ -771,6 +773,7 @@ async function executeOneToolCallInner(
 
         if (attempt === 0) emitStart();
         reachedExecute = true;
+        let invocationIndex = 0;
         const runInvocation = async (input: Record<string, unknown>, signal = attemptSignal) => {
           assertTaskExecutionCurrent();
           const validation = validateToolInputObject(tool, input);
@@ -784,6 +787,13 @@ async function executeOneToolCallInner(
           const rpcSignal = AbortSignal.any([signal, rpcDeadline]);
           const rpcCtx = { ...attemptCtx, abortSignal: rpcSignal };
           structuralError = false;
+          rpcSignal.throwIfAborted();
+          const effect = tool.metadata?.sideEffectClass;
+          const settle = deps.registerToolInvocation?.(
+            JSON.stringify([deps.runId, deps.turnIndex, call.id, attempt, invocationIndex++]),
+            call.name,
+            effect !== 'readonly' && effect !== 'runtime_state'
+          );
           try {
             if (tool.executeStructured) {
               const structured = await abortable(
@@ -807,6 +817,8 @@ async function executeOneToolCallInner(
               });
             }
             throw error;
+          } finally {
+            if (!rpcSignal.aborted) settle?.();
           }
         };
         const invocation = async () => {

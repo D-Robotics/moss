@@ -16,6 +16,7 @@ export function validatePersistedTaskIntent(input: unknown): void {
     !['pending', 'projecting', 'committed', 'needs_clarification', 'failed'].includes(
       String(value.status)
     ) ||
+    (value.invalidateTask !== undefined && typeof value.invalidateTask !== 'boolean') ||
     (value.taskId !== undefined && typeof value.taskId !== 'string') ||
     (value.revision !== undefined && !integer(value.revision)) ||
     (value.expectedTaskRevision !== undefined && !integer(value.expectedTaskRevision)) ||
@@ -42,6 +43,8 @@ export function validatePersistedTaskIntent(input: unknown): void {
       throw new Error('Invalid persisted task intent snapshot');
     }
     strings(snapshot.plan, 'persisted plan', 32);
+    if (snapshot.planDependsOn !== undefined)
+      strings(snapshot.planDependsOn, 'persisted plan dependencies', 32);
     strings(state.constraints, 'persisted constraints', Number.MAX_SAFE_INTEGER);
     strings(state.responseRequirements, 'persisted response requirements', Number.MAX_SAFE_INTEGER);
     for (const sources of Object.values(record(state.sources))) {
@@ -154,6 +157,26 @@ export function parseTurnDecision(input: unknown): TurnDecision {
     }
     return item as unknown as TaskIntentChange;
   });
+  const rawCorrections = value.contextCorrections ?? [];
+  if (!Array.isArray(rawCorrections) || rawCorrections.length > 16)
+    throw new Error('Invalid context corrections');
+  const contextCorrections = rawCorrections.map((raw) => {
+    const item = record(raw);
+    if (
+      !['targetId', 'messageId', 'quote'].every(
+        (key) =>
+          typeof item[key] === 'string' &&
+          (item[key] as string).trim() &&
+          (item[key] as string).length <= 4000
+      )
+    )
+      throw new Error('Invalid context correction source');
+    return {
+      targetId: item.targetId as string,
+      messageId: item.messageId as string,
+      quote: item.quote as string,
+    };
+  });
   const plan = strings(value.plan, 'plan', 32);
   if (value.disposition === 'execute' && plan.length === 0) {
     throw new Error('execute requires a non-empty plan');
@@ -166,8 +189,12 @@ export function parseTurnDecision(input: unknown): TurnDecision {
     inputSeq: value.inputSeq as number,
     messageIds: strings(value.messageIds, 'messageIds', 500),
     changes,
+    ...(contextCorrections.length ? { contextCorrections } : {}),
     disposition: value.disposition as TurnDecision['disposition'],
     plan,
+    ...(value.planDependsOn === undefined
+      ? {}
+      : { planDependsOn: strings(value.planDependsOn, 'plan dependencies', 32) }),
   };
 }
 
@@ -224,8 +251,22 @@ export const turnDecisionSchema = {
         additionalProperties: false,
       },
     },
+    contextCorrections: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          targetId: { type: 'string' },
+          messageId: { type: 'string' },
+          quote: { type: 'string' },
+        },
+        required: ['targetId', 'messageId', 'quote'],
+        additionalProperties: false,
+      },
+    },
     disposition: { type: 'string', enum: ['answer', 'execute', 'clarify', 'cancel'] },
     plan: { type: 'array', items: { type: 'string' } },
+    planDependsOn: { type: 'array', items: { type: 'string' } },
   },
   required: ['baseRevision', 'inputSeq', 'messageIds', 'changes', 'disposition', 'plan'],
   additionalProperties: false,

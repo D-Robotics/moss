@@ -63,6 +63,7 @@ export interface AgentLoopToolExecutionMetrics {
 export interface ExecuteAgentLoopToolCallsParams {
   initialToolResults?: ContentBlock[];
   assertExecutionCurrent?: () => void;
+  registerToolInvocation?(id: string, name: string, mutates: boolean): () => void;
   runId: string;
   sessionKey: string;
   turnIndex: number;
@@ -523,6 +524,7 @@ export async function executeAgentLoopToolCalls(
     const perToolTimeout = toolsForRun.find((tool) => tool.name === call.name)?.metadata?.timeoutMs;
     return {
       assertExecutionCurrent: params.assertExecutionCurrent,
+      registerToolInvocation: params.registerToolInvocation,
       toolsForRun,
       toolCtx,
       runId,

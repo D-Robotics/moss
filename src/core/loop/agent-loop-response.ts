@@ -65,6 +65,13 @@ function replaceAssistantVisibleText(content: ContentBlock[], text: string): voi
 
 export interface ProcessLlmResponseParams {
   taskIntentTurn?: TaskIntentTurn;
+  assertContextCurrent?: () => void;
+  registerToolInvocation?(
+    id: string,
+    name: string,
+    mutates: boolean,
+    assertIntent: () => void
+  ): () => void;
   state: AgentLoopMutableState;
   runId: string;
   assistantContent: ContentBlock[];
@@ -366,6 +373,7 @@ export async function processLlmResponse(
   }
 
   try {
+    params.assertContextCurrent?.();
     params.taskIntentTurn?.assertCurrent(toolCalls.length === 0);
   } catch (error) {
     if (!isTaskExecutionSupersededError(error)) throw error;
@@ -622,9 +630,20 @@ export async function processLlmResponse(
     currentMessages.push(msg);
     assistantBuffer.shift();
   }
+  const intentGuard = params.taskIntentTurn?.executionGuard();
   const toolExecution = await executeAgentLoopToolCalls({
     initialToolResults: intentResponse?.results,
-    assertExecutionCurrent: params.taskIntentTurn?.executionGuard(),
+    registerToolInvocation: params.registerToolInvocation
+      ? (id, name, mutates) =>
+          params.registerToolInvocation!(id, name, mutates, intentGuard ?? (() => {}))
+      : undefined,
+    assertExecutionCurrent:
+      params.assertContextCurrent || intentGuard
+        ? () => {
+            params.assertContextCurrent?.();
+            intentGuard?.();
+          }
+        : undefined,
     state,
     runId,
     sessionKey,
