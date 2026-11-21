@@ -107,7 +107,8 @@ export class TaskIntentTurn {
   }
 
   claimTool(): Tool | undefined {
-    if (!this.correctionTargets) return undefined;
+    if (!this.correctionTargets || (!this.needsDecision && this.binding?.disposition !== 'execute'))
+      return undefined;
     return {
       name: CONTEXT_CLAIMS_TOOL,
       description:
@@ -159,18 +160,46 @@ export class TaskIntentTurn {
     });
   }
 
-  private takeClaims(calls: Call[], interrupted: boolean): ContentBlock[] {
+  private takeClaims(
+    calls: Call[],
+    interrupted: boolean,
+    options: { readOnly?: boolean; corrected?: boolean } = {}
+  ): ContentBlock[] {
     const claimCalls = calls.filter((call) => call.name === CONTEXT_CLAIMS_TOOL);
-    if (claimCalls.length === 0) return [];
-    if (interrupted || claimCalls.length !== 1 || !this.correctionTargets)
-      throw new Error('A single complete context_claims declaration is required');
-    const call = claimCalls[0]!;
-    const claims = this.coordinator.publishClaims(
-      this.binding,
-      parseClaimDrafts(call.input.claims)
-    );
-    calls.splice(calls.indexOf(call), 1);
-    return [{ type: 'tool_result', tool_use_id: call.id, content: JSON.stringify({ claims }) }];
+    if (!claimCalls.length) return [];
+    const reject = (message: string): ContentBlock[] =>
+      claimCalls.map((call) => ({
+        type: 'tool_result',
+        tool_use_id: call.id,
+        is_error: true,
+        content: message,
+      }));
+
+    let results: ContentBlock[];
+    try {
+      if (options.corrected) {
+        results = reject(
+          'Context changed during this turn. Use the repaired context for new claims.'
+        );
+      } else {
+        if (interrupted || claimCalls.length !== 1 || !this.correctionTargets)
+          throw new Error('A single complete context_claims declaration is required');
+        const call = claimCalls[0]!;
+        const claims = this.coordinator.publishClaims(
+          this.binding,
+          parseClaimDrafts(call.input.claims)
+        );
+        results = [
+          { type: 'tool_result', tool_use_id: call.id, content: JSON.stringify({ claims }) },
+        ];
+      }
+    } catch (error) {
+      if (!options.readOnly || isTaskExecutionSupersededError(error)) throw error;
+      // A claim is optional in a read-only answer. Its rejection does not roll back the receipt.
+      results = reject(error instanceof Error ? error.message : 'Invalid context claim');
+    }
+    for (const call of claimCalls) calls.splice(calls.indexOf(call), 1);
+    return results;
   }
 
   assertCurrent(allowHold = false): void {
@@ -192,7 +221,8 @@ export class TaskIntentTurn {
       if (!this.needsDecision) {
         if (declarations.length > 0) throw new Error('No pending input requires turn_decision');
         this.assertCurrent(calls.every((call) => call.name === CONTEXT_CLAIMS_TOOL));
-        return { results: this.takeClaims(calls, interrupted) };
+        const hold = Boolean(this.correctionTargets && this.binding?.disposition !== 'execute');
+        return { results: this.takeClaims(calls, interrupted, { readOnly: hold }), hold };
       }
       if (interrupted || declarations.length !== 1) {
         throw new Error('One complete turn_decision is required before any action or answer');
@@ -208,8 +238,12 @@ export class TaskIntentTurn {
       this.binding = await this.coordinator.commit(this.batch!, decision);
       this.assertCurrent(decision.disposition !== 'execute');
       this.batch = { ...this.batch!, snapshot: this.binding, inputs: [] };
+      const hold = decision.disposition !== 'execute';
       const results: ContentBlock[] = [
-        ...this.takeClaims(calls, interrupted),
+        ...this.takeClaims(calls, interrupted, {
+          readOnly: hold,
+          corrected: Boolean(decision.contextCorrections?.length),
+        }),
         {
           type: 'tool_result',
           tool_use_id: declarations[0]!.id,
@@ -223,7 +257,6 @@ export class TaskIntentTurn {
       for (let index = calls.length - 1; index >= 0; index--) {
         if (calls[index]!.name === TURN_DECISION_TOOL) calls.splice(index, 1);
       }
-      const hold = decision.disposition !== 'execute';
       const answer = input.answer;
       return {
         results,

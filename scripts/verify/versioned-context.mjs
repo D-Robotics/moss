@@ -561,11 +561,15 @@ async function testCapturedCorrection(workspace) {
       });
       assert.equal(followUp.response, answer);
       assert.equal(store.snapshot(session).corrections.length, 1);
+      assert.equal(store.snapshot(session).claims.length, 0);
       assert.equal(modelRequests.length, 3);
     },
     {
       onMain(request, count) {
-        if (count === 2) return response(text(answer));
+        if (count === 2) {
+          assert(!request.tools?.some(({ name }) => name === 'context_claims'));
+          return response(text(answer));
+        }
         const previous = request.systemPrompt
           .split('\n')
           .find((line) => line.startsWith('{"contextSources":'));
@@ -578,6 +582,9 @@ async function testCapturedCorrection(workspace) {
             disposition: 'answer',
             answer,
             contextCorrections: [{ targetId, quote: correctionText }],
+          }),
+          toolCall('context_claims', `invalid-claim-${count}`, {
+            claims: [{ text: 'Unsupported', sourceIds: ['unknown'], dependsOn: [] }],
           })
         );
       },
