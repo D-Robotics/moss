@@ -633,6 +633,7 @@ async function testReadOnlyIntentPrompt(workspace) {
           request.tools.map(({ name }) => name),
           ['turn_decision']
         );
+        assert.equal(request.tools[0].input_schema.properties.changes, undefined);
         assert.doesNotMatch(request.systemPrompt, /After a successful/);
         if (count === 1) {
           assert.deepEqual(intentFrame(request).pendingInputs, [

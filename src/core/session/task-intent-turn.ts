@@ -68,8 +68,10 @@ export class TaskIntentTurn {
       ),
     };
     const header = ['[Runtime-owned current task intent]', JSON.stringify(frame)];
-    const { target, executionSurface, constraints, responseRequirements } = batch.snapshot.state;
+    const { goal, target, executionSurface, constraints, responseRequirements, sources } =
+      batch.snapshot.state;
     const requirements = [
+      goal && !sources.goal?.some(({ quote }) => quote === goal) && { goal },
       target && { target },
       executionSurface && { executionSurface },
       constraints.length && { constraints },
@@ -88,9 +90,9 @@ export class TaskIntentTurn {
     if (targets.length) header.push(JSON.stringify({ contextSources: targets }));
     return [
       ...header,
-      'Call turn_decision once. Pending inputs marked inHistory are already in the user messages.',
-      'For a contradiction of prior assistant or claim text, give its targetId and an exact quote from the pending user input. Never repeat an applied correction.',
-      'For corrections, omit answer; it will be generated from the updated context. Otherwise put the complete reply in answer. Use clarify for uncertainty.',
+      'Return exactly one turn_decision call. Put the reply in answer, with no plain-text response or task changes.',
+      'For a new correction, provide targetId from contextSources or an active claim, and omit answer. Copy quote verbatim from the pending user input (the latest user message if marked inHistory). Never quote the old assistant text or repeat an applied correction.',
+      'Use clarify if the corrected conclusion is ambiguous.',
     ].join('\n');
   }
 

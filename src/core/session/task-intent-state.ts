@@ -324,6 +324,5 @@ export const readOnlyTurnDecisionSchema = {
     disposition: { type: 'string', enum: ['answer', 'clarify', 'cancel'] },
     answer: versionedTurnDecisionSchema.properties.answer,
     contextCorrections: versionedTurnDecisionSchema.properties.contextCorrections,
-    changes: versionedTurnDecisionSchema.properties.changes,
   },
 };
