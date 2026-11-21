@@ -14,7 +14,23 @@ const intentCriteria = {
 };
 
 const MAX_INPUT_CHARS = 4_000;
-const JEV_URL = 'https://api.typesafe.ai/v1/systemone';
+const jevProviders = {
+  typesafe: {
+    url: 'https://api.typesafe.ai/v1/systemone',
+    apiKeyEnv: 'TYPESAFE_API_KEY',
+    model: 'jev-latest',
+  },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1/systemone',
+    apiKeyEnv: 'OPENROUTER_API_KEY',
+    model: 'jev-latest',
+  },
+  opencode: {
+    url: 'https://opencode.ai/inference/systemone/v1/systemone',
+    apiKeyEnv: 'OPENCODE_API_KEY',
+    model: 'jev-1.13-free',
+  },
+};
 
 function boundedInput(text: string): string {
   return redactEgress(text, undefined, { strictSecrets: true }).slice(0, MAX_INPUT_CHARS);
@@ -33,9 +49,15 @@ export function createJevIntentObserver(
 ): MossAgentConfig['observeUserIntent'] {
   if (env.MOSS_JEV_INTENT !== 'shadow') return undefined;
   const log = getRootLogger().child('jev-intent');
-  const apiKey = env.TYPESAFE_API_KEY?.trim();
-  if (!apiKey) {
-    log.warn('Jev intent shadow mode requires TYPESAFE_API_KEY in the startup environment');
+  const provider = env.MOSS_JEV_PROVIDER?.trim() || 'typesafe';
+  if (provider !== 'typesafe' && provider !== 'openrouter' && provider !== 'opencode') {
+    log.warn('MOSS_JEV_PROVIDER must be typesafe, openrouter, or opencode');
+    return undefined;
+  }
+  const { url, apiKeyEnv, model } = jevProviders[provider];
+  const apiKey = env[apiKeyEnv]?.trim();
+  if (!apiKey && provider !== 'opencode') {
+    log.warn(`Jev intent shadow mode requires ${apiKeyEnv} in the startup environment`);
     return undefined;
   }
 
@@ -46,16 +68,16 @@ export function createJevIntentObserver(
       message: boundedInput(input.text),
       ...(input.activeRequest ? { active_request: boundedInput(input.activeRequest) } : {}),
     };
-    const response = await fetch(JEV_URL, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         'Content-Type': 'application/json',
       },
       redirect: 'error',
       signal,
       body: JSON.stringify({
-        model: 'jev-latest',
+        model,
         state,
         questions: {
           user_intent: {
@@ -67,7 +89,7 @@ export function createJevIntentObserver(
         },
       }),
     });
-    const meta = { source: input.source, mode: 'shadow' };
+    const meta = { source: input.source, mode: 'shadow', provider };
     const elapsedMs = () => Math.round(performance.now() - start);
     if (!response.ok) {
       log.warn('Jev intent request failed', {
