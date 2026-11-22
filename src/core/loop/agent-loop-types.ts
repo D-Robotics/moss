@@ -1,3 +1,4 @@
+import type { RuntimeJudgeRun } from '../agent/runtime-judge.js';
 import type { Model, StreamFunction, ThinkingLevel } from '../../provider/pi-ai-types.js';
 import type { ContextPruningSettings } from '../../context/pruning.js';
 import type { CompactHookRegistry } from './compact-hooks.js';
@@ -141,6 +142,8 @@ export interface AgentLoopExtensions {
   /** Observation only; exceptions are ignored and cannot change loop execution. */
   onAgentLoopEvent?: AgentLoopEventObserver;
   getSteeringMessages?: () => Promise<Message[]>;
+  runtimeJudge?: RuntimeJudgeRun;
+  toolStartGuard?: import('../tools/execute-tool-call.js').ToolStartGuard;
   getFollowUpMessages?: () => Promise<Message[]>;
   /** Per-agent-instance run-epoch store. When multiple MossAgent instances
    *  share a process (embedded hosts), each should provide its OWN Map so a

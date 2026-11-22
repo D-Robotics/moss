@@ -1,3 +1,4 @@
+import type { RuntimeJudgeRun } from '../agent/runtime-judge.js';
 import type {
   ProtectedPathChangeReport,
   Tool,
@@ -345,6 +346,13 @@ function toolTimeoutHint(): string {
   );
 }
 
+export interface ToolStartGuard {
+  prepare(signal: AbortSignal): Promise<void>;
+  denialReason(tool: Tool): string | undefined;
+  superseded(): boolean;
+  allowsPriorRecovery(): boolean;
+}
+
 export interface ExecuteToolCallDeps {
   assertExecutionCurrent?: () => void;
   toolsForRun: Tool[];
@@ -367,6 +375,8 @@ export interface ExecuteToolCallDeps {
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
 
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
+  toolStartGuard?: ToolStartGuard;
+  runtimeJudge?: RuntimeJudgeRun;
 
   checkToolApproval?: (call: {
     id: string;
@@ -469,6 +479,20 @@ async function executeOneToolCallInner(
         text,
         error: new MossError({ code: ErrorCode.TOOL_NOT_FOUND, message: text }),
       };
+    }
+
+    const startGuard = deps.toolStartGuard;
+    deps.runtimeJudge?.setPendingTool(tool.name);
+    if (startGuard) {
+      await startGuard.prepare(deps.abortSignal);
+      const reason = startGuard.denialReason(tool);
+      if (reason) {
+        return {
+          kind: 'pre-blocked',
+          text: reason,
+          error: new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: reason }),
+        };
+      }
     }
 
     const schemaCheck = validateToolInputObject(tool, call.input);
@@ -771,8 +795,6 @@ async function executeOneToolCallInner(
           }, heartbeatIntervalMs);
         }
 
-        if (attempt === 0) emitStart();
-        reachedExecute = true;
         let invocationIndex = 0;
         const runInvocation = async (input: Record<string, unknown>, signal = attemptSignal) => {
           assertTaskExecutionCurrent();
@@ -783,9 +805,40 @@ async function executeOneToolCallInner(
               message: validation.message,
             });
           }
+          const constraint = await deps.runtimeJudge?.beforeTool(call.id, tool, validation.value);
+          if (constraint)
+            throw new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: constraint });
+          if (startGuard) {
+            await startGuard.prepare(signal);
+            signal.throwIfAborted();
+          }
+          signal.throwIfAborted();
+          assertTaskExecutionCurrent();
+          emitStart();
+          const reason =
+            startGuard?.denialReason(tool) ??
+            (!startGuard && deps.runtimeJudge?.deniesUnclassifiedTool()
+              ? 'A new user instruction must be applied before this tool can start.'
+              : undefined);
+          if (reason) throw new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: reason });
+          reachedExecute = true;
           const rpcDeadline = AbortSignal.timeout(deps.toolTimeoutMs);
           const rpcSignal = AbortSignal.any([signal, rpcDeadline]);
-          const rpcCtx = { ...attemptCtx, abortSignal: rpcSignal };
+          const rpcCtx: ToolContext = { ...attemptCtx, abortSignal: rpcSignal };
+          const judge = deps.runtimeJudge;
+          if (judge) {
+            judge.noteStart(call.id);
+            rpcCtx.observeApproval = async (toolName, finalInput, where) => {
+              if (toolName !== tool.name || finalInput !== validation.value) return undefined;
+              return judge.observeApproval(call.id, toolName, finalInput, where, rpcSignal);
+            };
+            rpcCtx.assessApproval = async (toolName, finalInput, where) => {
+              if (toolName !== tool.name || finalInput !== validation.value) return;
+              return judge.assessApproval(call.id, toolName, finalInput, where, rpcSignal);
+            };
+            rpcCtx.reportVerification = (target, status) =>
+              deps.runtimeJudge?.noteVerification(call.id, target, status);
+          }
           structuralError = false;
           rpcSignal.throwIfAborted();
           const effect = tool.metadata?.sideEffectClass;
@@ -1018,7 +1071,7 @@ async function executeOneToolCallInner(
 
     let postHookModified = false;
     const textBeforePostHooks = text;
-    if (deps.toolHooks) {
+    if (deps.toolHooks && (reachedExecute || !startGuard)) {
       text = await deps.toolHooks.runPostHooks({
         tool,
         input: call.input,

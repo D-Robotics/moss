@@ -7,6 +7,8 @@ export interface ToolApprovalRequest {
   sessionKey: string;
   runId: string;
   toolCallId: string;
+  /** Observe the final post-hook input for an ordinary prompt. The host handles approval. */
+  observeApproval?: (input: Record<string, unknown>, where: string) => Promise<void>;
   abortSignal: AbortSignal;
 }
 

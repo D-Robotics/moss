@@ -151,14 +151,19 @@ import type {
   ChatResult as SharedChatResult,
   MossAgentEvent as SharedMossAgentEvent,
   InternalMessage as SharedInternalMessage,
+  UserIntentInput,
 } from './moss-agent-types.js';
 import { toSessionMessages, fromSessionMessages, toLLMMessages } from './moss-agent-types.js';
+import { RuntimeJudgeRun, explicitEditPolicy } from './runtime-judge.js';
+import { INTENT_OBSERVATION_TIMEOUT_MS, SteeringIntentGate } from './steering-intent-gate.js';
 
 export type MossAgentConfig = SharedMossAgentConfig;
 export type ChatOptions = SharedChatOptions;
 export type ChatResult = SharedChatResult;
 export type MossAgentEvent = SharedMossAgentEvent;
 export type InternalMessage = SharedInternalMessage;
+
+type ScheduleIntentObservation = (input: UserIntentInput, signal: AbortSignal) => void;
 import {
   buildUserMessageContent,
   appendTurnExtraContext,
@@ -1009,27 +1014,33 @@ export class MossAgent {
     });
   }
 
-  private takeSteeringMessages(sessionKey: string, runId: string): InternalMessage[] {
-    const inbox = this.inboxFor(sessionKey);
+  private pendingSteering(sessionKey: string, runId: string): readonly SessionInboxEntry[] {
+    return this.inboxFor(sessionKey)
+      .promotableSteers()
+      .filter((entry) => {
+        const target = entry.metadata?.runId;
+        return !entry.deferred && (target === undefined || target === runId);
+      });
+  }
+
+  private takeSteeringMessages(
+    runId: string,
+    pending: readonly SessionInboxEntry[],
+    onClaim: (entry: SessionInboxEntry) => string | undefined
+  ): InternalMessage[] {
     const claimed = this.claimedSteers.get(runId) ?? new Set<string>();
-    const entries = inbox.promotableSteers().filter((entry) => {
-      const targetRunId = entry.metadata?.runId;
-      return (
-        !entry.deferred &&
-        !claimed.has(entry.id) &&
-        (targetRunId === undefined || targetRunId === runId)
-      );
-    });
+    const entries = pending.filter((entry) => !claimed.has(entry.id));
     if (entries.length === 0) return [];
     const timestamp = Date.now();
     const messages = entries.map((entry) => {
       claimed.add(entry.id);
+      const notice = onClaim(entry);
       const message: InternalMessage = {
         role: 'user' as const,
         content: [
           {
             type: 'text' as const,
-            text: `[User steering update]\n${entry.prompt}`,
+            text: `[User steering update]\n${notice ? `${notice}\n` : ''}${entry.prompt}`,
           },
         ],
         timestamp,
@@ -1469,7 +1480,8 @@ ${result.stderr ?? ''}`.trim();
     sessionKey: string,
     userMessage: string,
     options?: ChatOptions,
-    continuingTool = false
+    continuingTool = false,
+    observeIntent?: ScheduleIntentObservation
   ): Promise<AgentLoopRun> {
     this.assertOpen();
     const harnessAdapter = snapshotHarnessAdapter(options?.harnessAdapter);
@@ -1542,6 +1554,39 @@ ${result.stderr ?? ''}`.trim();
       }
     }
 
+    const intentText =
+      !continuingTool && activeUserMessage === userMessage
+        ? (options?.taskJudgeGoal?.userGoal ?? options?.userIntentText)
+        : undefined;
+    const pendingSteering = () => this.pendingSteering(sessionKey, runId);
+    const runtimeJudge =
+      this.config.runtimeJudge && intentText && this.config.workspaceDir
+        ? new RuntimeJudgeRun(
+            this.config.runtimeJudge,
+            this.config.workspaceDir,
+            intentText,
+            abortSignal,
+            () => pendingSteering().length > 0,
+            runId,
+            options?.taskJudgeGoal?.contractGoal
+          )
+        : undefined;
+    await runtimeJudge?.initialize();
+    const judgeSteering = new Map<string, string>();
+    const steeringIntent =
+      !this.config.taskIntent && this.config.decideSteeringIntent
+        ? new SteeringIntentGate(
+            pendingSteering,
+            (input, signal) =>
+              !runtimeJudge || runtimeJudge.reserveInput()
+                ? this.config.decideSteeringIntent!(input, signal)
+                : Promise.resolve(undefined),
+            abortSignal,
+            intentText,
+            options?.goalExecWait === true,
+            () => runtimeJudge?.currentAction() ?? ''
+          )
+        : undefined;
     const versionedStore = this.versionedStore;
     const contextPipeline = this.contextPipeline;
     if (
@@ -1734,6 +1779,9 @@ ${result.stderr ?? ''}`.trim();
         }
       } else {
         await store.appendMessage(sessionKey, persistedMsg as unknown as LLMMessage);
+      }
+      if (intentText && observeIntent && (!runtimeJudge || runtimeJudge.reserveInput())) {
+        observeIntent({ source: 'prompt', text: intentText }, abortSignal);
       }
     }
     const systemPrompt = composedPrompt.full;
@@ -1989,6 +2037,20 @@ ${result.stderr ?? ''}`.trim();
               runId: approvalRunId,
               toolCallId: call.id,
               abortSignal: call.abortSignal,
+              ...(runtimeJudge &&
+              this.config.runtimeJudge?.modes.approval &&
+              this.config.runtimeJudge.modes.approval !== 'off'
+                ? {
+                    observeApproval: (finalInput: Record<string, unknown>, where: string) =>
+                      runtimeJudge.observeApproval(
+                        call.id,
+                        tool.name,
+                        finalInput,
+                        where,
+                        call.abortSignal
+                      ),
+                  }
+                : {}),
             });
             return decision.approved
               ? decision.updatedInput
@@ -2278,11 +2340,13 @@ ${result.stderr ?? ''}`.trim();
     // The sticky ledger (not the raw taskFlow flag) decides task-phase nudges.
     // A plain Q&A session never entered the ledger, so the gate stays quiet.
     // Headless `-p` leaves taskFlow unset and the ledger stays visible.
-    const acceptanceGate = ledgerVisible
+    const taskAcceptanceGate = ledgerVisible
       ? createAcceptanceCompletionGate({
           ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
         })
       : async () => ({ ok: true as const });
+    const acceptanceGate: NonNullable<AgentLoopParams['completionGate']> = (request) =>
+      steeringIntent?.revisedIntent() ? Promise.resolve({ ok: true }) : taskAcceptanceGate(request);
     // Cursor-style acceptance loop for ordinary coding runs: a run that edited
     // files but never inspected the result is held once and asked to check or
     // disclose. Task runs hit the acceptance gate above first.
@@ -2318,38 +2382,37 @@ ${result.stderr ?? ''}`.trim();
       this.gateBlocksBySession.set(sessionKey, list);
       this.config.onCompletionGateBlocked?.(block);
     };
-    const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
-      ? async (request) => {
-          const background = await backgroundLifecycleGate(request);
-          recordGate('background', request.turn, background);
-          if (!background.ok) return background;
-          const plan = await planGate(request);
-          recordGate('plan', request.turn, plan);
-          if (!plan.ok) return plan;
-          const pre = await acceptanceGate(request);
-          recordGate('acceptance', request.turn, pre);
-          if (!pre.ok) return pre;
-          const verified = await verificationGate(request);
-          recordGate('verification', request.turn, verified);
-          if (!verified.ok) return verified;
-          const host = await hostCompletionGate(request);
-          recordGate('host', request.turn, host);
-          return host;
-        }
-      : async (request) => {
-          const background = await backgroundLifecycleGate(request);
-          recordGate('background', request.turn, background);
-          if (!background.ok) return background;
-          const plan = await planGate(request);
-          recordGate('plan', request.turn, plan);
-          if (!plan.ok) return plan;
-          const pre = await acceptanceGate(request);
-          recordGate('acceptance', request.turn, pre);
-          if (!pre.ok) return pre;
-          const verified = await verificationGate(request);
-          recordGate('verification', request.turn, verified);
-          return verified;
-        };
+    const completionGate: NonNullable<AgentLoopParams['completionGate']> = async (request) => {
+      const gates = [
+        ['background', backgroundLifecycleGate],
+        ['plan', planGate],
+        ['acceptance', acceptanceGate],
+        ['verification', verificationGate],
+        ...(hostCompletionGate ? [['host', hostCompletionGate] as const] : []),
+      ] as const;
+      for (const [name, gate] of gates) {
+        const result = await gate(request);
+        recordGate(name, request.turn, result);
+        if (!result.ok) return result;
+      }
+      const turnLimit = Math.min(maxTurns ?? Infinity, this.config.budget?.maxTurns ?? Infinity);
+      const decision =
+        request.turn < turnLimit
+          ? await runtimeJudge?.completion(request.response, request.turn)
+          : undefined;
+      if (!decision) return { ok: true };
+      const hold = {
+        ok: false as const,
+        gate: 'jev-completion',
+        kind: decision.kind,
+        reason: 'Jev found a gap between the proposed answer and recorded verification.',
+        correction: decision.correction,
+        // The Jev gate already bounds itself. Prior mandatory gates use the same loop counter.
+        retryLimit: Number.MAX_SAFE_INTEGER,
+      };
+      recordGate(hold.gate, request.turn, hold);
+      return hold;
+    };
 
     const params: AgentLoopParams = {
       ...(harnessAdapterReceipt ? { harnessAdapterReceipt } : {}),
@@ -2408,6 +2471,12 @@ ${result.stderr ?? ''}`.trim();
         const deliveryId = this.steeringDeliveries.get(msg as InternalMessage);
         if (deliveryId) {
           await this.appendInboxDelivery(store, key, deliveryId, msg as unknown as LLMMessage);
+          const effect = steeringIntent?.applied(deliveryId);
+          const prompt = judgeSteering.get(deliveryId);
+          judgeSteering.delete(deliveryId);
+          if (prompt && (effect?.replan || explicitEditPolicy(prompt))) {
+            await runtimeJudge?.revise(prompt, effect?.replaceGoal, effect?.editPolicy);
+          }
         } else if (versionedStore) {
           await versionedStore.appendMessage(
             key,
@@ -2545,7 +2614,29 @@ ${result.stderr ?? ''}`.trim();
         promptPrefixDebug: this.config.promptCache?.debug,
         loadToolsMetaName: TOOL_SEARCH_NAME,
       },
-      getSteeringMessages: async () => this.takeSteeringMessages(sessionKey, runId),
+      toolStartGuard: steeringIntent,
+      runtimeJudge,
+      getSteeringMessages: async () => {
+        const pending = pendingSteering();
+        if (steeringIntent && pending.length > 0)
+          await steeringIntent.prepare(abortSignal, pending);
+        return this.takeSteeringMessages(runId, pending, (entry) => {
+          runtimeJudge?.noteApprovalUpdate(entry.prompt);
+          if (runtimeJudge) judgeSteering.set(entry.id, entry.prompt);
+          if (steeringIntent) return steeringIntent.notice(entry.id);
+          if (!observeIntent || (runtimeJudge && !runtimeJudge.reserveInput())) return undefined;
+          observeIntent(
+            {
+              source: 'steering',
+              text: entry.prompt,
+              ...(intentText ? { activeRequest: intentText } : {}),
+              ...(runtimeJudge ? { currentAction: runtimeJudge.currentAction() } : {}),
+            },
+            abortSignal
+          );
+          return undefined;
+        });
+      },
       ...(intentTurn ? { taskIntentTurn: intentTurn } : {}),
       getFollowUpMessages:
         this.config.enableFollowUpGuard !== false
@@ -2580,9 +2671,16 @@ ${result.stderr ?? ''}`.trim();
         : undefined,
       // Buffer only when a host completionGate may rewrite or discard the answer.
       shouldBufferAssistantOutput: () =>
-        Boolean(intentTurn) || this.config.bufferAssistantUntilComplete === true,
+        Boolean(intentTurn) ||
+        this.config.bufferAssistantUntilComplete === true ||
+        runtimeJudge?.shouldBufferCompletion() === true,
       completionGate,
-      onAgentLoopEvent: this.config.onAgentLoopEvent,
+      onAgentLoopEvent: runtimeJudge
+        ? (event, identity) => {
+            if (event.type === 'message_end') runtimeJudge.observeAssistant(event.text);
+            this.config.onAgentLoopEvent?.(event, identity);
+          }
+        : this.config.onAgentLoopEvent,
       // Per-instance epochs isolate same-session streams across embedded agents.
       runEpochStore: this.runEpochStore,
       pendingToolAborts: this.pendingToolAborts,
@@ -2601,6 +2699,7 @@ ${result.stderr ?? ''}`.trim();
       adapter,
       sessionKey,
       userMessage: activeUserMessage,
+      steeringIntent,
     };
   }
 
@@ -2673,8 +2772,40 @@ ${result.stderr ?? ''}`.trim();
     let run: AgentLoopRun | undefined;
     let miniStream: ReturnType<typeof runAgentLoop> | undefined;
     let done: Extract<MossAgentEvent, { type: 'done' }> | undefined;
+    const observer = this.config.observeUserIntent;
+    const pendingObservations = new Set<Promise<void>>();
+    const observeIntent: ScheduleIntentObservation | undefined = observer
+      ? (input, signal) => {
+          if (!input.text.trim() || signal.aborted) return;
+          const timeout = AbortSignal.timeout(INTENT_OBSERVATION_TIMEOUT_MS);
+          const observationSignal = AbortSignal.any([signal, timeout]);
+          const request = Promise.resolve().then(() => {
+            observationSignal.throwIfAborted();
+            return observer(input, observationSignal);
+          });
+          const pending = abortable(request, observationSignal)
+            .catch(() => {
+              if (!signal.aborted) {
+                log.warn('Intent observation failed', {
+                  source: input.source,
+                  reason: timeout.aborted ? 'timeout' : 'observer-error',
+                });
+              }
+            })
+            .finally(() => {
+              pendingObservations.delete(pending);
+            });
+          pendingObservations.add(pending);
+        }
+      : undefined;
     try {
-      run = await this.createAgentLoopRun(sessionKey, userMessage, options, continuingTool);
+      run = await this.createAgentLoopRun(
+        sessionKey,
+        userMessage,
+        options,
+        continuingTool,
+        observeIntent
+      );
       this.noteRunStarted(sessionKey, run.params.runId);
       miniStream = runAgentLoop(run.params);
       for await (const ev of this.adaptMiniStreamEvents(miniStream, run)) {
@@ -2682,6 +2813,13 @@ ${result.stderr ?? ''}`.trim();
       }
       const miniResult = await miniStream.result();
       done = run.adapter.getDoneEvent(miniResult);
+      if (
+        options?.goalExecWait &&
+        !run.abortSignal.aborted &&
+        run.steeringIntent?.revisedIntent()
+      ) {
+        done.result.stopReason = 'intent_revised';
+      }
     } finally {
       if (run) {
         this.noteRunFinished(sessionKey, run.params.runId);
@@ -2689,6 +2827,7 @@ ${result.stderr ?? ''}`.trim();
       }
     }
 
+    await Promise.all(pendingObservations);
     yield done!;
   }
 

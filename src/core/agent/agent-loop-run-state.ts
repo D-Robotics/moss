@@ -18,4 +18,5 @@ export interface AgentLoopRun {
   adapter: ReturnType<typeof createMossAgentLoopEventAdapter>;
   sessionKey: string;
   userMessage: string;
+  steeringIntent?: import('./steering-intent-gate.js').SteeringIntentGate;
 }

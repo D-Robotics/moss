@@ -212,6 +212,7 @@ function repairPrompt(
 
 interface RunLoopState {
   taskId: string;
+  userGoal?: string;
   turns: number;
   repairsUsed: number;
   lastVerdict?: TaskVerdict;
@@ -236,15 +237,21 @@ function readAgentTurnResult(
  * Esc returns ok so the caller continues to the loop top, which records
  * aborted; a `budget_*` stop records the failure and does not open another turn.
  */
+export const INTENT_REVISED_REASON =
+  'The user changed the intent during the run. Start a new goal with the updated instructions and acceptance criteria.';
+
 async function runAgentTurn(
   deps: TaskEngineDeps,
   state: RunLoopState,
   prompt: string,
   phase: string,
   userGoal?: string
-): Promise<'ok' | 'budget' | 'hold'> {
+): Promise<'ok' | 'budget' | 'hold' | 'blocked'> {
+  const judgeGoal = state.userGoal
+    ? { userGoal: state.userGoal, ...(userGoal ? { contractGoal: userGoal } : {}) }
+    : undefined;
   const { stopReason } = readAgentTurnResult(
-    await deps.runTurn(prompt, phase, { taskId: state.taskId, userGoal }),
+    await deps.runTurn(prompt, phase, { taskId: state.taskId, userGoal, judgeGoal }),
     deps.runTurn
   );
   if (stopReason === 'task_intent_hold') {
@@ -253,9 +260,16 @@ async function runAgentTurn(
   }
   // Normal turns are reconciled by their caller; only a budget stop needs
   // this extra snapshot before deciding whether to append a failure.
-  if (!stopReason?.startsWith('budget_')) return 'ok';
+  const revised = stopReason === 'intent_revised';
+  if (!revised && !stopReason?.startsWith('budget_')) return 'ok';
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
   if (phaseIsSettled(snapshot?.phase) || deps.signal?.aborted) return 'ok';
+  if (revised) {
+    await appendTaskEvent(deps.workspaceDir, state.taskId, 'blocked_on_user', {
+      reason: INTENT_REVISED_REASON,
+    });
+    return 'blocked';
+  }
   await appendTaskEvent(deps.workspaceDir, state.taskId, 'task_failed', {
     detail: `run budget exceeded (${stopReason})`,
   });
@@ -442,8 +456,7 @@ async function verifyRepairLoop(
         ),
         'planning'
       );
-      if (replanned === 'budget') return 'budget';
-      if (replanned === 'hold') return 'blocked';
+      if (replanned !== 'ok') return replanned === 'hold' ? 'blocked' : replanned;
       await finishPlanningTurn(deps, state.taskId);
       if (await acceptPlanningIfSatisfied(deps, state, provider)) return 'accepted';
       continue;
@@ -479,10 +492,10 @@ async function verifyRepairLoop(
         deps,
         state,
         executionPrompt(current.goal ?? '', state.taskId, state.repairsUsed + 1),
-        'executing'
+        'executing',
+        current.goal
       );
-      if (executed === 'budget') return 'budget';
-      if (executed === 'hold') return 'blocked';
+      if (executed !== 'ok') return executed === 'hold' ? 'blocked' : executed;
 
       // The turn may already have accepted, failed, abandoned, or blocked the
       // task (task_acceptance, /goal clear). Do not reopen it with
@@ -543,10 +556,10 @@ async function verifyRepairLoop(
         state.repairsUsed,
         repairHistoryFrom(historySnapshot)
       ),
-      'repairing'
+      'repairing',
+      current?.goal
     );
-    if (repaired === 'budget') return 'budget';
-    if (repaired === 'hold') return 'blocked';
+    if (repaired !== 'ok') return repaired === 'hold' ? 'blocked' : repaired;
     // task_acceptance during the repair turn can accept the task. repair_applied
     // is illegal from a terminal or blocked phase and would surface as
     // "run crashed" even though the goal already finished.
@@ -714,7 +727,7 @@ export async function runTask(
     ...(options.acceptanceCommand ? { acceptanceCommand: options.acceptanceCommand } : {}),
   });
   const taskId = contract.taskId;
-  const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0 };
+  const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0, userGoal: goal };
 
   await appendTaskEvent(deps.workspaceDir, taskId, 'task_understood');
   await appendTaskEvent(deps.workspaceDir, taskId, 'planning_started');
@@ -796,6 +809,9 @@ export async function resumeTask(
 ): Promise<TaskRunResult> {
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, taskId);
   if (!snapshot) throw new Error(`task ${taskId} not found`);
+  if (snapshot.phase === 'blocked' && snapshot.blockedReason === INTENT_REVISED_REASON) {
+    return buildRunResult(deps.workspaceDir, taskId, { taskId, turns: 0, repairsUsed: 0 });
+  }
   if (snapshot.phase === 'accepted') throw new Error(`task ${taskId} is already accepted`);
   if (!isResumableTaskPhase(snapshot.phase)) {
     throw new Error(`task ${taskId} is ${snapshot.phase}; nothing to resume`);
@@ -825,7 +841,16 @@ export async function resumeTask(
       workspaceDir: deps.workspaceDir,
       ...(command ? { command } : {}),
     });
-  const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0 };
+  const creation = (await listTaskEvents(deps.workspaceDir, taskId)).find(
+    (event) => event.type === 'task_created'
+  );
+  const originalGoal = creation?.data?.goal;
+  const state: RunLoopState = {
+    taskId,
+    turns: 0,
+    repairsUsed: 0,
+    userGoal: typeof originalGoal === 'string' ? originalGoal : snapshot.goal,
+  };
   try {
     await verifyRepairLoop(
       deps,
@@ -877,6 +902,9 @@ function runNextStepLines(result: TaskRunResult, zh: boolean): string[] {
     return line.trim().slice(0, max);
   };
   if (outcome === 'blocked') {
+    if (blockedReason === INTENT_REVISED_REASON) {
+      return [zh ? '目标意图已更新。请以更正后的要求和验收条件启动新目标。' : blockedReason];
+    }
     const reason = blockedReason ? firstLine(blockedReason) : '';
     return [
       ...(reason ? [zh ? `阻塞：${reason}` : `blocked: ${reason}`] : []),

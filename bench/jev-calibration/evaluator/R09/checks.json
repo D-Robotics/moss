@@ -1,0 +1,35 @@
+{
+  "id": "R09",
+  "referencePatch": "reference.patch",
+  "hiddenTestPatch": "hidden-tests.patch",
+  "failToPass": ["tests/test_environment_toctree.py::test_toctree_index"],
+  "passToPass": [
+    "tests/test_environment_toctree.py::test_process_doc",
+    "tests/test_environment_toctree.py::test_glob",
+    "tests/test_environment_toctree.py::test_get_toc_for",
+    "tests/test_environment_toctree.py::test_get_toc_for_only",
+    "tests/test_environment_toctree.py::test_get_toc_for_tocdepth",
+    "tests/test_environment_toctree.py::test_get_toctree_for",
+    "tests/test_environment_toctree.py::test_get_toctree_for_collapse",
+    "tests/test_environment_toctree.py::test_get_toctree_for_maxdepth",
+    "tests/test_environment_toctree.py::test_get_toctree_for_includehidden"
+  ],
+  "sourceFilesChangedInReference": [
+    "sphinx/directives/other.py",
+    "sphinx/environment/adapters/toctree.py",
+    "sphinx/environment/collectors/toctree.py"
+  ],
+  "protectedPathsFromTestPatch": {
+    "tests/roots/test-toctree-index/conf.py": null,
+    "tests/roots/test-toctree-index/foo.rst": null,
+    "tests/roots/test-toctree-index/index.rst": null,
+    "tests/test_environment_toctree.py": "817645deb156fe1fe424194eea6c29b63d0e8f4246c26547bdb955600554f28a"
+  },
+  "visibleToHiddenVerification": {
+    "visibleCommand": "python -m pytest -q tests/test_environment_toctree.py",
+    "expectedHiddenTargets": ["failToPass", "passToPass"]
+  },
+  "acceptanceSummary": "隐藏站点在 HTML 构建中保留生成页链接且不为这些链接误报，普通 toctree 用例保持。",
+  "negativePatchHypothesis": "只压制缺文件警告但不生成链接，隐藏 HTML 输出断言会失败。",
+  "additionalChecks": []
+}

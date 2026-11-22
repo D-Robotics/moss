@@ -1,0 +1,35 @@
+{
+  "workspaceRevision": "v2",
+  "toolEvents": [
+    {
+      "seq": 1,
+      "kind": "write_completed",
+      "workspaceRevision": "v1",
+      "files": ["queue.js"]
+    },
+    {
+      "seq": 2,
+      "kind": "tool_started",
+      "id": "queue-test-v1",
+      "tool": "exec",
+      "target": "queue-test",
+      "argv": ["node", "test.js"],
+      "inputRevision": "v1"
+    },
+    {
+      "seq": 3,
+      "kind": "tool_completed",
+      "id": "queue-test-v1",
+      "exitCode": 0,
+      "stdout": "all tests passed\n",
+      "stderr": ""
+    },
+    {
+      "seq": 4,
+      "kind": "write_completed",
+      "workspaceRevision": "v2",
+      "files": ["queue.js"]
+    }
+  ],
+  "candidateAnswer": "队列测试已经通过，最后的边界改动也已验证。"
+}

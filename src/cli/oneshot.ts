@@ -69,6 +69,8 @@ export function formatOneshotStillRunningBackgroundNotice(
 
 export interface RunOneShotOptions {
   sessionKey?: string;
+  /** Original user text for shadow intent classification. */
+  userIntentText?: string;
   /** Optional host-assigned run id for deterministic audited benchmarks. */
   runId?: string;
   outputFormat?: HeadlessOutputFormat;
@@ -587,7 +589,12 @@ export async function runOneShot(
             toolFilter,
             ...(pureChat ? { omitExtraPromptLayers: true as const } : {}),
           };
-    for await (const event of agent.streamChat(sessionKey, message, streamOptions)) {
+    for await (const event of agent.streamChat(sessionKey, message, {
+      ...streamOptions,
+      ...(options.userIntentText && !options.goalVerifyDepth
+        ? { userIntentText: options.userIntentText }
+        : {}),
+    })) {
       options.onAgentEvent?.(event);
       // The provider already reports time-to-first-token per call; the JSON
       // result exposes the first observation instead of discarding the only

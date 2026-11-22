@@ -30,6 +30,7 @@ import { stage as buildStage } from './stages/build.mjs';
 import { stage as smokeStage } from './stages/smoke.mjs';
 import { stage as examplesStage } from './stages/examples.mjs';
 import { stage as hooksContractStage } from './stages/hooks-contract.mjs';
+import { stage as steeringIntentStage } from './stages/steering-intent.mjs';
 import { stage as verificationGateStage } from './stages/verification-gate.mjs';
 import { stage as reviewPipelineStage } from './stages/review-pipeline.mjs';
 import { stage as clipboardPasteStage } from './stages/clipboard-paste.mjs';
@@ -145,6 +146,7 @@ const STAGES = new Map(
     examplesStage,
     rsiSharedStage,
     hooksContractStage,
+    steeringIntentStage,
     verificationGateStage,
     reviewPipelineStage,
     clipboardPasteStage,
@@ -260,6 +262,7 @@ const FAST_GATE = [
   'smoke',
   'examples',
   'hooks-contract',
+  'steering-intent',
   'verification-gate',
   'review-pipeline',
   'clipboard-paste',

@@ -1,0 +1,34 @@
+diff --git a/__tests__/OrderedMap.ts b/__tests__/OrderedMap.ts
+index 8ed3f8d06..0472f8b8a 100644
+--- a/__tests__/OrderedMap.ts
++++ b/__tests__/OrderedMap.ts
+@@ -129,4 +129,13 @@ describe('OrderedMap', () => {
+ 
+     expect(map.size).toBe(SIZE / 2 - 1);
+   });
++
++  it('hashCode should return the same value if the values are the same', () => {
++    const m1 = OrderedMap({ b: 'b' });
++    const m2 = OrderedMap({ a: 'a', b: 'b' }).remove('a');
++    const m3 = OrderedMap({ b: 'b' }).remove('b').set('b', 'b');
++
++    expect(m1.hashCode()).toEqual(m2.hashCode());
++    expect(m1.hashCode()).toEqual(m3.hashCode());
++  });
+ });
+diff --git a/__tests__/OrderedSet.ts b/__tests__/OrderedSet.ts
+index 6dbf7f4d1..54045232f 100644
+--- a/__tests__/OrderedSet.ts
++++ b/__tests__/OrderedSet.ts
+@@ -142,4 +142,11 @@ describe('OrderedSet', () => {
+     expect(out.has(second)).toBe(false);
+     expect(out.has(third)).toBe(true);
+   });
++
++  it('hashCode should return the same value if the values are the same', () => {
++    const set1 = OrderedSet(['hello']);
++    const set2 = OrderedSet(['goodbye', 'hello']).remove('goodbye');
++
++    expect(set1.hashCode()).toBe(set2.hashCode());
++  });
+ });

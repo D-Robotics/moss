@@ -1,0 +1,112 @@
+{
+  "id": "M03",
+  "checkpoint": "agent/M03/checkpoint.json",
+  "expectedAction": {
+    "completion": "request-evidence",
+    "run": ["report-contract"],
+    "keep": ["parser-contract-v2"],
+    "staleEvidence": ["report-contract-v1"]
+  },
+  "requiredVerification": [
+    {
+      "id": "parser-contract",
+      "argv": ["node", "test.js"],
+      "affectedPaths": ["lib/config.js", "lib/report.js", "lib/metrics.js", "test.js"],
+      "requiredRevision": "v2"
+    },
+    {
+      "id": "report-contract",
+      "argv": ["node", "tests/report.test.js"],
+      "affectedPaths": ["lib/config.js", "lib/report.js", "lib/metrics.js", "tests/report.test.js"],
+      "requiredRevision": "v2"
+    }
+  ],
+  "acceptanceSummary": "按启动时的代码版本判定。只补跑受影响的 report-contract，已在 v2 完成的 parser-contract 不应重复执行。",
+  "protectedPaths": {
+    "lib/audit.js": "a5527abb4120bd8403c16bc68ccaef0e4a9aabbef38a9782013bd8aca8fc7d97",
+    "lib/config.js": "1e0df206ee26f5d1fa907076d2159404869e3cf20c0f5c58476756ca7d16658c",
+    "lib/metrics.js": "d5479434a1633f426698fd1482c591fadd3a38881d9f366831899528ae124c0f",
+    "lib/report.js": "09ac0739aa825d2e32fab399ca45067a8db270d15a1151f8e81afc0c4c83c373",
+    "package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+    "test.js": "8eb77fdd8a242dfac33d82fb327d74671e41a08618500b9a81349556139c4c76",
+    "tests/report.test.js": "cbe53a131ef7db6ce7e8cb29ca3b2460bec252abf85ed7aedd0043fbcda400a2"
+  },
+  "previousRevisions": {
+    "v0": {
+      "paths": {
+        "lib/audit.js": "a5527abb4120bd8403c16bc68ccaef0e4a9aabbef38a9782013bd8aca8fc7d97",
+        "lib/config.js": "4024bb58794dade8540f41ea7298f321807afeb82d4220eabd96b99e92059aab",
+        "lib/metrics.js": "d5479434a1633f426698fd1482c591fadd3a38881d9f366831899528ae124c0f",
+        "lib/report.js": "34e6e8ea89c0e79ecaa30ad41c67c216a467dc0ae962ecffc3d06e553e45dee1",
+        "package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+        "test.js": "8eb77fdd8a242dfac33d82fb327d74671e41a08618500b9a81349556139c4c76",
+        "tests/report.test.js": "cbe53a131ef7db6ce7e8cb29ca3b2460bec252abf85ed7aedd0043fbcda400a2"
+      },
+      "overlayAgainstCurrent": {
+        "lib/config.js": "// Configuration parser. The public contract is documented in README.md:\n// parseConfig returns EXACTLY the keys { ok, value }.\nexport function parseConfig(raw) {\n  if (typeof raw !== 'string' || raw.length === 0) {\n    return { ok: false, value: null };\n  }\n  const value = raw.trim().toLowerCase() === 'true' ? true : raw.trim();\n  return { ok: true, value };\n}\n",
+        "lib/report.js": "import { parseConfig } from './config.js';\nimport { auditContract } from './audit.js';\n\n// The audit gate runs on every parse; the app crashes if the contract drifts.\nexport function render(raw) {\n  const result = parseConfig(raw);\n  if (!auditContract(result, ['ok', 'value'])) {\n    throw new Error('config contract violated');\n  }\n  return result.ok ? `value=${result.value}` : 'invalid';\n}\n"
+      }
+    },
+    "v1": {
+      "paths": {
+        "lib/audit.js": "a5527abb4120bd8403c16bc68ccaef0e4a9aabbef38a9782013bd8aca8fc7d97",
+        "lib/config.js": "06808b1e050f8ff334e0af3c18d114de135248fc95930974c13fe4bcb7bb7084",
+        "lib/metrics.js": "d5479434a1633f426698fd1482c591fadd3a38881d9f366831899528ae124c0f",
+        "lib/report.js": "09ac0739aa825d2e32fab399ca45067a8db270d15a1151f8e81afc0c4c83c373",
+        "package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+        "test.js": "8eb77fdd8a242dfac33d82fb327d74671e41a08618500b9a81349556139c4c76",
+        "tests/report.test.js": "cbe53a131ef7db6ce7e8cb29ca3b2460bec252abf85ed7aedd0043fbcda400a2"
+      },
+      "overlayAgainstCurrent": {
+        "lib/config.js": "export function parseConfig(raw) {\n  const strict = typeof raw === 'string' && raw.startsWith('!strict ');\n  const input = strict ? raw.slice(8) : raw;\n  if (typeof input !== 'string' || input.length === 0) {\n    return { ok: false, strict, value: null };\n  }\n  const trimmed = input.trim();\n  return { ok: true, strict, value: trimmed.toLowerCase() === 'true' ? true : trimmed };\n}\n"
+      }
+    }
+  },
+  "fixtureChecks": [
+    {
+      "workspaceRevision": "v0",
+      "argv": ["node", "test.js"],
+      "expectExitCode": 1,
+      "purpose": "原始公开契约不含完整 strict",
+      "observed": {
+        "exitCode": 1,
+        "stdout": "",
+        "stderr": "node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: header keys sorted alphabetically\n+ actual - expected\n\n+ 'ok|value'\n- 'ok|strict|value'\n      ^\n\n    at file://<workspace>/test.js:11:8\n    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)\n    at async node:internal/modules/esm/loader:647:26\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: 'ok|value',\n  expected: 'ok|strict|value',\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v24.21.0\n"
+      }
+    },
+    {
+      "workspaceRevision": "v1",
+      "argv": ["node", "tests/report.test.js"],
+      "expectExitCode": 0,
+      "purpose": "旧版 report 确实通过",
+      "observed": {
+        "exitCode": 0,
+        "stdout": "render and telemetry tests passed\n",
+        "stderr": ""
+      }
+    },
+    {
+      "workspaceRevision": "v2",
+      "argv": ["node", "test.js"],
+      "expectExitCode": 0,
+      "purpose": "最新版 parser 已通过",
+      "observed": {
+        "exitCode": 0,
+        "stdout": "all tests passed\n",
+        "stderr": ""
+      }
+    },
+    {
+      "workspaceRevision": "v2",
+      "argv": ["node", "tests/report.test.js"],
+      "expectExitCode": 0,
+      "purpose": "最新版 report 补验可独立通过",
+      "observed": {
+        "exitCode": 0,
+        "stdout": "render and telemetry tests passed\n",
+        "stderr": ""
+      }
+    }
+  ],
+  "timeline": "Reconstructed checkpoint. Event order is intentional; subprocess evidence was recorded from isolated revision snapshots."
+}

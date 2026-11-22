@@ -14,6 +14,7 @@ import path from 'node:path';
 import {
   DEFAULT_MAX_REPAIR_ATTEMPTS,
   DEFAULT_MAX_TURNS,
+  INTENT_REVISED_REASON,
   runTask,
   resumeTask,
   summarizeTaskRun,
@@ -736,7 +737,14 @@ function runRecordForTask(
     // A completed run has no failure to report; the snapshot's latest failure is
     // history and must not be attached to a PASS row.
     ...(reason && status !== 'completed' ? { reason } : {}),
-    ...(status === 'completed' ? {} : { next: `moss task resume ${result.snapshot.taskId}` }),
+    ...(status === 'completed'
+      ? {}
+      : {
+          next:
+            result.blockedReason === INTENT_REVISED_REASON
+              ? 'moss goal "<updated goal>"'
+              : `moss task resume ${result.snapshot.taskId}`,
+        }),
     ...(usage ? { usage } : {}),
     ...(gates && gates.length > 0 ? { gates } : {}),
     artifacts: {

@@ -1,0 +1,51 @@
+{
+  "id": "R14",
+  "referencePatch": "reference.patch",
+  "hiddenTestPatch": "hidden-tests.patch",
+  "failToPass": ["org.apache.lucene.geo.TestXYPoint > testEqualsAndHashCode"],
+  "passToPass": [],
+  "sourceFilesChangedInReference": [
+    "lucene/core/src/java/org/apache/lucene/geo/Circle.java",
+    "lucene/core/src/java/org/apache/lucene/geo/Point.java",
+    "lucene/core/src/java/org/apache/lucene/geo/Rectangle2D.java",
+    "lucene/core/src/java/org/apache/lucene/geo/XYCircle.java",
+    "lucene/core/src/java/org/apache/lucene/geo/XYPoint.java"
+  ],
+  "protectedPathsFromTestPatch": {
+    "lucene/core/src/test/org/apache/lucene/document/BaseXYShapeTestCase.java": "b482624a04370ab0d4a6132d428d082fc8eb3d22568a203c20cd38e151b4166a",
+    "lucene/core/src/test/org/apache/lucene/document/TestXYMultiPointShapeQueries.java": "79850198aacd35699cce8186d106768180ea8ce1aa2fd47e04b018b55853eb13",
+    "lucene/core/src/test/org/apache/lucene/geo/TestCircle.java": "c2f81d5d1349d2cfada6cf0c76f18af8edfdc460aa6c88ae6ccd2de821dfee48",
+    "lucene/core/src/test/org/apache/lucene/geo/TestPoint.java": "2c03fab8c41a71ec0263c7193e9976f8bda9b0db0d3798308384e3424337b964",
+    "lucene/core/src/test/org/apache/lucene/geo/TestRectangle2D.java": "98f162a7abbd20dac0764490510591191f477eab3405cd3d77ab6a214537721c",
+    "lucene/core/src/test/org/apache/lucene/geo/TestXYCircle.java": "8a23824528c10f2d7450edbb4c8df0b77660fc21cfcccdea858f503d433283c3",
+    "lucene/core/src/test/org/apache/lucene/geo/TestXYPoint.java": "485c1b226b72a8dd63a9a4db0a3e1c91f282aca279b05b8c0b8623cbb4652213",
+    "lucene/core/src/test/org/apache/lucene/geo/TestXYRectangle.java": "cb14c881c49e154e944f96c21e010c8ea278e9d86da73908c016434cc9061d78",
+    "lucene/test-framework/src/java/org/apache/lucene/tests/geo/GeoTestUtil.java": "e20360f584f369ce3dcd72fddd8f572327d2e81700d0411cc596e05d9b5353df",
+    "lucene/test-framework/src/java/org/apache/lucene/tests/geo/ShapeTestUtil.java": "c1a5b501886160e3dfc4eee097a37810e4606e6adae715c08c406e0710a19638"
+  },
+  "visibleToHiddenVerification": {
+    "visibleCommand": "./gradlew test --tests TestXYPoint.testEqualsAndHashCode -Dtests.seed=3ABEFE4D876DD310 -Dtests.nightly=true -Dtests.locale=es-419 -Dtests.timezone=Asia/Ulaanbaatar -Dtests.asserts=true -Dtests.file.encoding=UTF-8",
+    "expectedHiddenTargets": ["failToPass", "passToPass"]
+  },
+  "acceptanceSummary": "TestXYPoint 的固定种子；额外使用 TestPoint、TestCircle、TestXYCircle、TestXYRectangle 的有符号零用例。",
+  "negativePatchHypothesis": "只修 XYPoint；其它地理形状的冻结补充用例会拒绝。",
+  "additionalChecks": [
+    {
+      "id": "cross-shape",
+      "argv": [
+        "./gradlew",
+        ":lucene:core:test",
+        "--tests",
+        "org.apache.lucene.geo.TestPoint",
+        "--tests",
+        "org.apache.lucene.geo.TestCircle",
+        "--tests",
+        "org.apache.lucene.geo.TestXYCircle",
+        "--tests",
+        "org.apache.lucene.geo.TestXYRectangle",
+        "-Dtests.seed=3ABEFE4D876DD310"
+      ],
+      "purpose": "跨经纬度/XY 类检查 equals/hashCode 含有符号零时一致。"
+    }
+  ]
+}

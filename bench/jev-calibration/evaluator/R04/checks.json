@@ -1,0 +1,36 @@
+{
+  "id": "R04",
+  "referencePatch": "reference.patch",
+  "hiddenTestPatch": "hidden-tests.patch",
+  "failToPass": ["tests/checkers/unittest_similar.py::test_set_duplicate_lines_to_zero"],
+  "passToPass": [
+    "tests/checkers/unittest_similar.py::test_ignore_comments",
+    "tests/checkers/unittest_similar.py::test_ignore_docstrings",
+    "tests/checkers/unittest_similar.py::test_ignore_imports",
+    "tests/checkers/unittest_similar.py::test_multiline_imports",
+    "tests/checkers/unittest_similar.py::test_ignore_multiline_imports",
+    "tests/checkers/unittest_similar.py::test_ignore_signatures_fail",
+    "tests/checkers/unittest_similar.py::test_ignore_signatures_pass",
+    "tests/checkers/unittest_similar.py::test_ignore_signatures_class_methods_fail",
+    "tests/checkers/unittest_similar.py::test_ignore_signatures_class_methods_pass",
+    "tests/checkers/unittest_similar.py::test_ignore_signatures_empty_functions_fail",
+    "tests/checkers/unittest_similar.py::test_ignore_signatures_empty_functions_pass",
+    "tests/checkers/unittest_similar.py::test_no_hide_code_with_imports",
+    "tests/checkers/unittest_similar.py::test_ignore_nothing",
+    "tests/checkers/unittest_similar.py::test_lines_without_meaningful_content_do_not_trigger_similarity",
+    "tests/checkers/unittest_similar.py::test_help",
+    "tests/checkers/unittest_similar.py::test_no_args",
+    "tests/checkers/unittest_similar.py::test_get_map_data"
+  ],
+  "sourceFilesChangedInReference": ["pylint/checkers/similar.py"],
+  "protectedPathsFromTestPatch": {
+    "tests/checkers/unittest_similar.py": "f65d8593b7cd7d4f765683001a8068c0e7925ea951d118e86b40ddb10e3c7f90"
+  },
+  "visibleToHiddenVerification": {
+    "visibleCommand": "python -m pytest -q tests/checkers/unittest_similar.py",
+    "expectedHiddenTargets": ["failToPass", "passToPass"]
+  },
+  "acceptanceSummary": "禁用时不生成重复代码报告，既有相似度报告仍保持。",
+  "negativePatchHypothesis": "无条件关闭相似度检查，预期原有重复检测用例失败。",
+  "additionalChecks": []
+}

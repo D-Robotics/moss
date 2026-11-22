@@ -1,0 +1,82 @@
+{
+  "id": "G03",
+  "referencePatch": "reference.patch",
+  "hiddenTestPatch": "hidden-tests.patch",
+  "failToPass": ["tests/test_domain_cpp.py::test_templates"],
+  "passToPass": [
+    "tests/test_domain_cpp.py::test_fundamental_types",
+    "tests/test_domain_cpp.py::test_expressions",
+    "tests/test_domain_cpp.py::test_type_definitions",
+    "tests/test_domain_cpp.py::test_concept_definitions",
+    "tests/test_domain_cpp.py::test_member_definitions",
+    "tests/test_domain_cpp.py::test_function_definitions",
+    "tests/test_domain_cpp.py::test_operators",
+    "tests/test_domain_cpp.py::test_nested_name",
+    "tests/test_domain_cpp.py::test_class_definitions",
+    "tests/test_domain_cpp.py::test_union_definitions",
+    "tests/test_domain_cpp.py::test_enum_definitions",
+    "tests/test_domain_cpp.py::test_anon_definitions",
+    "tests/test_domain_cpp.py::test_requires_clauses",
+    "tests/test_domain_cpp.py::test_template_args",
+    "tests/test_domain_cpp.py::test_initializers",
+    "tests/test_domain_cpp.py::test_attributes",
+    "tests/test_domain_cpp.py::test_xref_parsing",
+    "tests/test_domain_cpp.py::test_build_domain_cpp_multi_decl_lookup",
+    "tests/test_domain_cpp.py::test_build_domain_cpp_warn_template_param_qualified_name",
+    "tests/test_domain_cpp.py::test_build_domain_cpp_backslash_ok",
+    "tests/test_domain_cpp.py::test_build_domain_cpp_semicolon",
+    "tests/test_domain_cpp.py::test_build_domain_cpp_anon_dup_decl",
+    "tests/test_domain_cpp.py::test_build_domain_cpp_misuse_of_roles",
+    "tests/test_domain_cpp.py::test_build_domain_cpp_with_add_function_parentheses_is_True",
+    "tests/test_domain_cpp.py::test_build_domain_cpp_with_add_function_parentheses_is_False",
+    "tests/test_domain_cpp.py::test_xref_consistency",
+    "tests/test_domain_cpp.py::test_noindexentry"
+  ],
+  "sourceFilesChangedInReference": ["sphinx/domains/cpp.py"],
+  "protectedPathsFromTestPatch": {
+    "tests/test_domain_cpp.py": "37a8dfd68a244dc687616d5924fa66803bcc4bb3274c4a980d0e25ed2f7d25d9"
+  },
+  "visibleToHiddenVerification": {
+    "visibleCommand": "python -m pytest -q tests/test_domain_cpp.py",
+    "expectedHiddenTargets": ["failToPass", "passToPass"]
+  },
+  "acceptanceSummary": "隐藏的模板语法测试接受依赖类型和合法普通声明，现有 C++ domain 测试维持。",
+  "negativePatchHypothesis": "仅忽略 DefinitionError 或删除模板后缀，AST 级解析的隐藏用例会失败。",
+  "additionalChecks": [],
+  "logEvidence": {
+    "origin": "https://github.com/sphinx-doc/sphinx/issues/7944",
+    "datasetProblemStatementBodyLines": [6, 117],
+    "kind": "Sphinx 输出的构建错误诊断文件",
+    "normalization": [
+      "CRLF to LF",
+      "home directory names and process memory addresses replaced where present"
+    ],
+    "input": "agent/G03/input/failure.log",
+    "mountAs": ".moss-eval/input/failure.log",
+    "originalExitCode": null,
+    "replayExitCode": 1,
+    "command": "cat .moss-eval/input/failure.log && exit 1",
+    "lineCount": 112,
+    "characters": 9271,
+    "bytes": 9271,
+    "rawBlockNormalizedSha256": "a8ad05712b7ff193c94f7199f67aff17d0e23460a6a1481c90f536af14de159f",
+    "distributedSha256": "29055dc6c81ea476a1cbf90247fe094436b295ec6388dd70c8d654bfaa198556",
+    "evidence": [
+      {
+        "id": "parser-context",
+        "required": true,
+        "ranges": [
+          [1, 5],
+          [100, 108]
+        ],
+        "meaning": "从 Sphinx 版本和 C++ domain 解析栈定位模板参数列表。"
+      },
+      {
+        "id": "template-input",
+        "required": true,
+        "ranges": [[109, 112]],
+        "meaning": "保留失败的 C++ 声明、解析器报错和光标位置。"
+      }
+    ]
+  }
+}

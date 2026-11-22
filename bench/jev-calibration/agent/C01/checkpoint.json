@@ -1,0 +1,23 @@
+{
+  "workspaceRevision": "v1",
+  "toolEvents": [
+    {
+      "seq": 1,
+      "kind": "tool_started",
+      "id": "readonly-expression-v1",
+      "tool": "exec",
+      "target": "readonly-expression",
+      "argv": ["node", "-p", "[1,2,3].map(x => x * 2).join(\",\")"],
+      "inputRevision": "v1"
+    },
+    {
+      "seq": 2,
+      "kind": "tool_completed",
+      "id": "readonly-expression-v1",
+      "exitCode": 0,
+      "stdout": "2,4,6\n",
+      "stderr": ""
+    }
+  ],
+  "candidateAnswer": "输出为 2,4,6。"
+}

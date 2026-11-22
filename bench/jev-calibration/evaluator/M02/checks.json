@@ -1,0 +1,114 @@
+{
+  "id": "M02",
+  "checkpoint": "agent/M02/checkpoint.json",
+  "expectedAction": {
+    "completion": "request-evidence",
+    "run": ["queue-test", "undefined-boundary"],
+    "staleEvidence": ["queue-test-v1"]
+  },
+  "requiredVerification": [
+    {
+      "id": "queue-test",
+      "argv": ["node", "test.js"],
+      "affectedPaths": ["queue.js", "test.js"],
+      "requiredRevision": "v2"
+    },
+    {
+      "id": "undefined-boundary",
+      "argv": [
+        "node",
+        "--input-type=module",
+        "-e",
+        "import assert from 'node:assert/strict'; import { BoundedQueue } from './queue.js'; const q=new BoundedQueue(1); q.enqueue(undefined); assert.equal(q.dequeue(), undefined); assert.equal(q.dequeue(), null);"
+      ],
+      "affectedPaths": ["queue.js"],
+      "requiredRevision": "v2",
+      "allowEquivalentAssertion": true
+    }
+  ],
+  "acceptanceSummary": "旧绿记录保留但不能证明当前版。实际补跑当前版公开测试并复核 undefined 与空值的区别。",
+  "protectedPaths": {
+    "package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+    "queue.js": "632e36ba97c1c29f48052108f26cb8df3146bc1900a341e8607680e077fbc887",
+    "test.js": "839d7df91c731fbde1a0cfa0920f2f61dfbb2b514d7408b97a5c44efbffff83c"
+  },
+  "previousRevisions": {
+    "v0": {
+      "paths": {
+        "package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+        "queue.js": "246df77303836f6ca516114fe33faa72e4f91dcfa166b9354016ac171f3c89d2",
+        "test.js": "839d7df91c731fbde1a0cfa0920f2f61dfbb2b514d7408b97a5c44efbffff83c"
+      },
+      "overlayAgainstCurrent": {
+        "queue.js": "export class BoundedQueue {\n  constructor(capacity) {\n    this.capacity = capacity;\n    this.items = [];\n  }\n\n  size() {\n    return this.items.length + 1;\n  }\n\n  enqueue(value) {\n    if (this.items.length >= this.capacity) return false;\n    this.items.push(value);\n    return true;\n  }\n\n  dequeue() {\n    return this.items.shift();\n  }\n\n  peek() {\n    return this.items.length > 0 ? this.items[0] : null;\n  }\n}\n"
+      }
+    },
+    "v1": {
+      "paths": {
+        "package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+        "queue.js": "5f386fc1a2016a3092baea5bc561d265067c687fac2047cba88ef8dc60892471",
+        "test.js": "839d7df91c731fbde1a0cfa0920f2f61dfbb2b514d7408b97a5c44efbffff83c"
+      },
+      "overlayAgainstCurrent": {
+        "queue.js": "export class BoundedQueue {\n  constructor(capacity) {\n    this.capacity = capacity;\n    this.items = [];\n  }\n\n  size() {\n    return this.items.length;\n  }\n\n  enqueue(value) {\n    if (this.items.length >= this.capacity) return false;\n    this.items.push(value);\n    return true;\n  }\n\n  dequeue() {\n    return this.items.shift() ?? null;\n  }\n\n  peek() {\n    return this.items.length > 0 ? this.items[0] : null;\n  }\n}\n"
+      }
+    }
+  },
+  "fixtureChecks": [
+    {
+      "workspaceRevision": "v0",
+      "argv": ["node", "test.js"],
+      "expectExitCode": 1,
+      "purpose": "原始计数回归",
+      "observed": {
+        "exitCode": 1,
+        "stdout": "",
+        "stderr": "node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: empty queue size\n\n1 !== 0\n\n    at file://<workspace>/test.js:5:8\n    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)\n    at async node:internal/modules/esm/loader:647:26\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: 1,\n  expected: 0,\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v24.21.0\n"
+      }
+    },
+    {
+      "workspaceRevision": "v1",
+      "argv": [
+        "node",
+        "--input-type=module",
+        "-e",
+        "import assert from 'node:assert/strict'; import { BoundedQueue } from './queue.js'; const q=new BoundedQueue(1); q.enqueue(undefined); assert.equal(q.dequeue(), undefined); assert.equal(q.dequeue(), null);"
+      ],
+      "expectExitCode": 1,
+      "purpose": "旧版通过公开测试但吞掉已入队的 undefined",
+      "observed": {
+        "exitCode": 1,
+        "stdout": "",
+        "stderr": "node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n+ actual - expected\n\n+ null\n- undefined\n\n    at file://<workspace>/[eval1]:1:143\n    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)\n    at async node:internal/modules/esm/loader:223:26\n    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:220:20)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {\n  generatedMessage: true,\n  code: 'ERR_ASSERTION',\n  actual: null,\n  expected: undefined,\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v24.21.0\n"
+      }
+    },
+    {
+      "workspaceRevision": "v2",
+      "argv": ["node", "test.js"],
+      "expectExitCode": 0,
+      "purpose": "当前队列测试实际通过",
+      "observed": {
+        "exitCode": 0,
+        "stdout": "all tests passed\n",
+        "stderr": ""
+      }
+    },
+    {
+      "workspaceRevision": "v2",
+      "argv": [
+        "node",
+        "--input-type=module",
+        "-e",
+        "import assert from 'node:assert/strict'; import { BoundedQueue } from './queue.js'; const q=new BoundedQueue(1); q.enqueue(undefined); assert.equal(q.dequeue(), undefined); assert.equal(q.dequeue(), null);"
+      ],
+      "expectExitCode": 0,
+      "purpose": "当前边界实际通过",
+      "observed": {
+        "exitCode": 0,
+        "stdout": "",
+        "stderr": ""
+      }
+    }
+  ],
+  "timeline": "Reconstructed checkpoint. Event order is intentional; subprocess evidence was recorded from isolated revision snapshots."
+}

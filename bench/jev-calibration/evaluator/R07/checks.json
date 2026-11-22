@@ -1,0 +1,49 @@
+{
+  "id": "R07",
+  "referencePatch": "reference.patch",
+  "hiddenTestPatch": "hidden-tests.patch",
+  "failToPass": ["TestGroupByParamCalledWithUnavailableParam"],
+  "passToPass": [
+    "TestGroupByParamCalledWithCapitalLetterString",
+    "TestGroupByLocalizedDate",
+    "TestGroupByPublishDateWithEmptyPages",
+    "TestGroupByParamDateWithStringParams",
+    "TestGroupByDateInReverseOrder",
+    "TestGroupByCalledWithEmptyPages",
+    "TestGroupByParamInReverseOrder",
+    "TestGroupByParamDateWithEmptyPages",
+    "TestGroupByParamDateInReverseOrder",
+    "TestGroupByLastmod",
+    "TestGroupByWithFieldNameArg",
+    "TestGroupByInReverseOrder",
+    "TestGroupByDate",
+    "TestGroupByPublishDateInReverseOrder",
+    "TestGroupByWithSectionArg",
+    "TestGroupByParam",
+    "TestGroupByParamDate",
+    "TestGroupByPublishDate",
+    "TestGroupByParamCalledWithEmptyPages",
+    "TestGroupByExpiryDate",
+    "TestGroupByLastmodInReverseOrder",
+    "TestGroupByParamCalledWithSomeUnavailableParams",
+    "TestGroupByWithMethodNameArg"
+  ],
+  "sourceFilesChangedInReference": ["resources/page/pagegroup.go"],
+  "protectedPathsFromTestPatch": {
+    "hugolib/site_test.go": "2ec475f6b36a1198ca9516e580e07754958b4fc4c0a70ca3296d640f5dfe778e",
+    "resources/page/pagegroup_test.go": "19e3f1452bfba657b4d1dda45fb0c8bc8ee000b6d42844955180d0fc96602146"
+  },
+  "visibleToHiddenVerification": {
+    "visibleCommand": "go test -v ./resources/page -run '^TestGroupBy'",
+    "expectedHiddenTargets": ["failToPass", "passToPass"]
+  },
+  "acceptanceSummary": "不存在的参数不报错，已有参数的分组和排序保持。",
+  "negativePatchHypothesis": "对任何参数都返回空集合，既有正向分组断言会失败。",
+  "additionalChecks": [
+    {
+      "id": "template-groupby",
+      "argv": ["go", "test", "-v", "./hugolib", "-run", "^TestGroupedPages$"],
+      "purpose": "检查模板层已有分组和缺失参数。运行记录需确认有匹配测试。"
+    }
+  ]
+}

@@ -73,6 +73,54 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 
 交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为英语。
 
+## Jev 意图识别（实验）
+
+选择服务商并显式开启 shadow 模式。TypeSafe 和 OpenRouter 需要对应的 API Key。
+
+| `MOSS_JEV_PROVIDER` | 密钥环境变量               | 模型                                                                                               |
+| ------------------- | -------------------------- | -------------------------------------------------------------------------------------------------- |
+| `typesafe`（默认）  | `TYPESAFE_API_KEY`         | `jev-latest`                                                                                       |
+| `openrouter`        | `OPENROUTER_API_KEY`       | `jev-latest`，由 [OpenRouter](https://openrouter.ai/docs/guides/community/typesafe-sdk) 按用量计费 |
+| `opencode`          | `OPENCODE_API_KEY`（可选） | `jev-1.13-free`，[OpenCode Console](https://opencode.ai/docs/console/models/#jev) 限时免费         |
+
+```bash
+MOSS_JEV_PROVIDER=opencode MOSS_JEV_INTENT=shadow MOSS_LOG_LEVEL=info \
+  moss -p '先帮我读一下 README，整理启动步骤'
+```
+
+诊断日志里的 `Jev intent decision` 包含服务商、输入来源、分类、概率和耗时。分类包括新任务、任务纠正、插问、继续、停止和不明确。分类结果仅用于观察，Agent 仍按原有流程处理输入。识别请求与模型执行并行发出，收尾最多等待请求的两秒超时。
+
+这个开关适用于 CLI 参数、交互式自然语言输入和实时 steering。开启后，Moss 会向所选服务商的 System One API 发送经过凭据脱敏和长度限制的用户文本。判断实时补充时，如果本轮有原始用户请求，会一起提供。诊断日志只记分类元数据。开关和密钥均从启动进程环境读取。
+
+SDK 宿主也可通过 `MossAgentConfig.observeUserIntent` 注入观察器，或通过 `MossAgentConfig.decideSteeringIntent` 注入参与执行的判定器。用 `ChatOptions.userIntentText` 标记原始用户输入。
+
+把 `MOSS_JEV_INTENT` 改成 `active`，即可在交互运行中使用 Jev 判定。运行中发送「改一下，只解释，别改代码」后，Moss 会在下一次工具启动前检查新消息。确认纠正后，本轮尚未启动的工具会收到跳过结果，模型按最新用户消息继续。已经启动的工具保留实际结果。对明确的只读要求，当前运行的后续轮次也只允许使用声明为只读的工具，直到收到明确允许编辑的新指令。
+
+判定失败、超时或概率低于 `0.8` 时，Moss 会按最新用户消息重新规划，并保守地继续只读。被纠正的 `/goal` 会停在 `BLOCKED`，后续验收使用按新要求创建的目标。
+
+### 单条任务中的 Jev 判定
+
+以下开关均从启动环境读取。默认 `off`。`shadow` 记录判定，`active` 将判定用于当前 run。
+
+| 环境变量              | 触发场景                                                                    |
+| --------------------- | --------------------------------------------------------------------------- |
+| `MOSS_JEV_APPROVAL`   | 记录普通交互审批与任务的相关性；shadow 和兼容值 active 都由用户决定是否执行 |
+| `MOSS_JEV_CONSTRAINT` | 操作可能违反用户给出的硬约束                                                |
+| `MOSS_JEV_OUTPUT`     | 测试或命令产生长文本，筛选给主模型的片段并保留完整日志路径                  |
+| `MOSS_JEV_PROGRESS`   | 同一操作重复失败且没有新证据                                                |
+| `MOSS_JEV_COMPLETION` | 主模型拟结束，但用户要求的验证或改动证据仍需核对                            |
+
+使用 `MOSS_JEV_APPROVAL=shadow moss` 观察普通审批。Jev 在后台记录判断，审批提示照常显示，用户的选择决定本次操作。旧配置 `active` 同样只观察。显式确认和无交互终端按原策略处理。
+
+通过自有 System One 网关时，将完整 HTTPS 接口地址放在 `MOSS_JEV_SYSTEMONE_URL`，将专用密钥放在 `MOSS_JEV_RELAY_KEY`。可用 `MOSS_JEV_MODEL` 覆盖网关模型名，默认 `jev-latest`。例如，在已经配置主模型和 Jev 凭据的环境中使用以下命令。
+
+```bash
+MOSS_JEV_OUTPUT=active MOSS_JEV_COMPLETION=active \
+  moss -p '修复登录超时，并运行 tests/login-timeout.test.mjs 验证。'
+```
+
+长日志筛选和收尾补验可以在同一条用户输入内触发。使用 `MOSS_LOG_LEVEL=info` 查看各判定点的结果及耗时。SDK 通过 `MossAgentConfig.runtimeJudge` 提供判定客户端，并使用 `ChatOptions.userIntentText` 标记要作为目标的原始请求。 [运行规范与端到端记录](specs/moss-jev-runtime.md)
+
 ## 调优开关（环境变量）
 
 这些开关默认都不需要；只有遇到明确症状时才设。每一条都能用一次真实运行验证。

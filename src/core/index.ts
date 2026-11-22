@@ -17,6 +17,7 @@ export type {
 export { CommandQueueRegistry } from './agent/index.js';
 export type { EnqueueOpts } from './agent/index.js';
 export { MossAgent } from './agent/index.js';
+export type { UserIntentInput, UserIntentDecision } from './agent/index.js';
 export { hashHarnessAdapter } from './agent/index.js';
 export type { HarnessAdapter, HarnessAdapterReceipt } from './agent/index.js';
 export type { MossAgentConfig, ChatOptions, ChatResult, MossAgentEvent } from './agent/index.js';
@@ -286,3 +287,5 @@ export type {
 } from './task/capability.js';
 
 export * from './rsi/index.js';
+
+export type { RuntimeJudgeConfig, JudgeMode, JudgePoint } from './agent/index.js';

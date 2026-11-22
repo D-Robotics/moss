@@ -1,0 +1,52 @@
+{
+  "workspaceRevision": "v2",
+  "toolEvents": [
+    {
+      "seq": 1,
+      "kind": "write_completed",
+      "workspaceRevision": "v1",
+      "files": ["lib/config.js", "lib/report.js"]
+    },
+    {
+      "seq": 2,
+      "kind": "tool_started",
+      "id": "report-contract-v1",
+      "tool": "exec",
+      "target": "report-contract",
+      "argv": ["node", "tests/report.test.js"],
+      "inputRevision": "v1"
+    },
+    {
+      "seq": 3,
+      "kind": "write_completed",
+      "workspaceRevision": "v2",
+      "files": ["lib/config.js"]
+    },
+    {
+      "seq": 4,
+      "kind": "tool_started",
+      "id": "parser-contract-v2",
+      "tool": "exec",
+      "target": "parser-contract",
+      "argv": ["node", "test.js"],
+      "inputRevision": "v2"
+    },
+    {
+      "seq": 5,
+      "kind": "tool_completed",
+      "id": "parser-contract-v2",
+      "exitCode": 0,
+      "stdout": "all tests passed\n",
+      "stderr": ""
+    },
+    {
+      "seq": 6,
+      "kind": "tool_completed",
+      "id": "report-contract-v1",
+      "exitCode": 0,
+      "stdout": "render and telemetry tests passed\n",
+      "stderr": ""
+    }
+  ],
+  "candidateAnswer": "两项测试都在最后一次写入后通过，可以结束。"
+}

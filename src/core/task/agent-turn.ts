@@ -6,10 +6,15 @@
 import type { MossAgentEvent } from '../agent/moss-agent-types.js';
 import type { HarnessAdapter } from '../agent/harness-adapter.js';
 
+export interface AgentTurnGoal {
+  userGoal: string;
+  contractGoal?: string;
+}
 interface TaskChatOptions {
   abortSignal?: AbortSignal;
   taskFlow?: boolean;
   goalExecWait?: boolean;
+  taskJudgeGoal?: AgentTurnGoal;
   harnessAdapter?: HarnessAdapter;
   taskId?: string;
   userInput?: false | { id: string; text: string; taskId: string };
@@ -52,12 +57,14 @@ export interface AgentTurnResult {
 export interface TaskTurnBinding {
   taskId: string;
   userGoal?: string;
+  judgeGoal?: AgentTurnGoal;
 }
 
 function taskInputOptions(binding?: TaskTurnBinding): Partial<TaskChatOptions> {
   if (!binding) return {};
   return {
     taskId: binding.taskId,
+    ...(binding.judgeGoal ? { taskJudgeGoal: binding.judgeGoal } : {}),
     userInput: binding.userGoal
       ? { id: `goal:${binding.taskId}`, text: binding.userGoal, taskId: binding.taskId }
       : false,

@@ -7,7 +7,7 @@
  * calls rather than editing it. Headless runs that never ask are unchanged.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { ToolApprovalRequest } from '../core/agent/agent-hooks.js';
+import type { ToolApprovalDecision, ToolApprovalRequest } from '../core/agent/agent-hooks.js';
 import type { AskUser } from './approval.js';
 import type { CliApprovalViewAsker } from './approval-view.js';
 import { isZhLocale } from './cli-locale.js';
@@ -32,8 +32,7 @@ export function setPermissionRequestRunner(next?: PermissionRequestRunner): void
   runner = next;
 }
 
-async function denial(): Promise<string | undefined> {
-  const request = pending.getStore();
+async function denial(request = pending.getStore()): Promise<string | undefined> {
   if (!request || !runner) return undefined;
   const result = await runner(request);
   if (!result.denied) return undefined;
@@ -44,6 +43,17 @@ async function denial(): Promise<string | undefined> {
       ? `已拦截：${hookEventZhName('PermissionRequest')}钩子`
       : 'Blocked by PermissionRequest hook')
   );
+}
+
+/** Run the same veto on the post-hook arguments before observing an ordinary approval request.
+ * If the user is prompted afterwards, the wrapped asker need not run it twice. */
+export async function afterPermissionRequestHook(
+  request: ToolApprovalRequest,
+  decide: () => Promise<ToolApprovalDecision>
+): Promise<ToolApprovalDecision> {
+  const reason = await denial(request);
+  if (reason) return { approved: false, reason, denialClass: 'policy' };
+  return pending.exit(decide);
 }
 
 export function wrapApprovalAsker(asker: AskUser): AskUser {
