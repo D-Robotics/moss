@@ -1910,6 +1910,7 @@ ${result.stderr ?? ''}`.trim();
         readOnlyIntentSurface && intentTurn?.needsDecision && tools?.length === 1
           ? 'required'
           : undefined,
+      preferStructuredOutput: () => Boolean(preparedProjection?.revision),
       ...(this.config.llmExtraBody ? { extraBody: this.config.llmExtraBody } : {}),
       onRequest: (request) => {
         if (

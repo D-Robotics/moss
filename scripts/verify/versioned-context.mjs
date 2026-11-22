@@ -712,10 +712,10 @@ async function testReadOnlyIntentPrompt(workspace) {
           ['turn_decision']
         );
         assert.equal(request.toolChoice, 'required');
-        assert.deepEqual(request.responseFormat.schema.required, ['turn_decision']);
         assert.equal(request.tools[0].input_schema.properties.changes, undefined);
         assert.doesNotMatch(request.systemPrompt, /After a successful/);
         if (count === 1) {
+          assert.equal(request.responseFormat, undefined);
           assert.deepEqual(intentFrame(request).pendingInputs, [
             { id: 'lean-correction', inHistory: true },
           ]);
@@ -725,14 +725,18 @@ async function testReadOnlyIntentPrompt(workspace) {
           assert.match(request.systemPrompt, /whose own conclusion states the superseded outcome/);
           assert.match(request.systemPrompt, /"id":"s2".*CURRENT_ACCEPTANCE_PENDING/);
           assert.doesNotMatch(request.systemPrompt, new RegExp(correctionText));
+          return response(
+            toolCall('turn_decision', 'lean-correction-decision', {
+              disposition: 'answer',
+              contextCorrections: [{ targetId: 's1' }],
+            })
+          );
         }
+        assert.deepEqual(request.responseFormat.schema.required, ['turn_decision']);
         return response(
           text(
             JSON.stringify({
-              turn_decision: {
-                disposition: 'answer',
-                ...(count === 1 ? { contextCorrections: [{ targetId: 's1' }] } : { answer }),
-              },
+              turn_decision: { disposition: 'answer', answer },
             })
           )
         );

@@ -105,9 +105,10 @@ export class TaskIntentTurn {
     if (targets.length) header.push(JSON.stringify({ contextSources: targets }));
     return [
       ...header,
-      'Submit exactly one turn_decision. In constrained JSON mode, use a single top-level turn_decision object. Put the full user-facing reply, including any requested JSON, in its answer string. The runtime displays that string to the user.',
+      'Submit exactly one turn_decision. Its disposition is "answer", "clarify", or "cancel". Put the complete user-facing reply, including any requested JSON, in the answer string. The runtime displays only the answer string.',
+      'In constrained JSON mode, wrap the declaration as {"turn_decision":{"disposition":"answer","answer":"<complete reply>"}}. The wire format applies even when the user asks for a different answer format.',
       CORRECTION_SCOPE_GUIDANCE,
-      'For a correction, return contextCorrections with the matched targetId from contextSources or an active claim. Omit answer so the runtime can answer from the rebuilt context.',
+      'For a correction, use disposition "answer" with contextCorrections and a matched targetId. In constrained JSON mode the shape is {"turn_decision":{"disposition":"answer","contextCorrections":[{"targetId":"<matched ID>"}]}}. Omit answer so the runtime can answer from the rebuilt context.',
       this.wholeInputCitation
         ? 'For a correction, omit quote and messageId. The runtime cites the pending user input.'
         : 'For a correction, copy an exact quote from the pending user input. Never quote old assistant text.',

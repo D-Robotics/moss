@@ -338,6 +338,7 @@ function flushForwardState(stream: AssistantMessageEventStream, state: ForwardSt
 export interface LlmProviderStreamAdapterOptions {
   provider: LLMProvider;
   getToolChoice?: (tools: LLMRequestOptions['tools']) => LLMRequestOptions['toolChoice'];
+  preferStructuredOutput?: () => boolean;
   onProviderEvent?: (event: LLMStreamEvent) => void;
   onRequest?: (request: LLMRequestOptions) => void | Promise<void>;
   onResponse?: (response: LLMResponse) => void | Promise<void>;
@@ -386,7 +387,10 @@ export function createStreamFunctionFromLlmProvider(
         const tools = mapPiToolsToLlm(piContext.tools);
         const toolChoice = options.getToolChoice?.(tools);
         const envelopeTool =
-          toolChoice && options.provider.capabilities?.structuredOutput && tools?.length === 1
+          toolChoice &&
+          options.preferStructuredOutput?.() &&
+          options.provider.capabilities?.structuredOutput &&
+          tools?.length === 1
             ? tools[0]
             : undefined;
         const responseFormat = envelopeTool && {

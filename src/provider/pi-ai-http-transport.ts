@@ -632,7 +632,8 @@ async function* streamOpenAiChat(
     }
     return { response, errorText };
   };
-  const { response: res, errorText } = await sendCompatible(true);
+  // MiniMax applies the JSON schema on its buffered response path.
+  const { response: res, errorText } = await sendCompatible(!responseFormat);
 
   // Some gateways reject stream/stream_options — fall back to one-shot JSON.
   if (!res.ok) {
