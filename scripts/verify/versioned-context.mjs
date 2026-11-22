@@ -285,6 +285,23 @@ async function testProgressiveStages(workspace) {
     const retained = await store.sourceMessages(finished);
     assert.equal(retained.find((row) => row.ordinal === 3).message.content[0].content, oldOutput);
 
+    await add(store, finished, 'user', 'Continue from the inspection.');
+    const latestEvidence = retained.find((row) => row.ordinal === 6);
+    const compacted = await pipeline.prepare({
+      ...common,
+      sessionKey: finished,
+      policyKey: 'finished-evidence-probe',
+      force: true,
+      summarize: async ({ system, userPrompt }) => {
+        assert.match(system, /The only allowed kinds/);
+        assert.doesNotMatch(userPrompt, /HISTORIC_MIDDLE|ACTIVE_MIDDLE/);
+        return '[]';
+      },
+    });
+    assert(compacted.stages.includes('S5'));
+    assert.match(JSON.stringify(compacted.messages), /Recent tool evidence.*active line/);
+    assert(compacted.sourceIds.includes(latestEvidence.id));
+
     for (let index = 0; index < 3; index++) {
       await add(store, 'background', 'assistant', 'Historical analysis. '.repeat(125));
     }
