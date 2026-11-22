@@ -15,10 +15,12 @@ import {
   shouldNudgeMissingToolInvocation,
 } from './agent-loop-assistant-turn.js';
 import { buildNamedWebToolMatcher } from '../../prompts/plan-detection.js';
+import { stripThinkingTagsKeepVisible } from '../llm/inline-thinking-stream.js';
 import {
   THINKING_ONLY_RETRY_BUDGET,
   decidePostLlmAction,
   nextThinkingOnlyRetryAttempts,
+  thinkingOnlyReasoningOverride,
 } from './agent-loop-post-llm.js';
 import {
   escalateOutputTokens,
@@ -259,7 +261,9 @@ export async function processLlmResponse(
     turnTextParts.push(intentResponse.answer);
     assistantContent.push({ type: 'text', text: intentResponse.answer });
   }
-  const turnText = turnTextParts.join('');
+  const turnText = outputLimited
+    ? stripThinkingTagsKeepVisible(turnTextParts.join(''))
+    : turnTextParts.join('');
 
   const hasThinkingOnly = isThinkingOnlyAssistantTurn({
     visibleText: turnText,
@@ -275,6 +279,7 @@ export async function processLlmResponse(
     timestamp: Date.now(),
     ...(messageThinkingChunks.length > 0 ? { thinking: [...messageThinkingChunks] } : {}),
     ...(servedModel ? { model: servedModel } : {}),
+    ...(outputLimited ? { outputLimit: 'truncated' as const } : {}),
   };
 
   if (!hasThinkingOnly) {
@@ -282,7 +287,7 @@ export async function processLlmResponse(
   }
 
   let visibleAssistantText = buildVisibleAssistantText({
-    textParts: turnTextParts,
+    textParts: [turnText],
     // A cutoff fragment, and the piece that continues one, must keep the
     // whitespace the model actually emitted so the stitch has no extra gap
     // and does not eat the gap the model already wrote.
@@ -532,17 +537,22 @@ export async function processLlmResponse(
     case 'continuation': {
       state.outputContinuationCount++;
       const raised = escalateOutputTokens(state.outputTokenBudget, state.outputTokenCeiling);
-      const grew = raised > state.outputTokenBudget;
-      if (grew) state.outputTokenBudget = raised;
+      state.outputTokenBudget = raised;
+      if (postLlmAction.mode === 'thinking' || messageThinkingChunks.length > 0) {
+        state.reasoningOverrideNextTurn = thinkingOnlyReasoningOverride(
+          params.provider,
+          state.outputContinuationCount - 1,
+          params.modelId
+        );
+      }
       if (postLlmAction.mode !== 'thinking') {
         state.carriedAssistantText = stitchedAssistantText;
       }
-      const systemText = grew
-        ? `${postLlmAction.systemText} A larger output budget is available for this retry.`
-        : postLlmAction.systemText;
       // Flush the truncated assistant (stop length → max_tokens) before the
       // notice so stream-json hosts see the cutoff on that message.
-      state.pendingMessages = [buildCorrectionMessage(systemText)];
+      state.pendingMessages = [
+        { ...buildCorrectionMessage(postLlmAction.systemText), outputLimit: 'continuation' },
+      ];
       pushTurnEnd();
       push({
         type: 'output_continuation',

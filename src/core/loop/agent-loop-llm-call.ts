@@ -157,7 +157,9 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
   if (
     state.reasoningOverrideNextTurn &&
     effectiveReasoning !== undefined &&
-    effectiveReasoning !== null
+    effectiveReasoning !== null &&
+    effectiveReasoning !== 'off' &&
+    (effectiveReasoning !== 'minimal' || state.reasoningOverrideNextTurn === 'off')
   ) {
     effectiveReasoning = state.reasoningOverrideNextTurn;
   }

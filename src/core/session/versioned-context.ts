@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Message } from '../../contracts/messages.js';
+import type { LLMContentBlock } from '../../contracts/llm-messages.js';
 import { createCompactionSummaryMessage } from '../../contracts/messages.js';
 import type {
   ContextCheckpoint,
@@ -10,6 +11,7 @@ import type {
 import { ErrorCode, MossError } from '../../errors.js';
 import { hashContextSources, type VersionedSessionStore } from './versioned-session-store.js';
 import { abortable } from '../agent/abort.js';
+import { stripThinkingTagsKeepVisible } from '../llm/inline-thinking-stream.js';
 import { CONTEXT_CLAIMS_TOOL } from './context-claim-declaration.js';
 import { TURN_DECISION_TOOL } from './task-intent-state.js';
 import {
@@ -62,7 +64,16 @@ function trustedUser(source: ContextSourceMessage): boolean {
 export function contextSourceView(snapshot: VersionedContextSnapshot): ContextSourceMessage[] {
   const internalCalls = new Set<string>();
   const businessCalls = new Set<string>();
-  for (const { message } of snapshot.messages) {
+  // A retry instruction applies only until it is replaced or the model or
+  // user advances the turn. The SQLite archive keeps every original message.
+  let latestContinuationId: string | undefined;
+  for (const source of snapshot.messages) {
+    const { message } = source;
+    if (source.origin === 'runtime' && asMessage(source).outputLimit === 'continuation') {
+      latestContinuationId = source.id;
+    } else if (trustedUser(source) || message.role === 'assistant' || source.origin === 'tool') {
+      latestContinuationId = undefined;
+    }
     if (typeof message.content === 'string') continue;
     for (const block of message.content) {
       if (block.type !== 'tool_use') continue;
@@ -75,6 +86,12 @@ export function contextSourceView(snapshot: VersionedContextSnapshot): ContextSo
   return snapshot.messages.flatMap((source) => {
     const message = asMessage(source);
     if (isCompactionSummaryMessage(message)) return [];
+    if (
+      source.origin === 'runtime' &&
+      message.outputLimit === 'continuation' &&
+      source.id !== latestContinuationId
+    )
+      return [];
     const affected = snapshot.corrections.some(
       (record) =>
         source.ordinal >= record.fromOrdinal &&
@@ -82,7 +99,14 @@ export function contextSourceView(snapshot: VersionedContextSnapshot): ContextSo
           (source.generatedRevision !== undefined && source.generatedRevision < record.revision))
     );
     const hideProse = affected && !trustedUser(source) && source.origin !== 'tool';
-    if (typeof source.message.content === 'string') return hideProse ? [] : [source];
+    const truncated = message.role === 'assistant' && message.outputLimit === 'truncated';
+    if (typeof source.message.content === 'string') {
+      if (hideProse) return [];
+      if (!truncated) return [source];
+      const content = stripThinkingTagsKeepVisible(source.message.content);
+      const { thinking: _thinking, ...visible } = source.message;
+      return content.trim() ? [{ ...source, message: { ...visible, content } }] : [];
+    }
     const content = source.message.content.filter((block) => {
       if (block.type === 'tool_use') return !internalCalls.has(block.id);
       if (block.type === 'tool_result') {
@@ -95,10 +119,23 @@ export function contextSourceView(snapshot: VersionedContextSnapshot): ContextSo
       }
       return !hideProse;
     });
-    if (!content.length) return [];
-    if (!hideProse && content.length === source.message.content.length) return [source];
+    const visibleContent = truncated
+      ? content.flatMap<LLMContentBlock>((block) => {
+          if (block.type !== 'text') return [block];
+          const text = stripThinkingTagsKeepVisible(block.text);
+          return text.trim() ? [{ ...block, text }] : [];
+        })
+      : content;
+    if (!visibleContent.length) return [];
+    if (!truncated && !hideProse && content.length === source.message.content.length)
+      return [source];
     const { thinking: _thinking, ...visible } = source.message;
-    return [{ ...source, message: { ...visible, content } }];
+    return [
+      {
+        ...source,
+        message: { ...visible, content: visibleContent },
+      },
+    ];
   });
 }
 
@@ -124,10 +161,15 @@ function correctionMessage(snapshot: VersionedContextSnapshot): Message[] {
   ];
 }
 
+interface SummaryEvidenceView {
+  evidence?: ContextSourceMessage;
+  historical?: HistoricalSourceExcerpt[];
+  compactEvidence?: boolean;
+}
+
 function summaryMessage(
   checkpoint: ContextCheckpoint,
-  evidence?: ContextSourceMessage,
-  historical: HistoricalSourceExcerpt[] = []
+  { evidence, historical = [], compactEvidence = false }: SummaryEvidenceView = {}
 ): Message {
   const excerpts =
     evidence && Array.isArray(evidence.message.content)
@@ -138,8 +180,8 @@ function summaryMessage(
                   limitToolOutput(
                     part.content,
                     evidence.id,
-                    HISTORICAL_TOOL_HEAD_CHARS,
-                    HISTORICAL_TOOL_TAIL_CHARS
+                    compactEvidence ? 240 : HISTORICAL_TOOL_HEAD_CHARS,
+                    compactEvidence ? 80 : HISTORICAL_TOOL_TAIL_CHARS
                   ),
                 ]
               : []
@@ -318,6 +360,10 @@ export class VersionedContextPipeline {
     const policy = `${SUMMARY_POLICY}:${input.policyKey}`;
     const margin = Math.max(128, Math.floor(input.window * 0.02));
     const capacity = input.window - margin - input.output;
+    const preferredOutput = Math.min(
+      input.output,
+      Math.max(input.minOutput, Math.min(2048, Math.floor(input.window / 8)))
+    );
     const stages: string[] = [];
     const complete = (rows: Message[]) => [...corrections, ...rows, ...(input.ephemeral ?? [])];
     const fit = (messages: Message[]) => {
@@ -397,25 +443,32 @@ export class VersionedContextPipeline {
             focus
           )
         : [];
-      if (historical.length) {
-        const withHistory = fit(
-          complete([summaryMessage(checkpoint, evidence, historical), ...tail])
-        );
-        if (withHistory.legal && withHistory.tokens < selected.tokens) {
-          return { ...withHistory, evidence, historical };
-        }
+      const views: SummaryEvidenceView[] = [
+        { evidence, historical },
+        ...(evidence && historical.length
+          ? [{ evidence, historical, compactEvidence: true }, { historical }, { evidence }]
+          : []),
+        ...(evidence ? [{ evidence, compactEvidence: true }] : []),
+      ];
+      let best:
+        | (ReturnType<typeof fit> & {
+            evidence?: ContextSourceMessage;
+            historical: HistoricalSourceExcerpt[];
+          })
+        | undefined;
+      for (const view of views) {
+        const next = fit(complete([summaryMessage(checkpoint, view), ...tail]));
+        if (!next.legal || next.tokens >= selected.tokens) continue;
+        const projection = { ...next, evidence: view.evidence, historical: view.historical ?? [] };
+        // Reduce optional excerpts before agreeing to an output cap that can
+        // spend the entire response on reasoning. Keep the durable checkpoint.
+        if (next.output >= preferredOutput) return projection;
+        if (!best || next.output > best.output) best = projection;
       }
-      if (evidence) {
-        const withEvidence = fit(complete([summaryMessage(checkpoint, evidence), ...tail]));
-        if (withEvidence.legal && withEvidence.tokens < selected.tokens) {
-          return { ...withEvidence, evidence, historical: [] };
-        }
-      }
-      return {
-        ...fit(complete([summaryMessage(checkpoint), ...tail])),
-        evidence: undefined,
-        historical: [],
-      };
+      const minimal = fit(complete([summaryMessage(checkpoint), ...tail]));
+      if (!best || (minimal.legal && minimal.output > best.output))
+        return { ...minimal, evidence: undefined, historical: [] };
+      return best;
     };
     if (isCompatible) {
       const projection = projected(candidate);
