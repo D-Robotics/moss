@@ -249,18 +249,26 @@ export interface HistoricalSourceExcerpt {
   text: string;
 }
 
-function recordedArtifactExcerpt(tools: Evidence[], focus: string): HistoricalSourceExcerpt | undefined {
+function recordedArtifactExcerpt(
+  tools: Evidence[],
+  focus: string
+): HistoricalSourceExcerpt | undefined {
   if (!/\b(?:file(?:name|s)?|paths?|artifacts?|directories)\b|文件|路径|目录|产物/i.test(focus))
     return;
   for (const { sourceId, text } of [...tools].reverse()) {
-    const directory = text.match(
-      /^\s*(?:PWD|CWD|RUNDIR|RUN_DIR|WORKDIR|WORK_DIR|OUTPUT_DIR)\s*=\s*['"]?\/[^\r\n]{1,200}/m
-    )?.[0].trim();
+    const directory = text
+      .match(
+        /^\s*(?:PWD|CWD|RUNDIR|RUN_DIR|WORKDIR|WORK_DIR|OUTPUT_DIR)\s*=\s*['"]?\/[^\r\n]{1,200}/m
+      )?.[0]
+      .trim();
     if (!directory) continue;
-    const output = text.match(
-      /^.*(?:\b(?:wrote|saved|generated|created|rendered|output|draw)\b[^\r\n]{0,80}|(?:保存|生成|写入|输出)[^\r\n]{0,60})[:：]\s*[^\r\n]{1,140}$/im
-    )?.[0].trim();
-    if (output) return { sourceId, origin: 'tool', text: `${directory}\n${quotedExcerpt(output, 270)}` };
+    const output = text
+      .match(
+        /^.*(?:\b(?:wrote|saved|generated|created|rendered|output|draw)\b[^\r\n]{0,80}|(?:保存|生成|写入|输出)[^\r\n]{0,60})[:：]\s*[^\r\n]{1,140}$/im
+      )?.[0]
+      .trim();
+    if (output)
+      return { sourceId, origin: 'tool', text: `${directory}\n${quotedExcerpt(output, 270)}` };
   }
   return undefined;
 }

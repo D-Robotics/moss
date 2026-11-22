@@ -1,9 +1,5 @@
 import assert from 'node:assert/strict';
-import {
-  MossAgent,
-  InMemorySessionStore,
-  resolveToolFollowupBypassCap,
-} from '../../dist/index.js';
+import { MossAgent, InMemorySessionStore, resolveToolFollowupBypassCap } from '../../dist/index.js';
 
 assert.equal(resolveToolFollowupBypassCap(2), 4);
 assert.equal(resolveToolFollowupBypassCap(6), 12);
