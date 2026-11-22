@@ -105,7 +105,7 @@ export class TaskIntentTurn {
     if (targets.length) header.push(JSON.stringify({ contextSources: targets }));
     return [
       ...header,
-      'Return one turn_decision call with no plain text.',
+      'Submit exactly one turn_decision. In constrained JSON mode, use a single top-level turn_decision object. Put the full user-facing reply, including any requested JSON, in its answer string. The runtime displays that string to the user.',
       CORRECTION_SCOPE_GUIDANCE,
       'For a correction, return contextCorrections with the matched targetId from contextSources or an active claim. Omit answer so the runtime can answer from the rebuilt context.',
       this.wholeInputCitation

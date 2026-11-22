@@ -14,6 +14,7 @@ export type LLMContentBlock =
   | {
       type: 'tool_result';
       tool_use_id: string;
+      name?: string;
       content: string;
       is_error?: boolean;
       structuredContent?: ToolContentBlock[];

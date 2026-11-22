@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type {
   AssistantMessage,
   AssistantMessageEventStream,
@@ -345,6 +346,34 @@ export interface LlmProviderStreamAdapterOptions {
   extraBody?: Record<string, unknown>;
 }
 
+function unwrapToolEnvelope(response: LLMResponse, toolName: string): LLMResponse {
+  if (response.stopReason !== 'end_turn' || !response.content.every((part) => part.type === 'text'))
+    return response;
+  const text = response.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(text);
+  } catch {
+    return response;
+  }
+  if (!envelope || typeof envelope !== 'object' || Object.keys(envelope).length !== 1)
+    return response;
+  const input = (envelope as Record<string, unknown>)[toolName];
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return response;
+  return {
+    ...response,
+    stopReason: 'tool_use',
+    content: [
+      {
+        type: 'tool_use',
+        id: randomUUID(),
+        name: toolName,
+        input: input as Record<string, unknown>,
+      },
+    ],
+  };
+}
+
 export function createStreamFunctionFromLlmProvider(
   options: LlmProviderStreamAdapterOptions
 ): StreamFunction {
@@ -356,6 +385,19 @@ export function createStreamFunctionFromLlmProvider(
         const piContext = context as PiContext;
         const tools = mapPiToolsToLlm(piContext.tools);
         const toolChoice = options.getToolChoice?.(tools);
+        const envelopeTool =
+          toolChoice && options.provider.capabilities?.structuredOutput && tools?.length === 1
+            ? tools[0]
+            : undefined;
+        const responseFormat = envelopeTool && {
+          name: envelopeTool.name,
+          schema: {
+            type: 'object' as const,
+            properties: { [envelopeTool.name]: envelopeTool.input_schema },
+            required: [envelopeTool.name],
+            additionalProperties: false,
+          },
+        };
         const request: LLMRequestOptions = {
           model: model.id,
           systemPrompt: String(piContext.systemPrompt ?? ''),
@@ -363,6 +405,7 @@ export function createStreamFunctionFromLlmProvider(
           messages: mapPiMessagesToLlm(piContext.messages ?? []),
           tools,
           ...(toolChoice ? { toolChoice } : {}),
+          ...(responseFormat ? { responseFormat } : {}),
           maxTokens: streamOptions?.maxTokens,
           temperature: streamOptions?.temperature,
           abortSignal: streamOptions?.signal,
@@ -370,13 +413,17 @@ export function createStreamFunctionFromLlmProvider(
           ...(options.extraBody ? { extraBody: options.extraBody } : {}),
         };
         await options.onRequest?.(request);
-        const supportsStreaming = options.provider.capabilities?.streaming !== false;
-        const response = supportsStreaming
+        const supportsStreaming =
+          !responseFormat && options.provider.capabilities?.streaming !== false;
+        const providerResponse = supportsStreaming
           ? await options.provider.stream(request, (event) => {
               options.onProviderEvent?.(event);
               forwardProviderEvent(stream, event, forwardState);
             })
           : await options.provider.complete(request);
+        const response = envelopeTool
+          ? unwrapToolEnvelope(providerResponse, envelopeTool.name)
+          : providerResponse;
         if (response.incomplete) {
           throw new Error(`LLM stream incomplete: ${response.incomplete.reason}`);
         }

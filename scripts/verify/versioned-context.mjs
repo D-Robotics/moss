@@ -92,7 +92,7 @@ function createAgent(workspace, store, options = {}) {
     llmProvider: {
       id: 'scripted-versioned',
       displayName: 'Offline versioned context probe',
-      capabilities: { streaming: false },
+      capabilities: { streaming: false, structuredOutput: options.structuredOutput },
       async complete(request) {
         const input = summaryInput(request);
         if (input) {
@@ -285,6 +285,13 @@ async function testProgressiveStages(workspace) {
     const retained = await store.sourceMessages(finished);
     assert.equal(retained.find((row) => row.ordinal === 3).message.content[0].content, oldOutput);
 
+    await add(
+      store,
+      finished,
+      'user',
+      [{ type: 'tool_result', tool_use_id: 'orphan-intent', content: 'ORPHAN_INTENT_RECEIPT' }],
+      'tool'
+    );
     await add(store, finished, 'user', 'Continue from the inspection.');
     const latestEvidence = retained.find((row) => row.ordinal === 6);
     const compacted = await pipeline.prepare({
@@ -294,12 +301,13 @@ async function testProgressiveStages(workspace) {
       force: true,
       summarize: async ({ system, userPrompt }) => {
         assert.match(system, /The only allowed kinds/);
-        assert.doesNotMatch(userPrompt, /HISTORIC_MIDDLE|ACTIVE_MIDDLE/);
+        assert.doesNotMatch(userPrompt, /HISTORIC_MIDDLE|ACTIVE_MIDDLE|ORPHAN_INTENT_RECEIPT/);
         return '[]';
       },
     });
     assert(compacted.stages.includes('S5'));
     assert.match(JSON.stringify(compacted.messages), /Recent tool evidence.*active line/);
+    assert.doesNotMatch(JSON.stringify(compacted.messages), /ORPHAN_INTENT_RECEIPT/);
     assert(compacted.sourceIds.includes(latestEvidence.id));
 
     for (let index = 0; index < 3; index++) {
@@ -689,10 +697,12 @@ async function testReadOnlyIntentPrompt(workspace) {
       assert.equal(intentFrame(modelRequests[2]).pendingInputs[0].text, hostText);
     },
     {
+      structuredOutput: true,
       onMain(request, count) {
         if (count === 2) {
           assert(!request.tools?.length);
           assert.equal(request.toolChoice, undefined);
+          assert.equal(request.responseFormat, undefined);
           assert(!request.systemPrompt.includes('contextSources'));
           assert.match(JSON.stringify(request.messages), /Health check returned HTTP 200/);
           return response(text(answer));
@@ -702,6 +712,7 @@ async function testReadOnlyIntentPrompt(workspace) {
           ['turn_decision']
         );
         assert.equal(request.toolChoice, 'required');
+        assert.deepEqual(request.responseFormat.schema.required, ['turn_decision']);
         assert.equal(request.tools[0].input_schema.properties.changes, undefined);
         assert.doesNotMatch(request.systemPrompt, /After a successful/);
         if (count === 1) {
@@ -716,10 +727,14 @@ async function testReadOnlyIntentPrompt(workspace) {
           assert.doesNotMatch(request.systemPrompt, new RegExp(correctionText));
         }
         return response(
-          toolCall('turn_decision', `lean-${count}`, {
-            disposition: 'answer',
-            ...(count === 1 ? { contextCorrections: [{ targetId: 's1' }] } : { answer }),
-          })
+          text(
+            JSON.stringify({
+              turn_decision: {
+                disposition: 'answer',
+                ...(count === 1 ? { contextCorrections: [{ targetId: 's1' }] } : { answer }),
+              },
+            })
+          )
         );
       },
     }

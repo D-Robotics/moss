@@ -583,16 +583,23 @@ async function* streamOpenAiChat(
     Authorization: `Bearer ${options?.apiKey ?? config.apiKey}`,
   };
   const endpoint = buildApiV1Url(model.baseUrl ?? config.baseUrl, 'chat/completions');
+  let responseFormat = options?.responseFormat;
   const send = async (stream: boolean) => {
+    const body: Record<string, unknown> = {
+      ...baseBody,
+      stream,
+      ...(stream ? { stream_options: { include_usage: true } } : {}),
+    };
+    if (responseFormat) {
+      body.response_format = responseFormat;
+      delete body.tools;
+      delete body.tool_choice;
+    }
     try {
       return await fetchWithConnectionContext(endpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          ...baseBody,
-          stream,
-          ...(stream ? { stream_options: { include_usage: true } } : {}),
-        }),
+        body: JSON.stringify(body),
         signal,
       });
     } catch (err) {
@@ -602,6 +609,16 @@ async function* streamOpenAiChat(
   const sendCompatible = async (stream: boolean) => {
     let response = await send(stream);
     let errorText = response.ok ? '' : await response.text();
+    if (
+      responseFormat &&
+      (response.status === 400 || response.status === 422) &&
+      /response[ _]?format|json[ _]?schema|structured output/i.test(errorText)
+    ) {
+      // Fall back to the native declaration for gateways without JSON Schema.
+      responseFormat = undefined;
+      response = await send(stream);
+      errorText = response.ok ? '' : await response.text();
+    }
     if (
       options?.allowToolChoiceFallback &&
       baseBody.tool_choice === 'required' &&

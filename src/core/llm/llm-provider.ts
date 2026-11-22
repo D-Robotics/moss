@@ -47,6 +47,8 @@ export interface LLMRequestOptions {
   tools?: LLMToolDeclaration[];
   /** Request a tool call on this turn when the provider supports it. */
   toolChoice?: 'required';
+  /** Constrain the response to one named JSON envelope instead of native tool syntax. */
+  responseFormat?: { name: string; schema: LLMToolDeclaration['input_schema'] };
   maxTokens?: number;
   temperature?: number;
   abortSignal?: AbortSignal;
@@ -78,6 +80,7 @@ export interface LLMResponse {
 
 export interface LLMProviderCapabilities {
   streaming?: boolean;
+  structuredOutput?: boolean;
 }
 
 export interface LLMProvider {

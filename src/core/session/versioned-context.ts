@@ -100,15 +100,15 @@ function trustedUser(source: ContextSourceMessage): boolean {
 
 export function contextSourceView(snapshot: VersionedContextSnapshot): ContextSourceMessage[] {
   const internalCalls = new Set<string>();
+  const businessCalls = new Set<string>();
   for (const { message } of snapshot.messages) {
     if (typeof message.content === 'string') continue;
     for (const block of message.content) {
-      if (
-        block.type === 'tool_use' &&
-        [CONTEXT_CLAIMS_TOOL, TURN_DECISION_TOOL].includes(block.name)
-      ) {
-        internalCalls.add(block.id);
-      }
+      if (block.type !== 'tool_use') continue;
+      const ids = [CONTEXT_CLAIMS_TOOL, TURN_DECISION_TOOL].includes(block.name)
+        ? internalCalls
+        : businessCalls;
+      ids.add(block.id);
     }
   }
   return snapshot.messages.flatMap((source) => {
@@ -124,7 +124,14 @@ export function contextSourceView(snapshot: VersionedContextSnapshot): ContextSo
     if (typeof source.message.content === 'string') return hideProse ? [] : [source];
     const content = source.message.content.filter((block) => {
       if (block.type === 'tool_use') return !internalCalls.has(block.id);
-      if (block.type === 'tool_result') return !internalCalls.has(block.tool_use_id);
+      if (block.type === 'tool_result') {
+        // Older receipts may have been persisted without their internal call.
+        // Keep real source evidence, including imported legacy results.
+        return (
+          !internalCalls.has(block.tool_use_id) &&
+          (source.origin === 'legacy' || !!block.name || businessCalls.has(block.tool_use_id))
+        );
+      }
       return !hideProse;
     });
     if (!content.length) return [];
