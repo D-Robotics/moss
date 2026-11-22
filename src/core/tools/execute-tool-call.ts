@@ -799,8 +799,11 @@ async function executeOneToolCallInner(
           const rpcDeadline = AbortSignal.timeout(deps.toolTimeoutMs);
           const rpcSignal = AbortSignal.any([signal, rpcDeadline]);
           const rpcCtx: ToolContext = { ...attemptCtx, abortSignal: rpcSignal };
-          if (deps.runtimeJudge) {
-            deps.runtimeJudge.noteStart(call.id);
+          const judge = deps.runtimeJudge;
+          if (judge) {
+            judge.noteStart(call.id);
+            rpcCtx.judgeApproval = (finalInput, where) =>
+              judge.judgeApproval(call.id, tool.name, finalInput, where, rpcSignal);
             rpcCtx.reportVerification = (target, status) =>
               deps.runtimeJudge?.noteVerification(call.id, target, status);
           }
