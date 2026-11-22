@@ -1,3 +1,4 @@
+import type { JudgeToolResult, RuntimeJudgeRun } from '../agent/runtime-judge.js';
 import { truncateWithRecoveryPath } from '../../context/tool-output-spill.js';
 import { getRootLogger } from '../../logger.js';
 import type { LLMMessage } from '../llm/llm-provider.js';
@@ -83,6 +84,8 @@ export interface ExecuteAgentLoopToolCallsParams {
     updatedInput?: Record<string, unknown>;
   } | null>;
   toolStartGuard?: ExecuteToolCallDeps['toolStartGuard'];
+  runtimeJudge?: RuntimeJudgeRun;
+  buildCorrectionMessage?: (text: string) => Message;
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
   parallelSafeTools: Set<string>;
@@ -107,6 +110,8 @@ interface PreflightContext {
 }
 
 interface OutcomeRecordingContext {
+  runtimeJudge?: RuntimeJudgeRun;
+  judgeResults: JudgeToolResult[];
   assistantContent: ContentBlock[];
   /** When set, a truncated result gets a spilled copy so its middle stays readable. */
   workspaceDir?: string;
@@ -282,6 +287,20 @@ function recordToolOutcome(
       : outcome.kind === 'denied'
         ? 'denied'
         : 'blocked';
+  if (ctx.runtimeJudge) {
+    const tool = ctx.toolsForRun.find((entry) => entry.name === call.name);
+    ctx.judgeResults.push(
+      ctx.runtimeJudge.recordToolResult({
+        id: call.id,
+        name: call.name,
+        input: call.input,
+        output: result,
+        outcome: toolOutcome,
+        failed: isError || (outcome.kind === 'completed' && Boolean(outcome.aborted)),
+        fileMutation: tool?.metadata?.classification?.fileMutation === true,
+      })
+    );
+  }
   const durationMs = outcome.kind === 'completed' ? outcome.durationMs : 0;
   let structuredContent = rawStructuredContent;
   let structuredContentTruncated: number | undefined;
@@ -463,7 +482,10 @@ export async function executeAgentLoopToolCalls(
   const toolsForRun = resolveToolsForRun();
   const originalInputs = new WeakMap<ToolCallRef, string>();
   for (const call of toolCalls) originalInputs.set(call, stableSerializeToolInput(call.input));
+  const judgeResults: JudgeToolResult[] = [];
   const recordCtx: OutcomeRecordingContext = {
+    runtimeJudge: params.runtimeJudge,
+    judgeResults,
     assistantContent,
     workspaceDir: toolCtx.workspaceDir,
     ...(toolCtx.contextWindowTokens === undefined
@@ -505,6 +527,7 @@ export async function executeAgentLoopToolCalls(
       skipHeartbeatToolNames,
       checkToolApproval,
       toolStartGuard: params.toolStartGuard,
+      runtimeJudge: params.runtimeJudge,
       toolAbortSignalFor,
       enrichToolContext,
       push,
@@ -655,6 +678,24 @@ export async function executeAgentLoopToolCalls(
     toolResults.push({ type: 'text', text: bgReminder });
   }
 
+  if (
+    params.runtimeJudge &&
+    !abortSignal.aborted &&
+    !state.suspendedTool &&
+    !state.taskWaitTimeout &&
+    !state.taskAcceptanceCommitted
+  ) {
+    for (const item of judgeResults) {
+      if (!item.started || abortSignal.aborted) continue;
+      const filtered = await params.runtimeJudge.filterOutput(item, toolCtx.contextWindowTokens);
+      if (filtered === undefined) continue;
+      const block = toolResults.find(
+        (entry) => entry.type === 'tool_result' && entry.tool_use_id === item.id
+      );
+      if (block) block.content = filtered;
+    }
+  }
+
   const resultMsg: Message = {
     role: 'user',
     content: toolResults,
@@ -706,6 +747,15 @@ export async function executeAgentLoopToolCalls(
     toolResultMsgPersisted = true;
 
     newSteering = state.taskAcceptanceCommitted || state.taskWaitTimeout ? [] : evaluateSteering();
+    if (
+      !state.taskAcceptanceCommitted &&
+      !state.taskWaitTimeout &&
+      params.runtimeJudge &&
+      params.buildCorrectionMessage
+    ) {
+      const guidance = await params.runtimeJudge.progress(judgeResults);
+      if (guidance) newSteering.push(params.buildCorrectionMessage(guidance));
+    }
     metrics.prepNextTurnParallelMs += Date.now() - parallelStartMs;
   } finally {
     if (abortSignal.aborted && !toolResultMsgPersisted) {

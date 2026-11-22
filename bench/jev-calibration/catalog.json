@@ -1,0 +1,1994 @@
+{
+  "schemaVersion": 1,
+  "release": "jev-calibration-24.v1",
+  "split": "calibration",
+  "cases": [
+    {
+      "id": "R01",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Flask：空名称 Blueprint",
+      "language": "Python",
+      "source": {
+        "group": "pallets__flask-5014",
+        "repository": "https://github.com/pallets/flask",
+        "issue": "https://github.com/pallets/flask/issues/5010",
+        "pullRequest": "https://github.com/pallets/flask/pull/5014",
+        "baseline": "7ee9ceb71e868944a46e1ff00b506772a53a4f1d",
+        "referenceMerge": "7ed89d3f9d2207c9a607f5dcdce106c0278e1332",
+        "license": "BSD-3-Clause",
+        "licenseUrl": "https://raw.githubusercontent.com/pallets/flask/7ee9ceb71e868944a46e1ff00b506772a53a4f1d/LICENSE.rst",
+        "dataset": "verified",
+        "datasetRow": "pallets__flask-5014",
+        "licenseFile": "evaluator/licenses/pallets__flask.txt"
+      },
+      "difficulty": {
+        "level": "L1",
+        "sum": 1,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 0,
+            "basis": "构造函数直接复现"
+          },
+          "coupling": {
+            "points": 0,
+            "basis": "局部名称检查"
+          },
+          "evidence": {
+            "points": 0,
+            "basis": "只需看构造结果"
+          },
+          "verification": {
+            "points": 1,
+            "basis": "新构造用例加一组正常 Blueprint 用例"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R01/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q tests/test_blueprints.py",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.pallets_1776_flask-5014@sha256:bde4fbdafa36141d4396944da88ec37aabdef612ed36920090675bccd0ca5d72",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.pallets_1776_flask-5014:latest",
+        "upstreamVersion": "2.3",
+        "environmentSetupCommit": "182ce3dd15dfa3537391c3efaf9c3ff407d134d4",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 12,
+        "wallSeconds": 300
+      },
+      "acceptance": {
+        "summary": "空名称触发 ValueError，现有 Blueprint 注册及命名测试仍通过。",
+        "metadata": "evaluator/R01/checks.json",
+        "negativePatchHypothesis": "拒绝所有 Blueprint 名称，验证普通命名的既有用例会捕获。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null,
+        "localOracleProbe": "evaluator/R01/checks.json#localOracleProbe"
+      },
+      "artifacts": {
+        "agent/R01/request.md": "e39922e8ea6e5da90724dc62550f821e19a9cca8524bf96d447a690b710abca5",
+        "evaluator/R01/checks.json": "f129893dc5c594d844cd35e21f3b1b79ebfb8f46ed290afb7bfd29c25c653c15",
+        "evaluator/R01/hidden-tests.patch": "e16f06b260b5169a49397e9d571b5af70317cd23792e1437232fabf718fe8871",
+        "evaluator/R01/negative.patch": "01969f9b3948f0179896e5a669b70a56f5e35619639162ae26681ac28071048b",
+        "evaluator/R01/reference.patch": "087d51d66413bfa35111ac0eca31f1db1636572702cfd967c428049b453f451d"
+      }
+    },
+    {
+      "id": "R02",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Preact：SVG xlink 属性",
+      "language": "JavaScript",
+      "source": {
+        "group": "preactjs__preact-3454",
+        "repository": "https://github.com/preactjs/preact",
+        "issue": "https://github.com/preactjs/preact/issues/3441",
+        "pullRequest": "https://github.com/preactjs/preact/pull/3454",
+        "baseline": "00c8d1ff1498084c15408cf0014d4c7facdb5dd7",
+        "referenceMerge": "17da4efa736f14c84cd9f36fca4420d94f0dd403",
+        "license": "MIT",
+        "licenseUrl": "https://raw.githubusercontent.com/preactjs/preact/00c8d1ff1498084c15408cf0014d4c7facdb5dd7/LICENSE",
+        "dataset": "multilingual",
+        "datasetRow": "preactjs__preact-3454",
+        "licenseFile": "evaluator/licenses/preactjs__preact.txt"
+      },
+      "difficulty": {
+        "level": "L1",
+        "sum": 1,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 0,
+            "basis": "报告直接给出属性名"
+          },
+          "coupling": {
+            "points": 0,
+            "basis": "归一化分支局部"
+          },
+          "evidence": {
+            "points": 1,
+            "basis": "需要对照实际 DOM 属性"
+          },
+          "verification": {
+            "points": 0,
+            "basis": "一个浏览器断言直接证明回归"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R02/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "COVERAGE=false BABEL_NO_MODULES=true npx karma start karma.conf.js --single-run --grep=\"test/browser/svg.test.js\"",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.preactjs_1776_preact-3454@sha256:76750a54c17dcc292e7b129af32b70578f2c3b2e48dab82065489e994ba0b03b",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.preactjs_1776_preact-3454:latest",
+        "upstreamVersion": "3454",
+        "environmentSetupCommit": null,
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed",
+        "officialScript": "evaluator/R02/upstream-eval.sh",
+        "logParser": "parse_log_karma",
+        "evalType": "pass_and_fail"
+      },
+      "budget": {
+        "maxTurns": 12,
+        "wallSeconds": 300
+      },
+      "acceptance": {
+        "summary": "诊断用例的 SVG use 具备正确 href，现有 SVG 属性与兼容路径用例通过。",
+        "metadata": "evaluator/R02/checks.json",
+        "negativePatchHypothesis": "仅保留旧的驼峰属性分支，带冒号的端到端 SVG 断言会失败。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R02/request.md": "031c52a50e92c5fb05e70b73bf81912a60c5126980c50f423ad671e7f9e8092f",
+        "evaluator/R02/checks.json": "02b9f82dccd86370aa5909e3686412f4a38e09e0798b49ba5d6d2f452a8a3b18",
+        "evaluator/R02/hidden-tests.patch": "a0430c853ba223665c0803f6c1f88249a8ec6c600fd42e58735411daf651f1d6",
+        "evaluator/R02/reference.patch": "2f80257b53de38c6ed79ce278e31af72e8884fc1237c54e4063d3987870178c4",
+        "evaluator/R02/upstream-eval.sh": "1234cfd340f882dda96560ee8158a666b192ff773f6ddda6b0c999d1da171003"
+      }
+    },
+    {
+      "id": "R03",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Astropy：短参数列表 FITS 识别",
+      "language": "Python",
+      "source": {
+        "group": "astropy__astropy-14309",
+        "repository": "https://github.com/astropy/astropy",
+        "issue": "https://github.com/astropy/astropy/issues/14305",
+        "pullRequest": "https://github.com/astropy/astropy/pull/14309",
+        "baseline": "cdb66059a2feb44ee49021874605ba90801f9986",
+        "referenceMerge": "1aed4548ec81a698f5faf0d2edc8e3fcc107c768",
+        "license": "BSD-3-Clause",
+        "licenseUrl": "https://raw.githubusercontent.com/astropy/astropy/cdb66059a2feb44ee49021874605ba90801f9986/LICENSE.rst",
+        "dataset": "verified",
+        "datasetRow": "astropy__astropy-14309",
+        "licenseFile": "evaluator/licenses/astropy__astropy.txt"
+      },
+      "difficulty": {
+        "level": "L1",
+        "sum": 2,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 0,
+            "basis": "异常直接指向识别函数"
+          },
+          "coupling": {
+            "points": 1,
+            "basis": "需保留路径与对象识别接口"
+          },
+          "evidence": {
+            "points": 0,
+            "basis": "短错误可直接核对"
+          },
+          "verification": {
+            "points": 1,
+            "basis": "同时检查无匹配与正常匹配"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R03/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q astropy/io/fits/tests/test_connect.py",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.astropy_1776_astropy-14309@sha256:fdce7843a7aeb4d630df414fc1bf01301cfe07e1389e2b3d7ee61f93f8ea6789",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.astropy_1776_astropy-14309:latest",
+        "upstreamVersion": "5.1",
+        "environmentSetupCommit": "5f74eacbcc7fff707a44d8eb58adaa514cb7dcb5",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 12,
+        "wallSeconds": 300
+      },
+      "acceptance": {
+        "summary": "FITS 识别器遇到无匹配路径返回可用的否定结果，原有连接层识别用例保持通过。",
+        "metadata": "evaluator/R03/checks.json",
+        "negativePatchHypothesis": "遇到任何输入都返回 False，既有 FITS 识别测试会拒绝。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R03/request.md": "99a2debb68fb465f6ad3c3c99917abe2f0b348c9155843d33c732a35922c9da3",
+        "evaluator/R03/checks.json": "916c685bdebb51bf2c3ab628f2f1d4cc39e871e430343a2d7006d05f8a181d75",
+        "evaluator/R03/hidden-tests.patch": "1ed5cb087c3eb74e245d54b70fb18e2d454b34478f3e6f2588187f74ebfcd8d4",
+        "evaluator/R03/reference.patch": "26e70ac624185594670bdc18cb5e9f3cf38089eaefeb29044d9b76672e2c1b3e"
+      }
+    },
+    {
+      "id": "R04",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Pylint：重复行检测阈值为零",
+      "language": "Python",
+      "source": {
+        "group": "pylint-dev__pylint-4970",
+        "repository": "https://github.com/pylint-dev/pylint",
+        "issue": "https://github.com/pylint-dev/pylint/issues/4901",
+        "pullRequest": "https://github.com/pylint-dev/pylint/pull/4970",
+        "baseline": "40cc2ffd7887959157aaf469e09585ec2be7f528",
+        "referenceMerge": "cf33d82635569da924d82538f806a5242481f06f",
+        "license": "GPL-2.0-or-later",
+        "licenseUrl": "https://raw.githubusercontent.com/pylint-dev/pylint/40cc2ffd7887959157aaf469e09585ec2be7f528/LICENSE",
+        "dataset": "verified",
+        "datasetRow": "pylint-dev__pylint-4970",
+        "licenseFile": "evaluator/licenses/pylint-dev__pylint.txt"
+      },
+      "difficulty": {
+        "level": "L2",
+        "sum": 4,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 1,
+            "basis": "沿配置进入相似度检查"
+          },
+          "coupling": {
+            "points": 1,
+            "basis": "保留同一检查器的正阈值行为"
+          },
+          "evidence": {
+            "points": 1,
+            "basis": "对照禁用开关与输出"
+          },
+          "verification": {
+            "points": 1,
+            "basis": "需有零值和默认行为证据"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R04/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q tests/checkers/unittest_similar.py",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-4970@sha256:5d331d487e49480c4098366cd094aae9dd2e8d365f0412174d5e1a2e9a3d5893",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-4970:latest",
+        "upstreamVersion": "2.10",
+        "environmentSetupCommit": "bc95cd34071ec2e71de5bca8ff95cc9b88e23814",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 18,
+        "wallSeconds": 450
+      },
+      "acceptance": {
+        "summary": "禁用时不生成重复代码报告，既有相似度报告仍保持。",
+        "metadata": "evaluator/R04/checks.json",
+        "negativePatchHypothesis": "无条件关闭相似度检查，预期原有重复检测用例失败。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R04/request.md": "8d76a64437e765ae063f4c513dcb960a53b34e37768923ae228a237f0e6e7571",
+        "evaluator/R04/checks.json": "c1129dee0ab417cfb0c888bac013b8c10e9e94fff5445fa6d8506babfdcd92db",
+        "evaluator/R04/hidden-tests.patch": "c3c6cf31d76aa8769731b35f87511ff007dddb47a2349f8d4e5da3355ff9cf7b",
+        "evaluator/R04/reference.patch": "7eb3a09727133387bf81fa3a1596746a2dcca2c0c9eba95caaa69b65d619dccd"
+      }
+    },
+    {
+      "id": "R05",
+      "split": "calibration",
+      "type": "repair",
+      "title": "pytest：caplog 恢复 handler 级别",
+      "language": "Python",
+      "source": {
+        "group": "pytest-dev__pytest-7571",
+        "repository": "https://github.com/pytest-dev/pytest",
+        "issue": "https://github.com/pytest-dev/pytest/issues/7569",
+        "pullRequest": "https://github.com/pytest-dev/pytest/pull/7571",
+        "baseline": "422685d0bdc110547535036c1ff398b5e1c44145",
+        "referenceMerge": "cefe064bb016528425ae973699fff50b4bd4147c",
+        "license": "MIT",
+        "licenseUrl": "https://raw.githubusercontent.com/pytest-dev/pytest/422685d0bdc110547535036c1ff398b5e1c44145/LICENSE",
+        "dataset": "verified",
+        "datasetRow": "pytest-dev__pytest-7571",
+        "licenseFile": "evaluator/licenses/pytest-dev__pytest.txt"
+      },
+      "difficulty": {
+        "level": "L2",
+        "sum": 4,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 1,
+            "basis": "沿 fixture 结束路径跟踪"
+          },
+          "coupling": {
+            "points": 1,
+            "basis": "保持 logger 与 handler 既有行为"
+          },
+          "evidence": {
+            "points": 1,
+            "basis": "对照前后两个用例的级别"
+          },
+          "verification": {
+            "points": 1,
+            "basis": "需确认临时设置和结束复位"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R05/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q testing/logging/test_fixture.py",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7571@sha256:0a1f84cd32e2c8332f90bfad6f3fd16304f25c01384adb4ffd4f7250316bd60a",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7571:latest",
+        "upstreamVersion": "6.0",
+        "environmentSetupCommit": "634cde9506eb1f48dec3ec77974ee8dc952207c6",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 18,
+        "wallSeconds": 450
+      },
+      "acceptance": {
+        "summary": "给 caplog 延续多个用例时能恢复初始 handler 级别，同一文件内原有日志行为保持。",
+        "metadata": "evaluator/R05/checks.json",
+        "negativePatchHypothesis": "只复原 logger 而漏掉 handler，隐藏的后续用例会发现级别泄漏。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R05/request.md": "ca3af9ce9cbba685ac828d2da6303fdafb5a54fd81a64423a47241240ea85748",
+        "evaluator/R05/checks.json": "8cb9b9afcdc7e4d2f591a0314df39f79cf39c725d2c1278c04b40b1440726516",
+        "evaluator/R05/hidden-tests.patch": "3cd1ee3c3825b1cdda389712041a55e668f53ab63ed2ac99707ef7b36d4928db",
+        "evaluator/R05/reference.patch": "37e8f7df78a7ad5ab31b32b2785a8009b5d9ebf99c1762e999e6e1cc3384ec24"
+      }
+    },
+    {
+      "id": "R06",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Preact：渲染装箱字符串",
+      "language": "JavaScript",
+      "source": {
+        "group": "preactjs__preact-4152",
+        "repository": "https://github.com/preactjs/preact",
+        "issue": "https://github.com/preactjs/preact/issues/4151",
+        "pullRequest": "https://github.com/preactjs/preact/pull/4152",
+        "baseline": "9c5a82efcc3dcbd0035c694817a3022d81264687",
+        "referenceMerge": "600d8cfd297e24faebd226a11490c9898439ce8d",
+        "license": "MIT",
+        "licenseUrl": "https://raw.githubusercontent.com/preactjs/preact/9c5a82efcc3dcbd0035c694817a3022d81264687/LICENSE",
+        "dataset": "multilingual",
+        "datasetRow": "preactjs__preact-4152",
+        "licenseFile": "evaluator/licenses/preactjs__preact.txt"
+      },
+      "difficulty": {
+        "level": "L2",
+        "sum": 4,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 1,
+            "basis": "跟踪组件返回值到子节点"
+          },
+          "coupling": {
+            "points": 1,
+            "basis": "守住标量、空值和 VNode 的约定"
+          },
+          "evidence": {
+            "points": 1,
+            "basis": "比较装箱和普通字符串"
+          },
+          "verification": {
+            "points": 1,
+            "basis": "需验证特例与已有组件输出"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R06/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "COVERAGE=false BABEL_NO_MODULES=true npx karma start karma.conf.js --single-run --grep=\"test/browser/components.test.js\"",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.preactjs_1776_preact-4152@sha256:b421912ab8a495594d471e2670efcb8883a04e34ab0c130c0ae5b8e17e6b3d9d",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.preactjs_1776_preact-4152:latest",
+        "upstreamVersion": "4152",
+        "environmentSetupCommit": null,
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed",
+        "officialScript": "evaluator/R06/upstream-eval.sh",
+        "logParser": "parse_log_karma",
+        "evalType": "pass_and_fail"
+      },
+      "budget": {
+        "maxTurns": 18,
+        "wallSeconds": 450
+      },
+      "acceptance": {
+        "summary": "组件返回装箱字符串时正确进入文本渲染，既有组件用例不回归。",
+        "metadata": "evaluator/R06/checks.json",
+        "negativePatchHypothesis": "把所有对象都强制转成文本，已有 VNode 组件测试会捕获。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R06/request.md": "4de635099b0c0696dc157b65c71c00c81d60fed89f0acedab0ceed1881802bfa",
+        "evaluator/R06/checks.json": "b95d94c8afde626a59e43f22b63dbe544e1ee896cc38e79fdd6ecd523b587c8f",
+        "evaluator/R06/hidden-tests.patch": "ccc7edec55657d8cb7d61e23d8342ae9c58b6f316777a67dccfa5a4547729296",
+        "evaluator/R06/reference.patch": "0356ace9fd3ba5e602b543c468e5a4314f78d912fd3cb51d72168a6967465687",
+        "evaluator/R06/upstream-eval.sh": "5c4621fc588cb4fdd02d9b9b48976eacacfc7b9f8a176ee18e3f2d558b705ca3"
+      }
+    },
+    {
+      "id": "R07",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Hugo：缺失分组参数",
+      "language": "Go",
+      "source": {
+        "group": "gohugoio__hugo-12579",
+        "repository": "https://github.com/gohugoio/hugo",
+        "issue": "https://github.com/gohugoio/hugo/issues/12578",
+        "pullRequest": "https://github.com/gohugoio/hugo/pull/12579",
+        "baseline": "9c4e14eb4f890d2a3caad2dcd9209609b7274914",
+        "referenceMerge": "cba2de6ec91bc60735600ec068c018d9f53ee5ca",
+        "license": "Apache-2.0",
+        "licenseUrl": "https://raw.githubusercontent.com/gohugoio/hugo/9c4e14eb4f890d2a3caad2dcd9209609b7274914/LICENSE",
+        "dataset": "multilingual",
+        "datasetRow": "gohugoio__hugo-12579",
+        "licenseFile": "evaluator/licenses/gohugoio__hugo.txt"
+      },
+      "difficulty": {
+        "level": "L2",
+        "sum": 4,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 1,
+            "basis": "沿模板方法进入分组"
+          },
+          "coupling": {
+            "points": 1,
+            "basis": "保持已有分组结果"
+          },
+          "evidence": {
+            "points": 1,
+            "basis": "对照空分组与真实分组"
+          },
+          "verification": {
+            "points": 1,
+            "basis": "需要针对缺失和存在参数修改验证"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R07/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "go test -v ./resources/page -run '^TestGroupBy'",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.gohugoio_1776_hugo-12579@sha256:f38c10d2b69d527c857089c86898d6caea983260647bfcaa7bb0d2a603a5272f",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.gohugoio_1776_hugo-12579:latest",
+        "upstreamVersion": "12579",
+        "environmentSetupCommit": null,
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed",
+        "officialScript": "evaluator/R07/upstream-eval.sh",
+        "logParser": "parse_log_gotest",
+        "evalType": "pass_and_fail"
+      },
+      "budget": {
+        "maxTurns": 18,
+        "wallSeconds": 450
+      },
+      "acceptance": {
+        "summary": "不存在的参数不报错，已有参数的分组和排序保持。",
+        "metadata": "evaluator/R07/checks.json",
+        "negativePatchHypothesis": "对任何参数都返回空集合，既有正向分组断言会失败。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R07/request.md": "1561814d9f201073147f7608ce4474159c97df6e992c3afbe2a2d15e79f2df37",
+        "evaluator/R07/checks.json": "ef0f42693ac6efb70f283adca78e959a98583aaebae6f6e46137f9a3c126b562",
+        "evaluator/R07/hidden-tests.patch": "a7b9edddd8c22ddc2cdd07b307e1cc27407b2fd8d7d9bd0298fbe9ddd1ade61a",
+        "evaluator/R07/reference.patch": "8e36d752818a59583afd08f35dac0c132a6288f543b4aa11cf778d5039e074e5",
+        "evaluator/R07/upstream-eval.sh": "2c0f395879e19e6d39f30ef577f11eb80630d92de773173dd56216c60ff5f2fa"
+      }
+    },
+    {
+      "id": "R08",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Immutable.js：有序集合的哈希一致性",
+      "language": "TypeScript/JavaScript",
+      "source": {
+        "group": "immutable-js__immutable-js-2005",
+        "repository": "https://github.com/immutable-js/immutable-js",
+        "issue": "https://github.com/immutable-js/immutable-js/issues/2002",
+        "pullRequest": "https://github.com/immutable-js/immutable-js/pull/2005",
+        "baseline": "77434b3cbbc8ee21206f4cc6965e1c9b09cc92b6",
+        "referenceMerge": "ce2b028a7528e29f9ec321b277fb22bf1830428f",
+        "license": "MIT",
+        "licenseUrl": "https://raw.githubusercontent.com/immutable-js/immutable-js/77434b3cbbc8ee21206f4cc6965e1c9b09cc92b6/LICENSE",
+        "dataset": "multilingual",
+        "datasetRow": "immutable-js__immutable-js-2005",
+        "licenseFile": "evaluator/licenses/immutable-js__immutable-js.txt"
+      },
+      "difficulty": {
+        "level": "L3",
+        "sum": 7,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 2,
+            "basis": "可能是相等性、迭代历史或共用哈希"
+          },
+          "coupling": {
+            "points": 2,
+            "basis": "两个集合共享哈希实现且顺序语义要稳定"
+          },
+          "evidence": {
+            "points": 1,
+            "basis": "需要对照等值与构建历史"
+          },
+          "verification": {
+            "points": 2,
+            "basis": "两种容器分别验收"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R08/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "npm run build && npx jest __tests__/OrderedMap.ts __tests__/OrderedSet.ts --runInBand",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.immutable-js_1776_immutable-js-2005@sha256:d038a276cb975ddfbb1a6b13fe9c8260fb22a0145c8605bb2a477a4d75ee5549",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.immutable-js_1776_immutable-js-2005:latest",
+        "upstreamVersion": "2005",
+        "environmentSetupCommit": null,
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed",
+        "officialScript": "evaluator/R08/upstream-eval.sh",
+        "logParser": "parse_log_immutable_js",
+        "evalType": "pass_and_fail"
+      },
+      "budget": {
+        "maxTurns": 26,
+        "wallSeconds": 600
+      },
+      "acceptance": {
+        "summary": "等值 OrderedMap 和 OrderedSet 的哈希与构建历史无关，现有有序集合用例通过。",
+        "metadata": "evaluator/R08/checks.json",
+        "negativePatchHypothesis": "只修 OrderedSet，OrderedMap 重插/删除后哈希用例会拒绝。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R08/request.md": "c948e6150aada570d5e5e16b175559e0888d47f874ea7048b56a1b4e4dae49a8",
+        "evaluator/R08/checks.json": "8279a9b518d62e8cb41a61e20d913f2740f299472b65466dcb2f681da17f5e3c",
+        "evaluator/R08/hidden-tests.patch": "6948678cdb29895b4c6226246971eadbfd2dad68f5f196a5cc09efb3a37948b8",
+        "evaluator/R08/reference.patch": "ee2a6dd8664143cf3294ae60364d1ec790671c99414defef9e03548bf30b493f",
+        "evaluator/R08/upstream-eval.sh": "70da858d49b4dc2bb8f8223f44d409c4e52296d001a24396353cdaa021f66caa"
+      }
+    },
+    {
+      "id": "R09",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Sphinx：toctree 引用生成页",
+      "language": "Python",
+      "source": {
+        "group": "sphinx-doc__sphinx-10673",
+        "repository": "https://github.com/sphinx-doc/sphinx",
+        "issue": "https://github.com/sphinx-doc/sphinx/issues/8438",
+        "pullRequest": "https://github.com/sphinx-doc/sphinx/pull/10673",
+        "baseline": "f35d2a6cc726f97d0e859ca7a0e1729f7da8a6c8",
+        "referenceMerge": "d924acfdb98a91f628aed8dc44d07d9309e6f9b6",
+        "license": "BSD-2-Clause",
+        "licenseUrl": "https://raw.githubusercontent.com/sphinx-doc/sphinx/f35d2a6cc726f97d0e859ca7a0e1729f7da8a6c8/LICENSE",
+        "dataset": "verified",
+        "datasetRow": "sphinx-doc__sphinx-10673",
+        "licenseFile": "evaluator/licenses/sphinx-doc__sphinx.txt"
+      },
+      "difficulty": {
+        "level": "L3",
+        "sum": 8,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 2,
+            "basis": "需区分源文档缺失与生成页"
+          },
+          "coupling": {
+            "points": 2,
+            "basis": "指令、toctree 解析和 builder 共享路径规则"
+          },
+          "evidence": {
+            "points": 2,
+            "basis": "需要检查诊断以及最终链接"
+          },
+          "verification": {
+            "points": 2,
+            "basis": "缺警告和有链接需分别核对"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R09/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q tests/test_environment_toctree.py",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10673@sha256:4654890cc32945f5021445040ad6f2efd3b651f1c9efe679021d3b3da5375eb0",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10673:latest",
+        "upstreamVersion": "5.2",
+        "environmentSetupCommit": "a651e6bf4ad7a1dc293525d0a70e6d0d11b827db",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 26,
+        "wallSeconds": 600
+      },
+      "acceptance": {
+        "summary": "隐藏站点在 HTML 构建中保留生成页链接且不为这些链接误报，普通 toctree 用例保持。",
+        "metadata": "evaluator/R09/checks.json",
+        "negativePatchHypothesis": "只压制缺文件警告但不生成链接，隐藏 HTML 输出断言会失败。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R09/request.md": "e52e598df0bf1c7e1113555cddd8fd6c0d81fdfa65fa30e121a0da6248491c90",
+        "evaluator/R09/checks.json": "83679c61ab27c9c557f45805ba49bb8e24f60f661f83accaf6ab2c368a4b19aa",
+        "evaluator/R09/hidden-tests.patch": "428b666326466803e05ce8137b5626af83881035e775108b59aac3c9f47e5106",
+        "evaluator/R09/reference.patch": "0fc6f76c4f0a0d81c35e62ba53b45c47cb9850195710a9a50c5361c6aff07685"
+      }
+    },
+    {
+      "id": "R10",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Astropy：结构化数组列与掩码",
+      "language": "Python",
+      "source": {
+        "group": "astropy__astropy-13236",
+        "repository": "https://github.com/astropy/astropy",
+        "issue": "https://github.com/astropy/astropy/issues/13235",
+        "pullRequest": "https://github.com/astropy/astropy/pull/13236",
+        "baseline": "6ed769d58d89380ebaa1ef52b300691eefda8928",
+        "referenceMerge": "034625e9826ef419532b9043def59326835583a4",
+        "license": "BSD-3-Clause",
+        "licenseUrl": "https://raw.githubusercontent.com/astropy/astropy/6ed769d58d89380ebaa1ef52b300691eefda8928/LICENSE.rst",
+        "dataset": "verified",
+        "datasetRow": "astropy__astropy-13236",
+        "licenseFile": "evaluator/licenses/astropy__astropy.txt"
+      },
+      "difficulty": {
+        "level": "L3",
+        "sum": 7,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 1,
+            "basis": "沿 Table 输入到列分类"
+          },
+          "coupling": {
+            "points": 2,
+            "basis": "结构化 dtype、掩码与显式 mixin 契约耦合"
+          },
+          "evidence": {
+            "points": 2,
+            "basis": "需在列分类与掩码行为间核对"
+          },
+          "verification": {
+            "points": 2,
+            "basis": "两套测试分别覆盖 mixin 和掩码"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R10/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q astropy/table/tests/test_mixin.py astropy/table/tests/test_table.py",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.astropy_1776_astropy-13236@sha256:dede759cb182b28dc949fe9ee05d6fd09d032df5a802af190121a8f9cec36b9e",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.astropy_1776_astropy-13236:latest",
+        "upstreamVersion": "5.0",
+        "environmentSetupCommit": "cdf311e0714e611d48b0a31eb1f0e2cbffab7f23",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 26,
+        "wallSeconds": 600
+      },
+      "acceptance": {
+        "summary": "隐式结构化列按正常列处理，现有显式 mixin 兼容，结构化掩码可用。",
+        "metadata": "evaluator/R10/checks.json",
+        "negativePatchHypothesis": "只为非掩码数组改列分类，结构化掩码的独立用例会拒绝。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R10/request.md": "e158580e84e0e4b365ac9ef47abbc02708bd7ca36cc7b5cfce9c9307bce3477c",
+        "evaluator/R10/checks.json": "363e3408d91e29f3ae789125b26a4ee738658571bd682c7c53c801cff085b1b9",
+        "evaluator/R10/hidden-tests.patch": "bdf3a74fbfa6e071adde3a57b4ae6157461fa432ad3197f19210da5e3be4319a",
+        "evaluator/R10/reference.patch": "e3366b1923660fb0ae2bbc8fb16981184e77fc3f9e3669727f1a3e6061ddaa6d"
+      }
+    },
+    {
+      "id": "R11",
+      "split": "calibration",
+      "type": "repair",
+      "title": "scikit-learn：ColumnTransformer 的 remainder 输出",
+      "language": "Python",
+      "source": {
+        "group": "scikit-learn__scikit-learn-26323",
+        "repository": "https://github.com/scikit-learn/scikit-learn",
+        "issue": "https://github.com/scikit-learn/scikit-learn/issues/26306",
+        "pullRequest": "https://github.com/scikit-learn/scikit-learn/pull/26323",
+        "baseline": "586f4318ffcdfbd9a1093f35ad43e81983740b66",
+        "referenceMerge": "825e892e8c146f69df4a9113025404c9d83757a3",
+        "license": "BSD-3-Clause",
+        "licenseUrl": "https://raw.githubusercontent.com/scikit-learn/scikit-learn/586f4318ffcdfbd9a1093f35ad43e81983740b66/COPYING",
+        "dataset": "verified",
+        "datasetRow": "scikit-learn__scikit-learn-26323",
+        "licenseFile": "evaluator/licenses/scikit-learn__scikit-learn.txt"
+      },
+      "difficulty": {
+        "level": "L3",
+        "sum": 8,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 2,
+            "basis": "需区分最终容器转换与子 estimator 的设置传播"
+          },
+          "coupling": {
+            "points": 2,
+            "basis": "组合对象、显式转换器、remainder 共享输出协议"
+          },
+          "evidence": {
+            "points": 2,
+            "basis": "对照 set_output 与 fit_transform 结果"
+          },
+          "verification": {
+            "points": 2,
+            "basis": "回归和 passthrough/drop 的既有验证独立"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R11/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q sklearn/compose/tests/test_column_transformer.py",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-26323@sha256:b39ec40bfd83dd1b8ebf5997db582ca459c5c835e6488f35f157cf076bbb7ecb",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-26323:latest",
+        "upstreamVersion": "1.3",
+        "environmentSetupCommit": "1e8a5b833d1b58f3ab84099c4582239af854b23a",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 26,
+        "wallSeconds": 600
+      },
+      "acceptance": {
+        "summary": "估计器 remainder 获得相同输出配置，passthrough、drop 等现有路径无回归。",
+        "metadata": "evaluator/R11/checks.json",
+        "negativePatchHypothesis": "只重包最终结果，未将设置传给余项估计器，隐藏 remainder 检查会拒绝。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R11/request.md": "aada3f8a5228017cbb688172279bcc0952863eb8a6b4c2cf70726d80e903f98a",
+        "evaluator/R11/checks.json": "a32b5420dc694b9f6bd76ad54fabfa55b72747da64f6788d5ebb96f5b7acca29",
+        "evaluator/R11/hidden-tests.patch": "1643461a13bc4cc3f6337533b3fc01d310ea1608f4348fec9e85c291a76cbd77",
+        "evaluator/R11/reference.patch": "a3f339619e90ad5029b1444eaaead5289c97ec9bd0a1c51f2d3635eab39f104f"
+      }
+    },
+    {
+      "id": "R12",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Axum：HEAD 传输中的 Content-Length",
+      "language": "Rust",
+      "source": {
+        "group": "tokio-rs__axum-734",
+        "repository": "https://github.com/tokio-rs/axum",
+        "issue": "https://github.com/tokio-rs/axum/issues/730",
+        "pullRequest": "https://github.com/tokio-rs/axum/pull/734",
+        "baseline": "84df7eaa38aa38b3a4b4153678316c0700fc4fa8",
+        "referenceMerge": "515495d957232d393a29cecb6278ead67920e793",
+        "license": "MIT",
+        "licenseUrl": "https://raw.githubusercontent.com/tokio-rs/axum/84df7eaa38aa38b3a4b4153678316c0700fc4fa8/axum/LICENSE",
+        "dataset": "multilingual",
+        "datasetRow": "tokio-rs__axum-734",
+        "licenseFile": "evaluator/licenses/tokio-rs__axum.txt"
+      },
+      "difficulty": {
+        "level": "L4",
+        "sum": 11,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 2,
+            "basis": "需排除路由剥离正文、序列化和 Hyper 传输之间的假设"
+          },
+          "coupling": {
+            "points": 3,
+            "basis": "路由服务、fallback 和响应 future 的共享行为"
+          },
+          "evidence": {
+            "points": 3,
+            "basis": "需关联服务内部响应和实际网络头"
+          },
+          "verification": {
+            "points": 3,
+            "basis": "普通、fallback、不同正文、多种方法路径独立验证"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R12/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "RUSTFLAGS=-Awarnings cargo test --package axum --lib -- routing::tests",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.tokio-rs_1776_axum-734@sha256:293b09f40fb9198e44069fa223fcdb5bf34987b80aeea32eb2b0fe9a98f3e1a1",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.tokio-rs_1776_axum-734:latest",
+        "upstreamVersion": "734",
+        "environmentSetupCommit": null,
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed",
+        "officialScript": "evaluator/R12/upstream-eval.sh",
+        "logParser": "parse_log_cargo",
+        "evalType": "pass_and_fail"
+      },
+      "budget": {
+        "maxTurns": 36,
+        "wallSeconds": 900
+      },
+      "acceptance": {
+        "summary": "真实 Hyper 测试验证 HEAD 长度、空正文、fallback。另核对同一路径 GET、显式长度及已存在的路由断言。",
+        "metadata": "evaluator/R12/checks.json",
+        "negativePatchHypothesis": "仅普通路径设置长度，fallback 或显式 HEAD 分支的验收会拒绝。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R12/request.md": "6eb8d80b95ca3fe87c2d026fa5d9643a67f4a91b80c7d7ae4e2826725d5751bb",
+        "evaluator/R12/checks.json": "c1dc155db47809e50f82403ea4391b3fb04d897fdfcf639906e0e41ee7cdee62",
+        "evaluator/R12/hidden-tests.patch": "8faae3ed7cb4ede1482af54e025aac30559da9e671d6a22d6b744f4fe254ab57",
+        "evaluator/R12/reference.patch": "a1e64222bf83c1771518d16f72b67a078179f84ada543496fae5bcdadab94696",
+        "evaluator/R12/upstream-eval.sh": "227e90ae32495789e3a154fa36213c784608a8759fbaeba0c68bd529334ae03b"
+      }
+    },
+    {
+      "id": "R13",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Django：仅 DurationField 的表达式",
+      "language": "Python",
+      "source": {
+        "group": "django__django-13121",
+        "repository": "https://github.com/django/django",
+        "issue": "https://code.djangoproject.com/ticket/28925",
+        "pullRequest": "https://github.com/django/django/pull/13121",
+        "baseline": "ec5aa2161d8015a3fe57dcbbfe14200cd18f0a16",
+        "referenceMerge": "dd5aa8cb5ffc0a89c4b9b8dee45c1c919d203489",
+        "license": "BSD-3-Clause",
+        "licenseUrl": "https://raw.githubusercontent.com/django/django/ec5aa2161d8015a3fe57dcbbfe14200cd18f0a16/LICENSE",
+        "dataset": "verified",
+        "datasetRow": "django__django-13121",
+        "licenseFile": "evaluator/licenses/django__django.txt"
+      },
+      "difficulty": {
+        "level": "L4",
+        "sum": 10,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 2,
+            "basis": "需区分 ORM 类型分派与各后端 SQL 格式化"
+          },
+          "coupling": {
+            "points": 3,
+            "basis": "表达式编译、后端日期间隔、参数化路径互相约束"
+          },
+          "evidence": {
+            "points": 3,
+            "basis": "需对照生成 SQL、返回值和不同后端能力"
+          },
+          "verification": {
+            "points": 2,
+            "basis": "分别验证纯 duration 和混合日期运算，并覆盖不同数据库"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R13/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python tests/runtests.py expressions.tests.FTimeDeltaTests backends.base.test_operations",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.django_1776_django-13121@sha256:435fa9739e9d7142814efc5cd79871a275919523a825c212adf74dd08736f43f",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.django_1776_django-13121:latest",
+        "upstreamVersion": "3.2",
+        "environmentSetupCommit": "65dfb06a1ab56c238cc80f5e1c31f61210c4577d",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 36,
+        "wallSeconds": 900
+      },
+      "acceptance": {
+        "summary": "上游 FTimeDeltaTests 与后端既有测试；扩展验收使用 SQLite、MySQL、PostgreSQL 验证 duration 加减及日期差。",
+        "metadata": "evaluator/R13/checks.json",
+        "negativePatchHypothesis": "只给 SQLite 特判，MySQL 的冻结后端复验会失败。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R13/request.md": "622541b6a30d12a7c841e7b835bc14fe7b6d207da7ae947205c977bc7b338802",
+        "evaluator/R13/checks.json": "36b9636c648b8552cace2e072f4bedda775c500b76865db7e10b5dfc68fa1655",
+        "evaluator/R13/hidden-tests.patch": "ecbd46beecf8e3f760f4d5199664660a5bfc0f9e00c5a4aee13fb42cb283b0ec",
+        "evaluator/R13/reference.patch": "6c3817c1f9ac977ee2de4d35a570e9edda3fc5c5da703145875f6bb9d0ceab56"
+      }
+    },
+    {
+      "id": "R14",
+      "split": "calibration",
+      "type": "repair",
+      "title": "Lucene：地理形状的相等性与哈希",
+      "language": "Java",
+      "source": {
+        "group": "apache__lucene-13301",
+        "repository": "https://github.com/apache/lucene",
+        "issue": "https://github.com/apache/lucene/issues/13292",
+        "pullRequest": "https://github.com/apache/lucene/pull/13301",
+        "baseline": "0345fcabb3ceb71fb39c1aa77502bae220f259ca",
+        "referenceMerge": "1c3c094227002a3777a58d8f25b9d4a13c684adb",
+        "license": "Apache-2.0",
+        "licenseUrl": "https://raw.githubusercontent.com/apache/lucene/0345fcabb3ceb71fb39c1aa77502bae220f259ca/LICENSE.txt",
+        "dataset": "multilingual",
+        "datasetRow": "apache__lucene-13301",
+        "licenseFile": "evaluator/licenses/apache__lucene.txt"
+      },
+      "difficulty": {
+        "level": "L4",
+        "sum": 10,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 2,
+            "basis": "定种子失败之外还需核对浮点比较和哈希一致性"
+          },
+          "coupling": {
+            "points": 3,
+            "basis": "多种形状和两种浮点类型共享契约"
+          },
+          "evidence": {
+            "points": 2,
+            "basis": "连接随机种子、具象坐标和其它形状用例"
+          },
+          "verification": {
+            "points": 3,
+            "basis": "交叉验证 XY 与经纬度，固定 seed 及直接边界"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/R14/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "./gradlew test --tests TestXYPoint.testEqualsAndHashCode -Dtests.seed=3ABEFE4D876DD310 -Dtests.nightly=true -Dtests.locale=es-419 -Dtests.timezone=Asia/Ulaanbaatar -Dtests.asserts=true -Dtests.file.encoding=UTF-8",
+        "allowedNetwork": "none after provisioning"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.apache_1776_lucene-13301@sha256:5c6c67ff928998850f53f167a60d234f57ae77d680ba8ecf8047c87b20994220",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.apache_1776_lucene-13301:latest",
+        "upstreamVersion": "13301",
+        "environmentSetupCommit": null,
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed",
+        "officialScript": "evaluator/R14/upstream-eval.sh",
+        "logParser": "parse_log_gradle_custom",
+        "evalType": "pass_and_fail"
+      },
+      "budget": {
+        "maxTurns": 36,
+        "wallSeconds": 900
+      },
+      "acceptance": {
+        "summary": "TestXYPoint 的固定种子；额外使用 TestPoint、TestCircle、TestXYCircle、TestXYRectangle 的有符号零用例。",
+        "metadata": "evaluator/R14/checks.json",
+        "negativePatchHypothesis": "只修 XYPoint；其它地理形状的冻结补充用例会拒绝。"
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/R14/request.md": "992734ccc3377a0ed525c16033e027986d3bad824d454edcc6b61bc3abc2f257",
+        "evaluator/R14/checks.json": "704b3f6962cb00caab320f730f0d6a1ea0847f3a5a7453b560a0e766da9e8a4a",
+        "evaluator/R14/hidden-tests.patch": "af8bc15f871b2640aaafff816e20c5c0bb272672d26f65d81b47981a6e5a8623",
+        "evaluator/R14/reference.patch": "3b214d1736f26cb0d51877385394fe64394115b8ea69cd6f9b0e53c4a81b3314",
+        "evaluator/R14/upstream-eval.sh": "01be9fb73f52f3481bfcb2c0f911785ac1d5f14572ffd0ba3acf1276efdd4635"
+      }
+    },
+    {
+      "id": "G01",
+      "split": "calibration",
+      "type": "long-log",
+      "title": "Astropy：零长度多维单元格的表格输出",
+      "language": "Python",
+      "source": {
+        "group": "astropy__astropy-13838",
+        "repository": "https://github.com/astropy/astropy",
+        "issue": "https://github.com/astropy/astropy/issues/13836",
+        "pullRequest": "https://github.com/astropy/astropy/pull/13838",
+        "baseline": "a6c712375ed38d422812e013566a34f928677acd",
+        "referenceMerge": "89b90e0e1ab394180b974a2938ea82a7e47b5b6c",
+        "license": "BSD-3-Clause",
+        "licenseUrl": "https://raw.githubusercontent.com/astropy/astropy/a6c712375ed38d422812e013566a34f928677acd/LICENSE.rst",
+        "dataset": "full",
+        "datasetRow": "astropy__astropy-13838",
+        "licenseFile": "evaluator/licenses/astropy__astropy.txt"
+      },
+      "difficulty": {
+        "level": "L2",
+        "sum": 5,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 1,
+            "basis": "从格式化回溯找到空轴索引"
+          },
+          "coupling": {
+            "points": 1,
+            "basis": "局部处理仍需保留非空多维格式"
+          },
+          "evidence": {
+            "points": 2,
+            "basis": "两个入口的栈位于同一日志的不同部分"
+          },
+          "verification": {
+            "points": 1,
+            "basis": "空维与普通显示需对照"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/G01/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q astropy/table/tests/test_pprint.py",
+        "allowedNetwork": "none after provisioning",
+        "diagnosticInput": "agent/G01/input/failure.log"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.astropy_1776_astropy-13838@sha256:8793da2fa770e174234371616dfd10a93169c14b13d76c90b8557fe38bd4e8a8",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.astropy_1776_astropy-13838:latest",
+        "upstreamVersion": "5.0",
+        "environmentSetupCommit": "cdf311e0714e611d48b0a31eb1f0e2cbffab7f23",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 18,
+        "wallSeconds": 450
+      },
+      "acceptance": {
+        "summary": "上游零长度多维用例与现有各种表格格式测试全部通过。",
+        "metadata": "evaluator/G01/checks.json",
+        "negativePatchHypothesis": "仅在文本输出最外层捕获异常，HTML 或正常表格输出断言会失败。",
+        "evidenceUnits": 2
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/G01/input/failure.log": "50a5ab08cfcc8b3d250374a641e90f1f439220c384ef6879860977f802801c19",
+        "agent/G01/request.md": "6a238078f400623c1e0deceff0617cdc42c03f84ecfa545f57322287194e403b",
+        "evaluator/G01/checks.json": "f8146f5f6e8f49e20adc5ac91048043fe3bd2323edaa3778e269e00362c2110e",
+        "evaluator/G01/hidden-tests.patch": "f13a3e0a23e4e6c9461e858b9fdbd8201af92a7039e4ecbd141e3e4ba93ccc31",
+        "evaluator/G01/reference.patch": "d60f7e1ca6878b2e3158ce4577406e778b16bc9f11a486c9db767479b367134e"
+      }
+    },
+    {
+      "id": "G02",
+      "split": "calibration",
+      "type": "long-log",
+      "title": "Astropy：NumPy 升级后的表列比较",
+      "language": "Python",
+      "source": {
+        "group": "astropy__astropy-13390",
+        "repository": "https://github.com/astropy/astropy",
+        "issue": "https://github.com/astropy/astropy/issues/13332",
+        "pullRequest": "https://github.com/astropy/astropy/pull/13390",
+        "baseline": "1e75f298aef2540240c63b4075d06851d55fc19a",
+        "referenceMerge": "2db90d0bf95daa3d065c1d97207ebe4b2bdad00d",
+        "license": "BSD-3-Clause",
+        "licenseUrl": "https://raw.githubusercontent.com/astropy/astropy/1e75f298aef2540240c63b4075d06851d55fc19a/LICENSE.rst",
+        "dataset": "full",
+        "datasetRow": "astropy__astropy-13390",
+        "licenseFile": "evaluator/licenses/astropy__astropy.txt"
+      },
+      "difficulty": {
+        "level": "L3",
+        "sum": 8,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 2,
+            "basis": "需区分 NumPy 类型推导与 Astropy 双向比较分派"
+          },
+          "coupling": {
+            "points": 2,
+            "basis": "同一比较契约关联字符串、掩码、单位处理"
+          },
+          "evidence": {
+            "points": 2,
+            "basis": "独立失败分散在多段异常和摘要"
+          },
+          "verification": {
+            "points": 2,
+            "basis": "至少两类比较的独立回归"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/G02/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q astropy/table/tests/test_column.py",
+        "allowedNetwork": "none after provisioning",
+        "diagnosticInput": "agent/G02/input/failure.log"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.astropy_1776_astropy-13390@sha256:4bb86366dde5a14743c656fa13ed7ec26e7656df79c44160c7f6ce1ee32f5c89",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.astropy_1776_astropy-13390:latest",
+        "upstreamVersion": "5.0",
+        "environmentSetupCommit": "cdf311e0714e611d48b0a31eb1f0e2cbffab7f23",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 26,
+        "wallSeconds": 600
+      },
+      "acceptance": {
+        "summary": "上游显式检查普通列 Unicode 比较及 MaskedColumn 的 Quantity 语义，现有列测试保持。",
+        "metadata": "evaluator/G02/checks.json",
+        "negativePatchHypothesis": "只处理字节/Unicode 比较，将在 hidden MaskedColumn 数量比较用例失败。",
+        "evidenceUnits": 3
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/G02/input/failure.log": "5cd9325d30b33e6417815341b0384d1d78fadb81c173966ec2edb1701f45426b",
+        "agent/G02/request.md": "ce41c4c2b0ad4f4dc259c21281113b6f7aced9bd62b103d74f6928ac2ae58dde",
+        "evaluator/G02/checks.json": "f1a43a1e61d5e68d29adebf422876ae7d8247914f158809bd8cd2a66ec71652f",
+        "evaluator/G02/hidden-tests.patch": "cb8c0781f6a6fed6edb43100f321906c1428fe13adfca3b2705dbad85e70940e",
+        "evaluator/G02/reference.patch": "74f6498e4031552d8857ff8e9a618a186b6430c5bde5d551cd500562f471029e"
+      }
+    },
+    {
+      "id": "G03",
+      "split": "calibration",
+      "type": "long-log",
+      "title": "Sphinx：C++14 模板参数解析",
+      "language": "Python",
+      "source": {
+        "group": "sphinx-doc__sphinx-8037",
+        "repository": "https://github.com/sphinx-doc/sphinx",
+        "issue": "https://github.com/sphinx-doc/sphinx/issues/7944",
+        "pullRequest": "https://github.com/sphinx-doc/sphinx/pull/8037",
+        "baseline": "0cfb433b25c085071ea46c3ecf8e84f17228643f",
+        "referenceMerge": "89df9a18d21c4f164b46fb5f11129660f6ee72f2",
+        "license": "BSD-2-Clause",
+        "licenseUrl": "https://raw.githubusercontent.com/sphinx-doc/sphinx/0cfb433b25c085071ea46c3ecf8e84f17228643f/LICENSE",
+        "dataset": "full",
+        "datasetRow": "sphinx-doc__sphinx-8037",
+        "licenseFile": "evaluator/licenses/sphinx-doc__sphinx.txt"
+      },
+      "difficulty": {
+        "level": "L3",
+        "sum": 8,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 2,
+            "basis": "需区分文档构建和语法候选解析"
+          },
+          "coupling": {
+            "points": 2,
+            "basis": "多个语法分支共享解析位置及错误处理"
+          },
+          "evidence": {
+            "points": 2,
+            "basis": "早期 builder 帧与末端失败声明需一起判断"
+          },
+          "verification": {
+            "points": 2,
+            "basis": "修复的声明与既有模板/无效语法分别检查"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/G03/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q tests/test_domain_cpp.py",
+        "allowedNetwork": "none after provisioning",
+        "diagnosticInput": "agent/G03/input/failure.log"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8037@sha256:ca31ee9964446ce56281115fd5ff83927453f84c1b5cc07f9eeea25967aeb551",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8037:latest",
+        "upstreamVersion": "3.2",
+        "environmentSetupCommit": "f92fa6443fe6f457ab0c26d41eb229e825fda5e1",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 26,
+        "wallSeconds": 600
+      },
+      "acceptance": {
+        "summary": "隐藏的模板语法测试接受依赖类型和合法普通声明，现有 C++ domain 测试维持。",
+        "metadata": "evaluator/G03/checks.json",
+        "negativePatchHypothesis": "仅忽略 DefinitionError 或删除模板后缀，AST 级解析的隐藏用例会失败。",
+        "evidenceUnits": 2
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/G03/input/failure.log": "29055dc6c81ea476a1cbf90247fe094436b295ec6388dd70c8d654bfaa198556",
+        "agent/G03/request.md": "3acc10a966ad8ef517e29e9c1f3707ea9d2c624fb069c3c37f22f15ec78c9bae",
+        "evaluator/G03/checks.json": "d170aed52865eda37c12a0a0d3ada5b3a3a4aa47904f9de367c16789a1dcde61",
+        "evaluator/G03/hidden-tests.patch": "ceb5379a96709ea06b5a0d900ad8a92f8f4dd909a91ff5d21bfa5b0c1601f4d9",
+        "evaluator/G03/reference.patch": "17cf7d59c55dce9097cafc04bf61d830b8fd19fe2d56c516e9034d3d221a7b0b"
+      }
+    },
+    {
+      "id": "G04",
+      "split": "calibration",
+      "type": "long-log",
+      "title": "xarray：循环 attrs 的深复制与展示",
+      "language": "Python",
+      "source": {
+        "group": "pydata__xarray-7112",
+        "repository": "https://github.com/pydata/xarray",
+        "issue": "https://github.com/pydata/xarray/issues/7111",
+        "pullRequest": "https://github.com/pydata/xarray/pull/7112",
+        "baseline": "114bf98719f31a653f2ef7bc7fcdfaf010eb3612",
+        "referenceMerge": "50ea159bfd0872635ebf4281e741f3c87f0bef6b",
+        "license": "Apache-2.0",
+        "licenseUrl": "https://raw.githubusercontent.com/pydata/xarray/114bf98719f31a653f2ef7bc7fcdfaf010eb3612/LICENSE",
+        "dataset": "full",
+        "datasetRow": "pydata__xarray-7112",
+        "licenseFile": "evaluator/licenses/pydata__xarray.txt"
+      },
+      "difficulty": {
+        "level": "L4",
+        "sum": 11,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 2,
+            "basis": "需区分 copy、对象元数据与格式化造成的递归"
+          },
+          "coupling": {
+            "points": 3,
+            "basis": "多类对象共享复制记忆并需保留深浅语义"
+          },
+          "evidence": {
+            "points": 3,
+            "basis": "关联环形输入、多个重入帧和末端异常"
+          },
+          "verification": {
+            "points": 3,
+            "basis": "多类对象、正常独立性及循环展示各用独立验证"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/G04/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q xarray/tests/test_dataarray.py xarray/tests/test_dataset.py xarray/tests/test_variable.py xarray/tests/test_formatting.py",
+        "allowedNetwork": "none after provisioning",
+        "diagnosticInput": "agent/G04/input/failure.log"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.pydata_1776_xarray-7112@sha256:56cfcb745d0eba3b1f70f506b6053712ebdb47b4b003f149c41c878e1051c269",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.pydata_1776_xarray-7112:latest",
+        "upstreamVersion": "2022.09",
+        "environmentSetupCommit": "087ebbb78668bdf5d2d41c3b2553e3f29ce75be1",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 36,
+        "wallSeconds": 900
+      },
+      "acceptance": {
+        "summary": "五个上游隐藏用例覆盖 DataArray、Dataset、Variable、IndexVariable 和循环表示；回归套件验证普通复制。",
+        "metadata": "evaluator/G04/checks.json",
+        "negativePatchHypothesis": "只改 DataArray.copy 或让所有 attrs 都浅复制，覆盖多对象、别名与深复制的用例会拒绝。",
+        "evidenceUnits": 3
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/G04/input/failure.log": "261933cbf80b4eb6054cf4c5854c643798fc5eadd1c4652dfdc002f746d8b096",
+        "agent/G04/request.md": "bbfc6bbaca57e74c3fc55349e278cd29d7db8c53cbad86b17b05977c38530ecf",
+        "evaluator/G04/checks.json": "d425e4d35ff4ff2bf9b36604dd68de214d7ed6357ad915c1ef6656c0ed5bfef5",
+        "evaluator/G04/hidden-tests.patch": "f98a44de51699b38bd8c46d82b2cdbc58b2d358aad0152a38c783011207c1ba8",
+        "evaluator/G04/reference.patch": "9ddd81e9ad0e43558205dbf87278f3395a5c3159084383943f3e685cf64c130c"
+      }
+    },
+    {
+      "id": "G05",
+      "split": "calibration",
+      "type": "long-log",
+      "title": "scikit-learn：并行 SparseCoder 的只读数组",
+      "language": "Python",
+      "source": {
+        "group": "scikit-learn__scikit-learn-11346",
+        "repository": "https://github.com/scikit-learn/scikit-learn",
+        "issue": "https://github.com/scikit-learn/scikit-learn/issues/5956",
+        "pullRequest": "https://github.com/scikit-learn/scikit-learn/pull/11346",
+        "baseline": "93382cc41fb95abbbf534aed4c4cf2405c38d601",
+        "referenceMerge": "174f4aea6e544f2126ab2d920ec51d31d148d703",
+        "license": "BSD-3-Clause",
+        "licenseUrl": "https://raw.githubusercontent.com/scikit-learn/scikit-learn/93382cc41fb95abbbf534aed4c4cf2405c38d601/COPYING",
+        "dataset": "full",
+        "datasetRow": "scikit-learn__scikit-learn-11346",
+        "licenseFile": "evaluator/licenses/scikit-learn__scikit-learn.txt"
+      },
+      "difficulty": {
+        "level": "L4",
+        "sum": 10,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 2,
+            "basis": "需区分并行调度与 Gram OMP 写操作"
+          },
+          "coupling": {
+            "points": 2,
+            "basis": "并行 memmap、调用者复制选项和原地操作互相制约"
+          },
+          "evidence": {
+            "points": 3,
+            "basis": "长日志要关联父进程包装、子进程和只读参数"
+          },
+          "verification": {
+            "points": 3,
+            "basis": "并行真实路径、只读单元和可写基准分开验证"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/G05/request.md",
+        "initialWorkspace": "source.baseline",
+        "visibleVerification": "python -m pytest -q sklearn/decomposition/tests/test_dict_learning.py sklearn/linear_model/tests/test_omp.py",
+        "allowedNetwork": "none after provisioning",
+        "diagnosticInput": "agent/G05/input/failure.log"
+      },
+      "environment": {
+        "platform": "linux/amd64",
+        "imageDigest": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-11346@sha256:74cd75ceb7086966c3a7d8b4d6e55264c7dc3881adbb33a2fe061877011096cd",
+        "sourceImageTag": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-11346:latest",
+        "upstreamVersion": "0.20",
+        "environmentSetupCommit": "55bf5d93e5674f13a1134d93a11fd0cd11aabcd1",
+        "harnessCommit": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+        "repoPath": "/testbed"
+      },
+      "budget": {
+        "maxTurns": 36,
+        "wallSeconds": 900
+      },
+      "acceptance": {
+        "summary": "分别运行并行 memmap 与只读 Gram OMP 的两道上游测试，维持既有成功和数值行为。",
+        "metadata": "evaluator/G05/checks.json",
+        "negativePatchHypothesis": "强制 n_jobs=1 会避开表面异常，独立的只读 Gram OMP 用例会拒绝。",
+        "evidenceUnits": 2
+      },
+      "admission": {
+        "status": "candidate",
+        "referencePatchApplyExit": 0,
+        "hiddenPatchApplyExit": 0,
+        "combinedApplyExit": 0,
+        "isolatedBaselineResult": null,
+        "isolatedReferenceResult": null,
+        "isolatedNegativePatchResult": null
+      },
+      "artifacts": {
+        "agent/G05/input/failure.log": "05e76ab7ae323c8ebfa83e2f5ba420429dec403c7cabd5b0bd9faeb6ae56472a",
+        "agent/G05/request.md": "3d987c544bf3974a46db57f3c6c0bf74d4588ba8163aa048253874420f70200b",
+        "evaluator/G05/checks.json": "fcd77ad67935997238c7e4a44f98b8bd5097939eeb770d8e8c7ff2dcbdf55920",
+        "evaluator/G05/hidden-tests.patch": "8c634ec5169571c52d585fe24b2a79239891ed320af135c8e9965bac39a84227",
+        "evaluator/G05/reference.patch": "4e317be5ac283e4a0319482853e337c264b950f588ef7f158db0972ae521d27c"
+      }
+    },
+    {
+      "id": "M01",
+      "split": "calibration",
+      "type": "completion",
+      "title": "修完截断范围后尚未跑测试",
+      "language": "JavaScript",
+      "source": {
+        "group": "moss-fixture:single-edit",
+        "repository": "https://github.com/D-Robotics/moss",
+        "caseFile": "bench/tasks/single-edit/task.json",
+        "commit": "7e33ff61de48a17895d6bea5242d350241dfc09e",
+        "kind": "reconstructed benchmark fixture",
+        "license": "MIT",
+        "sourceFileSha256": "4dd2be7f9c7f1d6e0c8cf94f4b75bb1f7f2abb7fc30be69322bbcae5aca1d927"
+      },
+      "difficulty": {
+        "level": "L1",
+        "sum": 1,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 0,
+            "basis": "工具记录直接显示修改路径"
+          },
+          "coupling": {
+            "points": 0,
+            "basis": "单文件，不涉及调用方"
+          },
+          "evidence": {
+            "points": 0,
+            "basis": "无测试启动事件"
+          },
+          "verification": {
+            "points": 1,
+            "basis": "只要求一次当前版测试"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/M01/request.md",
+        "checkpoint": "agent/M01/checkpoint.json",
+        "initialWorkspace": "agent/M01/workspace",
+        "allowedNetwork": "none"
+      },
+      "environment": {
+        "node": "v24.21.0",
+        "platform": "local host, dependency-free Node fixtures"
+      },
+      "budget": {
+        "maxTurns": 8,
+        "wallSeconds": 120
+      },
+      "acceptance": {
+        "summary": "初次完成门发现当前版无测试。实际启动并完成 clamp-test 后才可报告通过，空工具调用或仅声明不计。",
+        "metadata": "evaluator/M01/checks.json"
+      },
+      "admission": {
+        "status": "checkpoint-and-fixture-checked",
+        "fullHarnessReplayResult": null
+      },
+      "artifacts": {
+        "agent/M01/checkpoint.json": "41af3c2e1af44fd1d73cdfea611d42f7cc3d4aa85e5db71e97f89fb0ec439100",
+        "agent/M01/request.md": "48b75ce005a6831e91f864f8b275266bb3f6a69bb7c396fffec8821035d2b2c0",
+        "agent/M01/workspace/math.js": "c99babbc0cc910d0ae1213109e7ccc6a4482f210dd05d3750d49fcb12791a68d",
+        "agent/M01/workspace/package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+        "agent/M01/workspace/test.js": "6df11c29cd399988cf42a9a4d7b53dbf029250ea00e40293562fa1a62267fa13",
+        "evaluator/M01/checks.json": "01dc348d62defada70736ae039a0994231aee59d59dfa4a3ec9865aa90ee28e9"
+      }
+    },
+    {
+      "id": "M02",
+      "split": "calibration",
+      "type": "completion",
+      "title": "队列修改发生在测试通过之后",
+      "language": "JavaScript",
+      "source": {
+        "group": "moss-fixture:test-fix-loop",
+        "repository": "https://github.com/D-Robotics/moss",
+        "caseFile": "bench/tasks/test-fix-loop/task.json",
+        "commit": "7e33ff61de48a17895d6bea5242d350241dfc09e",
+        "kind": "reconstructed benchmark fixture",
+        "license": "MIT",
+        "sourceFileSha256": "7a8d1d5847c58e006e840aeef2ee4ddddc4247078c24d6f36129b598ae43948f"
+      },
+      "difficulty": {
+        "level": "L2",
+        "sum": 4,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 1,
+            "basis": "从写入和测试目标对应到 queue.js"
+          },
+          "coupling": {
+            "points": 1,
+            "basis": "空值行为和调用方契约相关"
+          },
+          "evidence": {
+            "points": 1,
+            "basis": "旧绿结果在最后写入前"
+          },
+          "verification": {
+            "points": 1,
+            "basis": "当前版基础测试和 undefined 边界均需验证"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/M02/request.md",
+        "checkpoint": "agent/M02/checkpoint.json",
+        "initialWorkspace": "agent/M02/workspace",
+        "allowedNetwork": "none"
+      },
+      "environment": {
+        "node": "v24.21.0",
+        "platform": "local host, dependency-free Node fixtures"
+      },
+      "budget": {
+        "maxTurns": 12,
+        "wallSeconds": 180
+      },
+      "acceptance": {
+        "summary": "旧绿记录保留但不能证明当前版。实际补跑当前版公开测试并复核 undefined 与空值的区别。",
+        "metadata": "evaluator/M02/checks.json"
+      },
+      "admission": {
+        "status": "checkpoint-and-fixture-checked",
+        "fullHarnessReplayResult": null
+      },
+      "artifacts": {
+        "agent/M02/checkpoint.json": "c12c51b4182de5fd081f8d3b9f0f9d3cf2362629a179dfcc227959ab0c8812c9",
+        "agent/M02/request.md": "88b6470b165df27cbd41f43898b11e406c450363b9bad0779195ae626eef2b01",
+        "agent/M02/workspace/package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+        "agent/M02/workspace/queue.js": "632e36ba97c1c29f48052108f26cb8df3146bc1900a341e8607680e077fbc887",
+        "agent/M02/workspace/test.js": "839d7df91c731fbde1a0cfa0920f2f61dfbb2b514d7408b97a5c44efbffff83c",
+        "evaluator/M02/checks.json": "8723495a53ecfb04d9c674bcfbfeacdafd8693770e2503c708bf4b1ac84318c2"
+      }
+    },
+    {
+      "id": "M03",
+      "split": "calibration",
+      "type": "completion",
+      "title": "并行检查结束晚但读的是旧版",
+      "language": "JavaScript",
+      "source": {
+        "group": "moss-fixture:hard-coupling-refactor",
+        "repository": "https://github.com/D-Robotics/moss",
+        "caseFile": "bench/tasks/hard-coupling-refactor/task.json",
+        "commit": "7e33ff61de48a17895d6bea5242d350241dfc09e",
+        "kind": "reconstructed benchmark fixture",
+        "license": "MIT",
+        "sourceFileSha256": "9c3844f18cd30c29f1e59c9d24d40e2af51e2c718209626cb4ce63de99bcbcb8"
+      },
+      "difficulty": {
+        "level": "L3",
+        "sum": 8,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 1,
+            "basis": "追踪两个命令覆盖的共享 parser"
+          },
+          "coupling": {
+            "points": 2,
+            "basis": "解析、审计、报告和遥测共享配置契约"
+          },
+          "evidence": {
+            "points": 2,
+            "basis": "测试开始覆盖 v1，退出事件却晚于 v2"
+          },
+          "verification": {
+            "points": 3,
+            "basis": "只补运行旧版 report，保留当前 parser 的真实通过"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/M03/request.md",
+        "checkpoint": "agent/M03/checkpoint.json",
+        "initialWorkspace": "agent/M03/workspace",
+        "allowedNetwork": "none"
+      },
+      "environment": {
+        "node": "v24.21.0",
+        "platform": "local host, dependency-free Node fixtures"
+      },
+      "budget": {
+        "maxTurns": 16,
+        "wallSeconds": 240
+      },
+      "acceptance": {
+        "summary": "按启动时的代码版本判定。只补跑受影响的 report-contract，已在 v2 完成的 parser-contract 不应重复执行。",
+        "metadata": "evaluator/M03/checks.json"
+      },
+      "admission": {
+        "status": "checkpoint-and-fixture-checked",
+        "fullHarnessReplayResult": null
+      },
+      "artifacts": {
+        "agent/M03/checkpoint.json": "74657d90a9447d14ce26716ee3e1bf57bbeb68e4d7448fe95b700799810b2db3",
+        "agent/M03/request.md": "fa04468035677787f8497b8164ea3c77a34e064a73ff0c399b5961bcfde58c97",
+        "agent/M03/workspace/lib/audit.js": "a5527abb4120bd8403c16bc68ccaef0e4a9aabbef38a9782013bd8aca8fc7d97",
+        "agent/M03/workspace/lib/config.js": "1e0df206ee26f5d1fa907076d2159404869e3cf20c0f5c58476756ca7d16658c",
+        "agent/M03/workspace/lib/metrics.js": "d5479434a1633f426698fd1482c591fadd3a38881d9f366831899528ae124c0f",
+        "agent/M03/workspace/lib/report.js": "09ac0739aa825d2e32fab399ca45067a8db270d15a1151f8e81afc0c4c83c373",
+        "agent/M03/workspace/package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+        "agent/M03/workspace/test.js": "8eb77fdd8a242dfac33d82fb327d74671e41a08618500b9a81349556139c4c76",
+        "agent/M03/workspace/tests/report.test.js": "cbe53a131ef7db6ce7e8cb29ca3b2460bec252abf85ed7aedd0043fbcda400a2",
+        "evaluator/M03/checks.json": "6b0d082bb6238651d580f551161d181008b55c26feee639185b9e7f40abdc769"
+      }
+    },
+    {
+      "id": "C01",
+      "split": "calibration",
+      "type": "control",
+      "title": "只读 Node 检查包含箭头函数",
+      "language": "JavaScript",
+      "source": {
+        "group": "moss-fixture:hard-stale-spec",
+        "repository": "https://github.com/D-Robotics/moss",
+        "caseFile": "bench/tasks/hard-stale-spec/task.json",
+        "commit": "7e33ff61de48a17895d6bea5242d350241dfc09e",
+        "kind": "reconstructed benchmark fixture",
+        "license": "MIT",
+        "sourceFileSha256": "01ad23de233017bdb630b278274837df364db8fb5eca1d8645d26471cfd32779"
+      },
+      "difficulty": {
+        "level": "L1",
+        "sum": 1,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 0,
+            "basis": "一条指定检查"
+          },
+          "coupling": {
+            "points": 0,
+            "basis": "没有源码变动"
+          },
+          "evidence": {
+            "points": 0,
+            "basis": "短输出直接可见"
+          },
+          "verification": {
+            "points": 1,
+            "basis": "需核对退出结果和工作区未写入"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/C01/request.md",
+        "checkpoint": "agent/C01/checkpoint.json",
+        "initialWorkspace": "agent/C01/workspace",
+        "allowedNetwork": "none"
+      },
+      "environment": {
+        "node": "v24.21.0",
+        "platform": "local host, dependency-free Node fixtures"
+      },
+      "budget": {
+        "maxTurns": 8,
+        "wallSeconds": 120
+      },
+      "acceptance": {
+        "summary": "输出与实际 stdout 一致，工作区哈希不变。带引号的 => 不得被归类为重定向或写工具，也不应要求项目补验。",
+        "metadata": "evaluator/C01/checks.json"
+      },
+      "admission": {
+        "status": "checkpoint-and-fixture-checked",
+        "fullHarnessReplayResult": null
+      },
+      "artifacts": {
+        "agent/C01/checkpoint.json": "bc91406ce174d3779349d2093603ea9102921350ff867542c435c043626b3953",
+        "agent/C01/request.md": "98a3f1248162280f067f8808a3aca7b724dcd1eedd7fc1b656aaccd970ebfa5f",
+        "agent/C01/workspace/cart.js": "f050b2f58498c4696af0bf7b6088f5f4a6e39ae5c26e6851f341dfcea21704a5",
+        "agent/C01/workspace/docs/design.md": "7299278a71a1ca9940fc0103d599725045a89798b53ff914884c47ff436b1de7",
+        "agent/C01/workspace/package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+        "agent/C01/workspace/test.js": "dcb857f33daf055a22f28926813f37f281dfa7f78a7656baad37d87c14a42ad6",
+        "evaluator/C01/checks.json": "dac5a91f7374743b55f97cbd0fe974265999348580414a7d77fe198b5cf8bf56"
+      }
+    },
+    {
+      "id": "C02",
+      "split": "calibration",
+      "type": "control",
+      "title": "历史失败已被两项当前验证覆盖",
+      "language": "JavaScript",
+      "source": {
+        "group": "moss-fixture:hard-multi-hypothesis",
+        "repository": "https://github.com/D-Robotics/moss",
+        "caseFile": "bench/tasks/hard-multi-hypothesis/task.json",
+        "commit": "7e33ff61de48a17895d6bea5242d350241dfc09e",
+        "kind": "reconstructed benchmark fixture",
+        "license": "MIT",
+        "sourceFileSha256": "fa4504a029e3f168cdb5554462d7e7e7bc6976618d910faee01c9c018384e4e2"
+      },
+      "difficulty": {
+        "level": "L3",
+        "sum": 6,
+        "review": "first-pass",
+        "dimensions": {
+          "localization": {
+            "points": 1,
+            "basis": "从两项测试映射到同一个总分模块"
+          },
+          "coupling": {
+            "points": 1,
+            "basis": "保留独立集合去重函数的语义"
+          },
+          "evidence": {
+            "points": 2,
+            "basis": "有旧失败和两项更新的绿结果"
+          },
+          "verification": {
+            "points": 2,
+            "basis": "两种独立公开检查都已通过，且版本哈希可核对"
+          }
+        }
+      },
+      "agent": {
+        "request": "agent/C02/request.md",
+        "checkpoint": "agent/C02/checkpoint.json",
+        "initialWorkspace": "agent/C02/workspace",
+        "allowedNetwork": "none"
+      },
+      "environment": {
+        "node": "v24.21.0",
+        "platform": "local host, dependency-free Node fixtures"
+      },
+      "budget": {
+        "maxTurns": 16,
+        "wallSeconds": 240
+      },
+      "acceptance": {
+        "summary": "保留两项当前版的真实通过和提交时的源码哈希。过去的失败不能成为重复补验或误拦依据。",
+        "metadata": "evaluator/C02/checks.json"
+      },
+      "admission": {
+        "status": "checkpoint-and-fixture-checked",
+        "fullHarnessReplayResult": null
+      },
+      "artifacts": {
+        "agent/C02/checkpoint.json": "205d3b0aa3e3cf8d365dd655a9be600ea526a5202b3b5feeaab1e6303081d7e9",
+        "agent/C02/request.md": "6023e727ceabe381fcec527660faf32ef958c36aab41d2dcf445822db8907a6f",
+        "agent/C02/workspace/lib/util.js": "bca8aae3483434a461d05d6d570b54064c2280ed1a208aa2bcff92c8da04d4f0",
+        "agent/C02/workspace/package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+        "agent/C02/workspace/stats.js": "53029a4b01a5a2a440fa25d564e39208126b9671a1ad2706b915df6f6d202e0d",
+        "agent/C02/workspace/test.js": "a247fb73e3761c5e17af2697f3f805207dbee44653c450be7958cb888a2f8aad",
+        "agent/C02/workspace/tests/numeric.test.js": "9c7ce3c59466c3d6e646a675436558f02896c217e289aa7c6c024ca54cf7945f",
+        "evaluator/C02/checks.json": "64bdae5c939f0f2f683c990f132c1c7b730fe11942d7aa9a51dccfcc4b45998b"
+      }
+    }
+  ],
+  "upstreamDatasets": {
+    "verified": {
+      "id": "princeton-nlp/SWE-bench_Verified",
+      "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+      "parquet": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified/resolve/c104f840cc67f8b6eec6f759ebc8b2693d585d4a/data/test-00000-of-00001.parquet",
+      "sha256": "a45b1fe4e2f0c8390b2b2938ac83e92ed5979000856808f3679c07812e9e6dcd"
+    },
+    "full": {
+      "id": "princeton-nlp/SWE-bench",
+      "revision": "e48e2bd1e9fecd5bbd641e9414ac59da9f2e69f6",
+      "parquet": "https://huggingface.co/datasets/princeton-nlp/SWE-bench/resolve/e48e2bd1e9fecd5bbd641e9414ac59da9f2e69f6/data/test-00000-of-00001.parquet",
+      "sha256": "db4f70ef735b3162c74801ddcdf8d7bae8d704193788c6d844f898c20b571cbb"
+    },
+    "multilingual": {
+      "id": "SWE-bench/SWE-bench_Multilingual",
+      "revision": "846e647b9f33c0b51b739d005d13d85493c9af09",
+      "parquet": "https://huggingface.co/datasets/SWE-bench/SWE-bench_Multilingual/resolve/846e647b9f33c0b51b739d005d13d85493c9af09/data/test-00000-of-00001.parquet",
+      "sha256": "92abca7cb527b41a9f66d03a26ce441ff7319e3a49f985998fd56be4bb9b08b2"
+    }
+  },
+  "evaluatorLicenseFiles": {
+    "apache__lucene.NOTICE.txt": "65c87b47604abaa6ada4e2bb3954edc54edc06f972d62644bf206bb96282e561",
+    "apache__lucene.txt": "a2521407b3209df7dcebfc12cd6d732b24bfa2fe44982ef613e269666482521d",
+    "astropy__astropy.txt": "a86d75ead6df0886dcbc04230ffcd971c66a4a6746ca559ddf768865370637f5",
+    "django__django.txt": "b846415d1b514e9c1dff14a22deb906d794bc546ca6129f950a18cd091e2a669",
+    "gohugoio__hugo.txt": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "immutable-js__immutable-js.txt": "784fd7232e106901065a329b285ff9ba9ad98ff08ac1932b45b53a0b954974c5",
+    "pallets__flask.txt": "489a8e1108509ed98a37bb983e11e0f7e1d31f0bd8f99a79c8448e7ff37d07ea",
+    "preactjs__preact.txt": "1fe6958409c8c257a70c587a18b6f7f412b179b456630790d30b2ec9a8e4b7d4",
+    "pydata__xarray.txt": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
+    "pylint-dev__pylint.txt": "f97b14080de8b8490d60eb3d620ebc419943e0779466d1dd0d5d6f68fe195dcd",
+    "pytest-dev__pytest.txt": "7898b9b164d4f93fd9a562fd0f592935518b48c4745303964110eb7f7fe64faf",
+    "scikit-learn__scikit-learn.txt": "3f046f2b5eea2c3b852dae4feea90f92a64ced2a6ac23ea137db2a5ac347ce22",
+    "sphinx-doc__sphinx.txt": "f275b949f651f373e41cdd163ffa89b419497f89990e1a86753ac64a33829404",
+    "tokio-rs__axum.txt": "4249c8e6c5ebb85f97c77e6457c6fafc1066406eb8f1ef61e796fbdc5ff18482"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "R05",
+  "referencePatch": "reference.patch",
+  "hiddenTestPatch": "hidden-tests.patch",
+  "failToPass": ["testing/logging/test_fixture.py::test_change_level_undos_handler_level"],
+  "passToPass": [
+    "testing/logging/test_fixture.py::test_change_level",
+    "testing/logging/test_fixture.py::test_with_statement",
+    "testing/logging/test_fixture.py::test_log_access",
+    "testing/logging/test_fixture.py::test_messages",
+    "testing/logging/test_fixture.py::test_record_tuples",
+    "testing/logging/test_fixture.py::test_unicode",
+    "testing/logging/test_fixture.py::test_clear",
+    "testing/logging/test_fixture.py::test_caplog_captures_for_all_stages",
+    "testing/logging/test_fixture.py::test_fixture_help",
+    "testing/logging/test_fixture.py::test_change_level_undo",
+    "testing/logging/test_fixture.py::test_ini_controls_global_log_level",
+    "testing/logging/test_fixture.py::test_caplog_can_override_global_log_level",
+    "testing/logging/test_fixture.py::test_caplog_captures_despite_exception",
+    "testing/logging/test_fixture.py::test_log_report_captures_according_to_config_option_upon_failure"
+  ],
+  "sourceFilesChangedInReference": ["src/_pytest/logging.py"],
+  "protectedPathsFromTestPatch": {
+    "testing/logging/test_fixture.py": "508cb5a4c698e6b26ebc66e5473da19311e6c9cfc02b442c4a8249a614b20239"
+  },
+  "visibleToHiddenVerification": {
+    "visibleCommand": "python -m pytest -q testing/logging/test_fixture.py",
+    "expectedHiddenTargets": ["failToPass", "passToPass"]
+  },
+  "acceptanceSummary": "给 caplog 延续多个用例时能恢复初始 handler 级别，同一文件内原有日志行为保持。",
+  "negativePatchHypothesis": "只复原 logger 而漏掉 handler，隐藏的后续用例会发现级别泄漏。",
+  "additionalChecks": []
+}

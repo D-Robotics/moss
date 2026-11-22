@@ -98,6 +98,26 @@ SDK 宿主也可通过 `MossAgentConfig.observeUserIntent` 注入观察器，或
 
 判定失败、超时或概率低于 `0.8` 时，Moss 会按最新用户消息重新规划，并保守地继续只读。被纠正的 `/goal` 会停在 `BLOCKED`，后续验收使用按新要求创建的目标。
 
+### 单条任务中的 Jev 判定
+
+以下开关均从启动环境读取。默认 `off`。`shadow` 记录判定，`active` 将判定用于当前 run。
+
+| 环境变量              | 触发场景                                                   |
+| --------------------- | ---------------------------------------------------------- |
+| `MOSS_JEV_CONSTRAINT` | 操作可能违反用户给出的硬约束                               |
+| `MOSS_JEV_OUTPUT`     | 测试或命令产生长文本，筛选给主模型的片段并保留完整日志路径 |
+| `MOSS_JEV_PROGRESS`   | 同一操作重复失败且没有新证据                               |
+| `MOSS_JEV_COMPLETION` | 主模型拟结束，但用户要求的验证或改动证据仍需核对           |
+
+通过自有 System One 网关时，将完整 HTTPS 接口地址放在 `MOSS_JEV_SYSTEMONE_URL`，将专用密钥放在 `MOSS_JEV_RELAY_KEY`。可用 `MOSS_JEV_MODEL` 覆盖网关模型名，默认 `jev-latest`。例如，在已经配置主模型和 Jev 凭据的环境中使用以下命令。
+
+```bash
+MOSS_JEV_OUTPUT=active MOSS_JEV_COMPLETION=active \
+  moss -p '修复登录超时，并运行 tests/login-timeout.test.mjs 验证。'
+```
+
+长日志筛选和收尾补验可以在同一条用户输入内触发。使用 `MOSS_LOG_LEVEL=info` 查看各判定点的结果及耗时。SDK 通过 `MossAgentConfig.runtimeJudge` 提供判定客户端，并使用 `ChatOptions.userIntentText` 标记要作为目标的原始请求。 [运行规范与端到端记录](specs/moss-jev-runtime.md)
+
 ## 调优开关（环境变量）
 
 这些开关默认都不需要；只有遇到明确症状时才设。每一条都能用一次真实运行验证。

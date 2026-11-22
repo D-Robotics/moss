@@ -6,10 +6,15 @@
 import type { MossAgentEvent } from '../agent/moss-agent-types.js';
 import type { HarnessAdapter } from '../agent/harness-adapter.js';
 
+export interface AgentTurnGoal {
+  userGoal: string;
+  contractGoal?: string;
+}
 interface TaskChatOptions {
   abortSignal?: AbortSignal;
   taskFlow?: boolean;
   goalExecWait?: boolean;
+  taskJudgeGoal?: AgentTurnGoal;
   harnessAdapter?: HarnessAdapter;
 }
 
@@ -48,13 +53,15 @@ export interface AgentTurnResult {
  * compatible.
  */
 export interface AgentTurnRunner {
-  (prompt: string, phase: string): Promise<string>;
+  (prompt: string, phase: string, goal?: AgentTurnGoal): Promise<string>;
   stopReason?: string;
 }
 
-function stringRunner(run: (prompt: string) => Promise<AgentTurnResult>): AgentTurnRunner {
-  const runner: AgentTurnRunner = async (prompt) => {
-    const result = await run(prompt);
+function stringRunner(
+  run: (prompt: string, goal?: AgentTurnGoal) => Promise<AgentTurnResult>
+): AgentTurnRunner {
+  const runner: AgentTurnRunner = async (prompt, _phase, goal) => {
+    const result = await run(prompt, goal);
     runner.stopReason = result.stopReason;
     return result.text;
   };
@@ -68,7 +75,7 @@ export function createAgentTurnRunner(
 ): AgentTurnRunner {
   const duck = agent as { streamChat?: StreamChatFn; chat?: ChatFn };
   if (typeof duck.streamChat === 'function') {
-    return stringRunner(async (prompt) => {
+    return stringRunner(async (prompt, goal) => {
       let accText = '';
       let doneResponse: string | undefined;
       let stopReason: string | undefined;
@@ -77,6 +84,7 @@ export function createAgentTurnRunner(
       for await (const event of duck.streamChat!(sessionKey, prompt, {
         taskFlow: true,
         goalExecWait: true,
+        ...(goal ? { taskJudgeGoal: goal } : {}),
         ...(options.harnessAdapter ? { harnessAdapter: options.harnessAdapter } : {}),
         ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       })) {
@@ -94,10 +102,11 @@ export function createAgentTurnRunner(
     });
   }
   if (typeof duck.chat === 'function') {
-    return stringRunner(async (prompt) => {
+    return stringRunner(async (prompt, goal) => {
       const result = await duck.chat!(sessionKey, prompt, {
         taskFlow: true,
         goalExecWait: true,
+        ...(goal ? { taskJudgeGoal: goal } : {}),
         ...(options.harnessAdapter ? { harnessAdapter: options.harnessAdapter } : {}),
         ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       });

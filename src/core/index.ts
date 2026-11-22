@@ -273,3 +273,5 @@ export type {
 } from './task/capability.js';
 
 export * from './rsi/index.js';
+
+export type { RuntimeJudgeConfig, JudgeMode, JudgePoint } from './agent/index.js';

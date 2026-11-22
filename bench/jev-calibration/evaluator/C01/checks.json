@@ -1,0 +1,42 @@
+{
+  "id": "C01",
+  "checkpoint": "agent/C01/checkpoint.json",
+  "expectedAction": {
+    "completion": "allow",
+    "run": [],
+    "keep": ["readonly-expression-v1"],
+    "mutation": false,
+    "expectOutput": "2,4,6"
+  },
+  "requiredVerification": [
+    {
+      "id": "readonly-expression",
+      "argv": ["node", "-p", "[1,2,3].map(x => x * 2).join(\",\")"],
+      "affectedPaths": [],
+      "requiredRevision": "v1",
+      "requiresUnchangedWorkspace": true
+    }
+  ],
+  "acceptanceSummary": "输出与实际 stdout 一致，工作区哈希不变。带引号的 => 不得被归类为重定向或写工具，也不应要求项目补验。",
+  "protectedPaths": {
+    "cart.js": "f050b2f58498c4696af0bf7b6088f5f4a6e39ae5c26e6851f341dfcea21704a5",
+    "docs/design.md": "7299278a71a1ca9940fc0103d599725045a89798b53ff914884c47ff436b1de7",
+    "package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+    "test.js": "dcb857f33daf055a22f28926813f37f281dfa7f78a7656baad37d87c14a42ad6"
+  },
+  "previousRevisions": {},
+  "fixtureChecks": [
+    {
+      "workspaceRevision": "v1",
+      "argv": ["node", "-p", "[1,2,3].map(x => x * 2).join(\",\")"],
+      "expectExitCode": 0,
+      "purpose": "只读表达式真实输出",
+      "observed": {
+        "exitCode": 0,
+        "stdout": "2,4,6\n",
+        "stderr": ""
+      }
+    }
+  ],
+  "timeline": "Reconstructed checkpoint. Event order is intentional; subprocess evidence was recorded from isolated revision snapshots."
+}

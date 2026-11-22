@@ -1,0 +1,43 @@
+{
+  "id": "R08",
+  "referencePatch": "reference.patch",
+  "hiddenTestPatch": "hidden-tests.patch",
+  "failToPass": [
+    "OrderedSet > hashCode should return the same value if the values are the same",
+    "OrderedMap > hashCode should return the same value if the values are the same"
+  ],
+  "passToPass": [
+    "OrderedSet > provides initial values in a mixed order",
+    "OrderedSet > maintains order when new values are added",
+    "OrderedSet > resets order when a value is deleted",
+    "OrderedSet > removes correctly",
+    "OrderedSet > respects order for equality",
+    "OrderedSet > respects order when unioning",
+    "OrderedSet > can be zipped",
+    "OrderedSet > handles `subtract` when Set contains >=32 elements",
+    "OrderedSet > handles consecutive `subtract` invocations",
+    "OrderedSet > keeps the Set ordered when updating a value with .map()",
+    "OrderedMap > converts from object",
+    "OrderedMap > constructor provides initial values",
+    "OrderedMap > provides initial values in a mixed order",
+    "OrderedMap > constructor accepts sequences",
+    "OrderedMap > maintains order when new keys are set",
+    "OrderedMap > resets order when a keys is deleted",
+    "OrderedMap > removes correctly",
+    "OrderedMap > respects order for equality",
+    "OrderedMap > respects order when merging",
+    "OrderedMap > performs deleteAll correctly after resizing internal list"
+  ],
+  "sourceFilesChangedInReference": ["CHANGELOG.md", "src/CollectionImpl.js"],
+  "protectedPathsFromTestPatch": {
+    "__tests__/OrderedMap.ts": "ca0e6038b7dd7427f9f84a81be5bca03880c9b27b669517430276e4a5d2b96d3",
+    "__tests__/OrderedSet.ts": "0ad3830c8ddad2020626feb7cdf7938831d28176e55cc0cf8bbafaae4d0bd031"
+  },
+  "visibleToHiddenVerification": {
+    "visibleCommand": "npm run build && npx jest __tests__/OrderedMap.ts __tests__/OrderedSet.ts --runInBand",
+    "expectedHiddenTargets": ["failToPass", "passToPass"]
+  },
+  "acceptanceSummary": "等值 OrderedMap 和 OrderedSet 的哈希与构建历史无关，现有有序集合用例通过。",
+  "negativePatchHypothesis": "只修 OrderedSet，OrderedMap 重插/删除后哈希用例会拒绝。",
+  "additionalChecks": []
+}

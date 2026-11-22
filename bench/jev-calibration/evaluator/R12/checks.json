@@ -1,0 +1,44 @@
+{
+  "id": "R12",
+  "referencePatch": "reference.patch",
+  "hiddenTestPatch": "hidden-tests.patch",
+  "failToPass": ["routing::tests::head_content_length_through_hyper_server"],
+  "passToPass": [
+    "routing::method_routing::tests::head_takes_precedence_over_get",
+    "routing::tests::head_content_length_through_hyper_server_that_hits_fallback"
+  ],
+  "sourceFilesChangedInReference": [
+    "axum-extra/src/routing/mod.rs",
+    "axum-extra/src/routing/resource.rs",
+    "axum/CHANGELOG.md",
+    "axum/src/routing/future.rs",
+    "axum/src/routing/method_routing.rs",
+    "axum/src/routing/mod.rs",
+    "axum/src/routing/route.rs"
+  ],
+  "protectedPathsFromTestPatch": {
+    "axum/src/routing/tests/mod.rs": "0e9b62c83a04d96c59c6f6dde05340049a7e0cdd04624c9a641c6f5983e58f47",
+    "axum/src/test_helpers.rs": "20311a45136f5f733abc652f1da93a34346ed41a65c15a6fbee18f72896d5065"
+  },
+  "visibleToHiddenVerification": {
+    "visibleCommand": "RUSTFLAGS=-Awarnings cargo test --package axum --lib -- routing::tests",
+    "expectedHiddenTargets": ["failToPass", "passToPass"]
+  },
+  "acceptanceSummary": "真实 Hyper 测试验证 HEAD 长度、空正文、fallback。另核对同一路径 GET、显式长度及已存在的路由断言。",
+  "negativePatchHypothesis": "仅普通路径设置长度，fallback 或显式 HEAD 分支的验收会拒绝。",
+  "additionalChecks": [
+    {
+      "id": "head-fallback",
+      "argv": [
+        "cargo",
+        "test",
+        "--package",
+        "axum",
+        "--lib",
+        "--",
+        "routing::tests::head_content_length_through_hyper_server_that_hits_fallback"
+      ],
+      "purpose": "测试必须实际执行并通过；普通路由通过仍需验收回退。"
+    }
+  ]
+}

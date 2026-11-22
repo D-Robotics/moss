@@ -32,6 +32,10 @@ export interface ProtectedPathChangeReport {
 }
 
 export interface ToolContext {
+  reportVerification?: (
+    target: string | undefined,
+    status: 'passed' | 'failed' | 'blocked' | 'unknown'
+  ) => void;
   workspaceDir: string;
   /**
    * B70: the run's effective prompt budget. Tool results are capped to a share

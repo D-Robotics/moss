@@ -885,6 +885,15 @@ export async function runWorkspaceTests(
 ): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   const plan = await planFromInput(ctx, input, deadline);
-  if (!isRunPlan(plan)) return 'message' in plan ? plan.message : noRunnerMessage();
-  return (await executePlan(ctx, plan, Math.max(0, deadline - Date.now()))).text;
+  const target = typeof input?.file === 'string' ? input.file : undefined;
+  if (!isRunPlan(plan)) {
+    ctx.reportVerification?.(target, 'blocked');
+    return 'message' in plan ? plan.message : noRunnerMessage();
+  }
+  const outcome = await executePlan(ctx, plan, Math.max(0, deadline - Date.now()));
+  ctx.reportVerification?.(
+    target,
+    outcome.notRun ? 'blocked' : outcome.passed ? 'passed' : 'failed'
+  );
+  return outcome.text;
 }

@@ -1,0 +1,29 @@
+{
+  "id": "R02",
+  "referencePatch": "reference.patch",
+  "hiddenTestPatch": "hidden-tests.patch",
+  "failToPass": ["svg > should support svg xlink:href attribute"],
+  "passToPass": [
+    "svg > should render SVG to string",
+    "svg > should support svg attributes",
+    "svg > should render SVG to DOM",
+    "svg > should render with the correct namespace URI",
+    "svg > should use attributes for className",
+    "svg > should still support class attribute",
+    "svg > should still support className attribute",
+    "svg > should switch back to HTML for <foreignObject>",
+    "svg > should render foreignObject as an svg element",
+    "svg > should transition from DOM to SVG and back"
+  ],
+  "sourceFilesChangedInReference": ["src/diff/props.js"],
+  "protectedPathsFromTestPatch": {
+    "test/browser/svg.test.js": "f067cb244c782c4c08d8fae7ab8eadd7e5542867962dcc3e96d2b4a459f2a924"
+  },
+  "visibleToHiddenVerification": {
+    "visibleCommand": "COVERAGE=false BABEL_NO_MODULES=true npx karma start karma.conf.js --single-run --grep=\"test/browser/svg.test.js\"",
+    "expectedHiddenTargets": ["failToPass", "passToPass"]
+  },
+  "acceptanceSummary": "诊断用例的 SVG use 具备正确 href，现有 SVG 属性与兼容路径用例通过。",
+  "negativePatchHypothesis": "仅保留旧的驼峰属性分支，带冒号的端到端 SVG 断言会失败。",
+  "additionalChecks": []
+}

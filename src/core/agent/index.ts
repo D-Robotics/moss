@@ -23,3 +23,5 @@ export type {
   MossAgentLoopEventAdapter,
   MossAgentLoopEventAdapterOptions,
 } from './moss-agent-loop-adapter.js';
+
+export type { RuntimeJudgeConfig, JudgeMode, JudgePoint } from './runtime-judge-types.js';

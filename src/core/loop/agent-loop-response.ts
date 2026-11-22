@@ -93,6 +93,7 @@ export interface ProcessLlmResponseParams {
   toolLoopGuard: ToolLoopGuardState;
   maxToolCalls?: number;
   toolStartGuard?: AgentLoopExtensions['toolStartGuard'];
+  runtimeJudge?: AgentLoopExtensions['runtimeJudge'];
   checkToolApproval?: (call: {
     id: string;
     name: string;
@@ -270,7 +271,7 @@ export async function processLlmResponse(
     replaceAssistantVisibleText(assistantContent, visibleAssistantText);
   }
 
-  const stitchedAssistantText = stitchTruncatedOutput(
+  let stitchedAssistantText = stitchTruncatedOutput(
     state.carriedAssistantText,
     visibleAssistantText
   );
@@ -320,6 +321,30 @@ export async function processLlmResponse(
     } else {
       state.completionGateAttempts = 0;
       throw new Error(`Completion rejected: ${decision.reason}`);
+    }
+  }
+
+  if (
+    params.runtimeJudge?.needsSteeringBeforeCompletion() &&
+    !state.hasMoreToolCalls &&
+    !outputLimited &&
+    delayedVisibleDeltas
+  ) {
+    const bufferedIndex = assistantBuffer.lastIndexOf(assistantMsg);
+    if (bufferedIndex >= 0) assistantBuffer.splice(bufferedIndex, 1);
+    state.finalText = '';
+    pushTurnEnd();
+    state.lastTurnEndMs = Date.now();
+    return { control: 'continue' };
+  }
+
+  if (params.runtimeJudge && !state.hasMoreToolCalls && !outputLimited && state.finalText.trim()) {
+    const verified = params.runtimeJudge.verifiedAnswer(state.finalText);
+    if (verified !== state.finalText) {
+      state.finalText = verified;
+      visibleAssistantText = verified;
+      stitchedAssistantText = verified;
+      replaceAssistantVisibleText(assistantContent, verified);
     }
   }
 
@@ -511,6 +536,8 @@ export async function processLlmResponse(
     skipHeartbeatToolNames,
     checkToolApproval,
     toolStartGuard: params.toolStartGuard,
+    runtimeJudge: params.runtimeJudge,
+    buildCorrectionMessage,
     toolAbortSignalFor,
     enrichToolContext,
     parallelSafeTools,

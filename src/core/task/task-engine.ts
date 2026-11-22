@@ -30,7 +30,7 @@ import {
   setPersistedAcceptanceCommand,
 } from './acceptance-authority.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
-import type { AgentTurnResult } from './agent-turn.js';
+import type { AgentTurnGoal, AgentTurnResult } from './agent-turn.js';
 import {
   acceptanceAlreadySatisfied,
   createTaskVerdictProvider,
@@ -47,7 +47,11 @@ export interface TaskEngineDeps {
    * An `AgentTurnResult` object may carry `stopReason` instead. A reason
    * that starts with `budget_` ends the run unless the task is already settled.
    */
-  runTurn: (prompt: string, phase: string) => Promise<string | AgentTurnResult>;
+  runTurn: (
+    prompt: string,
+    phase: string,
+    goal?: AgentTurnGoal
+  ) => Promise<string | AgentTurnResult>;
   /** Defaults to contract acceptance; a command provider overrides it. */
   verdictProvider?: VerdictProvider;
   /** Repair cycles before the task is declared failed (default 5). */
@@ -201,6 +205,7 @@ function repairPrompt(
 
 interface RunLoopState {
   taskId: string;
+  userGoal?: string;
   turns: number;
   repairsUsed: number;
   lastVerdict?: TaskVerdict;
@@ -232,9 +237,13 @@ async function runAgentTurn(
   deps: TaskEngineDeps,
   state: RunLoopState,
   prompt: string,
-  phase: string
+  phase: string,
+  contractGoal?: string
 ): Promise<'ok' | 'budget' | 'blocked'> {
-  const { stopReason } = readAgentTurnResult(await deps.runTurn(prompt, phase), deps.runTurn);
+  const goal = state.userGoal
+    ? { userGoal: state.userGoal, ...(contractGoal ? { contractGoal } : {}) }
+    : undefined;
+  const { stopReason } = readAgentTurnResult(await deps.runTurn(prompt, phase, goal), deps.runTurn);
   const revised = stopReason === 'intent_revised';
   if (!revised && !stopReason?.startsWith('budget_')) return 'ok';
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
@@ -396,7 +405,8 @@ async function verifyRepairLoop(
         deps,
         state,
         executionPrompt(current.goal ?? '', state.taskId, state.repairsUsed + 1),
-        'executing'
+        'executing',
+        current.goal
       );
       if (executed !== 'ok') return executed;
 
@@ -459,7 +469,8 @@ async function verifyRepairLoop(
         state.repairsUsed,
         repairHistoryFrom(historySnapshot)
       ),
-      'repairing'
+      'repairing',
+      current?.goal
     );
     if (repaired !== 'ok') return repaired;
     // task_acceptance during the repair turn can accept the task. repair_applied
@@ -655,7 +666,7 @@ export async function runTask(
     ...(options.acceptanceCommand ? { acceptanceCommand: options.acceptanceCommand } : {}),
   });
   const taskId = contract.taskId;
-  const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0 };
+  const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0, userGoal: goal };
 
   await appendTaskEvent(deps.workspaceDir, taskId, 'task_understood');
   await appendTaskEvent(deps.workspaceDir, taskId, 'planning_started');
@@ -755,7 +766,16 @@ export async function resumeTask(
       workspaceDir: deps.workspaceDir,
       ...(command ? { command } : {}),
     });
-  const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0 };
+  const creation = (await listTaskEvents(deps.workspaceDir, taskId)).find(
+    (event) => event.type === 'task_created'
+  );
+  const originalGoal = creation?.data?.goal;
+  const state: RunLoopState = {
+    taskId,
+    turns: 0,
+    repairsUsed: 0,
+    userGoal: typeof originalGoal === 'string' ? originalGoal : snapshot.goal,
+  };
   try {
     await verifyRepairLoop(
       deps,

@@ -1,3 +1,4 @@
+import type { RuntimeJudgeRun } from '../agent/runtime-judge.js';
 import type {
   ProtectedPathChangeReport,
   Tool,
@@ -369,6 +370,7 @@ export interface ExecuteToolCallDeps {
 
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
   toolStartGuard?: ToolStartGuard;
+  runtimeJudge?: RuntimeJudgeRun;
 
   checkToolApproval?: (call: {
     id: string;
@@ -457,6 +459,7 @@ async function executeOneToolCallInner(
     }
 
     const startGuard = deps.toolStartGuard;
+    deps.runtimeJudge?.setPendingTool(tool.name);
     if (startGuard) {
       await startGuard.prepare(deps.abortSignal);
       const reason = startGuard.denialReason(tool);
@@ -777,17 +780,30 @@ async function executeOneToolCallInner(
               message: validation.message,
             });
           }
+          const constraint = await deps.runtimeJudge?.beforeTool(call.id, tool, validation.value);
+          if (constraint)
+            throw new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: constraint });
           if (startGuard) {
             await startGuard.prepare(signal);
             signal.throwIfAborted();
           }
+          signal.throwIfAborted();
           emitStart();
-          const reason = startGuard?.denialReason(tool);
+          const reason =
+            startGuard?.denialReason(tool) ??
+            (!startGuard && deps.runtimeJudge?.deniesUnclassifiedTool()
+              ? 'A new user instruction must be applied before this tool can start.'
+              : undefined);
           if (reason) throw new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: reason });
           reachedExecute = true;
           const rpcDeadline = AbortSignal.timeout(deps.toolTimeoutMs);
           const rpcSignal = AbortSignal.any([signal, rpcDeadline]);
-          const rpcCtx = { ...attemptCtx, abortSignal: rpcSignal };
+          const rpcCtx: ToolContext = { ...attemptCtx, abortSignal: rpcSignal };
+          if (deps.runtimeJudge) {
+            deps.runtimeJudge.noteStart(call.id);
+            rpcCtx.reportVerification = (target, status) =>
+              deps.runtimeJudge?.noteVerification(call.id, target, status);
+          }
           structuralError = false;
           try {
             if (tool.executeStructured) {

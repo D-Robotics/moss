@@ -1,3 +1,4 @@
+import { explicitEditPolicy } from './runtime-judge.js';
 import { abortable } from './abort.js';
 import type { MossAgentConfig, UserIntentDecision } from './moss-agent-types.js';
 import type { SessionInboxEntry } from '../session/session-inbox.js';
@@ -11,9 +12,12 @@ export const INTENT_OBSERVATION_TIMEOUT_MS = 2_000;
 interface SteeringEffect {
   replan: boolean;
   editPolicy: 'read_only' | 'allow_edits' | 'unchanged';
+  replaceGoal?: boolean;
 }
 
-function effectOf(decision?: UserIntentDecision): SteeringEffect {
+function effectOf(message: string, decision?: UserIntentDecision): SteeringEffect {
+  const local = explicitEditPolicy(message);
+  if (local) return { replan: true, editPolicy: local };
   const edit = decision?.editPolicy;
   if (
     !decision ||
@@ -29,12 +33,18 @@ function effectOf(decision?: UserIntentDecision): SteeringEffect {
   ) {
     return { replan: true, editPolicy: 'read_only' };
   }
-  const editPolicy = decision.intent === 'stop_task' ? 'read_only' : edit.choice;
+  const editPolicy =
+    decision.intent === 'stop_task'
+      ? 'read_only'
+      : edit.choice === 'allow_edits'
+        ? 'unchanged'
+        : edit.choice;
   return {
     replan:
       editPolicy !== 'unchanged' ||
       (decision.intent !== 'question' && decision.intent !== 'continue_task'),
     editPolicy,
+    ...(decision.intent === 'new_task' ? { replaceGoal: true } : {}),
   };
 }
 
@@ -50,7 +60,8 @@ export class SteeringIntentGate implements ToolStartGuard {
     private readonly decide: NonNullable<MossAgentConfig['decideSteeringIntent']>,
     private readonly runSignal: AbortSignal,
     activeRequest?: string,
-    private readonly taskFlow = false
+    private readonly taskFlow = false,
+    private readonly currentAction?: () => string
   ) {
     this.activeRequest = activeRequest;
   }
@@ -68,6 +79,7 @@ export class SteeringIntentGate implements ToolStartGuard {
               source: 'steering',
               text: entry.prompt,
               ...(this.activeRequest ? { activeRequest: this.activeRequest } : {}),
+              ...(this.currentAction ? { currentAction: this.currentAction() } : {}),
             },
             combined
           );
@@ -81,7 +93,10 @@ export class SteeringIntentGate implements ToolStartGuard {
             return undefined;
           })
           .then((outcome) => {
-            this.effects.set(entry.id, { ...effectOf(outcome), prompt: entry.prompt });
+            this.effects.set(entry.id, {
+              ...effectOf(entry.prompt, outcome),
+              prompt: entry.prompt,
+            });
           });
         this.requests.set(entry.id, request);
       }
@@ -114,7 +129,7 @@ export class SteeringIntentGate implements ToolStartGuard {
       : '[Runtime] The prior plan is invalid. Replan from the user update below before taking further actions.';
   }
 
-  applied(entryId: string): void {
+  applied(entryId: string): SteeringEffect | undefined {
     const effect = this.effects.get(entryId);
     if (!effect) return;
     this.requests.delete(entryId);
@@ -124,6 +139,7 @@ export class SteeringIntentGate implements ToolStartGuard {
       this.activeRequest = effect.prompt;
     }
     if (effect.editPolicy !== 'unchanged') this.readOnly = effect.editPolicy === 'read_only';
+    return effect;
   }
 
   revisedIntent(): boolean {

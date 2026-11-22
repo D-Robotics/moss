@@ -1,3 +1,5 @@
+import type { AgentTurnGoal } from '../task/agent-turn.js';
+import type { RuntimeJudgeConfig } from './runtime-judge-types.js';
 import type {
   LLMProvider,
   LLMMessage,
@@ -158,6 +160,7 @@ export interface UserIntentInput {
   source: 'prompt' | 'steering';
   text: string;
   activeRequest?: string;
+  currentAction?: string;
 }
 
 export interface UserIntentDecision {
@@ -169,6 +172,7 @@ export interface UserIntentDecision {
 export interface MossAgentConfig
   extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
   sessionStore: SessionStore;
+  runtimeJudge?: RuntimeJudgeConfig;
   /** Optional shadow observer for host-marked input and live steering. Its result is never used by the loop. */
   observeUserIntent?: (input: UserIntentInput, signal: AbortSignal) => Promise<void>;
   /** Opt-in decision port for steering that can invalidate tools from the current turn. */
@@ -321,6 +325,8 @@ export interface ChatOptions {
   abortSignal?: AbortSignal;
   /** Original user text for the optional intent observer. Leave unset for generated prompts. */
   userIntentText?: string;
+  /** User goal and optional current contract goal provided by the task engine. */
+  taskJudgeGoal?: AgentTurnGoal;
 
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   onStream?: (event: LLMStreamEvent) => void;

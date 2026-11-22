@@ -1,0 +1,82 @@
+{
+  "id": "C02",
+  "checkpoint": "agent/C02/checkpoint.json",
+  "expectedAction": {
+    "completion": "allow",
+    "run": [],
+    "keep": ["score-regression-v1", "score-edge-cases-v1"],
+    "ignore": ["score-regression-v0"]
+  },
+  "requiredVerification": [
+    {
+      "id": "score-regression",
+      "argv": ["node", "test.js"],
+      "affectedPaths": ["stats.js", "lib/util.js", "test.js"],
+      "requiredRevision": "v1"
+    },
+    {
+      "id": "score-edge-cases",
+      "argv": ["node", "tests/numeric.test.js"],
+      "affectedPaths": ["stats.js", "lib/util.js", "tests/numeric.test.js"],
+      "requiredRevision": "v1"
+    }
+  ],
+  "acceptanceSummary": "保留两项当前版的真实通过和提交时的源码哈希。过去的失败不能成为重复补验或误拦依据。",
+  "protectedPaths": {
+    "lib/util.js": "bca8aae3483434a461d05d6d570b54064c2280ed1a208aa2bcff92c8da04d4f0",
+    "package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+    "stats.js": "53029a4b01a5a2a440fa25d564e39208126b9671a1ad2706b915df6f6d202e0d",
+    "test.js": "a247fb73e3761c5e17af2697f3f805207dbee44653c450be7958cb888a2f8aad",
+    "tests/numeric.test.js": "9c7ce3c59466c3d6e646a675436558f02896c217e289aa7c6c024ca54cf7945f"
+  },
+  "previousRevisions": {
+    "v0": {
+      "paths": {
+        "lib/util.js": "bca8aae3483434a461d05d6d570b54064c2280ed1a208aa2bcff92c8da04d4f0",
+        "package.json": "f69ed17eea98f49ee075f676bae79df9cb779e54d5887b94d94313d34511170c",
+        "stats.js": "1952a323087ba6db0f72f4ca474fa0177ca8ae1b894c1ffae7c521e209a828fb",
+        "test.js": "a247fb73e3761c5e17af2697f3f805207dbee44653c450be7958cb888a2f8aad",
+        "tests/numeric.test.js": "9c7ce3c59466c3d6e646a675436558f02896c217e289aa7c6c024ca54cf7945f"
+      },
+      "overlayAgainstCurrent": {
+        "stats.js": "// Team statistics helpers.\nimport { uniq } from './lib/util.js';\n\nexport function total(scores) {\n  // Same-score dedupe policy lives in uniq() so every consumer is consistent.\n  let sum = 0;\n  for (const s of uniq(scores)) {\n    sum += s;\n  }\n  return sum;\n}\n"
+      }
+    }
+  },
+  "fixtureChecks": [
+    {
+      "workspaceRevision": "v0",
+      "argv": ["node", "test.js"],
+      "expectExitCode": 1,
+      "purpose": "真实记录早期失败",
+      "observed": {
+        "exitCode": 1,
+        "stdout": "",
+        "stderr": "node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: three players all scored 5\n\n5 !== 15\n\n    at file://<workspace>/test.js:4:8\n    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)\n    at async node:internal/modules/esm/loader:647:26\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: 5,\n  expected: 15,\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v24.21.0\n"
+      }
+    },
+    {
+      "workspaceRevision": "v1",
+      "argv": ["node", "test.js"],
+      "expectExitCode": 0,
+      "purpose": "当前回归测试通过",
+      "observed": {
+        "exitCode": 0,
+        "stdout": "all tests passed\n",
+        "stderr": ""
+      }
+    },
+    {
+      "workspaceRevision": "v1",
+      "argv": ["node", "tests/numeric.test.js"],
+      "expectExitCode": 0,
+      "purpose": "当前数值边界通过",
+      "observed": {
+        "exitCode": 0,
+        "stdout": "numeric edge cases passed\n",
+        "stderr": ""
+      }
+    }
+  ],
+  "timeline": "Reconstructed checkpoint. Event order is intentional; subprocess evidence was recorded from isolated revision snapshots."
+}

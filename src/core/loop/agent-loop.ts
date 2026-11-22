@@ -645,6 +645,7 @@ export function runAgentLoop(
               maxToolCalls,
               checkToolApproval: params.checkToolApproval,
               toolStartGuard: params.toolStartGuard,
+              runtimeJudge: params.runtimeJudge,
               guardAssistantOutput: params.guardAssistantOutput,
               completionGate: params.completionGate,
               delayedVisibleDeltas: Boolean(
