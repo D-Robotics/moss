@@ -38,6 +38,12 @@ export interface ToolContext {
     input: Record<string, unknown>,
     where: string
   ) => Promise<void>;
+  /** A task relevance check for a host that independently established scope. */
+  assessApproval?: (
+    toolName: string,
+    input: Record<string, unknown>,
+    where: string
+  ) => Promise<(() => boolean) | undefined>;
   reportVerification?: (
     target: string | undefined,
     status: 'passed' | 'failed' | 'blocked' | 'unknown'

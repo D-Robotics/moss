@@ -806,6 +806,10 @@ async function executeOneToolCallInner(
               if (toolName !== tool.name || finalInput !== validation.value) return undefined;
               return judge.observeApproval(call.id, toolName, finalInput, where, rpcSignal);
             };
+            rpcCtx.assessApproval = async (toolName, finalInput, where) => {
+              if (toolName !== tool.name || finalInput !== validation.value) return;
+              return judge.assessApproval(call.id, toolName, finalInput, where, rpcSignal);
+            };
             rpcCtx.reportVerification = (target, status) =>
               deps.runtimeJudge?.noteVerification(call.id, target, status);
           }
