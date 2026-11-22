@@ -195,8 +195,13 @@ export function decodeSummaryEntries(
     const cited = sourceIds.map((id) => (typeof id === 'string' ? known.get(id) : undefined));
     if (cited.some((source) => !source)) return [];
     const origins = cited.map((source) => source!.origin);
+    const normalizeQuote = (value: string) => value.replace(/\s+/g, ' ').trim();
+    const quotesOneToolResult =
+      cited.length === 1 &&
+      cited[0]!.origin === 'tool' &&
+      normalizeQuote(cited[0]!.text).includes(normalizeQuote(text));
     const supported =
-      (kind !== 'observation' || origins.includes('tool')) &&
+      (kind !== 'observation' || quotesOneToolResult) &&
       (kind !== 'user_decision' || origins.includes('user'));
     return [
       {
@@ -238,16 +243,17 @@ function fieldExcerpt(text: string, fields: string[], max: number): string | und
   return undefined;
 }
 
-export interface HistoricalToolExcerpt {
+export interface HistoricalSourceExcerpt {
   sourceId: string;
+  origin: 'tool' | 'assistant';
   text: string;
 }
 
 /** Recover limited quotations relevant to the current question from the original archive. */
-export function relevantToolExcerpts(
+export function relevantHistoricalExcerpts(
   rows: ContextSourceMessage[],
   focus: string
-): HistoricalToolExcerpt[] {
+): HistoricalSourceExcerpt[] {
   if (!focus.trim()) return [];
   const evidence = rows.flatMap((row) => {
     const source = toEvidence(row);
@@ -256,14 +262,16 @@ export function relevantToolExcerpts(
   const tools = evidence.filter(({ origin }) => origin === 'tool');
   const replies = evidence.filter(({ completeReply }) => completeReply).slice(-8);
   const selected = new Map<string, string>();
+  const scopedReplies = new Map<string, string>();
   for (const clause of focus.split(/[、，,；;\n]/u).slice(0, 12)) {
     const terms = focusWords(clause);
     const direct = terms.filter((term) => /[a-z_]/i.test(term));
     if (!direct.length) continue;
     const anchor = replies
-      .flatMap(({ text }) => text.split(/\r?\n/))
-      .map((line) => ({
+      .flatMap(({ text, sourceId }) => text.split(/\r?\n/).map((line) => ({ line, sourceId })))
+      .map(({ line, sourceId }) => ({
         line,
+        sourceId,
         matches: terms.filter((term) => line.toLowerCase().includes(term)).length,
       }))
       .filter(({ matches }) => matches >= 2)
@@ -283,6 +291,9 @@ export function relevantToolExcerpts(
       .sort((a, b) => b.rank - a.rank || b.source.ordinal - a.source.ordinal);
     const best = ranked[0]?.source;
     if (!best) continue;
+    if (anchor && associated.length && scopedReplies.size < 2) {
+      scopedReplies.set(anchor.sourceId, quotedExcerpt(anchor.line, 540));
+    }
     const fields = direct.filter((term) => term.includes('_'));
     selected.set(
       best.sourceId,
@@ -305,5 +316,12 @@ export function relevantToolExcerpts(
     }
     if (selected.size >= 4) break;
   }
-  return [...selected.entries()].map(([sourceId, text]) => ({ sourceId, text }));
+  return [
+    ...[...selected].map(
+      ([sourceId, text]): HistoricalSourceExcerpt => ({ sourceId, origin: 'tool', text })
+    ),
+    ...[...scopedReplies].map(
+      ([sourceId, text]): HistoricalSourceExcerpt => ({ sourceId, origin: 'assistant', text })
+    ),
+  ];
 }

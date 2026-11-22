@@ -18,6 +18,7 @@ const [
   { resumeTask },
   { createAgentTurnRunner },
   { VersionedContextPipeline },
+  { decodeSummaryEntries },
 ] = await Promise.all([
   load('core/agent/moss-agent.js'),
   load('core/session/versioned-session-store.js'),
@@ -26,6 +27,7 @@ const [
   load('core/task/task-engine.js'),
   load('core/task/agent-turn.js'),
   load('core/session/versioned-context.js'),
+  load('core/session/context-summary-evidence.js'),
 ]);
 
 const oldClaim = 'OBSOLETE_CLAIM_FULL_ACCEPTANCE';
@@ -457,6 +459,24 @@ async function testConcurrentSummary(workspace) {
 }
 
 async function testSummarySourceValidation(workspace) {
+  const citations = [
+    { id: 's1', sourceId: 'first', origin: 'tool', text: 'Replay: received zero detections.' },
+    { id: 's2', sourceId: 'second', origin: 'tool', text: 'Direct feed: received two detections.' },
+  ];
+  const decoded = decodeSummaryEntries(
+    JSON.stringify([
+      { kind: 'observation', text: 'Replay: received two detections.', sourceIds: ['s1', 's2'] },
+      { kind: 'observation', text: 'Replay: received zero detections.', sourceIds: ['s1'] },
+    ]),
+    citations
+  );
+  assert.deepEqual(
+    decoded.map(({ kind, sourceIds }) => [kind, sourceIds]),
+    [
+      ['unverified', ['first', 'second']],
+      ['observation', ['first']],
+    ]
+  );
   let corrupt = true;
   await usingAgent(
     workspace,
