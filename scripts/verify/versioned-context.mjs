@@ -18,7 +18,7 @@ const [
   { resumeTask },
   { createAgentTurnRunner },
   { VersionedContextPipeline },
-  { decodeSummaryEntries },
+  { decodeSummaryEntries, relevantHistoricalExcerpts },
 ] = await Promise.all([
   load('core/agent/moss-agent.js'),
   load('core/session/versioned-session-store.js'),
@@ -459,6 +459,19 @@ async function testConcurrentSummary(workspace) {
 }
 
 async function testSummarySourceValidation(workspace) {
+  const receipts = [
+    ['older-run', 'RUNDIR=/old/run\nSaved to file: result.png'],
+    ['current-run', 'RUNDIR=/tmp/new-run\nSaved to file: result.png'],
+    ['old-artifact-check', 'Existing file: /old/run/result.png'],
+  ].map(([id, content], ordinal) => ({
+    id,
+    ordinal,
+    origin: 'legacy',
+    message: { role: 'user', content: [{ type: 'tool_result', content }] },
+  }));
+  assert.deepEqual(relevantHistoricalExcerpts(receipts, '请核对这次的渲染文件'), [
+    { sourceId: 'current-run', origin: 'tool', text: receipts[1].message.content[0].content },
+  ]);
   const citations = [
     { id: 's1', sourceId: 'first', origin: 'tool', text: 'Replay: received zero detections.' },
     { id: 's2', sourceId: 'second', origin: 'tool', text: 'Direct feed: received two detections.' },
