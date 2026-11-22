@@ -5,7 +5,7 @@ import type {
 import { estimateTokensForText } from '../../context/tokens.js';
 import { ErrorCode, MossError } from '../../errors.js';
 
-const MAX_EVIDENCE_TOKENS = 6_500;
+const MAX_EVIDENCE_TOKENS = 9_000;
 const MAX_SUMMARY_ENTRIES = 64;
 const SUMMARY_KINDS = new Set(['observation', 'user_decision', 'proposal', 'unverified']);
 
@@ -14,6 +14,7 @@ type Evidence = {
   origin: ContextSourceMessage['origin'];
   text: string;
   ordinal: number;
+  completeReply: boolean;
 };
 type AliasedEvidence = Evidence & { id: string };
 
@@ -21,6 +22,62 @@ function quotedExcerpt(text: string, max: number): string {
   if (text.length <= max) return text;
   const tail = Math.floor(max / 3);
   return `${text.slice(0, max - tail - 5)} […] ${text.slice(-tail)}`;
+}
+
+const WORDS = new Intl.Segmenter(undefined, { granularity: 'word' });
+
+function focusWords(focus: string): string[] {
+  return [
+    ...new Set(
+      [...WORDS.segment(focus.toLowerCase())]
+        .filter(({ isWordLike, segment }) => isWordLike && segment.length >= 2)
+        .map(({ segment }) => segment)
+    ),
+  ];
+}
+
+function evidenceExcerpt(text: string, max: number, terms: string[]): string {
+  if (text.length <= max || !text.includes('\n')) return quotedExcerpt(text, max);
+  const unique = new Map<string, { line: string; index: number; rank: number }>();
+  for (const [index, raw] of text.split(/\r?\n/).entries()) {
+    // Log counters and timestamps do not make repeated diagnostics new evidence.
+    const line = raw.trim().replace(/^(?:\[[^\]\r\n]{1,32}\]\s*){2,4}/, '');
+    if (!line || unique.has(line)) continue;
+    const normalized = line.toLowerCase();
+    const matches = terms.filter((term) => normalized.includes(term)).length;
+    const diagnostic =
+      /\b(?:error|fail(?:ed|ure|ture)?|fatal|exception|exit code|timed? ?out|no such)\b|失败|异常|退出码/i.test(
+        line
+      );
+    const value = /[\w_"']\s*[:=]\s*(?:[-+]?\d|\/)|SHA-?256/i.test(line);
+    const preciseNumber = /\b\d+\.\d{4,}\b/.test(line);
+    unique.set(line, {
+      line,
+      index,
+      rank: matches * 3 + (diagnostic ? 4 : 0) + (value ? 2 : 0) + (preciseNumber ? 6 : 0),
+    });
+  }
+  const values = [...unique.values()];
+  if (!values.some(({ rank }) => rank > 0)) return quotedExcerpt(text, max);
+  const pinned = [values[0], values.at(-1)].filter((item) => !!item);
+  const candidates = values
+    .filter(({ rank }) => rank > 0)
+    .sort((a, b) => b.rank - a.rank || a.index - b.index);
+  const selected = new Map<number, string>();
+  let remaining = max;
+  for (const { line, index, rank } of [...pinned, ...candidates]) {
+    if (remaining < 32 || selected.has(index)) continue;
+    const excerpt = quotedExcerpt(
+      line,
+      Math.min(remaining - 5, rank ? Math.floor(max * 0.45) : Math.floor(max * 0.2))
+    );
+    selected.set(index, excerpt);
+    remaining -= excerpt.length + 5;
+  }
+  return [...selected.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, line]) => line)
+    .join(' […] ');
 }
 
 function spread<T>(items: T[], limit: number): T[] {
@@ -45,23 +102,40 @@ function toEvidence(source: ContextSourceMessage): Evidence | undefined {
   const text = (isTool ? toolOutput.join('\n') : prose).trim();
   if (!text || source.origin === 'runtime') return;
   const origin = isTool ? 'tool' : role === 'assistant' ? 'assistant' : source.origin;
-  return { sourceId: source.id, origin, text, ordinal: source.ordinal };
+  return {
+    sourceId: source.id,
+    origin,
+    text,
+    ordinal: source.ordinal,
+    completeReply:
+      role === 'assistant' &&
+      (!Array.isArray(content) || !content.some((part) => part.type === 'tool_use')),
+  };
 }
 
 export function prepareSummaryEvidence(
   rows: ContextSourceMessage[],
   corrections: string,
-  budget: number
+  budget: number,
+  focus: string = ''
 ) {
+  focus = quotedExcerpt(focus, 800);
+  const terms = focusWords(focus);
   const evidence = rows.flatMap((row) => {
     const source = toEvidence(row);
     return source ? [source] : [];
   });
   const readouts = evidence.filter(({ origin }) => origin === 'tool');
   const other = evidence.filter(({ origin }) => origin !== 'tool');
-  let selected = [...spread(readouts, 64), ...spread(other, 24)].sort(
-    (a, b) => a.ordinal - b.ordinal
-  );
+  const recentReplies = new Set(other.filter(({ completeReply }) => completeReply).slice(-4));
+  let selected = [
+    ...spread(readouts, 64),
+    ...spread(
+      other.filter((source) => !recentReplies.has(source)),
+      20
+    ),
+    ...recentReplies,
+  ].sort((a, b) => a.ordinal - b.ordinal);
   const limit = Math.max(0, Math.min(MAX_EVIDENCE_TOKENS, budget));
   let maxChars = 1_800;
   for (;;) {
@@ -69,11 +143,16 @@ export function prepareSummaryEvidence(
       (source, index): AliasedEvidence => ({
         ...source,
         id: `s${index + 1}`,
-        text: quotedExcerpt(source.text, maxChars),
+        text: evidenceExcerpt(
+          source.text,
+          recentReplies.has(source) ? maxChars * 3 : maxChars,
+          terms
+        ),
       })
     );
     const prompt = JSON.stringify({
       corrections,
+      focus,
       sources: sources.map(({ id, origin, text }) => ({ id, origin, text })),
     });
     const tokens = estimateTokensForText(prompt);
