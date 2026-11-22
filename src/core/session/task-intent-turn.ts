@@ -17,7 +17,7 @@ import {
 } from './task-intent-state.js';
 
 const CORRECTION_SCOPE_GUIDANCE =
-  'A user correction includes pointing out that an earlier conclusion applies only to a previous version, run, or phase and giving the newer state. Declare contextCorrections for the earlier assistant conclusion even if your answer already agrees with the new state. Keep underlying observations as historical evidence.';
+  'A user correction includes pointing out that an earlier conclusion applies only to a previous version, run, or phase and giving the newer state. Select the source whose own conclusion states the superseded outcome. A reply giving the updated outcome stays valid even if it mentions the earlier failure. Match the conclusion using its content rather than how recently it was mentioned. Keep underlying observations as historical evidence.';
 
 type Call = { id: string; name: string; input: Record<string, unknown> };
 
@@ -107,7 +107,7 @@ export class TaskIntentTurn {
       ...header,
       'Return one turn_decision call with no plain text.',
       CORRECTION_SCOPE_GUIDANCE,
-      'For a correction, return the targetId from contextSources or an active claim and omit answer.',
+      'For a correction, return contextCorrections with the matched targetId from contextSources or an active claim. Omit answer so the runtime can answer from the rebuilt context.',
       this.wholeInputCitation
         ? 'For a correction, omit quote and messageId. The runtime cites the pending user input.'
         : 'For a correction, copy an exact quote from the pending user input. Never quote old assistant text.',

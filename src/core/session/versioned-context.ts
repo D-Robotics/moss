@@ -337,7 +337,14 @@ export class VersionedContextPipeline {
                 .join(' '),
       }))
       .filter(({ text }) => text.trim() && !pendingTexts.includes(text))
-      .map(({ id, origin, text }) => ({ id, origin, text: text.slice(0, 160) }));
+      .map(({ id, origin, text }) => ({
+        id,
+        origin,
+        text:
+          correctionsOnly && text.length > 360
+            ? `${text.slice(0, 180)}\n[…]\n${text.slice(-180)}`
+            : text.slice(0, correctionsOnly ? 360 : 160),
+      }));
   }
 
   async prepare(input: ProjectionInput): Promise<PreparedContextProjection> {

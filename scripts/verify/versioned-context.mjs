@@ -662,6 +662,12 @@ async function testReadOnlyIntentPrompt(workspace) {
     async ({ agent, store, modelRequests }) => {
       const session = 'read-only-intent';
       await add(store, session, 'assistant', oldClaim);
+      await add(
+        store,
+        session,
+        'assistant',
+        `${'The earlier release was reviewed. '.repeat(20)} CURRENT_ACCEPTANCE_PENDING`
+      );
       targetId = (await store.sourceMessages(session))[0].id;
       const options = { taskFlow: false, toolFilter: () => false };
       const result = await agent.chat(session, correctionText, {
@@ -703,6 +709,8 @@ async function testReadOnlyIntentPrompt(workspace) {
           assert.doesNotMatch(request.systemPrompt, new RegExp(targetId));
           assert.match(request.systemPrompt, /"id":"s1"/);
           assert.match(request.systemPrompt, /applies only to a previous version, run, or phase/);
+          assert.match(request.systemPrompt, /whose own conclusion states the superseded outcome/);
+          assert.match(request.systemPrompt, /"id":"s2".*CURRENT_ACCEPTANCE_PENDING/);
           assert.doesNotMatch(request.systemPrompt, new RegExp(correctionText));
         }
         return response(
