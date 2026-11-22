@@ -310,6 +310,51 @@ async function testProgressiveStages(workspace) {
     assert.doesNotMatch(JSON.stringify(compacted.messages), /ORPHAN_INTENT_RECEIPT/);
     assert(compacted.sourceIds.includes(latestEvidence.id));
 
+    const lookup = 'historical-evidence-lookup';
+    await add(
+      store,
+      lookup,
+      'user',
+      'Inspect the two devices and preserve their individual readings.'
+    );
+    await add(store, lookup, 'assistant', [toolCall('read_file', 'old-config')]);
+    await add(
+      store,
+      lookup,
+      'user',
+      [
+        {
+          type: 'tool_result',
+          tool_use_id: 'old-config',
+          content: `${'unrelated settings\n'.repeat(180)}Device A config: sensor_gain=17\n${'other output\n'.repeat(180)}`,
+        },
+      ],
+      'legacy'
+    );
+    await add(store, lookup, 'assistant', [toolCall('read_file', 'recent-read')]);
+    await add(
+      store,
+      lookup,
+      'user',
+      [
+        {
+          type: 'tool_result',
+          tool_use_id: 'recent-read',
+          content: 'Device B finished with a green indicator.',
+        },
+      ],
+      'tool'
+    );
+    await add(store, lookup, 'assistant', 'Final review details. '.repeat(350));
+    await add(store, lookup, 'user', 'What was sensor_gain for Device A?');
+    const fallback = await pipeline.prepare({ ...common, sessionKey: lookup, force: true });
+    assert(fallback.stages.includes('S5'));
+    const restored = await pipeline.prepare({ ...common, sessionKey: lookup });
+    assert(restored.stages.includes('S4'));
+    assert.match(JSON.stringify(restored.messages), /sensor_gain=17/);
+    const lookupSources = await store.sourceMessages(lookup);
+    assert(restored.sourceIds.includes(lookupSources.find((row) => row.ordinal === 3).id));
+
     for (let index = 0; index < 3; index++) {
       await add(store, 'background', 'assistant', 'Historical analysis. '.repeat(125));
     }

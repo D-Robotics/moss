@@ -225,3 +225,85 @@ function invalidSummary(): MossError {
     message: 'Context summary has invalid source references',
   });
 }
+
+function fieldExcerpt(text: string, fields: string[], max: number): string | undefined {
+  const normalized = text.toLowerCase();
+  for (const field of fields) {
+    const index = normalized.indexOf(field);
+    if (index < 0) continue;
+    const start = Math.max(0, index - Math.floor(max / 2));
+    const end = Math.min(text.length, start + max - 12);
+    return `${start ? '[…] ' : ''}${text.slice(start, end)}${end < text.length ? ' […]' : ''}`;
+  }
+  return undefined;
+}
+
+export interface HistoricalToolExcerpt {
+  sourceId: string;
+  text: string;
+}
+
+/** Recover limited quotations relevant to the current question from the original archive. */
+export function relevantToolExcerpts(
+  rows: ContextSourceMessage[],
+  focus: string
+): HistoricalToolExcerpt[] {
+  if (!focus.trim()) return [];
+  const evidence = rows.flatMap((row) => {
+    const source = toEvidence(row);
+    return source ? [{ ...source, searchable: source.text.toLowerCase() }] : [];
+  });
+  const tools = evidence.filter(({ origin }) => origin === 'tool');
+  const replies = evidence.filter(({ completeReply }) => completeReply).slice(-8);
+  const selected = new Map<string, string>();
+  for (const clause of focus.split(/[、，,；;\n]/u).slice(0, 12)) {
+    const terms = focusWords(clause);
+    const direct = terms.filter((term) => /[a-z_]/i.test(term));
+    if (!direct.length) continue;
+    const anchor = replies
+      .flatMap(({ text }) => text.split(/\r?\n/))
+      .map((line) => ({
+        line,
+        matches: terms.filter((term) => line.toLowerCase().includes(term)).length,
+      }))
+      .filter(({ matches }) => matches >= 2)
+      .sort((a, b) => b.matches - a.matches)[0];
+    const associated = (
+      anchor?.line.toLowerCase().match(/\/[\w./-]+|\b[a-z]\w*(?:_\w+)+\b|\b[a-z_]\w*=\w+/g) ?? []
+    ).slice(0, 12);
+    const keywords = [...new Set([...direct, ...associated])];
+    const ranked = tools
+      .map((source) => {
+        const exact = direct.filter((term) => source.searchable.includes(term));
+        if (!exact.length) return { source, rank: 0 };
+        const related = associated.filter((term) => source.searchable.includes(term));
+        return { source, rank: exact.length * 3 + related.length * 4 };
+      })
+      .filter(({ rank }) => rank > 0)
+      .sort((a, b) => b.rank - a.rank || b.source.ordinal - a.source.ordinal);
+    const best = ranked[0]?.source;
+    if (!best) continue;
+    const fields = direct.filter((term) => term.includes('_'));
+    selected.set(
+      best.sourceId,
+      fieldExcerpt(best.text, fields, 520) ?? evidenceExcerpt(best.text, 520, keywords)
+    );
+    // An exact field may legitimately have different values in adjacent configurations.
+    if (fields.length && selected.size < 4) {
+      const alternate =
+        ranked
+          .slice(1)
+          .reverse()
+          .find(({ source }) => fields.some((field) => source.searchable.includes(`"${field}"`)))
+          ?.source ?? ranked[1]?.source;
+      if (alternate)
+        selected.set(
+          alternate.sourceId,
+          fieldExcerpt(alternate.text, fields, 520) ??
+            evidenceExcerpt(alternate.text, 520, keywords)
+        );
+    }
+    if (selected.size >= 4) break;
+  }
+  return [...selected.entries()].map(([sourceId, text]) => ({ sourceId, text }));
+}
