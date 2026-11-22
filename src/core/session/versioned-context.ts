@@ -447,7 +447,7 @@ export class VersionedContextPipeline {
         stages.push('S4');
       }
     }
-    if (boundary && (retired || !selected.legal || (input.force && !stages.includes('S4')))) {
+    if (boundary && (!selected.legal || (input.force && !stages.includes('S4')))) {
       try {
         const checkpoint = await this.prepareSummary(input, snapshot, sources, boundary, policy);
         const projection = projected(checkpoint);
@@ -460,7 +460,9 @@ export class VersionedContextPipeline {
         input.signal.throwIfAborted();
         if (!selected.legal || input.force) throw error;
       }
-    } else if (boundary && raw.tokens >= capacity * 0.5) {
+    } else if (boundary && (retired || raw.tokens >= capacity * 0.5)) {
+      // The current source view already excludes superseded conclusions. A
+      // retired checkpoint can rebuild off the reply path when this view fits.
       const backgroundKey = JSON.stringify([input.sessionKey, snapshot.revision, policy]);
       const covered = isCompatible ? candidate.throughOrdinal : 0;
       const backlog = sources.filter(

@@ -45,6 +45,8 @@ export interface LLMRequestOptions {
   systemPromptParts?: LLMSystemPromptParts;
   messages: LLMMessage[];
   tools?: LLMToolDeclaration[];
+  /** Request a tool call on this turn when the provider supports it. */
+  toolChoice?: 'required';
   maxTokens?: number;
   temperature?: number;
   abortSignal?: AbortSignal;

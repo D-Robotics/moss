@@ -431,8 +431,9 @@ export class PiAiLLMProvider implements LLMProvider {
     toolFollowSuppress = false
   ): Record<string, unknown> {
     const tcRaw = envPreferMoss('MOSS_PI_AI_TOOL_CHOICE', 'PI_AI_TOOL_CHOICE');
-    const toolChoice =
+    const configuredToolChoice =
       tcRaw === 'required' || tcRaw === 'auto' || tcRaw === 'none' ? tcRaw : undefined;
+    const toolChoice = options.toolChoice ?? configuredToolChoice;
 
     const effectiveSignal = overrideAbortSignal ?? options.abortSignal;
 
@@ -462,6 +463,7 @@ export class PiAiLLMProvider implements LLMProvider {
       ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
       ...(effectiveSignal ? { abortSignal: effectiveSignal, signal: effectiveSignal } : {}),
       ...(toolChoice ? { toolChoice } : {}),
+      ...(options.toolChoice ? { allowToolChoiceFallback: true } : {}),
       ...(onPayload ? { onPayload } : {}),
       ...(options.extraBody ? { extraBody: options.extraBody } : {}),
     };

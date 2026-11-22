@@ -1906,6 +1906,10 @@ ${result.stderr ?? ''}`.trim();
 
     const streamFn = createStreamFunctionFromLlmProvider({
       provider,
+      getToolChoice: (tools) =>
+        readOnlyIntentSurface && intentTurn?.needsDecision && tools?.length === 1
+          ? 'required'
+          : undefined,
       ...(this.config.llmExtraBody ? { extraBody: this.config.llmExtraBody } : {}),
       onRequest: (request) => {
         if (

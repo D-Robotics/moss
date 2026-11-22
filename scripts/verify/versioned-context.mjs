@@ -692,6 +692,7 @@ async function testReadOnlyIntentPrompt(workspace) {
       onMain(request, count) {
         if (count === 2) {
           assert(!request.tools?.length);
+          assert.equal(request.toolChoice, undefined);
           assert(!request.systemPrompt.includes('contextSources'));
           assert.match(JSON.stringify(request.messages), /Health check returned HTTP 200/);
           return response(text(answer));
@@ -700,6 +701,7 @@ async function testReadOnlyIntentPrompt(workspace) {
           request.tools.map(({ name }) => name),
           ['turn_decision']
         );
+        assert.equal(request.toolChoice, 'required');
         assert.equal(request.tools[0].input_schema.properties.changes, undefined);
         assert.doesNotMatch(request.systemPrompt, /After a successful/);
         if (count === 1) {
@@ -931,42 +933,63 @@ async function testProcessRestart(workspace) {
     assert.equal(child.status, 0, child.stderr);
   });
 
-  await usingAgent(workspace, async ({ agent, store, modelRequests, summaryRequests }) => {
-    const session = 'restart';
-    assert.equal(store.revision(session), 1);
-    const original = (await store.sourceMessages(session)).find(
-      (source) => source.message.content === oldClaim
-    );
-    const replay = await correct(agent, session, original.id, 'restart-correction');
-    assert.equal(replay.revision, 1);
-    assert.equal(store.snapshot(session).corrections.length, 1);
-    assert.equal(
-      agent.getTaskIntentReceipt(session, 'context:restart-correction').status,
-      'pending'
-    );
-    const rebuilt = await agent.compactSession(session);
-    assert.equal(rebuilt.compacted, true);
-    assert(summaryRequests.every((request) => !JSON.stringify(request).includes(oldClaim)));
-    await agent.chat(session, 'Continue with the corrected context', {
-      taskFlow: false,
-      maxTurns: 4,
-    });
-    const sent = JSON.stringify(modelRequests);
-    assert.doesNotMatch(
-      sent,
-      new RegExp(`${oldClaim}|${oldSummary}|OBSOLETE_DEPENDENT_DEPLOY_PLAN`)
-    );
-    assert.match(sent, /Health check returned HTTP 200/);
-    assert(
-      (await store.sourceMessages(session)).some((source) => source.message.content === oldClaim)
-    );
-    assert.equal(
-      agent.getTaskIntentReceipt(session, 'context:restart-correction').status,
-      'committed'
-    );
-  });
+  const rebuildStarted = latch();
+  const releaseRebuild = latch();
+  await usingAgent(
+    workspace,
+    async ({ agent, store, modelRequests, summaryRequests }) => {
+      const session = 'restart';
+      assert.equal(store.revision(session), 1);
+      const original = (await store.sourceMessages(session)).find(
+        (source) => source.message.content === oldClaim
+      );
+      const replay = await correct(agent, session, original.id, 'restart-correction');
+      assert.equal(replay.revision, 1);
+      assert.equal(store.snapshot(session).corrections.length, 1);
+      assert.equal(
+        agent.getTaskIntentReceipt(session, 'context:restart-correction').status,
+        'pending'
+      );
+      const reply = agent.chat(session, 'Continue with the corrected context', {
+        taskFlow: false,
+        maxTurns: 4,
+      });
+      try {
+        await observeRace(reply, rebuildStarted, 'the pending background rebuild');
+        assert.equal(
+          (await waitFor(reply, 'the reply before rebuilding')).response,
+          'The current context was evaluated.'
+        );
+      } finally {
+        releaseRebuild.resolve();
+      }
+      const rebuilt = await agent.compactSession(session);
+      assert.equal(rebuilt.compacted, true);
+      assert(summaryRequests.every((request) => !JSON.stringify(request).includes(oldClaim)));
+      const sent = JSON.stringify(modelRequests);
+      assert.doesNotMatch(
+        sent,
+        new RegExp(`${oldClaim}|${oldSummary}|OBSOLETE_DEPENDENT_DEPLOY_PLAN`)
+      );
+      assert.match(sent, /Health check returned HTTP 200/);
+      assert(
+        (await store.sourceMessages(session)).some((source) => source.message.content === oldClaim)
+      );
+      assert.equal(
+        agent.getTaskIntentReceipt(session, 'context:restart-correction').status,
+        'committed'
+      );
+    },
+    {
+      async onSummary(input) {
+        rebuildStarted.resolve();
+        await releaseRebuild.promise;
+        return summarize(input);
+      },
+    }
+  );
   console.log(
-    'PASS restart after correction commit and before rebuild preserves the receipt and rejects the old checkpoint'
+    'PASS restart answers while rebuilding a corrected checkpoint and excludes superseded context'
   );
 }
 
