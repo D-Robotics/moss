@@ -419,11 +419,18 @@ async function testSummarySourceValidation(workspace) {
       const session = 'summary-sources';
       await seed(store, session);
 
-      await assert.rejects(agent.compactSession(session), /invalid source references/i);
+      const fallback = await agent.compactSession(session);
+      assert.equal(fallback.compacted, true);
+      assert.doesNotMatch(fallback.summary, /FABRICATED_EVIDENCE|unknown-source/);
+      const sources = await store.sourceMessages(session);
+      assert(sources.some(({ id }) => fallback.summary.includes(`[sources: ${id}]`)));
+      assert.match(fallback.summary, /Source excerpt/);
       corrupt = false;
-      const rebuilt = await agent.compactSession(session);
+      const validSession = 'summary-partial-sources';
+      await seed(store, validSession);
+      const rebuilt = await agent.compactSession(validSession);
       assert.equal(rebuilt.compacted, true);
-      assert.doesNotMatch(rebuilt.summary, /FABRICATED_EVIDENCE/);
+      assert.doesNotMatch(rebuilt.summary, /FABRICATED_EVIDENCE|unknown-source/);
       assert.match(
         rebuilt.summary,
         /\[unverified\] Unsupported assistant observation \[sources: [a-f0-9-]+\]/
@@ -451,6 +458,11 @@ async function testSummarySourceValidation(workspace) {
                     text: 'Unsupported assistant observation',
                     sourceIds: [input.sources.find(({ origin }) => origin === 'assistant').id],
                   },
+                  {
+                    kind: 'observation',
+                    text: 'FABRICATED_EVIDENCE',
+                    sourceIds: ['unknown-source'],
+                  },
                 ])
               )
             );
@@ -458,7 +470,7 @@ async function testSummarySourceValidation(workspace) {
     }
   );
   console.log(
-    'PASS unknown source references are rejected and a cited assistant observation is downgraded'
+    'PASS invalid summary citations fall back to genuine sources and valid entries are retained'
   );
 }
 

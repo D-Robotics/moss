@@ -1205,6 +1205,7 @@ export class MossAgent {
         messages: [{ role: 'user', content: request.userPrompt }],
         maxTokens: request.maxTokens,
         abortSignal: request.abortSignal,
+        ...(onUsage ? { reasoning: null } : {}),
       });
       onUsage?.({
         inputTokens: resp.usage?.inputTokens ?? 0,
