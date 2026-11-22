@@ -12,7 +12,6 @@ import {
   type TaskStateSnapshot,
 } from '../../contracts/task-runtime.js';
 import { ErrorCode, MossError } from '../../errors.js';
-import { getRootLogger } from '../../logger.js';
 import {
   appendTaskEvent,
   buildTaskTimeline,
@@ -30,14 +29,18 @@ import {
   setPersistedAcceptanceCommand,
 } from './acceptance-authority.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
+import { withTaskExecutionGuard } from './task-execution-guard.js';
 import type { AgentTurnResult } from './agent-turn.js';
 import {
   acceptanceAlreadySatisfied,
   createTaskVerdictProvider,
   isCommittedTaskVerdict,
 } from './verdict.js';
-
-const log = getRootLogger().child('task-engine');
+import {
+  inTaskExecutionControlScope,
+  isTaskExecutionSupersededError,
+  TaskExecutionSupersededError,
+} from './task-execution-guard.js';
 
 export interface TaskEngineDeps {
   workspaceDir: string;
@@ -47,7 +50,15 @@ export interface TaskEngineDeps {
    * An `AgentTurnResult` object may carry `stopReason` instead. A reason
    * that starts with `budget_` ends the run unless the task is already settled.
    */
-  runTurn: (prompt: string, phase: string) => Promise<string | AgentTurnResult>;
+  runTurn: {
+    (
+      prompt: string,
+      phase: string,
+      binding?: import('./agent-turn.js').TaskTurnBinding
+    ): Promise<string | AgentTurnResult>;
+    captureAcceptanceGuard?(taskId: string): (() => void) | undefined;
+    pendingUserInput?(): boolean;
+  };
   /** Defaults to contract acceptance; a command provider overrides it. */
   verdictProvider?: VerdictProvider;
   /** Repair cycles before the task is declared failed (default 5). */
@@ -229,9 +240,17 @@ async function runAgentTurn(
   deps: TaskEngineDeps,
   state: RunLoopState,
   prompt: string,
-  phase: string
-): Promise<'ok' | 'budget'> {
-  const { stopReason } = readAgentTurnResult(await deps.runTurn(prompt, phase), deps.runTurn);
+  phase: string,
+  userGoal?: string
+): Promise<'ok' | 'budget' | 'hold'> {
+  const { stopReason } = readAgentTurnResult(
+    await deps.runTurn(prompt, phase, { taskId: state.taskId, userGoal }),
+    deps.runTurn
+  );
+  if (stopReason === 'task_intent_hold') {
+    await pauseForNewInput(deps, state.taskId);
+    return 'hold';
+  }
   // Normal turns are reconciled by their caller; only a budget stop needs
   // this extra snapshot before deciding whether to append a failure.
   if (!stopReason?.startsWith('budget_')) return 'ok';
@@ -241,6 +260,33 @@ async function runAgentTurn(
     detail: `run budget exceeded (${stopReason})`,
   });
   return 'budget';
+}
+
+async function pauseForNewInput(deps: TaskEngineDeps, taskId: string): Promise<void> {
+  await inTaskExecutionControlScope(async () => {
+    const snapshot = await getTaskStateSnapshot(deps.workspaceDir, taskId);
+    if (!snapshot || phaseIsSettled(snapshot.phase)) return;
+    await tryAppendTaskEvent(deps.workspaceDir, taskId, 'blocked_on_user', {
+      reason: 'Task paused while the latest user input is resolved.',
+      taskRevision: snapshot.revision,
+    });
+  });
+}
+
+async function finishPlanningTurn(deps: TaskEngineDeps, taskId: string): Promise<void> {
+  let snapshot = await getTaskStateSnapshot(deps.workspaceDir, taskId);
+  if (!snapshot || phaseIsSettled(snapshot.phase)) return;
+  if (['draft', 'understanding', 'planning'].includes(snapshot.phase)) {
+    await appendTaskEvent(deps.workspaceDir, taskId, 'plan_ready', {
+      taskRevision: snapshot.revision,
+    });
+    snapshot = await getTaskStateSnapshot(deps.workspaceDir, taskId);
+  }
+  if (snapshot?.phase === 'ready') {
+    await appendTaskEvent(deps.workspaceDir, taskId, 'execution_started', {
+      taskRevision: snapshot.revision,
+    });
+  }
 }
 
 /**
@@ -259,10 +305,24 @@ async function runVerification(
   state: RunLoopState,
   provider: VerdictProvider
 ): Promise<VerificationResult> {
+  const guard = deps.runTurn.captureAcceptanceGuard?.(state.taskId);
+  return guard
+    ? withTaskExecutionGuard(guard, () => evaluateTaskVerification(deps, state, provider))
+    : evaluateTaskVerification(deps, state, provider);
+}
+
+async function evaluateTaskVerification(
+  deps: TaskEngineDeps,
+  state: RunLoopState,
+  provider: VerdictProvider
+): Promise<VerificationResult> {
   const { workspaceDir } = deps;
+  const expectedRevision = (await getTaskStateSnapshot(workspaceDir, state.taskId))?.revision ?? 0;
   // Tolerant: the agent may already have entered verification via the
   // task_acceptance tool during its turn.
-  await tryAppendTaskEvent(workspaceDir, state.taskId, 'verification_started');
+  await tryAppendTaskEvent(workspaceDir, state.taskId, 'verification_started', {
+    taskRevision: expectedRevision,
+  });
   deps.onProgress?.({
     taskId: state.taskId,
     phase: 'verifying',
@@ -270,6 +330,11 @@ async function runVerification(
     detail: 'evaluating acceptance',
   });
   const verdict = await provider.evaluate(state.taskId, deps.signal);
+  if (
+    !isCommittedTaskVerdict(verdict) &&
+    (await getTaskStateSnapshot(workspaceDir, state.taskId))?.revision !== expectedRevision
+  )
+    throw new TaskExecutionSupersededError('Task changed during verification.');
   // Cancellation while a provider awaits evidence outranks its eventual PASS.
   if (deps.signal?.aborted && !isCommittedTaskVerdict(verdict)) return { kind: 'aborted' };
   state.lastVerdict = verdict;
@@ -285,6 +350,7 @@ async function runVerification(
             ? 'acceptance command exited 0'
             : 'criteria met with evidence',
         acceptanceSource: verdict.source,
+        taskRevision: expectedRevision,
       },
       isCommittedTaskVerdict(verdict) ? undefined : deps.signal
     );
@@ -357,6 +423,31 @@ async function verifyRepairLoop(
       await appendTaskEvent(workspaceDir, state.taskId, 'task_failed', { detail: 'aborted' });
       return 'failed';
     }
+    if (current.needsReplan) {
+      pendingVerifyFirst = false;
+      if (state.turns + 1 > maxTurns) {
+        await appendTaskEvent(workspaceDir, state.taskId, 'blocked_on_user', {
+          reason: 'The revised task needs planning but the turn budget is exhausted.',
+        });
+        return 'blocked';
+      }
+      state.turns += 1;
+      const replanned = await runAgentTurn(
+        deps,
+        state,
+        planningPrompt(
+          current.goal,
+          state.taskId,
+          await persistedAcceptanceCommand(workspaceDir, state.taskId)
+        ),
+        'planning'
+      );
+      if (replanned === 'budget') return 'budget';
+      if (replanned === 'hold') return 'blocked';
+      await finishPlanningTurn(deps, state.taskId);
+      if (await acceptPlanningIfSatisfied(deps, state, provider)) return 'accepted';
+      continue;
+    }
 
     let verified: VerificationResult;
     if (pendingVerifyFirst) {
@@ -391,6 +482,7 @@ async function verifyRepairLoop(
         'executing'
       );
       if (executed === 'budget') return 'budget';
+      if (executed === 'hold') return 'blocked';
 
       // The turn may already have accepted, failed, abandoned, or blocked the
       // task (task_acceptance, /goal clear). Do not reopen it with
@@ -454,6 +546,7 @@ async function verifyRepairLoop(
       'repairing'
     );
     if (repaired === 'budget') return 'budget';
+    if (repaired === 'hold') return 'blocked';
     // task_acceptance during the repair turn can accept the task. repair_applied
     // is illegal from a terminal or blocked phase and would surface as
     // "run crashed" even though the goal already finished.
@@ -539,33 +632,6 @@ function latestBlockedReason(
 }
 
 /**
- * plan_ready / execution_started are illegal once the task is terminal or
- * blocked (the turn accepted, or another session ran /goal clear). That case
- * is skipped. Any other illegal transition is logged and thrown.
- */
-async function appendUnlessAccepted(
-  workspaceDir: string,
-  taskId: string,
-  type: 'plan_ready' | 'execution_started'
-): Promise<void> {
-  const snapshot = await getTaskStateSnapshot(workspaceDir, taskId);
-  if (phaseIsSettled(snapshot?.phase)) return;
-  try {
-    await appendTaskEvent(workspaceDir, taskId, type);
-  } catch (err) {
-    if (err instanceof MossError && err.code === ErrorCode.EXECUTION_STATE_INVALID) {
-      log.warn('refusing illegal task phase transition', {
-        taskId,
-        type,
-        phase: snapshot?.phase,
-        message: err.message,
-      });
-    }
-    throw err;
-  }
-}
-
-/**
  * The planning turn already implements and verifies. If that work satisfies
  * acceptance, do not spend a second model turn on executionPrompt.
  * A command is not run here unless the contract is already satisfied — a red
@@ -606,7 +672,8 @@ async function acceptPlanningIfSatisfied(
     true,
     verdict.detail,
     verdict.source,
-    isCommittedTaskVerdict(verdict) ? undefined : deps.signal
+    isCommittedTaskVerdict(verdict) ? undefined : deps.signal,
+    current.revision
   );
   deps.onProgress?.({
     taskId: state.taskId,
@@ -664,20 +731,20 @@ export async function runTask(
       deps,
       state,
       await injectExperienceIntoPrompt(prompt, goal, deps.workspaceDir),
-      'planning'
+      'planning',
+      goal
     );
     // A budget stop must not open the execution or repair loop. A settled
     // turn is not a budget stop. An aborted planning turn returns normally;
     // do not hand off into execution or a repair turn.
-    if (planning !== 'budget') {
+    if (planning === 'ok') {
       if (deps.signal?.aborted) {
         await failAborted(deps.workspaceDir, taskId);
         return buildRunResult(deps.workspaceDir, taskId, state);
       }
       // Already-accepted is the only skipped transition. Anything else illegal
       // (for example plan_ready from verifying) throws.
-      await appendUnlessAccepted(deps.workspaceDir, taskId, 'plan_ready');
-      await appendUnlessAccepted(deps.workspaceDir, taskId, 'execution_started');
+      await finishPlanningTurn(deps, taskId);
       if (deps.signal?.aborted) {
         await failAborted(deps.workspaceDir, taskId);
         return buildRunResult(deps.workspaceDir, taskId, state);
@@ -687,6 +754,10 @@ export async function runTask(
       }
     }
   } catch (err) {
+    if (isTaskExecutionSupersededError(err)) {
+      await pauseForNewInput(deps, taskId);
+      return buildRunResult(deps.workspaceDir, taskId, state);
+    }
     // A lock timeout is the error: wrapping it as task_failed "run crashed"
     // hides the cause, and the wrap needs the same lock. A user abort is
     // the same class of non-crash: the task stays resumable.
@@ -716,7 +787,12 @@ export async function runTask(
 export async function resumeTask(
   deps: TaskEngineDeps,
   taskId: string,
-  options: { acceptanceCommand?: string; maxRepairAttempts?: number; maxTurns?: number } = {}
+  options: {
+    acceptanceCommand?: string;
+    maxRepairAttempts?: number;
+    maxTurns?: number;
+    replan?: boolean;
+  } = {}
 ): Promise<TaskRunResult> {
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, taskId);
   if (!snapshot) throw new Error(`task ${taskId} not found`);
@@ -730,6 +806,11 @@ export async function resumeTask(
     snapshot.phase === 'blocked'
   ) {
     await appendTaskEvent(deps.workspaceDir, taskId, 'task_resumed', { detail: 'resumed by user' });
+  }
+  if (options.replan && !snapshot.needsReplan) {
+    await appendTaskEvent(deps.workspaceDir, taskId, 'replanning_started', {
+      taskRevision: snapshot.revision,
+    });
   }
   // A resume may correct the oracle (B98): the blocked reason told the user to
   // fix the command, so `--accept` must actually be able to replace it. The
@@ -752,9 +833,13 @@ export async function resumeTask(
       provider,
       options.maxRepairAttempts ?? deps.maxRepairAttempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS,
       options.maxTurns,
-      true
+      !options.replan && !snapshot.needsReplan && !deps.runTurn.pendingUserInput?.()
     );
   } catch (err) {
+    if (isTaskExecutionSupersededError(err)) {
+      await pauseForNewInput(deps, taskId);
+      return buildRunResult(deps.workspaceDir, taskId, state);
+    }
     if (isUserAbort(err) || deps.signal?.aborted) {
       await failAborted(deps.workspaceDir, taskId);
       return buildRunResult(deps.workspaceDir, taskId, state);

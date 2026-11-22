@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -486,10 +487,74 @@ const modeCommand: CommandSpec = {
 
 const contextCommand: CommandSpec = {
   name: '/context',
-  summary: 'show message count and token usage in this session',
-  async run(ctx) {
+  summary: 'show usage, list context sources, or correct a source',
+  async run(ctx, args) {
     const zh = isZh();
     try {
+      if (args.trim() === 'unsettled') {
+        const rows = ctx.agent.listUnsettledContextInvocations(ctx.sessionKey);
+        if (!rows)
+          throw new Error('Enable MOSS_VERSIONED_CONTEXT=1 to inspect dispatched operations');
+        ctx.say(
+          'system',
+          rows.map(({ id, tool }) => `${id}  ${tool}`).join('\n') || 'No unresolved mutations.'
+        );
+        return;
+      }
+      if (/^reconcile(?:\s|$)/.test(args.trim())) {
+        const match = /^reconcile\s+(\S+)\s+([\s\S]+)$/.exec(args.trim());
+        if (!match) throw new Error('Usage: /context reconcile <invocation-id> <observed outcome>');
+        if (!ctx.agent.reconcileContextInvocation(ctx.sessionKey, match[1]!, match[2]!))
+          throw new Error('No unsettled mutation matches that invocation ID');
+        ctx.say('system', zh ? '已记录该操作的核对结果。' : 'Invocation outcome recorded.');
+        return;
+      }
+      if (args.trim() === 'claims') {
+        const claims = ctx.agent.listContextClaims(ctx.sessionKey);
+        if (!claims) throw new Error('Enable MOSS_VERSIONED_CONTEXT=1 to inspect context claims');
+        ctx.say(
+          'system',
+          claims
+            .slice(-30)
+            .map(
+              ({ id, status, text, sourceIds }) =>
+                `${id}  ${status}  ${text}  [${sourceIds.join(', ')}]`
+            )
+            .join('\n') || 'No context claims yet.'
+        );
+        return;
+      }
+      if (args.trim() === 'sources') {
+        const sources = await ctx.agent.listContextSources(ctx.sessionKey);
+        if (!sources) throw new Error('Enable MOSS_VERSIONED_CONTEXT=1 to inspect context sources');
+        ctx.say(
+          'system',
+          sources
+            .slice(-30)
+            .map(
+              ({ id, origin, message }) =>
+                `${id}  ${origin}  ${(typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).replace(/\s+/g, ' ').slice(0, 120)}`
+            )
+            .join('\n') || 'No context sources yet.'
+        );
+        return;
+      }
+      if (/^correct(?:\s|$)/.test(args.trim())) {
+        const match = /^correct\s+(\S+)\s+([\s\S]+)$/.exec(args.trim());
+        if (!match) throw new Error('Usage: /context correct <source-id> <correction>');
+        const result = await ctx.agent.correctContext(ctx.sessionKey, {
+          id: randomUUID(),
+          targetId: match[1]!,
+          text: match[2]!,
+        });
+        ctx.say(
+          'system',
+          zh
+            ? `纠错已保存（上下文版本 ${result.revision}）。下一轮会重新构建上下文。`
+            : `Correction saved (context revision ${result.revision}). The next turn will rebuild its context.`
+        );
+        return;
+      }
       const msgs = await ctx.agent.config.sessionStore.loadMessages(ctx.sessionKey);
       const tokens = msgs.reduce((n, m) => {
         const content = (m as { content?: unknown }).content;

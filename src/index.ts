@@ -246,3 +246,5 @@ export type {
   TaskObservation,
   ToolWaitProgress,
 } from './core/tools/task-observation.js';
+
+export { codeDiagnosticsTool } from './tools/code-diagnostics.js';

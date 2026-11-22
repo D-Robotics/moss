@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { SessionInbox, type SessionInboxEntry } from './session-inbox.js';
+import { validatePersistedTaskIntent } from './task-intent-state.js';
 
 type InboxLockOwner = { pid: number; token: string };
 
@@ -153,6 +154,9 @@ export function loadSessionInbox(filePath: string): SessionInbox {
     throw new Error(`Invalid session inbox: ${filePath}`);
   if (new Set(entries.map((entry: SessionInboxEntry) => entry.id)).size !== entries.length) {
     throw new Error(`Duplicate entries in session inbox: ${filePath}`);
+  }
+  for (const entry of entries as SessionInboxEntry[]) {
+    if (entry.intent !== undefined) validatePersistedTaskIntent(entry.intent);
   }
   return SessionInbox.fromEntries(entries as SessionInboxEntry[]);
 }
