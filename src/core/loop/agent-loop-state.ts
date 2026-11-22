@@ -4,6 +4,7 @@ import { createOverflowRecoveryState } from './overflow-recovery.js';
 import type { AgentLoopToolExecutionMetrics } from './agent-loop-tool-execution.js';
 
 export interface AgentLoopMutableState {
+  taskIntentHalted?: boolean;
   suspendedTool?: import('../tools/tool-suspension.js').SuspendedToolCall;
   taskWaitTimeout?: import('../tools/task-observation.js').ToolWaitTimeout;
   turns: number;

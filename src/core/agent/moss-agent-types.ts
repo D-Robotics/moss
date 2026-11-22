@@ -181,6 +181,9 @@ export interface MossAgentConfig
     signal: AbortSignal
   ) => Promise<UserIntentDecision | undefined>;
 
+  /** Require same-response task updates before acting on genuine user inputs. */
+  taskIntent?: boolean;
+
   /** Host provider id (`deepseek`, `openai-compatible`, …). Updated by `switchModel`. */
   provider?: string;
 
@@ -318,6 +321,10 @@ export interface MossAgentConfig
 }
 
 export interface ChatOptions {
+  /** Trusted raw user input; false marks autonomous engine prompts. */
+  userInput?: { id: string; text?: string; taskId?: string } | false;
+  /** Host-owned native Task Runtime binding, including autonomous turns. */
+  taskId?: string;
   /** Host-selected, versioned instructions; validated and fixed at run admission. */
   harnessAdapter?: HarnessAdapter;
 

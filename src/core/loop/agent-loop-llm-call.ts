@@ -59,6 +59,7 @@ export interface ExecuteLlmTurnParams {
   compactHooks?: CompactHookRegistry;
   lastMessageNeedsToolFollowUpLlm: (messages: Message[]) => boolean;
   suppressVisibleDeltas?: boolean;
+  preserveSourceHistory?: boolean;
   /** Per-call output cap. Overrides modelDef.maxTokens when recovery escalates. */
   maxTokens?: number;
 }
@@ -156,7 +157,9 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
   if (
     state.reasoningOverrideNextTurn &&
     effectiveReasoning !== undefined &&
-    effectiveReasoning !== null
+    effectiveReasoning !== null &&
+    effectiveReasoning !== 'off' &&
+    (effectiveReasoning !== 'minimal' || state.reasoningOverrideNextTurn === 'off')
   ) {
     effectiveReasoning = state.reasoningOverrideNextTurn;
   }
@@ -223,6 +226,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
   } catch (llmError) {
     const errorText = describeError(llmError);
     if (
+      !params.preserveSourceHistory &&
       isContextOverflowError(errorText) &&
       state.overflowState.level < 3 &&
       !lastMessageNeedsToolFollowUpLlm(currentMessages)

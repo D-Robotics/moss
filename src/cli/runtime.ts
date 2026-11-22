@@ -120,6 +120,7 @@ import {
 } from './onboarding-hints.js';
 import { MossAgent } from '../core/agent/moss-agent.js';
 import { JsonlSessionStore } from '../core/session/jsonl-session-store.js';
+import { VersionedSessionStore } from '../core/session/versioned-session-store.js';
 import { registerFileBasedTools } from '../tools/file-based-tools.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { loadMcpConfigs } from './mcp-config.js';
@@ -565,9 +566,16 @@ export async function runCli(): Promise<void> {
   // Diagnose `resume`/`fork` with no saved sessions BEFORE the model-config
   // gate: "needs a model configuration" was the wrong message for that case.
   // Reuse this store instance later (L489) instead of creating a second one.
-  let earlySessionStore: JsonlSessionStore | undefined;
+  const versionedContextPath = path.join(runtimeDir, 'runtime', 'context.sqlite');
+  const useVersionedContext =
+    process.env.MOSS_VERSIONED_CONTEXT === '1' || fs.existsSync(versionedContextPath);
+  const createSessionStore = () => {
+    const legacy = new JsonlSessionStore({ dir: workspacePathMigration.paths.sessionsDir });
+    return useVersionedContext ? new VersionedSessionStore(versionedContextPath, legacy) : legacy;
+  };
+  let earlySessionStore: ReturnType<typeof createSessionStore> | undefined;
   if (parsedArgs.command === 'resume' || parsedArgs.command === 'fork') {
-    earlySessionStore = new JsonlSessionStore({ dir: workspacePathMigration.paths.sessionsDir });
+    earlySessionStore = createSessionStore();
     const existing = await earlySessionStore.listSessions().catch(() => []);
     if (existing.length === 0) {
       console.error(
@@ -662,8 +670,7 @@ export async function runCli(): Promise<void> {
   const configDir = resolveConfigDir();
   const providerConfig: CliProviderRuntimeConfig = { ...resolvedConfig };
 
-  const sessionStore =
-    earlySessionStore ?? new JsonlSessionStore({ dir: workspacePathMigration.paths.sessionsDir });
+  const sessionStore = earlySessionStore ?? createSessionStore();
   const session = await resolveCliSession({
     command: sessionCommand,
     store: sessionStore,
@@ -965,6 +972,7 @@ export async function runCli(): Promise<void> {
     ...createJevIntentRuntime(envBeforeDotenv),
     llmProvider: cliLlmProvider,
     sessionStore,
+    ...(useVersionedContext ? { taskIntent: true } : {}),
     model,
     usingBundledDefault: resolvedConfig.usingBundledDefault,
     workspaceDir: workspace,
@@ -2119,6 +2127,7 @@ export async function runCli(): Promise<void> {
         await waitForBackgroundProcesses(stoppedBackgroundIds, 'wait_all', 5_000, { pollMs: 20 });
       }
       await agent.close();
+      if (sessionStore instanceof VersionedSessionStore) sessionStore.close();
       await (await import('../device/device-registry.js')).disconnectAllDevices();
     } finally {
       // Shut MCP server connections (stdio children) down after the agent is

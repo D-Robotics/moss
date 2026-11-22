@@ -1,3 +1,5 @@
+import type { TaskIntentEntryState } from '../../contracts/task-intent.js';
+
 export type SessionInboxDelivery = 'steer' | 'queue';
 
 export interface SessionInboxEntry {
@@ -10,6 +12,9 @@ export interface SessionInboxEntry {
   readonly admittedSeq: number;
 
   promotedSeq?: number;
+
+  /** User-intent receipt and recoverable projection, sharing inbox durability. */
+  intent?: TaskIntentEntryState;
 
   /** The target run ended before canonical adoption. Still pending until ack. */
   deferred?: boolean;
@@ -65,7 +70,7 @@ export class SessionInbox {
   }
 
   nextQueued(): SessionInboxEntry | undefined {
-    return this.pending().find((e) => e.delivery === 'queue');
+    return this.pending().find((e) => e.delivery === 'queue' && !e.metadata?.intentOnly);
   }
 
   promote(id: string): SessionInboxEntry {
@@ -73,6 +78,12 @@ export class SessionInbox {
     if (!entry) throw new Error(`Session inbox has no entry "${id}"`);
     if (entry.promotedSeq === undefined) entry.promotedSeq = ++this.promotedCounter;
     return entry;
+  }
+
+  setIntent(id: string, intent: TaskIntentEntryState): void {
+    const entry = this.entries.find((item) => item.id === id);
+    if (!entry) throw new Error(`Session inbox has no entry "${id}"`);
+    entry.intent = intent;
   }
 
   hasPendingWork(): boolean {
@@ -87,10 +98,33 @@ export class SessionInbox {
   }
 
   private pruneIfNeeded(): void {
-    while (this.entries.length > SessionInbox.MAX_ENTRIES) {
-      const idx = this.entries.findIndex((e) => e.promotedSeq !== undefined);
+    const latestIntent = this.entries.filter((entry) => entry.intent?.snapshot).at(-1)?.id;
+    while (
+      this.entries.filter((entry) => !entry.metadata?.intentTombstone).length >
+      SessionInbox.MAX_ENTRIES
+    ) {
+      const idx = this.entries.findIndex(
+        (e) =>
+          e.promotedSeq !== undefined &&
+          e.id !== latestIntent &&
+          !e.metadata?.intentTombstone &&
+          (!e.intent || ['committed', 'needs_clarification'].includes(e.intent.status))
+      );
       if (idx === -1) break;
-      this.entries.splice(idx, 1);
+      const entry = this.entries[idx]!;
+      if (entry.intent) {
+        this.entries[idx] = {
+          ...entry,
+          prompt: '',
+          metadata: { intentTombstone: true },
+          intent: {
+            status: entry.intent.status,
+            revision: entry.intent.revision ?? entry.intent.snapshot?.revision,
+            digest: createHash('sha256').update(entry.prompt).digest('hex'),
+            ...(entry.intent.taskId ? { taskId: entry.intent.taskId } : {}),
+          },
+        };
+      } else this.entries.splice(idx, 1);
     }
   }
 
@@ -113,4 +147,4 @@ export class SessionInbox {
     return inbox;
   }
 }
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';

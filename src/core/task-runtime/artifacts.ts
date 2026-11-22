@@ -7,6 +7,7 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import type { DeploymentRecord } from '../../contracts/deployment.js';
 import type { EvidenceRecord } from '../../contracts/evidence.js';
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
@@ -14,7 +15,13 @@ import { listDeploymentRecords } from '../../device/deployment.js';
 import { getRootLogger } from '../../logger.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
-import { withTaskEventLock, withTaskArtifactReadLock } from '../task/task-store.js';
+import { ErrorCode, MossError } from '../../errors.js';
+import { TaskExecutionSupersededError } from '../task/task-execution-guard.js';
+import {
+  withTaskEventLock,
+  withTaskArtifactReadLock,
+  getTaskStateSnapshot,
+} from '../task/task-store.js';
 
 import {
   acceptanceAppendDispatched,
@@ -186,7 +193,10 @@ export async function appendJsonlFile(
     signal?.throwIfAborted();
     assertTaskAppendScopeOpen(workspaceDir, evidence);
     if (path.basename(file) === 'acceptance.jsonl')
-      acceptanceAppendDispatched(path.dirname(path.dirname(file)));
+      acceptanceAppendDispatched(
+        path.dirname(path.dirname(file)),
+        (record as AcceptanceVerdict).verdict === 'pass'
+      );
     dispatched = true;
     await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
     handle = await fs.open(file, 'r+');
@@ -266,26 +276,47 @@ async function ensureTrailingNewline(file: string): Promise<void> {
   }
 }
 
-async function appendJsonl(
-  workspaceDir: string,
-  name: string,
-  record: unknown,
-  signal?: AbortSignal
-): Promise<void> {
-  signal?.throwIfAborted();
-  await withTaskEventLock(workspaceDir, async () => {
-    ensureMossRuntimeGitignore(workspaceDir);
-    const dir = path.join(workspaceDir, '.moss');
-    await appendJsonlFile(path.join(dir, name), record, signal);
-  });
-}
-
 export async function appendTaskRecord(
   workspaceDir: string,
   task: TaskContract,
   signal?: AbortSignal
 ): Promise<void> {
-  await appendJsonl(workspaceDir, 'tasks.jsonl', task, signal);
+  await withTaskEventLock(workspaceDir, async () => {
+    const current = (await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+      (row) => row.taskId === task.taskId
+    );
+    if (
+      current?.status === 'accepted' &&
+      (await getTaskStateSnapshot(workspaceDir, task.taskId))?.phase === 'accepted' &&
+      !isDeepStrictEqual({ ...current, updatedAt: 0 }, { ...task, updatedAt: 0 })
+    ) {
+      throw new MossError({
+        code: ErrorCode.EXECUTION_STATE_INVALID,
+        message: `task ${task.taskId}: accepted tasks are immutable; create a new task`,
+      });
+    }
+    if (current && (current.revision ?? 0) > 0) {
+      if ((task.revision ?? 0) !== current.revision) {
+        throw new TaskExecutionSupersededError(`task ${task.taskId}: stale task revision`);
+      }
+      for (const field of [
+        'goal',
+        'originalGoal',
+        'constraints',
+        'targetDeviceId',
+        'expectedBehavior',
+      ] as const) {
+        if (JSON.stringify(task[field]) !== JSON.stringify(current[field])) {
+          throw new MossError({
+            code: ErrorCode.EXECUTION_REVISION_CONFLICT,
+            message: `task ${task.taskId}: ${field} must change through applyTaskRevision`,
+          });
+        }
+      }
+    }
+    ensureMossRuntimeGitignore(workspaceDir);
+    await appendJsonlFile(path.join(workspaceDir, '.moss', 'tasks.jsonl'), task, signal);
+  });
 }
 
 export async function listTaskRecords(workspaceDir: string, limit = 50): Promise<TaskContract[]> {
@@ -293,6 +324,31 @@ export async function listTaskRecords(workspaceDir: string, limit = 50): Promise
   if (parsed.length === 0) return [];
   // Latest version of each taskId wins (contracts are re-defined as they evolve).
   const byId = new Map(parsed.map((task) => [task.taskId, task]));
+  const revisions = await readJsonl<{
+    taskId: string;
+    type: string;
+    data?: { contract?: TaskContract; revision?: number };
+  }>(path.join(workspaceDir, '.moss', 'task-events.jsonl'));
+  for (const event of revisions) {
+    if (event.type !== 'task_revised') continue;
+    const contract = event.data?.contract;
+    if (
+      !contract ||
+      contract.taskId !== event.taskId ||
+      !Number.isSafeInteger(contract.revision) ||
+      contract.revision !== event.data?.revision ||
+      (contract.revision ?? 0) < 1
+    ) {
+      throw new MossError({
+        code: ErrorCode.EXECUTION_STORE_FAILED,
+        message: `task ${event.taskId}: invalid task revision record`,
+      });
+    }
+    const current = byId.get(event.taskId);
+    if (current && (contract.revision ?? 0) > (current.revision ?? 0)) {
+      byId.set(event.taskId, contract);
+    }
+  }
   return [...byId.values()].slice(-limit);
 }
 
@@ -309,7 +365,23 @@ export async function appendEvidenceRecordWithSignal(
   record: EvidenceRecord,
   signal?: AbortSignal
 ): Promise<void> {
-  await appendJsonl(workspaceDir, 'evidence.jsonl', redactEvidenceRecord(record), signal);
+  await withTaskEventLock(workspaceDir, async () => {
+    const task = record.taskId
+      ? (await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+          (row) => row.taskId === record.taskId
+        )
+      : undefined;
+    const revision = task?.revision ?? 0;
+    if (record.taskRevision !== undefined && record.taskRevision !== revision) {
+      throw new TaskExecutionSupersededError(`task ${record.taskId}: stale evidence revision`);
+    }
+    ensureMossRuntimeGitignore(workspaceDir);
+    await appendJsonlFile(
+      path.join(workspaceDir, '.moss', 'evidence.jsonl'),
+      redactEvidenceRecord({ ...record, ...(task ? { taskRevision: revision } : {}) }),
+      signal
+    );
+  });
 }
 
 export async function listEvidenceRecords(
@@ -362,7 +434,21 @@ export async function appendAcceptanceVerdict(
   verdict: AcceptanceVerdict,
   signal?: AbortSignal
 ): Promise<void> {
-  await appendJsonl(workspaceDir, 'acceptance.jsonl', verdict, signal);
+  await withTaskEventLock(workspaceDir, async () => {
+    const task = (await listTaskRecords(workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+      (row) => row.taskId === verdict.taskId
+    );
+    const revision = task?.revision ?? 0;
+    if ((verdict.taskRevision ?? 0) !== revision) {
+      throw new TaskExecutionSupersededError(`task ${verdict.taskId}: stale acceptance revision`);
+    }
+    ensureMossRuntimeGitignore(workspaceDir);
+    await appendJsonlFile(
+      path.join(workspaceDir, '.moss', 'acceptance.jsonl'),
+      { ...verdict, taskRevision: revision },
+      signal
+    );
+  });
 }
 
 export async function listAcceptanceVerdicts(

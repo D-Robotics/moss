@@ -15,10 +15,12 @@ import {
   shouldNudgeMissingToolInvocation,
 } from './agent-loop-assistant-turn.js';
 import { buildNamedWebToolMatcher } from '../../prompts/plan-detection.js';
+import { stripThinkingTagsKeepVisible } from '../llm/inline-thinking-stream.js';
 import {
   THINKING_ONLY_RETRY_BUDGET,
   decidePostLlmAction,
   nextThinkingOnlyRetryAttempts,
+  thinkingOnlyReasoningOverride,
 } from './agent-loop-post-llm.js';
 import {
   escalateOutputTokens,
@@ -27,6 +29,8 @@ import {
 } from './output-limit.js';
 import { executeAgentLoopToolCalls } from './agent-loop-tool-execution.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
+import type { TaskIntentTurn } from '../session/task-intent-turn.js';
+import { isTaskExecutionSupersededError } from '../task/task-execution-guard.js';
 
 export const EMPTY_MODEL_RESPONSE =
   'The model returned an empty response twice without a visible answer.';
@@ -62,6 +66,14 @@ function replaceAssistantVisibleText(content: ContentBlock[], text: string): voi
 }
 
 export interface ProcessLlmResponseParams {
+  taskIntentTurn?: TaskIntentTurn;
+  assertContextCurrent?: () => void;
+  registerToolInvocation?(
+    id: string,
+    name: string,
+    mutates: boolean,
+    assertIntent: () => void
+  ): () => void;
   state: AgentLoopMutableState;
   runId: string;
   assistantContent: ContentBlock[];
@@ -137,7 +149,7 @@ export async function processLlmResponse(
     runId,
     assistantContent,
     messageThinkingChunks,
-    toolCalls,
+    toolCalls: generatedToolCalls,
     turnTextParts,
     streamStopReason,
     responseModel,
@@ -170,6 +182,7 @@ export async function processLlmResponse(
     buildCorrectionMessage,
     pendingToolAborts,
   } = params;
+  const toolCalls = [...generatedToolCalls];
   const pushTurnEnd = (stopReason: StopReason | undefined = streamStopReason) => {
     push({
       type: 'turn_end',
@@ -180,15 +193,52 @@ export async function processLlmResponse(
   };
 
   const toolsForAssistantTurn = resolveToolsForRun();
-  injectToolCallFromPlanText({
+  const intentResponse = await params.taskIntentTurn?.process(
     toolCalls,
-    assistantContent,
-    turnTextParts,
-    messageThinkingChunks,
-    toolsForRun: toolsForAssistantTurn,
-    sessionKey,
-    logInfo: !isQuiet ? undefined : undefined,
-  });
+    isOutputLimitStopReason(streamStopReason)
+  );
+  if (intentResponse?.retry || intentResponse?.halt) {
+    const assistant: Message = {
+      role: 'assistant',
+      content: assistantContent,
+      timestamp: Date.now(),
+    };
+    await appendMessage(sessionKey, assistant);
+    currentMessages.push(assistant);
+    if (intentResponse.results.length > 0) {
+      const results: Message = {
+        role: 'user',
+        content: intentResponse.results,
+        timestamp: Date.now(),
+      };
+      await appendMessage(sessionKey, results);
+      currentMessages.push(results);
+    }
+    state.pendingMessages = intentResponse.retry
+      ? [buildCorrectionMessage(intentResponse.retry)]
+      : [];
+    state.hasMoreToolCalls = Boolean(intentResponse.retry);
+    if (intentResponse.halt) {
+      state.taskIntentHalted = true;
+      state.finalText = intentResponse.halt;
+      pushGuardedMessageDeltas(push, intentResponse.halt);
+    }
+    pushTurnEnd();
+    if (intentResponse.halt) {
+      push({ type: 'turn_transition', turn: state.turns, reason: 'task_intent_hold' });
+    }
+    return { control: intentResponse.halt ? 'break' : 'continue' };
+  }
+  if (!params.taskIntentTurn)
+    injectToolCallFromPlanText({
+      toolCalls,
+      assistantContent,
+      turnTextParts,
+      messageThinkingChunks,
+      toolsForRun: toolsForAssistantTurn,
+      sessionKey,
+      logInfo: !isQuiet ? undefined : undefined,
+    });
 
   if (toolCalls.length > 0) {
     normalizeAssistantToolCalls({
@@ -209,7 +259,13 @@ export async function processLlmResponse(
     }
   }
 
-  const turnText = turnTextParts.join('');
+  if (intentResponse?.answer && !turnTextParts.some((part) => part.trim())) {
+    turnTextParts.push(intentResponse.answer);
+    assistantContent.push({ type: 'text', text: intentResponse.answer });
+  }
+  const turnText = outputLimited
+    ? stripThinkingTagsKeepVisible(turnTextParts.join(''))
+    : turnTextParts.join('');
 
   const hasThinkingOnly = isThinkingOnlyAssistantTurn({
     visibleText: turnText,
@@ -225,6 +281,7 @@ export async function processLlmResponse(
     timestamp: Date.now(),
     ...(messageThinkingChunks.length > 0 ? { thinking: [...messageThinkingChunks] } : {}),
     ...(servedModel ? { model: servedModel } : {}),
+    ...(outputLimited ? { outputLimit: 'truncated' as const } : {}),
   };
 
   if (!hasThinkingOnly) {
@@ -232,7 +289,7 @@ export async function processLlmResponse(
   }
 
   let visibleAssistantText = buildVisibleAssistantText({
-    textParts: turnTextParts,
+    textParts: [turnText],
     // A cutoff fragment, and the piece that continues one, must keep the
     // whitespace the model actually emitted so the stitch has no extra gap
     // and does not eat the gap the model already wrote.
@@ -289,6 +346,9 @@ export async function processLlmResponse(
     !abortSignal.aborted
   ) {
     const decision = await completionGate({
+      ...(params.taskIntentTurn
+        ? { taskIntentBinding: params.taskIntentTurn.bindingSnapshot() }
+        : {}),
       sessionKey,
       runId,
       turn: state.turns,
@@ -348,6 +408,75 @@ export async function processLlmResponse(
     }
   }
 
+  try {
+    params.assertContextCurrent?.();
+    params.taskIntentTurn?.assertCurrent(toolCalls.length === 0);
+  } catch (error) {
+    if (!isTaskExecutionSupersededError(error)) throw error;
+    while (assistantBuffer.length > 0) {
+      const message = assistantBuffer.shift()!;
+      await appendMessage(sessionKey, message);
+      currentMessages.push(message);
+    }
+    const results: Message = {
+      role: 'user',
+      timestamp: Date.now(),
+      content: [
+        ...(intentResponse?.results ?? []),
+        ...toolCalls.map(
+          (call): ContentBlock => ({
+            type: 'tool_result',
+            tool_use_id: call.id,
+            is_error: true,
+            outcome: 'suppressed',
+            content:
+              '[Task intent superseded] Not executed: a newer user input arrived before response publication.',
+          })
+        ),
+      ],
+    };
+    if (Array.isArray(results.content) && results.content.length > 0) {
+      await appendMessage(sessionKey, results);
+      currentMessages.push(results);
+    }
+    state.finalText = '';
+    state.hasMoreToolCalls = true;
+    state.pendingMessages = [
+      buildCorrectionMessage(
+        '[Runtime] A newer user input superseded the response. Process the latest pending input before continuing.'
+      ),
+    ];
+    pushTurnEnd();
+    return { control: 'continue' };
+  }
+  if (toolCalls.length === 0 && intentResponse?.results.length) {
+    while (assistantBuffer.length > 0) {
+      const message = assistantBuffer.shift()!;
+      await appendMessage(sessionKey, message);
+      currentMessages.push(message);
+    }
+    const results: Message = {
+      role: 'user',
+      content: intentResponse.results,
+      timestamp: Date.now(),
+    };
+    await appendMessage(sessionKey, results);
+    currentMessages.push(results);
+    try {
+      params.taskIntentTurn?.assertCurrent(true);
+    } catch (error) {
+      if (!isTaskExecutionSupersededError(error)) throw error;
+      state.finalText = '';
+      state.hasMoreToolCalls = true;
+      state.pendingMessages = [
+        buildCorrectionMessage(
+          '[Runtime] A newer user input arrived before publication. Process it before answering.'
+        ),
+      ];
+      pushTurnEnd();
+      return { control: 'continue' };
+    }
+  }
   if (delayedVisibleDeltas && !hasThinkingOnly) {
     pushGuardedMessageDeltas(push, visibleAssistantText);
   }
@@ -358,9 +487,22 @@ export async function processLlmResponse(
     ...(streamStopReason ? { stopReason: streamStopReason } : {}),
   });
 
+  if (intentResponse?.results.length && !intentResponse.hold && toolCalls.length === 0) {
+    state.finalText = '';
+    state.hasMoreToolCalls = true;
+    state.pendingMessages = [
+      buildCorrectionMessage(
+        '[Runtime] The task update and plan are committed. Continue with the next actual tool action using that plan; do not submit another turn_decision without new user input.'
+      ),
+    ];
+    pushTurnEnd();
+    return { control: 'continue' };
+  }
+
   const toolsForNudge = resolveToolsForRun();
   const namedWebToolRe = buildNamedWebToolMatcher(toolsForNudge.map((x) => x.name));
   const shouldNudge =
+    !intentResponse?.hold &&
     !state.hasMoreToolCalls &&
     shouldNudgeMissingToolInvocation({
       finalText: state.finalText,
@@ -422,17 +564,22 @@ export async function processLlmResponse(
     case 'continuation': {
       state.outputContinuationCount++;
       const raised = escalateOutputTokens(state.outputTokenBudget, state.outputTokenCeiling);
-      const grew = raised > state.outputTokenBudget;
-      if (grew) state.outputTokenBudget = raised;
+      state.outputTokenBudget = raised;
+      if (postLlmAction.mode === 'thinking' || messageThinkingChunks.length > 0) {
+        state.reasoningOverrideNextTurn = thinkingOnlyReasoningOverride(
+          params.provider,
+          state.outputContinuationCount - 1,
+          params.modelId
+        );
+      }
       if (postLlmAction.mode !== 'thinking') {
         state.carriedAssistantText = stitchedAssistantText;
       }
-      const systemText = grew
-        ? `${postLlmAction.systemText} A larger output budget is available for this retry.`
-        : postLlmAction.systemText;
       // Flush the truncated assistant (stop length → max_tokens) before the
       // notice so stream-json hosts see the cutoff on that message.
-      state.pendingMessages = [buildCorrectionMessage(systemText)];
+      state.pendingMessages = [
+        { ...buildCorrectionMessage(postLlmAction.systemText), outputLimit: 'continuation' },
+      ];
       pushTurnEnd();
       push({
         type: 'output_continuation',
@@ -506,6 +653,11 @@ export async function processLlmResponse(
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
       state.pendingMessages = [];
+      if (intentResponse?.hold) {
+        state.taskIntentHalted = true;
+        push({ type: 'turn_transition', turn: state.turns, reason: 'task_intent_hold' });
+        return { control: 'break' };
+      }
       return { control: 'continue' };
 
     case 'tool_execute':
@@ -519,7 +671,20 @@ export async function processLlmResponse(
     currentMessages.push(msg);
     assistantBuffer.shift();
   }
+  const intentGuard = params.taskIntentTurn?.executionGuard();
   const toolExecution = await executeAgentLoopToolCalls({
+    initialToolResults: intentResponse?.results,
+    registerToolInvocation: params.registerToolInvocation
+      ? (id, name, mutates) =>
+          params.registerToolInvocation!(id, name, mutates, intentGuard ?? (() => {}))
+      : undefined,
+    assertExecutionCurrent:
+      params.assertContextCurrent || intentGuard
+        ? () => {
+            params.assertContextCurrent?.();
+            intentGuard?.();
+          }
+        : undefined,
     state,
     runId,
     sessionKey,

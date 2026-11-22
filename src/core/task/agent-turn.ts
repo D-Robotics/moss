@@ -16,6 +16,8 @@ interface TaskChatOptions {
   goalExecWait?: boolean;
   taskJudgeGoal?: AgentTurnGoal;
   harnessAdapter?: HarnessAdapter;
+  taskId?: string;
+  userInput?: false | { id: string; text: string; taskId: string };
 }
 
 type StreamChatFn = (
@@ -52,16 +54,35 @@ export interface AgentTurnResult {
  * stop reason is on `stopReason` so existing callers that read the text stay
  * compatible.
  */
+export interface TaskTurnBinding {
+  taskId: string;
+  userGoal?: string;
+  judgeGoal?: AgentTurnGoal;
+}
+
+function taskInputOptions(binding?: TaskTurnBinding): Partial<TaskChatOptions> {
+  if (!binding) return {};
+  return {
+    taskId: binding.taskId,
+    ...(binding.judgeGoal ? { taskJudgeGoal: binding.judgeGoal } : {}),
+    userInput: binding.userGoal
+      ? { id: `goal:${binding.taskId}`, text: binding.userGoal, taskId: binding.taskId }
+      : false,
+  };
+}
+
 export interface AgentTurnRunner {
-  (prompt: string, phase: string, goal?: AgentTurnGoal): Promise<string>;
+  (prompt: string, phase: string, binding?: TaskTurnBinding): Promise<string>;
   stopReason?: string;
+  captureAcceptanceGuard?(taskId: string): (() => void) | undefined;
+  pendingUserInput?(): boolean;
 }
 
 function stringRunner(
-  run: (prompt: string, goal?: AgentTurnGoal) => Promise<AgentTurnResult>
+  run: (prompt: string, binding?: TaskTurnBinding) => Promise<AgentTurnResult>
 ): AgentTurnRunner {
-  const runner: AgentTurnRunner = async (prompt, _phase, goal) => {
-    const result = await run(prompt, goal);
+  const runner: AgentTurnRunner = async (prompt, _phase, binding) => {
+    const result = await run(prompt, binding);
     runner.stopReason = result.stopReason;
     return result.text;
   };
@@ -73,47 +94,62 @@ export function createAgentTurnRunner(
   sessionKey: string,
   options: AgentTurnRunnerOptions = {}
 ): AgentTurnRunner {
-  const duck = agent as { streamChat?: StreamChatFn; chat?: ChatFn };
+  const duck = agent as {
+    streamChat?: StreamChatFn;
+    chat?: ChatFn;
+    captureTaskExecutionGuard?(sessionKey: string, taskId: string): (() => void) | undefined;
+    getTaskIntent?(sessionKey: string): { pending: boolean } | undefined;
+  };
+  const bind = (runner: AgentTurnRunner): AgentTurnRunner => {
+    runner.captureAcceptanceGuard = (taskId) =>
+      duck.captureTaskExecutionGuard?.(sessionKey, taskId);
+    runner.pendingUserInput = () => duck.getTaskIntent?.(sessionKey)?.pending === true;
+    return runner;
+  };
   if (typeof duck.streamChat === 'function') {
-    return stringRunner(async (prompt, goal) => {
-      let accText = '';
-      let doneResponse: string | undefined;
-      let stopReason: string | undefined;
-      // Method call on the agent (never a detached binding) — moss-agent
-      // internals rely on `this`.
-      for await (const event of duck.streamChat!(sessionKey, prompt, {
-        taskFlow: true,
-        goalExecWait: true,
-        ...(goal ? { taskJudgeGoal: goal } : {}),
-        ...(options.harnessAdapter ? { harnessAdapter: options.harnessAdapter } : {}),
-        ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
-      })) {
-        options.onEvent?.(event);
-        if (event.type === 'text_delta') accText += event.delta;
-        if (event.type === 'done') {
-          const response = event.result?.response;
-          if (typeof response === 'string' && response.trim()) doneResponse = response;
-          const stop = event.result?.stopReason;
-          if (typeof stop === 'string') stopReason = stop;
+    return bind(
+      stringRunner(async (prompt, binding) => {
+        let accText = '';
+        let doneResponse: string | undefined;
+        let stopReason: string | undefined;
+        // Method call on the agent (never a detached binding) — moss-agent
+        // internals rely on `this`.
+        for await (const event of duck.streamChat!(sessionKey, prompt, {
+          ...taskInputOptions(binding),
+          taskFlow: true,
+          goalExecWait: true,
+          ...(options.harnessAdapter ? { harnessAdapter: options.harnessAdapter } : {}),
+          ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+        })) {
+          options.onEvent?.(event);
+          if (event.type === 'text_delta') accText += event.delta;
+          if (event.type === 'done') {
+            const response = event.result?.response;
+            if (typeof response === 'string' && response.trim()) doneResponse = response;
+            const stop = event.result?.stopReason;
+            if (typeof stop === 'string') stopReason = stop;
+          }
         }
-      }
-      const text = (doneResponse && doneResponse.trim()) || accText;
-      return stopReason ? { text, stopReason } : { text };
-    });
+        const text = (doneResponse && doneResponse.trim()) || accText;
+        return stopReason ? { text, stopReason } : { text };
+      })
+    );
   }
   if (typeof duck.chat === 'function') {
-    return stringRunner(async (prompt, goal) => {
-      const result = await duck.chat!(sessionKey, prompt, {
-        taskFlow: true,
-        goalExecWait: true,
-        ...(goal ? { taskJudgeGoal: goal } : {}),
-        ...(options.harnessAdapter ? { harnessAdapter: options.harnessAdapter } : {}),
-        ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
-      });
-      return result.stopReason
-        ? { text: result.response, stopReason: result.stopReason }
-        : { text: result.response };
-    });
+    return bind(
+      stringRunner(async (prompt, binding) => {
+        const result = await duck.chat!(sessionKey, prompt, {
+          ...taskInputOptions(binding),
+          taskFlow: true,
+          goalExecWait: true,
+          ...(options.harnessAdapter ? { harnessAdapter: options.harnessAdapter } : {}),
+          ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+        });
+        return result.stopReason
+          ? { text: result.response, stopReason: result.stopReason }
+          : { text: result.response };
+      })
+    );
   }
   throw new Error('task engine agent must implement streamChat or chat');
 }

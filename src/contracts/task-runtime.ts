@@ -54,6 +54,7 @@ export type TaskEventType =
   | 'task_created'
   | 'task_understood'
   | 'planning_started'
+  | 'replanning_started'
   | 'plan_ready'
   | 'execution_started'
   | 'plan_step_updated'
@@ -70,6 +71,7 @@ export type TaskEventType =
   | 'task_failed'
   | 'task_abandoned'
   | 'task_resumed'
+  | 'task_revised'
   | 'note';
 
 /**
@@ -133,6 +135,8 @@ export interface TaskEvent {
  */
 export interface TaskStateSnapshot {
   taskId: string;
+  revision: number;
+  needsReplan: boolean;
   goal: string;
   phase: TaskPhase;
   statusView: TaskStatusView;
@@ -316,6 +320,8 @@ export function nextTaskPhase(
   resumePhase?: TaskPhase,
   data?: Record<string, unknown>
 ): TaskPhase | null {
+  if (event === 'task_revised' || event === 'replanning_started')
+    return phase === 'accepted' ? null : 'planning';
   if (isTerminalTaskPhase(phase)) {
     // failed/abandoned tasks can be explicitly resumed (recover). accepted
     // stays closed to ordinary events so history is never rewritten; `/task

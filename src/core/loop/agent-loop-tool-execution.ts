@@ -11,6 +11,10 @@ import {
 } from '../tools/execute-tool-call.js';
 import { maybeSuppressRedundantWebFetchAfterOpenUrl } from '../tools/open-url-web-fetch-guard.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
+import {
+  assertTaskExecutionCurrent,
+  isTaskExecutionSupersededError,
+} from '../task/task-execution-guard.js';
 import type { AgentLoopMutableState } from './agent-loop-state.js';
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { Tool, ToolContext, ToolResultOutcome } from '../tools/tool-types.js';
@@ -58,6 +62,9 @@ export interface AgentLoopToolExecutionMetrics {
 }
 
 export interface ExecuteAgentLoopToolCallsParams {
+  initialToolResults?: ContentBlock[];
+  assertExecutionCurrent?: () => void;
+  registerToolInvocation?(id: string, name: string, mutates: boolean): () => void;
   runId: string;
   sessionKey: string;
   turnIndex: number;
@@ -101,6 +108,7 @@ export interface ExecuteAgentLoopToolCallsParams {
 }
 
 interface PreflightContext {
+  assertExecutionCurrent?: () => void;
   maxToolCalls?: number;
   metrics: AgentLoopToolExecutionMetrics;
   toolLoopGuard: ToolLoopGuardState;
@@ -174,6 +182,13 @@ function preflightToolCall(
   resolvedTools: Tool[],
   options: { parallelBatch?: boolean } = {}
 ): ExecuteToolCallOutcome | null {
+  try {
+    assertTaskExecutionCurrent();
+    ctx.assertExecutionCurrent?.();
+  } catch (error) {
+    if (!isTaskExecutionSupersededError(error)) throw error;
+    return supersededToolOutcome();
+  }
   if (ctx.maxToolCalls !== undefined && ctx.metrics.totalToolCalls >= ctx.maxToolCalls) {
     return {
       kind: 'completed',
@@ -374,27 +389,33 @@ function recordToolOutcome(
       markFreshObservationUnverified(ctx.toolLoopGuard, call.name, originalInput);
     }
   }
-  ctx.metrics.totalToolCalls++;
-  ctx.metrics.toolCallsByName[call.name] = (ctx.metrics.toolCallsByName[call.name] ?? 0) + 1;
-  if (isError) {
-    ctx.metrics.toolErrors++;
-    ctx.metrics.consecutiveToolErrors++;
-  } else {
-    ctx.metrics.consecutiveToolErrors = 0;
-  }
-
-  recordToolLoopOutcome(
-    ctx.toolLoopGuard,
-    call.name,
-    isError,
-    result,
-    call.input,
-    process.platform,
-    {
-      outputTruncated: truncatedResult !== result,
+  const superseded =
+    outcome.kind === 'completed' &&
+    outcome.outcome === 'suppressed' &&
+    result.startsWith('[Task intent superseded]');
+  if (!superseded) {
+    ctx.metrics.totalToolCalls++;
+    ctx.metrics.toolCallsByName[call.name] = (ctx.metrics.toolCallsByName[call.name] ?? 0) + 1;
+    if (isError) {
+      ctx.metrics.toolErrors++;
+      ctx.metrics.consecutiveToolErrors++;
+    } else {
+      ctx.metrics.consecutiveToolErrors = 0;
     }
-  );
-  recordFailingVerifyStreak(ctx.state, call.name, call.input, result, isError);
+
+    recordToolLoopOutcome(
+      ctx.toolLoopGuard,
+      call.name,
+      isError,
+      result,
+      call.input,
+      process.platform,
+      {
+        outputTruncated: truncatedResult !== result,
+      }
+    );
+    recordFailingVerifyStreak(ctx.state, call.name, call.input, result, isError);
+  }
 
   const preview =
     outcome.kind === 'hook-blocked' || outcome.kind === 'denied'
@@ -432,6 +453,16 @@ function recordToolOutcome(
   });
 }
 
+function supersededToolOutcome(): ExecuteToolCallOutcome {
+  return {
+    kind: 'completed',
+    text: '[Task intent superseded] Not executed: newer user input or a revised plan replaced this call.',
+    isError: true,
+    durationMs: 0,
+    outcome: 'suppressed',
+  };
+}
+
 export async function executeAgentLoopToolCalls(
   params: ExecuteAgentLoopToolCallsParams
 ): Promise<{ pendingMessages: Message[] }> {
@@ -463,7 +494,7 @@ export async function executeAgentLoopToolCalls(
     push,
   } = params;
 
-  const toolResults: ContentBlock[] = [];
+  const toolResults: ContentBlock[] = [...(params.initialToolResults ?? [])];
 
   // Message[] -> LLMMessage[]: the two types are structurally compatible but TS cannot
   // infer it because Message is the session-jsonl persistence format and LLMMessage is
@@ -472,6 +503,7 @@ export async function executeAgentLoopToolCalls(
   const historyBeforeAssistant = currentMessages.slice(0, -1) as unknown as LLMMessage[];
 
   const preflightCtx: PreflightContext = {
+    assertExecutionCurrent: params.assertExecutionCurrent,
     maxToolCalls,
     metrics,
     toolLoopGuard,
@@ -514,6 +546,8 @@ export async function executeAgentLoopToolCalls(
   ): ExecuteToolCallDeps => {
     const perToolTimeout = toolsForRun.find((tool) => tool.name === call.name)?.metadata?.timeoutMs;
     return {
+      assertExecutionCurrent: params.assertExecutionCurrent,
+      registerToolInvocation: params.registerToolInvocation,
       toolsForRun,
       toolCtx,
       runId,

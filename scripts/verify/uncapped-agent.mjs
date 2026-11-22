@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { MossAgent, InMemorySessionStore } from '../../dist/index.js';
+import { MossAgent, InMemorySessionStore, resolveToolFollowupBypassCap } from '../../dist/index.js';
+
+assert.equal(resolveToolFollowupBypassCap(2), 4);
+assert.equal(resolveToolFollowupBypassCap(6), 12);
+assert.equal(resolveToolFollowupBypassCap(8), 16);
+assert.equal(resolveToolFollowupBypassCap(10), 20);
+assert.equal(resolveToolFollowupBypassCap(12), 24);
+assert.equal(resolveToolFollowupBypassCap(64), 128);
+assert.equal(resolveToolFollowupBypassCap(100), 182);
+assert.equal(resolveToolFollowupBypassCap(null), 0);
 
 function provider(target, repeated = false) {
   return {

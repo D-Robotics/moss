@@ -100,6 +100,7 @@ export const taskDefineTool: Tool = {
       expected_behavior: { type: 'string' },
       verification_plan: { type: 'array', items: { type: 'string' } },
       task_id: { type: 'string', description: 'Existing task id when redefining (optional)' },
+      expected_revision: { type: 'integer', description: 'Current task revision when updating' },
     },
     required: ['goal', 'acceptance_criteria'],
   },
@@ -116,13 +117,26 @@ export const taskDefineTool: Tool = {
     let taskId: string;
     let status: TaskContractStatus = 'active';
     let createdAt = now;
+    let existingTask: TaskContract | undefined;
     if (input.task_id && typeof input.task_id === 'string') {
       taskId = input.task_id;
-      const existing = (await listTaskRecords(ctx.workspaceDir)).find((t) => t.taskId === taskId);
+      const existing = (await listTaskRecords(ctx.workspaceDir, Number.MAX_SAFE_INTEGER)).find(
+        (t) => t.taskId === taskId
+      );
       if (!existing)
         return `Error: task_define: task_id ${taskId} not found; omit it to create a new task.`;
+      existingTask = existing;
+      if (existing.status === 'accepted')
+        return `Error: task_define: task ${taskId} is accepted; create a new task for new requirements.`;
+      if (
+        input.expected_revision !== undefined &&
+        input.expected_revision !== (existing.revision ?? 0)
+      )
+        return `Error: task_define: task ${taskId} revision changed; read the current task first.`;
+      if ((existing.revision ?? 0) > 0 && goal !== existing.goal)
+        return 'Error: task_define: the revised user goal is authoritative; use the current goal unchanged.';
       createdAt = existing.createdAt;
-      if (existing.status === 'accepted' || existing.status === 'abandoned') {
+      if (existing.status === 'abandoned') {
         status = existing.status;
       }
     } else {
@@ -130,6 +144,7 @@ export const taskDefineTool: Tool = {
     }
 
     const task: TaskContract = {
+      ...existingTask,
       taskId,
       goal,
       acceptanceCriteria: criteria,
@@ -186,7 +201,7 @@ export const taskAcceptanceTool: Tool = {
     },
   },
   async execute(input, ctx) {
-    const tasks = await listTaskRecords(ctx.workspaceDir);
+    const tasks = await listTaskRecords(ctx.workspaceDir, Number.MAX_SAFE_INTEGER);
     if (tasks.length === 0) {
       return 'Error: task_acceptance: no task contracts in this workspace — define one with task_define first.';
     }
@@ -264,6 +279,7 @@ export const taskPlanUpdateTool: Tool = {
     type: 'object',
     properties: {
       task_id: { type: 'string', description: 'Task id from task_define' },
+      expected_revision: { type: 'integer', description: 'Current task revision when updating' },
       steps: {
         type: 'array',
         items: {
@@ -286,7 +302,7 @@ export const taskPlanUpdateTool: Tool = {
     if (!Array.isArray(input.steps) || input.steps.length === 0) {
       return 'Error: task_plan_update: steps must be a non-empty array.';
     }
-    const known = await listTaskRecords(ctx.workspaceDir);
+    const known = await listTaskRecords(ctx.workspaceDir, Number.MAX_SAFE_INTEGER);
     if (!known.some((t) => t.taskId === taskId)) {
       return `Error: task_plan_update: unknown task_id ${taskId}.`;
     }
@@ -316,10 +332,18 @@ export const taskPlanUpdateTool: Tool = {
       });
     }
     const snapshot = await getTaskStateSnapshot(ctx.workspaceDir, taskId);
+    if (
+      input.expected_revision !== undefined &&
+      input.expected_revision !== (snapshot?.revision ?? 0)
+    )
+      return `Error: task_plan_update: task ${taskId} revision changed; read the current task first.`;
     if (snapshot && isTerminalTaskPhase(snapshot.phase)) {
       return `Error: task_plan_update: task ${taskId} is ${snapshot.phase}; plans are frozen on settled tasks.`;
     }
-    await tryAppendTaskEvent(ctx.workspaceDir, taskId, 'plan_step_updated', { steps });
+    await tryAppendTaskEvent(ctx.workspaceDir, taskId, 'plan_step_updated', {
+      steps,
+      taskRevision: snapshot?.revision ?? 0,
+    });
     const marks = steps.map(
       (s) =>
         `  [${
@@ -371,7 +395,7 @@ export const recordFailureTool: Tool = {
     const taskId = String(input.task_id ?? '').trim();
     const symptom = String(input.symptom ?? '').trim();
     if (!taskId || !symptom) return 'Error: record_failure: task_id and symptom are required.';
-    const known = await listTaskRecords(ctx.workspaceDir);
+    const known = await listTaskRecords(ctx.workspaceDir, Number.MAX_SAFE_INTEGER);
     if (!known.some((t) => t.taskId === taskId)) {
       return `Error: record_failure: unknown task_id ${taskId}.`;
     }
@@ -432,7 +456,7 @@ export const recordRepairTool: Tool = {
     const taskId = String(input.task_id ?? '').trim();
     const action = String(input.action ?? '').trim();
     if (!taskId || !action) return 'Error: record_repair: task_id and action are required.';
-    const known = await listTaskRecords(ctx.workspaceDir);
+    const known = await listTaskRecords(ctx.workspaceDir, Number.MAX_SAFE_INTEGER);
     if (!known.some((t) => t.taskId === taskId)) {
       return `Error: record_repair: unknown task_id ${taskId}.`;
     }

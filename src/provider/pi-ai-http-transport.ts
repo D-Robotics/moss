@@ -583,46 +583,70 @@ async function* streamOpenAiChat(
     Authorization: `Bearer ${options?.apiKey ?? config.apiKey}`,
   };
   const endpoint = buildApiV1Url(model.baseUrl ?? config.baseUrl, 'chat/completions');
-  const streamBody = {
-    ...baseBody,
-    stream: true,
-    stream_options: { include_usage: true },
-  };
-
-  let res: Response;
-  try {
-    res = await fetchWithConnectionContext(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(streamBody),
-      signal,
-    });
-  } catch (err) {
-    enhanceOpenAIFetchError(config, err);
-  }
-
-  // Some gateways reject stream/stream_options — fall back to one-shot JSON.
-  if (!res.ok) {
-    const errText = await res.text();
-    const looksLikeStreamReject =
-      res.status === 400 && /stream|stream_options|streaming/i.test(errText);
-    if (!looksLikeStreamReject) {
-      throw enhanceOpenAIHttpError(config, res.status, errText);
+  let responseFormat = options?.responseFormat;
+  const send = async (stream: boolean) => {
+    const body: Record<string, unknown> = {
+      ...baseBody,
+      stream,
+      ...(stream ? { stream_options: { include_usage: true } } : {}),
+    };
+    if (responseFormat) {
+      body.response_format = responseFormat;
+      delete body.tools;
+      delete body.tool_choice;
     }
     try {
-      res = await fetchWithConnectionContext(endpoint, {
+      return await fetchWithConnectionContext(endpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ ...baseBody, stream: false }),
+        body: JSON.stringify(body),
         signal,
       });
     } catch (err) {
       enhanceOpenAIFetchError(config, err);
     }
-    if (!res.ok) {
-      throw enhanceOpenAIHttpError(config, res.status, await res.text());
+  };
+  const sendCompatible = async (stream: boolean) => {
+    let response = await send(stream);
+    let errorText = response.ok ? '' : await response.text();
+    if (
+      responseFormat &&
+      (response.status === 400 || response.status === 422) &&
+      /response[ _]?format|json[ _]?schema|structured output/i.test(errorText)
+    ) {
+      // Fall back to the native declaration for gateways without JSON Schema.
+      responseFormat = undefined;
+      response = await send(stream);
+      errorText = response.ok ? '' : await response.text();
     }
-    yield* parseOpenAiBuffered(res);
+    if (
+      options?.allowToolChoiceFallback &&
+      baseBody.tool_choice === 'required' &&
+      (response.status === 400 || response.status === 422) &&
+      /tool[ _]?choice/i.test(errorText)
+    ) {
+      // Some compatible gateways only implement the default automatic mode.
+      delete baseBody.tool_choice;
+      response = await send(stream);
+      errorText = response.ok ? '' : await response.text();
+    }
+    return { response, errorText };
+  };
+  // MiniMax applies the JSON schema on its buffered response path.
+  const { response: res, errorText } = await sendCompatible(!responseFormat);
+
+  // Some gateways reject stream/stream_options — fall back to one-shot JSON.
+  if (!res.ok) {
+    const looksLikeStreamReject =
+      res.status === 400 && /stream|stream_options|streaming/i.test(errorText);
+    if (!looksLikeStreamReject) {
+      throw enhanceOpenAIHttpError(config, res.status, errorText);
+    }
+    const buffered = await sendCompatible(false);
+    if (!buffered.response.ok) {
+      throw enhanceOpenAIHttpError(config, buffered.response.status, buffered.errorText);
+    }
+    yield* parseOpenAiBuffered(buffered.response);
     return;
   }
 

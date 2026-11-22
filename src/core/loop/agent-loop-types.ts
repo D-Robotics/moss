@@ -124,6 +124,21 @@ export interface AgentLoopPolicy {
 }
 
 export interface AgentLoopExtensions {
+  prepareContextProjection?: (input: {
+    window: number;
+    output: number;
+    measure(messages: Message[], output: number): number;
+    force?: boolean;
+  }) => Promise<import('../session/versioned-context.js').PreparedContextProjection>;
+  assertContextRevision?(revision: number): void;
+  registerToolInvocation?(
+    revision: number,
+    id: string,
+    name: string,
+    mutates: boolean,
+    assertIntent: () => void
+  ): () => void;
+  taskIntentTurn?: import('../session/task-intent-turn.js').TaskIntentTurn;
   /** Observation only; exceptions are ignored and cannot change loop execution. */
   onAgentLoopEvent?: AgentLoopEventObserver;
   getSteeringMessages?: () => Promise<Message[]>;
@@ -148,6 +163,8 @@ export interface AgentLoopExtensions {
   compactHooks?: CompactHookRegistry;
   steeringEngine?: SteeringEngine;
   completionGate?: (request: {
+    /** Immutable intent of this response, never the latest state at callback wakeup. */
+    taskIntentBinding?: import('../../contracts/task-intent.js').TaskIntentSnapshot;
     sessionKey: string;
     runId: string;
     turn: number;
