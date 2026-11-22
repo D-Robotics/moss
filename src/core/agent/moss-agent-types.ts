@@ -321,6 +321,8 @@ export interface MossAgentConfig
 }
 
 export interface ChatOptions {
+  /** Opt in to provisional text events that a host can retract. Canonical text is still guarded. */
+  streamVersionedDrafts?: boolean;
   /** Trusted raw user input; false marks autonomous engine prompts. */
   userInput?: { id: string; text?: string; taskId?: string } | false;
   /** Host-owned native Task Runtime binding, including autonomous turns. */
@@ -432,6 +434,8 @@ export interface ChatResult {
 
 export type MossAgentEvent =
   | { type: 'text_delta'; delta: string }
+  | { type: 'text_draft_delta'; delta: string }
+  | { type: 'text_draft_end'; accepted: boolean }
   | { type: 'thinking_delta'; delta: string }
   | { type: 'tool_start'; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | {

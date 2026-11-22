@@ -124,6 +124,7 @@ export interface AgentLoopPolicy {
 }
 
 export interface AgentLoopExtensions {
+  streamVersionedDrafts?: boolean;
   prepareContextProjection?: (input: {
     window: number;
     output: number;

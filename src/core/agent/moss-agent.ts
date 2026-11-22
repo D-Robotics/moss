@@ -2638,6 +2638,7 @@ ${result.stderr ?? ''}`.trim();
         });
       },
       ...(intentTurn ? { taskIntentTurn: intentTurn } : {}),
+      streamVersionedDrafts: options?.streamVersionedDrafts === true,
       getFollowUpMessages:
         this.config.enableFollowUpGuard !== false
           ? async () => {
@@ -2671,7 +2672,6 @@ ${result.stderr ?? ''}`.trim();
         : undefined,
       // Buffer only when a host completionGate may rewrite or discard the answer.
       shouldBufferAssistantOutput: () =>
-        Boolean(intentTurn) ||
         this.config.bufferAssistantUntilComplete === true ||
         runtimeJudge?.shouldBufferCompletion() === true,
       completionGate,

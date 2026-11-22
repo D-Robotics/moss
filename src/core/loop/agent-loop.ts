@@ -44,6 +44,7 @@ import {
   shouldIncludeThinkingInBudget,
 } from './agent-loop-context-prep.js';
 import { executeLlmTurn } from './agent-loop-llm-call.js';
+import { createVersionedTextDraft } from './versioned-text-draft.js';
 import { processLlmResponse } from './agent-loop-response.js';
 import {
   buildBackgroundCompletionSystemText,
@@ -533,6 +534,7 @@ export function runAgentLoop(
           const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOut);
 
           let turnToolCalls: { id: string; name: string; input: Record<string, unknown> }[] = [];
+          let textDraft: ReturnType<typeof createVersionedTextDraft> | undefined;
           try {
             refreshActiveSystemPrompt();
             const wire = params.prepareContextProjection
@@ -612,6 +614,31 @@ export function runAgentLoop(
               }
             }
             const projectedContext = projection && wire ? wire(projection.messages) : undefined;
+            const bufferOutput = Boolean(
+              params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
+            );
+            const intent = params.taskIntentTurn;
+            const delayedVisibleDeltas =
+              projection !== undefined || bufferOutput || Boolean(intent);
+            if (
+              params.streamVersionedDrafts &&
+              projectionRevision !== undefined &&
+              params.assertContextRevision &&
+              !bufferOutput &&
+              !state.carriedAssistantText &&
+              (!intent ||
+                (!intent.needsDecision && intent.bindingSnapshot()?.disposition === 'execute'))
+            ) {
+              const assertIntent = intent?.executionGuard();
+              textDraft = createVersionedTextDraft(
+                (event) => stream.push(event),
+                () => {
+                  params.assertContextRevision!(projectionRevision);
+                  assertIntent?.();
+                },
+                abortSignal
+              );
+            }
             const llmResult = await executeLlmTurn({
               reasoningBudget: params.reasoningBudget,
               modelTiers: params.modelTiers,
@@ -632,7 +659,7 @@ export function runAgentLoop(
               sessionKey,
               runId,
               runStartMs,
-              push: (e) => stream.push(e),
+              push: textDraft?.push ?? ((e) => stream.push(e)),
               currentMessages,
               prepareCompaction,
               replaceMessages: params.replaceMessages,
@@ -642,9 +669,7 @@ export function runAgentLoop(
               // host says this turn needs buffering. A always-installed
               // completionGate alone must NOT suppress streaming — that made
               // every coding turn non-streamed.
-              suppressVisibleDeltas: Boolean(
-                projection || params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
-              ),
+              suppressVisibleDeltas: delayedVisibleDeltas && !textDraft,
             });
 
             if (llmResult.control === 'retry') {
@@ -708,9 +733,8 @@ export function runAgentLoop(
               runtimeJudge: params.runtimeJudge,
               guardAssistantOutput: params.guardAssistantOutput,
               completionGate: params.completionGate,
-              delayedVisibleDeltas: Boolean(
-                projection || params.guardAssistantOutput || params.shouldBufferAssistantOutput?.()
-              ),
+              delayedVisibleDeltas,
+              settleTextDraft: textDraft?.settle,
               toolAbortSignalFor: params.toolAbortSignalFor,
               enrichToolContext: params.enrichToolContext,
               evaluateSteering,
@@ -854,6 +878,7 @@ export function runAgentLoop(
             state.pendingMessages = correctionMessages;
             continue;
           } finally {
+            textDraft?.dispose();
             try {
               await flushAssistantBuffer(turnAssistantBuffer);
             } catch (flushErr) {

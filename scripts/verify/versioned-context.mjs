@@ -1353,6 +1353,95 @@ if (process.argv[2] === '--commit-and-exit') {
   process.exit(0);
 }
 
+async function testVersionedDrafts(workspace) {
+  for (const steer of [false, true]) {
+    const store = new VersionedSessionStore(
+      path.join(workspace, steer ? 'steer.sqlite' : 'accept.sqlite')
+    );
+    const session = 'draft-test';
+    const seen = latch();
+    const withdrawn = latch();
+    const release = latch();
+    const events = [];
+    const first = '这里是实时输出的待校验正文。';
+    const tail = '这段文字由第二个模型增量产生。';
+    const corrected = '更正已生效，以下仅以最新输入为准。';
+    let requests = 0;
+    const agent = new MossAgent({
+      sessionStore: store,
+      workspaceDir: workspace,
+      contextTokens: 32_000,
+      maxTokens: 1024,
+      taskIntent: true,
+      enableFollowUpGuard: false,
+      llmProvider: {
+        id: 'draft-fixture',
+        displayName: 'Draft fixture',
+        async complete(request) {
+          return summarize(summaryInput(request));
+        },
+        async stream(request, emit) {
+          const step = ++requests;
+          if (step === 1) return response(...decide(request, 'execute'));
+          if (step === 2) {
+            emit({ type: 'content_block_delta', text: first });
+            await release.promise;
+            emit({ type: 'content_block_delta', text: tail });
+            return response(text(first + tail));
+          }
+          assert.equal(step, 3);
+          return response(...decide(request, 'answer', { answer: corrected }));
+        },
+      },
+    });
+    const run = (async () => {
+      for await (const event of agent.streamChat(session, 'Check the workspace before answering.', {
+        userInput: { id: 'initial' },
+        streamVersionedDrafts: true,
+      })) {
+        events.push(event);
+        if (event.type === 'text_draft_delta') seen.resolve();
+        if (event.type === 'text_draft_end' && !event.accepted) withdrawn.resolve();
+      }
+    })();
+    try {
+      await observeRace(run, seen, 'the first draft before provider completion');
+      assert.equal(
+        events.some((event) => event.type === 'text_delta'),
+        false
+      );
+      assert(!JSON.stringify(await store.sourceMessages(session)).includes(first));
+      if (steer) {
+        assert(agent.steer(session, '更正，先停止旧任务，只回答本次更正。', { id: 'correction' }));
+        await observeRace(run, withdrawn, 'draft withdrawal while the provider is blocked');
+      }
+      release.resolve();
+      await waitFor(run, 'canonical output');
+      const draft = events
+        .filter((event) => event.type === 'text_draft_delta')
+        .map((event) => event.delta)
+        .join('');
+      const canonical = events
+        .filter((event) => event.type === 'text_delta')
+        .map((event) => event.delta)
+        .join('');
+      assert.equal(draft, steer ? first : first + tail);
+      assert.equal(canonical, steer ? corrected : first + tail);
+      assert.deepEqual(
+        events.filter((event) => event.type === 'text_draft_end').map((event) => event.accepted),
+        [!steer]
+      );
+    } finally {
+      release.resolve();
+      await run.catch(() => {});
+      store.close();
+    }
+  }
+  console.log(
+    'PASS versioned drafts stream before provider completion and disappear when a new input supersedes them'
+  );
+}
+
 const workspace = await fs.realpath(
   await fs.mkdtemp(path.join(os.tmpdir(), 'moss-versioned-context-'))
 );
@@ -1369,6 +1458,7 @@ try {
     ['claims', testClaimDependencies],
     ['acceptance', testLateAcceptance],
     ['restart', testProcessRestart],
+    ['streaming-drafts', testVersionedDrafts],
     ['unsettled-mutation', testUnknownMutationRecovery],
     ['cli', testCliCorrections],
   ]) {

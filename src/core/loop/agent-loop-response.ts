@@ -128,6 +128,7 @@ export interface ProcessLlmResponseParams {
   >;
   completionGate?: AgentLoopExtensions['completionGate'];
   delayedVisibleDeltas?: boolean;
+  settleTextDraft?: (accepted: boolean) => void;
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
   evaluateSteering: () => Message[];
@@ -477,6 +478,7 @@ export async function processLlmResponse(
       return { control: 'continue' };
     }
   }
+  params.settleTextDraft?.(!outputLimited && !hasThinkingOnly);
   if (delayedVisibleDeltas && !hasThinkingOnly) {
     pushGuardedMessageDeltas(push, visibleAssistantText);
   }
