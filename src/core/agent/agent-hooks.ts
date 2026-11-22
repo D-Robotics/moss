@@ -7,12 +7,8 @@ export interface ToolApprovalRequest {
   sessionKey: string;
   runId: string;
   toolCallId: string;
-  /** Consult only for an ordinary interactive prompt, using the final post-hook input.
-   * A returned grant is for this call only and must still be current when used. */
-  judgeApproval?: (
-    input: Record<string, unknown>,
-    where: string
-  ) => Promise<(() => boolean) | undefined>;
+  /** Observe the final post-hook input for an ordinary prompt. The host handles approval. */
+  observeApproval?: (input: Record<string, unknown>, where: string) => Promise<void>;
   abortSignal: AbortSignal;
 }
 

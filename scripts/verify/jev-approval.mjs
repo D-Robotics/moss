@@ -22,6 +22,7 @@ const live = process.argv.includes('--live');
 let answers = { approval: { choice: 'needed', probability: 0.99 } };
 let judgeCalls = 0;
 let prompts = 0;
+let humanAnswer = 'y';
 let vetoChecks = 0;
 let veto = false;
 let rules = [];
@@ -35,7 +36,7 @@ const gate = createCliToolApprovalHook('workspace-write', env, options);
 gate.setAsker(
   wrapApprovalAsker(async () => {
     prompts++;
-    return 'n';
+    return humanAnswer;
   })
 );
 setPermissionRequestRunner(async () => {
@@ -85,10 +86,11 @@ try {
     if (event.type === 'error') throw new Error(event.error);
   }
   assert.equal(await readFile(path.join(root, 'hello.txt'), 'utf8'), 'hello');
-  assert.deepEqual([judgeCalls, prompts, vetoChecks], [1, 0, 1]);
-  console.log('[jev-approval] PASS scoped one-call approval executed the requested write');
+  assert.deepEqual([judgeCalls, prompts, vetoChecks], [1, 1, 1]);
+  console.log('[jev-approval] PASS the user approved the requested write');
 
   if (!live) {
+    humanAnswer = 'n';
     const controller = new AbortController();
     const run = new RuntimeJudgeRun(config, root, goal, controller.signal, () => false, 'test');
     const req = {
@@ -98,8 +100,8 @@ try {
       runId: 'test',
       toolCallId: 'next',
       abortSignal: controller.signal,
-      judgeApproval: (args, where) =>
-        run.judgeApproval('next', 'write_file', args, where, controller.signal),
+      observeApproval: (args, where) =>
+        run.observeApproval('next', 'write_file', args, where, controller.signal),
     };
     async function check(label, request, ctx, expected, checkGate = gate) {
       const before = [judgeCalls, prompts];
@@ -143,11 +145,11 @@ try {
     const keepAlive = setTimeout(() => {}, 3000);
     try {
       await check(
-        'judge deadline returns to human',
+        'slow observation does not prevent the prompt',
         {
           ...req,
-          judgeApproval: (args, where) =>
-            slow.judgeApproval('slow', 'write_file', args, where, controller.signal),
+          observeApproval: (args, where) =>
+            slow.observeApproval('slow', 'write_file', args, where, controller.signal),
         },
         undefined,
         [false, 1, 1]
@@ -203,39 +205,28 @@ try {
       gate
     );
     await check(
-      'post-hook arguments',
+      'post-hook arguments still need user approval',
       { ...req, input: { path: 'other.txt', content: 'other' } },
       undefined,
-      [true, 1, 0],
+      [false, 1, 1],
       rewritten
     );
+    await check('confident needed cannot override a denial', req, undefined, [false, 1, 1]);
+    answers = { approval: { choice: 'unrelated', probability: 1 } };
+    humanAnswer = 'y';
+    await check('unrelated cannot override a user approval', req, undefined, [true, 1, 1]);
+    humanAnswer = 'n';
     await check(
-      'changed task',
+      'observer failure still asks',
       {
         ...req,
-        judgeApproval: async (...args) => {
-          const grant = await req.judgeApproval(...args);
-          run.noteApprovalUpdate('Stop writing.');
-          return grant;
+        observeApproval: async () => {
+          throw new Error('offline');
         },
       },
       undefined,
-      [false, 1, 1]
+      [false, 0, 1]
     );
-    await check(
-      'policy changes during judgment',
-      {
-        ...req,
-        judgeApproval: async (...args) => {
-          const grant = await req.judgeApproval(...args);
-          rules = [parsePermissionRuleSpec('write_file', 'policy', 'deny')];
-          return grant;
-        },
-      },
-      undefined,
-      [false, 1, 0]
-    );
-    rules = [];
     const headless = createCliToolApprovalHook('workspace-write', env, {
       ...options,
       printMode: true,
@@ -243,7 +234,7 @@ try {
     });
     await check('no interactive prompt', req, undefined, [false, 0, 0], headless);
     console.log(
-      '[jev-approval] PASS human fallback, mandatory prompts, vetoes, final arguments and stale verdicts'
+      '[jev-approval] PASS user decisions, mandatory prompts, vetoes and final arguments'
     );
   }
 } finally {

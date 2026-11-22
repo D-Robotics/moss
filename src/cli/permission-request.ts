@@ -45,7 +45,7 @@ async function denial(request = pending.getStore()): Promise<string | undefined>
   );
 }
 
-/** Run the same veto on the post-hook arguments before delegated approval.
+/** Run the same veto on the post-hook arguments before observing an ordinary approval request.
  * If the user is prompted afterwards, the wrapped asker need not run it twice. */
 export async function afterPermissionRequestHook(
   request: ToolApprovalRequest,

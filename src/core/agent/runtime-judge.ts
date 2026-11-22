@@ -159,7 +159,8 @@ export class RuntimeJudgeRun {
   private goal: string;
 
   private mode(point: JudgePoint) {
-    return this.config.modes[point] ?? 'off';
+    const mode = this.config.modes[point] ?? 'off';
+    return point === 'approval' && mode === 'active' ? 'shadow' : mode;
   }
 
   reserveInput(): boolean {
@@ -342,30 +343,20 @@ export class RuntimeJudgeRun {
     if (this.mode('approval') !== 'off') this.approvalUpdates.push(message);
   }
 
-  async judgeApproval(
+  async observeApproval(
     id: string,
     tool: string,
     input: Record<string, unknown>,
     where: string,
     callSignal: AbortSignal
-  ): Promise<(() => boolean) | undefined> {
+  ): Promise<void> {
     if (!this.goal.trim() || callSignal.aborted || this.mode('approval') === 'off') return;
-    const revision = this.revision;
-    const updates = this.approvalUpdates.length;
-    const argumentsJson = JSON.stringify(input);
-    const current = () =>
-      this.revision === revision &&
-      this.approvalUpdates.length === updates &&
-      JSON.stringify(input) === argumentsJson &&
-      !this.hasPendingSteering() &&
-      !this.signal.aborted &&
-      !callSignal.aborted;
-    const answers = await this.ask(
+    await this.ask(
       'approval',
       id,
       {
         tool,
-        arguments: argumentsJson,
+        arguments: JSON.stringify(input),
         where,
         user_updates: [...this.approvalUpdates],
       },
@@ -385,8 +376,6 @@ export class RuntimeJudgeRun {
       },
       callSignal
     );
-    if (this.mode('approval') === 'active' && selected(answers?.approval) === 'needed' && current())
-      return current;
   }
 
   async beforeTool(

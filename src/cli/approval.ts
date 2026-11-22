@@ -1208,7 +1208,7 @@ export function createCliToolApprovalHook(
   const hook = async (
     request: ToolApprovalRequest,
     context?: ToolApprovalContext,
-    delegated?: { stillCurrent?: () => boolean }
+    observed = false
   ): Promise<ToolApprovalDecision> => {
     const { tool } = request;
     // O157: PreToolUse hooks that exited 0 with `ask`. Deny rules and hard
@@ -1532,9 +1532,10 @@ export function createCliToolApprovalHook(
       });
     }
 
-    const judge = request.judgeApproval;
+    const judge = request.observeApproval;
     if (
       judge &&
+      !observed &&
       outcome.decision === 'ask' &&
       !outcome.reason &&
       !hookAsks &&
@@ -1542,19 +1543,17 @@ export function createCliToolApprovalHook(
       sideEffect !== 'credential' &&
       effectiveMode !== 'plan'
     ) {
-      if (!delegated) {
-        return afterPermissionRequestHook(request, async () => {
-          request.abortSignal.throwIfAborted();
-          const where = classification
-            ? `device ${options.device?.host ?? env.MOSS_DEVICE_HOST ?? '(unspecified)'}`
-            : workspaceRoot;
-          const stillCurrent = await judge(request.input, where);
-          request.abortSignal.throwIfAborted();
-          // Rules, paths and interaction mode may have changed during the remote call.
-          return hook(request, context, { stillCurrent });
-        });
-      }
-      if (delegated.stillCurrent?.()) return settle({ approved: true });
+      return afterPermissionRequestHook(request, async () => {
+        request.abortSignal.throwIfAborted();
+        const where = classification
+          ? `device ${options.device?.host ?? env.MOSS_DEVICE_HOST ?? '(unspecified)'}`
+          : workspaceRoot;
+        // Observation cannot approve, veto or delay the user's answer.
+        void Promise.resolve()
+          .then(() => judge(request.input, where))
+          .catch(() => {});
+        return hook(request, context, true);
+      });
     }
 
     // Task OS §11: attach the live task context so approvals read as task

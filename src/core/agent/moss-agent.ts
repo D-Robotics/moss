@@ -1708,8 +1708,8 @@ ${result.stderr ?? ''}`.trim();
               this.config.runtimeJudge?.modes.approval &&
               this.config.runtimeJudge.modes.approval !== 'off'
                 ? {
-                    judgeApproval: (finalInput: Record<string, unknown>, where: string) =>
-                      runtimeJudge.judgeApproval(
+                    observeApproval: (finalInput: Record<string, unknown>, where: string) =>
+                      runtimeJudge.observeApproval(
                         call.id,
                         tool.name,
                         finalInput,

@@ -802,9 +802,9 @@ async function executeOneToolCallInner(
           const judge = deps.runtimeJudge;
           if (judge) {
             judge.noteStart(call.id);
-            rpcCtx.judgeApproval = async (toolName, finalInput, where) => {
+            rpcCtx.observeApproval = async (toolName, finalInput, where) => {
               if (toolName !== tool.name || finalInput !== validation.value) return undefined;
-              return judge.judgeApproval(call.id, toolName, finalInput, where, rpcSignal);
+              return judge.observeApproval(call.id, toolName, finalInput, where, rpcSignal);
             };
             rpcCtx.reportVerification = (target, status) =>
               deps.runtimeJudge?.noteVerification(call.id, target, status);

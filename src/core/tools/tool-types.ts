@@ -33,11 +33,11 @@ export interface ProtectedPathChangeReport {
 
 export interface ToolContext {
   /** For embedded hosts whose interactive approval gate runs inside a wrapped tool. */
-  judgeApproval?: (
+  observeApproval?: (
     toolName: string,
     input: Record<string, unknown>,
     where: string
-  ) => Promise<(() => boolean) | undefined>;
+  ) => Promise<void>;
   reportVerification?: (
     target: string | undefined,
     status: 'passed' | 'failed' | 'blocked' | 'unknown'
