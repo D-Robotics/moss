@@ -117,7 +117,7 @@ function createAgent(workspace, store, options = {}) {
     },
     sessionStore: store,
     workspaceDir: workspace,
-    taskIntent: true,
+    taskIntent: options.taskIntent ?? true,
     model: 'scripted-versioned',
     contextTokens: 32_000,
     maxTokens: 1024,
@@ -125,6 +125,7 @@ function createAgent(workspace, store, options = {}) {
     domainPrompt: false,
     enableSteering: false,
     enableFollowUpGuard: false,
+    ...(options.reasoning ? { reasoning: options.reasoning } : {}),
     ...(options.hooks ? { hooks: options.hooks } : {}),
   });
   return { agent, modelRequests, summaryRequests };
@@ -396,6 +397,98 @@ async function testProgressiveStages(workspace) {
   }
   console.log(
     'PASS progressive context adjusts output, edits old results, prepares asynchronously and reuses a ready checkpoint'
+  );
+}
+
+async function testPressureContinuation(workspace) {
+  const session = 'pressure-continuation';
+  const visiblePrefix = 'The measured size is 4096 bytes. ';
+  const privateReasoning = 'Discarded private reasoning. '.repeat(180);
+  const userText = 'Report the measured byte count and verification status.';
+  await usingAgent(
+    workspace,
+    async ({ agent, store }) => {
+      const receipt = 'Observed bytes=4096.\n' + 'Repeated archived output.\n'.repeat(350);
+      await add(
+        store,
+        session,
+        'user',
+        [{ type: 'tool_result', tool_use_id: 'archived', name: 'read_file', content: receipt }],
+        'legacy'
+      );
+      await add(store, session, 'assistant', 'Earlier analysis. '.repeat(1100));
+      await add(store, session, 'user', userText);
+      const input = {
+        sessionKey: session,
+        window: 16_000,
+        output: 4096,
+        minOutput: 1024,
+        force: true,
+        policyKey: 'pressure-continuation-probe',
+        measure: (messages) => 13_350 + Math.ceil(Buffer.byteLength(JSON.stringify(messages)) / 4),
+        summarize: async () =>
+          JSON.stringify([
+            { kind: 'observation', text: 'Observed bytes=4096.', sourceIds: ['s1'] },
+          ]),
+        signal: AbortSignal.timeout(8_000),
+      };
+      const pipeline = new VersionedContextPipeline(store);
+      const projection = await pipeline.prepare(input);
+      assert(projection.stages.includes('S5'));
+      assert(projection.output >= 2000, `only ${projection.output} tokens left to answer`);
+      assert.match(JSON.stringify(projection.messages), /Observed bytes=4096/);
+      assert(JSON.stringify(projection.messages).includes(userText));
+      assert.equal((await store.sourceMessages(session))[0].message.content[0].content, receipt);
+
+      const oversized = 'Required user text. '.repeat(1400);
+      await add(store, 'oversized-user', 'user', oversized);
+      await assert.rejects(pipeline.prepare({ ...input, sessionKey: 'oversized-user' }), {
+        code: 'PROVIDER_CONTEXT_OVERFLOW',
+      });
+      assert.equal((await store.sourceMessages('oversized-user'))[0].message.content, oversized);
+
+      const reply = await agent.chat('live-continuation', userText, {
+        taskFlow: false,
+        maxTurns: 6,
+      });
+      assert.equal(reply.response, `${visiblePrefix}Verification complete.`);
+      const original = await store.sourceMessages('live-continuation');
+      assert.equal(
+        original.filter(({ message }) => message.outputLimit === 'continuation').length,
+        2
+      );
+      assert(original.some(({ message }) => message.thinking?.join('').includes(privateReasoning)));
+    },
+    {
+      taskIntent: false,
+      reasoning: 'medium',
+      onMain(request, count) {
+        const sent = JSON.stringify(request.messages);
+        assert(sent.includes(userText));
+        assert.doesNotMatch(sent, /Discarded private reasoning/);
+        if (count === 1) {
+          assert.equal(request.reasoning, 'medium');
+          return { stopReason: 'max_tokens', content: [], thinking: [privateReasoning] };
+        }
+        assert.equal(request.reasoning, 'low');
+        if (count === 2) {
+          assert.match(sent, /used the entire output budget on private reasoning/);
+          return {
+            stopReason: 'max_tokens',
+            content: [text(`${visiblePrefix}<think>${privateReasoning}`)],
+            thinking: [privateReasoning],
+          };
+        }
+        assert.equal(count, 3);
+        assert.match(sent, /The measured size is 4096 bytes/);
+        assert.match(sent, /previous response was truncated/);
+        assert.doesNotMatch(sent, /used the entire output budget on private reasoning/);
+        return response(text('Verification complete.'));
+      },
+    }
+  );
+  console.log(
+    'PASS pressured checkpoints reserve output and cutoff retries retain only visible context'
   );
 }
 
@@ -1266,6 +1359,7 @@ const workspace = await fs.realpath(
 try {
   for (const [directory, test] of [
     ['progressive', testProgressiveStages],
+    ['pressure-continuation', testPressureContinuation],
     ['checkpoint', testConcurrentSummary],
     ['source-validation', testSummarySourceValidation],
     ['approval', testApproval],

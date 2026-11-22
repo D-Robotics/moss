@@ -20,6 +20,9 @@ export interface Message {
 
   thinking?: string[];
 
+  /** Runtime metadata for projecting a truncated reply and its one-shot retry prompt. */
+  outputLimit?: 'truncated' | 'continuation';
+
   /**
    * Model id the gateway reported for this assistant turn, when the response
    * included one. Absent on user messages and on providers that omit it.
