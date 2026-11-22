@@ -1704,6 +1704,20 @@ ${result.stderr ?? ''}`.trim();
               runId: approvalRunId,
               toolCallId: call.id,
               abortSignal: call.abortSignal,
+              ...(runtimeJudge &&
+              this.config.runtimeJudge?.modes.approval &&
+              this.config.runtimeJudge.modes.approval !== 'off'
+                ? {
+                    judgeApproval: (finalInput: Record<string, unknown>, where: string) =>
+                      runtimeJudge.judgeApproval(
+                        call.id,
+                        tool.name,
+                        finalInput,
+                        where,
+                        call.abortSignal
+                      ),
+                  }
+                : {}),
             });
             return decision.approved
               ? decision.updatedInput
@@ -2216,6 +2230,7 @@ ${result.stderr ?? ''}`.trim();
         if (steeringIntent && pending.length > 0)
           await steeringIntent.prepare(abortSignal, pending);
         return this.takeSteeringMessages(runId, pending, (entry) => {
+          runtimeJudge?.noteApprovalUpdate(entry.prompt);
           if (runtimeJudge) judgeSteering.set(entry.id, entry.prompt);
           if (steeringIntent) return steeringIntent.notice(entry.id);
           if (!observeIntent || (runtimeJudge && !runtimeJudge.reserveInput())) return undefined;

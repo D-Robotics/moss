@@ -6,7 +6,7 @@ export const stage = {
   requires: ['build'],
   description: 'Jev steering, log filtering and completion correction',
   async run(context) {
-    for (const name of ['steering-intent', 'jev-runtime']) {
+    for (const name of ['steering-intent', 'jev-runtime', 'jev-approval']) {
       const result = await runProcess(
         process.execPath,
         [path.join(context.root, 'scripts/verify', name + '.mjs')],

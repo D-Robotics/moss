@@ -91,6 +91,7 @@ export function createJevIntentRuntime(
   const mode = modeOf(env.MOSS_JEV_INTENT);
   const modes: RuntimeJudgeConfig['modes'] = {
     input: mode,
+    approval: modeOf(env.MOSS_JEV_APPROVAL),
     constraint: modeOf(env.MOSS_JEV_CONSTRAINT),
     output: modeOf(env.MOSS_JEV_OUTPUT),
     progress: modeOf(env.MOSS_JEV_PROGRESS),
@@ -131,6 +132,9 @@ export function createJevIntentRuntime(
   }
 
   async function ask(state: JudgeState, questions: JudgeQuestions, signal: AbortSignal) {
+    const safeState = sanitize(state, apiKey ?? '');
+    // An omitted suffix or a redacted operand can change what would be authorized.
+    if (questions.approval && JSON.stringify(safeState) !== JSON.stringify(state)) return undefined;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -139,7 +143,7 @@ export function createJevIntentRuntime(
       },
       redirect: 'error',
       signal,
-      body: JSON.stringify({ model, state: sanitize(state, apiKey ?? ''), questions }),
+      body: JSON.stringify({ model, state: safeState, questions }),
     });
     if (!response.ok) {
       log.warn('Jev request failed', {

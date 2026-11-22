@@ -49,6 +49,7 @@ import { buildApprovalDetailLines, type ApprovalDetailContext } from './approval
 import { getCliInteractionMode } from './interaction-mode.js';
 import { setUserQuestionAsker } from '../core/tools/user-question-asker.js';
 import type { CliDetailMode } from './output.js';
+import { afterPermissionRequestHook } from './permission-request.js';
 import { runNotificationHooks } from './hooks.js';
 
 export {
@@ -1206,7 +1207,8 @@ export function createCliToolApprovalHook(
 
   const hook = async (
     request: ToolApprovalRequest,
-    context?: ToolApprovalContext
+    context?: ToolApprovalContext,
+    delegated?: { stillCurrent?: () => boolean }
   ): Promise<ToolApprovalDecision> => {
     const { tool } = request;
     // O157: PreToolUse hooks that exited 0 with `ask`. Deny rules and hard
@@ -1530,6 +1532,31 @@ export function createCliToolApprovalHook(
       });
     }
 
+    const judge = request.judgeApproval;
+    if (
+      judge &&
+      outcome.decision === 'ask' &&
+      !outcome.reason &&
+      !hookAsks &&
+      !tool.metadata?.requiresApproval &&
+      sideEffect !== 'credential' &&
+      effectiveMode !== 'plan'
+    ) {
+      if (!delegated) {
+        return afterPermissionRequestHook(request, async () => {
+          request.abortSignal.throwIfAborted();
+          const where = classification
+            ? `device ${options.device?.host ?? env.MOSS_DEVICE_HOST ?? '(unspecified)'}`
+            : workspaceRoot;
+          const stillCurrent = await judge(request.input, where);
+          request.abortSignal.throwIfAborted();
+          // Rules, paths and interaction mode may have changed during the remote call.
+          return hook(request, context, { stillCurrent });
+        });
+      }
+      if (delegated.stillCurrent?.()) return settle({ approved: true });
+    }
+
     // Task OS §11: attach the live task context so approvals read as task
     // decisions (what/why/impact), not raw tool prompts.
     let taskCtx: TaskApprovalContext | undefined;
@@ -1678,7 +1705,7 @@ export function createCliToolApprovalHook(
       denialClass: 'user',
     });
   };
-  const configurable = hook as CliToolApprovalHook;
+  const configurable: CliToolApprovalHook = (request, context) => hook(request, context);
   configurable.setAsker = (asker: AskUser | null) => {
     instanceAsker = asker;
     return () => {

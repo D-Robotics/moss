@@ -1,5 +1,5 @@
 export type JudgeMode = 'off' | 'shadow' | 'active';
-export type JudgePoint = 'input' | 'constraint' | 'output' | 'progress' | 'completion';
+export type JudgePoint = 'input' | 'approval' | 'constraint' | 'output' | 'progress' | 'completion';
 export type JudgeValue =
   | string
   | number

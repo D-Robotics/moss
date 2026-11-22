@@ -498,7 +498,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',
       'MOSS_JEV_INTENT (shadow observes; active applies live steering decisions; startup env only)',
-      'MOSS_JEV_CONSTRAINT / MOSS_JEV_OUTPUT / MOSS_JEV_PROGRESS / MOSS_JEV_COMPLETION (off|shadow|active; startup env only)',
+      'MOSS_JEV_APPROVAL / MOSS_JEV_CONSTRAINT / MOSS_JEV_OUTPUT / MOSS_JEV_PROGRESS / MOSS_JEV_COMPLETION (off|shadow|active; startup env only)',
       'MOSS_JEV_SYSTEMONE_URL (full HTTPS endpoint for an explicit relay; startup env only)',
       'MOSS_JEV_RELAY_KEY (credential dedicated to the explicit relay; startup env only)',
       'MOSS_JEV_MODEL (relay model override; defaults to jev-latest)',
