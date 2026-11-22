@@ -33,7 +33,11 @@ export interface ProtectedPathChangeReport {
 
 export interface ToolContext {
   /** For embedded hosts whose interactive approval gate runs inside a wrapped tool. */
-  judgeApproval?: import('../agent/agent-hooks.js').ToolApprovalRequest['judgeApproval'];
+  judgeApproval?: (
+    toolName: string,
+    input: Record<string, unknown>,
+    where: string
+  ) => Promise<(() => boolean) | undefined>;
   reportVerification?: (
     target: string | undefined,
     status: 'passed' | 'failed' | 'blocked' | 'unknown'
