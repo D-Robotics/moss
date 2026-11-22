@@ -239,6 +239,30 @@ export interface PrepareTurnContextParams {
   prefixDebugEnabled: boolean;
 }
 
+export function prepareProjectionWire(params: {
+  systemPrompt: string;
+  systemPromptParts?: PrepareTurnContextParams['systemPromptParts'];
+  modelDef: PrepareTurnContextParams['modelDef'];
+  tools: Tool[];
+  effectiveContextTokens: number;
+}) {
+  const tools = buildProviderToolDeclarations(params.tools, {
+    contextWindowTokens: params.effectiveContextTokens,
+  });
+  return (history: Message[]): PiContext => {
+    const { messages } = repairMissingToolResults(history);
+    const model = shouldIncludeThinkingInBudget(messages, params.modelDef)
+      ? { ...params.modelDef, reasoning: true }
+      : params.modelDef;
+    return {
+      systemPrompt: params.systemPrompt,
+      systemPromptParts: params.systemPromptParts,
+      messages: convertMessagesToPi(messages, model),
+      ...(tools.length ? { tools } : {}),
+    };
+  };
+}
+
 export async function prepareTurnContext(
   params: PrepareTurnContextParams
 ): Promise<PrepareTurnContextResult> {

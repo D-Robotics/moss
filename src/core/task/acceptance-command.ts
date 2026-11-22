@@ -4,6 +4,7 @@
  */
 import { errorMessage } from '../../errors.js';
 import { runProcess } from '../../utils/run-process.js';
+import { assertTaskExecutionCurrent } from './task-execution-guard.js';
 
 export interface AcceptanceSpec {
   /** Shell command that must exit 0 for the goal to be complete. */
@@ -138,6 +139,9 @@ export async function runAcceptanceCommandInWorkspace(
   const endedAt = Date.now();
   const shell = acceptanceShell(spec.command);
   const env = process.platform === 'win32' ? undefined : await acceptanceEnv();
+  // Environment discovery may yield after the plan was authorized. Check at
+  // the actual process-start boundary, outside the command-failure catch.
+  assertTaskExecutionCurrent();
   try {
     const res = await runProcess(shell.cmd, {
       ...(env ? { env } : {}),

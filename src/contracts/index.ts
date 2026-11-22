@@ -70,6 +70,15 @@ export type {
   MossAsyncTaskRegistry,
   InMemoryMossAsyncTaskRegistryOptions,
 } from './async-task.js';
+export type {
+  TaskIntentInput,
+  TaskIntentState,
+  TaskIntentSnapshot,
+  TaskIntentReceipt,
+  TaskIntentChange,
+  TurnDecision,
+} from './task-intent.js';
+
 export {
   InMemoryMossAsyncTaskRegistry,
   createInMemoryMossAsyncTaskRegistry,

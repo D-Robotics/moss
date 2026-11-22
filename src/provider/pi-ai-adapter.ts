@@ -151,7 +151,7 @@ export interface PiAiLLMProviderConfig {
 export class PiAiLLMProvider implements LLMProvider {
   readonly id: string;
   readonly displayName: string;
-  readonly capabilities = { streaming: true };
+  readonly capabilities: NonNullable<LLMProvider['capabilities']>;
 
   private streamFn: PiAiStreamFunction;
   private model: PiAiModelInfo;
@@ -164,6 +164,10 @@ export class PiAiLLMProvider implements LLMProvider {
     rejectAnthropicOAuthToken(config.apiKey, config.model?.api);
     this.streamFn = config.streamFn;
     this.model = normalizePiAiModelInfo(config.model, config.baseUrl);
+    this.capabilities = {
+      streaming: true,
+      structuredOutput: this.model.api !== 'anthropic-messages' && /^minimax-/i.test(this.model.id),
+    };
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl;
     this.reasoning = config.reasoning;
@@ -431,8 +435,9 @@ export class PiAiLLMProvider implements LLMProvider {
     toolFollowSuppress = false
   ): Record<string, unknown> {
     const tcRaw = envPreferMoss('MOSS_PI_AI_TOOL_CHOICE', 'PI_AI_TOOL_CHOICE');
-    const toolChoice =
+    const configuredToolChoice =
       tcRaw === 'required' || tcRaw === 'auto' || tcRaw === 'none' ? tcRaw : undefined;
+    const toolChoice = options.toolChoice ?? configuredToolChoice;
 
     const effectiveSignal = overrideAbortSignal ?? options.abortSignal;
 
@@ -462,6 +467,15 @@ export class PiAiLLMProvider implements LLMProvider {
       ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
       ...(effectiveSignal ? { abortSignal: effectiveSignal, signal: effectiveSignal } : {}),
       ...(toolChoice ? { toolChoice } : {}),
+      ...(options.toolChoice ? { allowToolChoiceFallback: true } : {}),
+      ...(options.responseFormat
+        ? {
+            responseFormat: {
+              type: 'json_schema',
+              json_schema: { ...options.responseFormat, strict: true },
+            },
+          }
+        : {}),
       ...(onPayload ? { onPayload } : {}),
       ...(options.extraBody ? { extraBody: options.extraBody } : {}),
     };
