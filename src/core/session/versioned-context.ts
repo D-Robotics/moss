@@ -33,6 +33,9 @@ const MAX_SUMMARY_ENTRIES = 64;
 const MAX_SUMMARY_MS = 25_000;
 const MAX_CHUNKS = 4;
 const RECENT_GROUP_MESSAGES = 8;
+const HISTORICAL_TOOL_RESULT_CHARS = 1400;
+const HISTORICAL_TOOL_HEAD_CHARS = 800;
+const HISTORICAL_TOOL_TAIL_CHARS = 300;
 const SUMMARY_POLICY = createHash('sha256').update(SUMMARY_PROMPT).digest('hex');
 
 function decodeEntries(raw: string, sources: ContextSourceMessage[]): ContextSummaryEntry[] {
@@ -161,19 +164,28 @@ function summaryMessage(checkpoint: ContextCheckpoint): Message {
   );
 }
 
-function editableView(sources: ContextSourceMessage[]): Message[] {
-  const recent = sources.length - RECENT_GROUP_MESSAGES;
-  const messages = sources.map((source, index) => {
+/** Keep exact tool output available to the turn that requested it. */
+function activeTurnStart(sources: ContextSourceMessage[]): number {
+  for (let index = sources.length - 1; index >= 0; index--) {
+    if (trustedUser(sources[index]!)) return index;
+  }
+  return Math.max(0, sources.length - RECENT_GROUP_MESSAGES);
+}
+
+function editableView(sources: ContextSourceMessage[], currentTurnOrdinal: number): Message[] {
+  const messages = sources.map((source) => {
     const message = asMessage(source);
-    if (index >= recent || !Array.isArray(message.content)) return message;
+    if (source.ordinal >= currentTurnOrdinal || !Array.isArray(message.content)) return message;
     return {
       ...message,
       content: message.content.map((block) =>
-        block.type !== 'tool_result' || !block.content || block.content.length <= 4000
+        block.type !== 'tool_result' ||
+        !block.content ||
+        block.content.length <= HISTORICAL_TOOL_RESULT_CHARS
           ? block
           : {
               ...block,
-              content: `${block.content.slice(0, 1500)}\n[Output shortened. Original source: ${source.id}]\n${block.content.slice(-1500)}`,
+              content: `${block.content.slice(0, HISTORICAL_TOOL_HEAD_CHARS)}\n[Output shortened. Original source: ${source.id}]\n${block.content.slice(-HISTORICAL_TOOL_TAIL_CHARS)}`,
             }
       ),
     };
@@ -182,10 +194,10 @@ function editableView(sources: ContextSourceMessage[]): Message[] {
 }
 
 /** A checkpoint prefix ends at a complete tool boundary and leaves recent turns intact. */
-function closureBoundary(sources: ContextSourceMessage[], keep: number): number {
+function closureBoundary(sources: ContextSourceMessage[], before: number): number {
   const pending = new Set<string>();
   let boundary = 0;
-  for (const source of sources.slice(0, Math.max(0, sources.length - keep))) {
+  for (const source of sources.slice(0, before)) {
     const content = source.message.content;
     if (typeof content !== 'string') {
       for (const block of content) {
@@ -252,6 +264,7 @@ export interface PreparedContextProjection {
 
 export class VersionedContextPipeline {
   private readonly jobs = new Map<string, Promise<ContextCheckpoint>>();
+  private readonly backgroundJobs = new Set<string>();
 
   constructor(private readonly store: VersionedSessionStore) {}
 
@@ -337,10 +350,13 @@ export class VersionedContextPipeline {
           .map(({ id }) => id),
       ]),
     ];
-    let selected = fit(complete(sources.map(asMessage)));
+    const activeStart = activeTurnStart(sources);
+    const currentTurnOrdinal = sources[activeStart]?.ordinal ?? 0;
+    const raw = fit(complete(sources.map(asMessage)));
+    let selected = raw;
     if (selected.output < input.output) stages.push('S1');
-    if (!selected.legal || selected.tokens >= capacity * 0.6 || input.force) {
-      const edited = fit(complete(editableView(sources)));
+    if (!raw.legal || raw.tokens >= capacity * 0.4 || input.force) {
+      const edited = fit(complete(editableView(sources, currentTurnOrdinal)));
       if (edited.tokens < selected.tokens) {
         selected = edited;
         stages.push('S2');
@@ -352,7 +368,7 @@ export class VersionedContextPipeline {
         ? this.store.earlierCheckpointBoundary(input.sessionKey, snapshot.revision, input.policyKey)
         : undefined;
     const boundary = Math.max(
-      closureBoundary(sources, RECENT_GROUP_MESSAGES),
+      closureBoundary(sources, activeStart),
       Math.min(retired ?? 0, snapshot.messages.at(-1)?.ordinal ?? 0)
     );
     const isCompatible =
@@ -366,7 +382,8 @@ export class VersionedContextPipeline {
         complete([
           summaryMessage(checkpoint),
           ...editableView(
-            sources.filter((row) => row.ordinal > checkpoint.throughOrdinal || trustedUser(row))
+            sources.filter((row) => row.ordinal > checkpoint.throughOrdinal || trustedUser(row)),
+            currentTurnOrdinal
           ),
         ])
       );
@@ -391,13 +408,25 @@ export class VersionedContextPipeline {
         input.signal.throwIfAborted();
         if (!selected.legal || input.force) throw error;
       }
-    } else if (
-      boundary &&
-      selected.tokens >= capacity * 0.6 &&
-      (!isCompatible || candidate.throughOrdinal < boundary)
-    ) {
-      void this.prepareSummary(input, snapshot, sources, boundary, policy).catch(() => {});
-      stages.push('S3');
+    } else if (boundary && raw.tokens >= capacity * 0.5) {
+      const backgroundKey = JSON.stringify([input.sessionKey, snapshot.revision, policy]);
+      const covered = isCompatible ? candidate.throughOrdinal : 0;
+      const backlog = sources.filter(
+        (row) => row.ordinal > covered && row.ordinal <= boundary && !trustedUser(row)
+      );
+      const backlogTokens =
+        input.measure(backlog.map(asMessage), input.output) - input.measure([], input.output);
+      if (
+        !this.backgroundJobs.has(backgroundKey) &&
+        backlog.length > 0 &&
+        (!isCompatible || backlogTokens >= capacity * 0.35)
+      ) {
+        this.backgroundJobs.add(backgroundKey);
+        void this.prepareSummary(input, snapshot, sources, boundary, policy)
+          .catch(() => {})
+          .finally(() => this.backgroundJobs.delete(backgroundKey));
+        stages.push('S3');
+      }
     }
     input.signal.throwIfAborted();
     if (this.store.revision(input.sessionKey) !== snapshot.revision) {

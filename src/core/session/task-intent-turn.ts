@@ -16,6 +16,9 @@ import {
   versionedTurnDecisionSchema,
 } from './task-intent-state.js';
 
+const CORRECTION_SCOPE_GUIDANCE =
+  'A user correction includes pointing out that an earlier conclusion applies only to a previous version, run, or phase and giving the newer state. Declare contextCorrections for the earlier assistant conclusion even if your answer already agrees with the new state. Keep underlying observations as historical evidence.';
+
 type Call = { id: string; name: string; input: Record<string, unknown> };
 
 export interface TaskIntentResponse {
@@ -102,7 +105,9 @@ export class TaskIntentTurn {
     if (targets.length) header.push(JSON.stringify({ contextSources: targets }));
     return [
       ...header,
-      'Return one turn_decision call with no plain text. If a pending input corrects an older conclusion, return its targetId from contextSources or an active claim; omit answer.',
+      'Return one turn_decision call with no plain text.',
+      CORRECTION_SCOPE_GUIDANCE,
+      'For a correction, return the targetId from contextSources or an active claim and omit answer.',
       this.wholeInputCitation
         ? 'For a correction, omit quote and messageId. The runtime cites the pending user input.'
         : 'For a correction, copy an exact quote from the pending user input. Never quote old assistant text.',
@@ -137,6 +142,7 @@ export class TaskIntentTurn {
             }),
             ...(this.needsDecision
               ? [
+                  CORRECTION_SCOPE_GUIDANCE,
                   'When a pending user input explicitly corrects or supplies facts that contradict an older assistant conclusion, include contextCorrections with the old assistant/claim ID as targetId and copy an exact quote from the pending input. The runtime matches a unique quote to its input ID. Never resubmit a recorded correction during a follow-up. Clarify when you cannot identify the old conclusion.',
                   'For a read-only answer or historical correction, call turn_decision with disposition: "answer", the answer, and any contextCorrections. Omit changes and plan unless updating a real task. Do not copy runtime metadata or add a task change for the requested answer format.',
                 ]

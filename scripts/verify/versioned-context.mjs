@@ -243,6 +243,48 @@ async function testProgressiveStages(workspace) {
     assert.match(JSON.stringify(edited.messages), /Original source/);
     assert.equal((await store.sourceMessages('tool'))[1].message.content[0].content, original);
 
+    // A single new request ages the finished tool read. The active tool response
+    // still needs all of its details when the assistant is deciding what to do next.
+    const finished = 'finished-reads';
+    await add(store, finished, 'user', 'Read the earlier result.');
+    await add(store, finished, 'assistant', [toolCall('read_file', 'finished-tool')]);
+    const oldOutput = `${'historic line\n'.repeat(350)}HISTORIC_MIDDLE${'historic line\n'.repeat(50)}`;
+    await add(
+      store,
+      finished,
+      'user',
+      [
+        {
+          type: 'tool_result',
+          tool_use_id: 'finished-tool',
+          content: oldOutput,
+        },
+      ],
+      'tool'
+    );
+    await add(store, finished, 'user', 'Read and inspect a different result.');
+    await add(store, finished, 'assistant', [toolCall('read_file', 'active-tool')]);
+    const freshOutput = `${'active line\n'.repeat(350)}ACTIVE_MIDDLE${'active line\n'.repeat(50)}`;
+    await add(
+      store,
+      finished,
+      'user',
+      [
+        {
+          type: 'tool_result',
+          tool_use_id: 'active-tool',
+          content: freshOutput,
+        },
+      ],
+      'tool'
+    );
+    const aged = await pipeline.prepare({ ...common, sessionKey: finished });
+    assert(aged.stages.includes('S2'));
+    assert.doesNotMatch(JSON.stringify(aged.messages), /HISTORIC_MIDDLE/);
+    assert.match(JSON.stringify(aged.messages), /ACTIVE_MIDDLE/);
+    const retained = await store.sourceMessages(finished);
+    assert.equal(retained.find((row) => row.ordinal === 3).message.content[0].content, oldOutput);
+
     for (let index = 0; index < 3; index++) {
       await add(store, 'background', 'assistant', 'Historical analysis. '.repeat(125));
     }
@@ -643,6 +685,7 @@ async function testReadOnlyIntentPrompt(workspace) {
           ]);
           assert.doesNotMatch(request.systemPrompt, new RegExp(targetId));
           assert.match(request.systemPrompt, /"id":"s1"/);
+          assert.match(request.systemPrompt, /applies only to a previous version, run, or phase/);
           assert.doesNotMatch(request.systemPrompt, new RegExp(correctionText));
         }
         return response(
