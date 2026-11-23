@@ -75,11 +75,11 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 
 ## Jev 运行时判定
 
-配置受信任的 Jev 服务后，Moss 默认启用意图识别和完成检查。TypeSafe 和 OpenRouter 需要对应的 API Key。默认服务缺少凭据时，Moss 可离线运行。设置 `MOSS_JEV_ENABLED=0` 可关闭所有 Jev 判定。
+Moss 内置维护者提供的 System One 服务，使用 `jev-latest` 默认启用意图识别和完成检查。用户按原流程配置对话模型即可使用。Jev 会把经过脱敏和限长的判定数据发送给默认服务。服务不可用时沿用本地降级策略，设置 `MOSS_JEV_ENABLED=0` 可关闭所有 Jev 判定。也可以改用自有服务配置。
 
 | `MOSS_JEV_PROVIDER` | 密钥环境变量               | 模型                                                                                               |
 | ------------------- | -------------------------- | -------------------------------------------------------------------------------------------------- |
-| `typesafe`（默认）  | `TYPESAFE_API_KEY`         | `jev-latest`                                                                                       |
+| `typesafe`          | `TYPESAFE_API_KEY`         | `jev-latest`                                                                                       |
 | `openrouter`        | `OPENROUTER_API_KEY`       | `jev-latest`，由 [OpenRouter](https://openrouter.ai/docs/guides/community/typesafe-sdk) 按用量计费 |
 | `opencode`          | `OPENCODE_API_KEY`（可选） | `jev-1.13-free`，[OpenCode Console](https://opencode.ai/docs/console/models/#jev) 限时免费         |
 
@@ -94,7 +94,7 @@ MOSS_JEV_PROVIDER=opencode MOSS_JEV_INTENT=shadow MOSS_LOG_LEVEL=info \
 
 SDK 宿主也可通过 `MossAgentConfig.observeUserIntent` 注入观察器，或通过 `MossAgentConfig.decideSteeringIntent` 注入参与执行的判定器。用 `ChatOptions.userIntentText` 标记原始用户输入。
 
-把 `MOSS_JEV_INTENT` 改成 `active`，即可在交互运行中使用 Jev 判定。运行中发送「改一下，只解释，别改代码」后，Moss 会在下一次工具启动前检查新消息。确认纠正后，本轮尚未启动的工具会收到跳过结果，模型按最新用户消息继续。已经启动的工具保留实际结果。对明确的只读要求，当前运行的后续轮次也只允许使用声明为只读的工具，直到收到明确允许编辑的新指令。
+意图识别的默认 `active` 模式会在交互运行中使用 Jev 判定。运行中发送「改一下，只解释，别改代码」后，Moss 会在下一次工具启动前检查新消息。确认纠正后，本轮尚未启动的工具会收到跳过结果，模型按最新用户消息继续。已经启动的工具保留实际结果。对明确的只读要求，当前运行的后续轮次也只允许使用声明为只读的工具，直到收到明确允许编辑的新指令。
 
 判定失败、超时或概率低于 `0.8` 时，Moss 会按最新用户消息重新规划，并保守地继续只读。被纠正的 `/goal` 会停在 `BLOCKED`，后续验收使用按新要求创建的目标。
 
