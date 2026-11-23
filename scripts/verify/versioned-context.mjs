@@ -492,6 +492,62 @@ async function testPressureContinuation(workspace) {
   );
 }
 
+async function testActiveToolPressure(workspace) {
+  const session = 'active-tool-pressure';
+  const user = 'Inspect the selected board and report the exact detection count.';
+  const original =
+    'Board model is RDK X5.\n' +
+    'log line\n'.repeat(1600) +
+    'RAW_ARCHIVE_ONLY\n' +
+    'log line\n'.repeat(1600) +
+    'End of board diagnostics.';
+  const latest = 'Inference exited with status 0.\n' + 'trace\n'.repeat(250) + 'Detection count: 4';
+  await usingAgent(workspace, async ({ store }) => {
+    await add(store, session, 'user', user);
+    for (const [id, name, content] of [
+      ['diagnostics', 'device_diagnose', original],
+      ['inference', 'device_exec', latest],
+    ]) {
+      await add(store, session, 'assistant', [toolCall(name, id)]);
+      await add(
+        store,
+        session,
+        'user',
+        [{ type: 'tool_result', tool_use_id: id, name, content }],
+        'tool'
+      );
+    }
+    const pipeline = new VersionedContextPipeline(store);
+    const input = {
+      sessionKey: session,
+      window: 10_000,
+      output: 2048,
+      minOutput: 1024,
+      policyKey: 'active-tool-pressure-probe',
+      measure: (messages) => 3400 + Math.ceil(Buffer.byteLength(JSON.stringify(messages)) / 4),
+      summarize: async () => {
+        throw new Error('The active turn cannot be summarized');
+      },
+      signal: AbortSignal.timeout(8_000),
+    };
+    const sources = await store.sourceMessages(session);
+    const archived = sources.find((row) => row.message.content[0]?.tool_use_id === 'diagnostics');
+    assert.ok(archived);
+    const full = await pipeline.prepare({ ...input, window: 40_000 });
+    assert(full.messages.some((message) => message.content[0]?.content === original));
+    const projected = await pipeline.prepare(input);
+    assert(projected.stages.includes('S2'));
+    assert(projected.messages.some((message) => message.content === user));
+    assert(projected.messages.some((message) => message.content[0]?.content === latest));
+    assert.match(JSON.stringify(projected.messages), /Board model is RDK X5/);
+    assert(JSON.stringify(projected.messages).includes(archived.id));
+    assert(projected.sourceIds.includes(archived.id));
+    assert.doesNotMatch(JSON.stringify(projected.messages), /RAW_ARCHIVE_ONLY/);
+    assert.deepEqual(await store.sourceMessages(session), sources);
+  });
+  console.log('PASS active tool pressure preserves the latest receipt and the full source archive');
+}
+
 async function testConcurrentSummary(workspace) {
   const summaryStarted = latch();
   const releaseSummary = latch();
@@ -1449,6 +1505,7 @@ try {
   for (const [directory, test] of [
     ['progressive', testProgressiveStages],
     ['pressure-continuation', testPressureContinuation],
+    ['active-tool-pressure', testActiveToolPressure],
     ['checkpoint', testConcurrentSummary],
     ['source-validation', testSummarySourceValidation],
     ['approval', testApproval],

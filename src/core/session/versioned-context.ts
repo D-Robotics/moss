@@ -204,7 +204,7 @@ function summaryMessage(
   );
 }
 
-/** Keep exact tool output available to the turn that requested it. */
+/** Keep exact authored input as the boundary for ordinary tool-output editing. */
 function activeTurnStart(sources: ContextSourceMessage[]): number {
   for (let index = sources.length - 1; index >= 0; index--) {
     if (trustedUser(sources[index]!)) return index;
@@ -226,10 +226,11 @@ function limitToolOutput(text: string, id: string, head: number, tail: number): 
   return `${text.slice(0, head)}\n[Output shortened. Original source: ${id}]\n${text.slice(-tail)}`;
 }
 
-function editableView(sources: ContextSourceMessage[], currentTurnOrdinal: number): Message[] {
+function editableView(sources: ContextSourceMessage[], preserveToolResultsFrom: number): Message[] {
   const messages = sources.map((source) => {
     const message = asMessage(source);
-    if (source.ordinal >= currentTurnOrdinal || !Array.isArray(message.content)) return message;
+    if (source.ordinal >= preserveToolResultsFrom || !Array.isArray(message.content))
+      return message;
     return {
       ...message,
       content: message.content.map((block) =>
@@ -427,10 +428,13 @@ export class VersionedContextPipeline {
         hashContextSources(
           snapshot.messages.filter((row) => row.ordinal <= candidate.throughOrdinal)
         );
-    const projected = (checkpoint: ContextCheckpoint) => {
+    const projected = (
+      checkpoint: ContextCheckpoint,
+      preserveToolResultsFrom = currentTurnOrdinal
+    ) => {
       const tail = editableView(
         sources.filter((row) => row.ordinal > checkpoint.throughOrdinal || trustedUser(row)),
-        currentTurnOrdinal
+        preserveToolResultsFrom
       );
       const evidence =
         lastEvidence && lastEvidence.ordinal <= checkpoint.throughOrdinal
@@ -470,6 +474,8 @@ export class VersionedContextPipeline {
         return { ...minimal, evidence: undefined, historical: [] };
       return best;
     };
+    let pressureCheckpoint = isCompatible ? { checkpoint: candidate, stage: 'S4' } : undefined;
+    let summaryFailure: { error: unknown } | undefined;
     if (isCompatible) {
       const projection = projected(candidate);
       if (projection.legal && projection.tokens < selected.tokens) {
@@ -481,6 +487,7 @@ export class VersionedContextPipeline {
     if (boundary && (!selected.legal || (input.force && !stages.includes('S4')))) {
       try {
         const checkpoint = await this.prepareSummary(input, snapshot, sources, boundary, policy);
+        pressureCheckpoint = { checkpoint, stage: 'S5' };
         const projection = projected(checkpoint);
         if (projection.legal && projection.tokens < selected.tokens) {
           selected = projection;
@@ -489,7 +496,8 @@ export class VersionedContextPipeline {
         }
       } catch (error) {
         input.signal.throwIfAborted();
-        if (!selected.legal || input.force) throw error;
+        if (input.force) throw error;
+        if (!selected.legal) summaryFailure = { error };
       }
     } else if (boundary && (retired || raw.tokens >= capacity * 0.5)) {
       // The current source view already excludes superseded conclusions. A
@@ -513,6 +521,27 @@ export class VersionedContextPipeline {
         stages.push('S3');
       }
     }
+    if (!selected.legal && lastEvidence && lastEvidence.ordinal > currentTurnOrdinal) {
+      // A multi-tool turn can exhaust the window even with a historical
+      // checkpoint. Shorten earlier receipts in the request only, preserving
+      // their source IDs and keeping the latest result batch exact.
+      const edited = fit(complete(editableView(sources, lastEvidence.ordinal)));
+      if (edited.legal) {
+        selected = edited;
+      } else if (
+        pressureCheckpoint &&
+        pressureCheckpoint.checkpoint.throughOrdinal < lastEvidence.ordinal
+      ) {
+        const { checkpoint, stage } = pressureCheckpoint;
+        const projection = projected(checkpoint, lastEvidence.ordinal);
+        if (projection.legal) {
+          selected = projection;
+          submittedSources = retainedIds(checkpoint, projection.evidence, projection.historical);
+          stages.push(stage);
+        }
+      }
+      if (selected.legal && !stages.includes('S2')) stages.unshift('S2');
+    }
     input.signal.throwIfAborted();
     if (this.store.revision(input.sessionKey) !== snapshot.revision) {
       throw new MossError({
@@ -522,6 +551,7 @@ export class VersionedContextPipeline {
       });
     }
     if (!selected.legal) {
+      if (summaryFailure) throw summaryFailure.error;
       throw new MossError({
         code: ErrorCode.PROVIDER_CONTEXT_OVERFLOW,
         message: 'Protected context cannot fit the model window with the current output budget',
