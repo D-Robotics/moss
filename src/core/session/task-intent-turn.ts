@@ -67,6 +67,10 @@ export class TaskIntentTurn {
     return (this.batch?.inputs.length ?? 0) > 0;
   }
 
+  get isRepairingDecision(): boolean {
+    return this.needsDecision && this.attempts > 0;
+  }
+
   get isAnswerOnly(): boolean {
     return Boolean(
       this.correctionTargets &&

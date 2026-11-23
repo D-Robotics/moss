@@ -1904,6 +1904,10 @@ ${result.stderr ?? ''}`.trim();
         hostFiltersTools &&
         (!claimTool || !hostFiltersTools(claimTool))
       );
+      if (intentTurn?.isRepairingDecision) {
+        const decisionTool = intentTurn.tool(readOnlyIntentSurface);
+        if (decisionTool) return [decisionTool];
+      }
       const declarations = [
         intentTurn?.tool(readOnlyIntentSurface),
         readOnlyIntentSurface ? undefined : claimTool,
@@ -1966,7 +1970,9 @@ ${result.stderr ?? ''}`.trim();
     const streamFn = createStreamFunctionFromLlmProvider({
       provider,
       getToolChoice: (tools) =>
-        readOnlyIntentSurface && intentTurn?.needsDecision && tools?.length === 1
+        (readOnlyIntentSurface || intentTurn?.isRepairingDecision) &&
+        intentTurn?.needsDecision &&
+        tools?.length === 1
           ? 'required'
           : undefined,
       preferStructuredOutput: () => Boolean(preparedProjection?.revision),
