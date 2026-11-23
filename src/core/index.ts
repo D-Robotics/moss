@@ -12,6 +12,7 @@ export type {
   OutputGuardrailRequest,
   OutputGuardrailDecision,
   ToolApprovalRequest,
+  ToolBatchPreparation,
   ToolApprovalDecision,
 } from './agent/index.js';
 export { CommandQueueRegistry } from './agent/index.js';

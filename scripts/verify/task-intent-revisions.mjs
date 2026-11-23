@@ -106,6 +106,51 @@ function register(agent, name, execute) {
 }
 
 try {
+  const workspaceSteps = [];
+  const admittedWorkspace = path.join(workspace, 'admitted');
+  const admitted = createAgent(
+    (request, count) => {
+      if (count > 1) return response(text('Workspace verified.'));
+      return response(declaration(frame(request)), toolCall('workspace_probe'));
+    },
+    {
+      hooks: {
+        prepareToolBatch: async ({ calls, context, assertCurrent }) => {
+          assertCurrent();
+          assert.deepEqual(
+            calls.map((call) => call.name),
+            ['workspace_probe']
+          );
+          assert.equal(admitted.agent.getTaskIntent('workspace-admission').disposition, 'execute');
+          assert.equal(
+            admitted.agent.getTaskIntentReceipt('workspace-admission', 'workspace-input').status,
+            'committed'
+          );
+          workspaceSteps.push('admit');
+          admitted.agent.tools.remove('workspace_probe');
+          register(admitted.agent, 'workspace_probe', async (_input, ctx) => {
+            assert.equal(ctx.workspaceDir, admittedWorkspace);
+            workspaceSteps.push('execute');
+            return 'Verified the admitted workspace.';
+          });
+          return { ...context, workspaceDir: admittedWorkspace };
+        },
+      },
+    }
+  );
+  register(admitted.agent, 'workspace_probe', async () => {
+    workspaceSteps.push('stale tool');
+    return 'This tool was replaced before dispatch.';
+  });
+  await admitted.agent.chat('workspace-admission', 'Verify the project', {
+    userInput: { id: 'workspace-input' },
+    taskFlow: false,
+  });
+  assert.deepEqual(workspaceSteps, ['admit', 'execute']);
+  console.log(
+    'PASS tool batch preparation observes committed intent and replaces dispatch context'
+  );
+
   const starts = [];
   const { agent, provider } = createAgent((request, count) => {
     const f = frame(request);

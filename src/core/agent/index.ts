@@ -6,6 +6,7 @@ export type {
   OutputGuardrailRequest,
   OutputGuardrailDecision,
   ToolApprovalRequest,
+  ToolBatchPreparation,
   ToolApprovalDecision,
 } from './agent-hooks.js';
 export { CommandQueueRegistry } from './command-queue.js';

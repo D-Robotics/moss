@@ -26,6 +26,14 @@ For native tasks, `applyTaskRevision` commits a revision with an idempotent `rev
 
 Host callbacks outside normal tool execution must freeze the binding at callback creation and use `withTaskExecutionGuard(() => agent.assertTaskIntentCurrent(sessionKey, capturedIntent), action)`. Do not reread a new binding when an old callback wakes. Host evidence must also preserve its producing plan identity: stamping an old observation with the current revision does not make it current evidence.
 
+Hosts that provision an isolated workspace can register `hooks.prepareToolBatch`.
+The hook receives currently available, schema-checked business calls after the
+runtime commits the pending decision. Use `assertCurrent()` before provisioning
+and after each asynchronous step. The hook can update the host tool registry and
+return a dispatch context with the new workspace. The SDK rechecks the decision,
+resolves the updated tools and applies its usual approval and execution guards.
+An answer or decision with no business calls skips the hook.
+
 The SDK defaults to the existing path when this option is absent. Studio enables it for ordinary runs, while fixed JSON execution profiles retain their own protocol.
 
 Verification: `npm run verify` includes the `task-intent` stage, which exercises a scripted provider, durable recovery and native task revision/acceptance. These offline probes do not measure model interpretation accuracy or real-device behavior.

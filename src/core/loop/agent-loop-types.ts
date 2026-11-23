@@ -1,3 +1,4 @@
+import type { AgentHooks } from '../agent/agent-hooks.js';
 import type { RuntimeJudgeRun } from '../agent/runtime-judge.js';
 import type { Model, StreamFunction, ThinkingLevel } from '../../provider/pi-ai-types.js';
 import type { ContextPruningSettings } from '../../context/pruning.js';
@@ -71,6 +72,7 @@ export interface AgentLoopToolInput {
   toolsForRun: Tool[];
   getToolsForRun?: () => Tool[];
   toolCtx: ToolContext;
+  prepareToolBatch?: AgentHooks['prepareToolBatch'];
   checkToolApproval?: (call: {
     id: string;
     name: string;

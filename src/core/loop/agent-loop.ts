@@ -729,6 +729,7 @@ export function runAgentLoop(
               toolLoopGuard,
               maxToolCalls,
               checkToolApproval: params.checkToolApproval,
+              prepareToolBatch: params.prepareToolBatch,
               toolStartGuard: params.toolStartGuard,
               runtimeJudge: params.runtimeJudge,
               guardAssistantOutput: params.guardAssistantOutput,
