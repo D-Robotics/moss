@@ -23,6 +23,8 @@ import { validatePersistedTaskIntent } from './task-intent-state.js';
 
 const loadBuiltin = createRequire(import.meta.url);
 
+import { assertTaskExecutionCurrent } from '../task/task-execution-guard.js';
+
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sessions (
     key TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0,
@@ -69,6 +71,11 @@ const SCHEMA = `
     session TEXT NOT NULL REFERENCES sessions(key) ON DELETE CASCADE,
     id TEXT NOT NULL, revision INTEGER NOT NULL, body TEXT NOT NULL,
     PRIMARY KEY(session, id)
+  );
+  CREATE TABLE IF NOT EXISTS execution_receipts (
+    scope TEXT NOT NULL,
+    id TEXT NOT NULL,
+    PRIMARY KEY(scope, id)
   );
   CREATE TABLE IF NOT EXISTS invocations (
     session TEXT NOT NULL REFERENCES sessions(key) ON DELETE CASCADE,
@@ -319,6 +326,18 @@ export class VersionedSessionStore implements SessionStore {
       this.append(key, message, id.startsWith('tool-continuation:') ? 'tool' : 'user');
       return true;
     });
+  }
+
+  /** Claim a host-owned action before dispatch. A receipt makes no claim about its outcome. */
+  claimExecutionReceipt(scope: string, id: string): boolean {
+    if (!scope || !id) throw new Error('Execution receipt requires a host scope and identity');
+    assertTaskExecutionCurrent();
+    return this.transaction(() =>
+      Boolean(
+        this.db.prepare('INSERT OR IGNORE INTO execution_receipts VALUES(?,?)').run(scope, id)
+          .changes
+      )
+    );
   }
 
   async seedIfEmpty(key: string, messages: LLMMessage[]): Promise<LLMMessage[]> {

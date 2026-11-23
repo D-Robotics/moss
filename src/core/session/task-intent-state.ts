@@ -47,6 +47,19 @@ export function validatePersistedTaskIntent(input: unknown): void {
       strings(snapshot.planDependsOn, 'persisted plan dependencies', 32);
     strings(state.constraints, 'persisted constraints', Number.MAX_SAFE_INTEGER);
     strings(state.responseRequirements, 'persisted response requirements', Number.MAX_SAFE_INTEGER);
+    if (state.constraintSources !== undefined) {
+      for (const [constraint, source] of Object.entries(record(state.constraintSources))) {
+        const citation = record(source);
+        if (
+          !(state.constraints as string[]).includes(constraint) ||
+          typeof citation.messageId !== 'string' ||
+          !citation.messageId ||
+          typeof citation.quote !== 'string' ||
+          !citation.quote
+        )
+          throw new Error('Invalid persisted task constraint source');
+      }
+    }
     for (const sources of Object.values(record(state.sources))) {
       if (
         !Array.isArray(sources) ||
@@ -209,6 +222,12 @@ export function applyIntentChanges(
     if (!source || !source.prompt.includes(change.quote)) {
       throw new Error('Task changes must cite an exact quote from a pending user input');
     }
+    const citation = { messageId: change.messageId, quote: change.quote };
+    if (change.field === 'constraints') {
+      if (change.operation === 'add')
+        state.constraintSources = { ...state.constraintSources, [change.value]: citation };
+      else if (state.constraintSources) delete state.constraintSources[change.value];
+    }
     if (change.field === 'constraints' || change.field === 'responseRequirements') {
       const values = state[change.field];
       if (change.operation === 'add') {
@@ -219,10 +238,7 @@ export function applyIntentChanges(
     } else {
       state[change.field] = change.value;
     }
-    (state.sources[change.field] ??= []).push({
-      messageId: change.messageId,
-      quote: change.quote,
-    });
+    (state.sources[change.field] ??= []).push(citation);
   }
   return state;
 }

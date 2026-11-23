@@ -34,6 +34,8 @@ return a dispatch context with the new workspace. The SDK rechecks the decision,
 resolves the updated tools and applies its usual approval and execution guards.
 An answer or decision with no business calls skips the hook.
 
+Each active constraint may have an exact author citation in `state.constraintSources`. A host can use that citation to bind an execution allowance to its originating input. `VersionedSessionStore.claimExecutionReceipt(scope, id)` atomically reserves a host action in a durable namespace. Call it when a validated operation is about to cross its dispatch boundary. A reservation only records admission and survives an uncertain or failed dispatch. Confirm the outcome from the transport or tool receipt.
+
 The SDK defaults to the existing path when this option is absent. Studio enables it for ordinary runs, while fixed JSON execution profiles retain their own protocol.
 
 Verification: `npm run verify` includes the `task-intent` stage, which exercises a scripted provider, durable recovery and native task revision/acceptance. These offline probes do not measure model interpretation accuracy or real-device behavior.
