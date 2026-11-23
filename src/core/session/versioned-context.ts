@@ -28,6 +28,7 @@ import {
   dedupeUnchangedReadToolResults,
   invalidateStaleReadToolResults,
 } from '../../context/stale-read-invalidate.js';
+import { isInternalAssistantText, resumeUserText } from './internal-transcript.js';
 
 const SUMMARY_PROMPT = [
   'Summarize the supplied historical data. Use corrections to filter obsolete interpretations. Do not produce entries for corrections themselves, which are already retained in the context.',
@@ -136,6 +137,23 @@ export function contextSourceView(snapshot: VersionedContextSnapshot): ContextSo
         message: { ...visible, content: visibleContent },
       },
     ];
+  });
+}
+
+/** Visible historical text after correction, with original source identities. */
+export function projectContextHandoff(snapshot: VersionedContextSnapshot) {
+  return contextSourceView(snapshot).flatMap((source) => {
+    const { role, content } = source.message;
+    const user = role === 'user' && trustedUser(source);
+    const assistant =
+      role === 'assistant' && (source.origin === 'assistant' || source.origin === 'legacy');
+    if (!user && !assistant) return [];
+    const raw =
+      typeof content === 'string'
+        ? content
+        : content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n');
+    const text = user ? resumeUserText(raw) : stripThinkingTagsKeepVisible(raw).trim();
+    return text && (user || !isInternalAssistantText(text)) ? [{ id: source.id, role, text }] : [];
   });
 }
 

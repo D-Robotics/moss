@@ -17,7 +17,7 @@ const [
   artifacts,
   { resumeTask },
   { createAgentTurnRunner },
-  { VersionedContextPipeline },
+  { VersionedContextPipeline, projectContextHandoff },
   { decodeSummaryEntries, relevantHistoricalExcerpts },
 ] = await Promise.all([
   load('core/agent/moss-agent.js'),
@@ -144,6 +144,65 @@ async function usingAgent(workspace, fn, options) {
 
 async function add(store, session, role, content, origin = role) {
   await store.appendMessage(session, { role, content }, origin);
+}
+
+async function testContextHandoff(workspace) {
+  const database = path.join(workspace, 'handoff.sqlite');
+  const store = new VersionedSessionStore(database);
+  const sourceKey = 'original-device';
+  const targetKey = 'new-device';
+  const request = { sourceKey, targetKey, deliveryId: 'handoff-one' };
+  try {
+    await add(store, sourceKey, 'user', 'Keep model M.');
+    await add(store, sourceKey, 'assistant', 'Model M is ready to inspect.');
+    await add(store, sourceKey, 'assistant', oldClaim);
+    const targetId = (await store.sourceMessages(sourceKey)).at(-1).id;
+    await store.correct(sourceKey, { id: 'correct-original', targetId, text: correctionText });
+    const snapshot = store.snapshot(sourceKey);
+    const projected = projectContextHandoff(snapshot);
+    assert.deepEqual(
+      projected.map(({ text }) => text),
+      ['Keep model M.', 'Model M is ready to inspect.']
+    );
+    const content = projected.map(({ text }) => text).join('\n') + '\n' + correctionText;
+    const input = {
+      ...request,
+      sourceRevision: snapshot.revision,
+      message: { role: 'assistant', content },
+    };
+    assert.equal(
+      await store.appendContextHandoffOnce({ ...input, sourceRevision: 0 }),
+      'source-changed'
+    );
+    assert.deepEqual(await store.loadMessages(targetKey), []);
+    assert.equal(await store.appendContextHandoffOnce(input), 'imported');
+    assert.equal(await store.appendContextHandoffOnce(input), 'duplicate');
+    assert.deepEqual(
+      store.snapshot(targetKey).messages.map(({ origin }) => origin),
+      ['assistant']
+    );
+    store.updateInbox(sourceKey, (inbox) => inbox.admit({ prompt: 'A correction may follow.' }));
+    assert.equal(
+      await store.appendContextHandoffOnce({ ...input, deliveryId: 'handoff-two' }),
+      'source-changed'
+    );
+  } finally {
+    store.close();
+  }
+  const reopened = new VersionedSessionStore(database);
+  try {
+    const transferred = await reopened.sourceMessages(targetKey);
+    assert.equal(transferred.length, 1);
+    assert.doesNotMatch(JSON.stringify(transferred), new RegExp(oldClaim));
+    await reopened.correct(targetKey, {
+      id: 'correct-import',
+      targetId: transferred[0].id,
+      text: 'Model M still needs testing.',
+    });
+    assert.deepEqual(projectContextHandoff(reopened.snapshot(targetKey)), []);
+  } finally {
+    reopened.close();
+  }
 }
 
 async function seed(store, session) {
@@ -1542,6 +1601,7 @@ const workspace = await fs.realpath(
 );
 try {
   for (const [directory, test] of [
+    ['context-handoff', testContextHandoff],
     ['progressive', testProgressiveStages],
     ['pressure-continuation', testPressureContinuation],
     ['active-tool-pressure', testActiveToolPressure],

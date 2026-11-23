@@ -328,6 +328,47 @@ export class VersionedSessionStore implements SessionStore {
     });
   }
 
+  /** Import quoted historical context without admitting it as a new user input. */
+  async appendContextHandoffOnce(input: {
+    sourceKey: string;
+    sourceRevision: number;
+    targetKey: string;
+    deliveryId: string;
+    message: LLMMessage;
+  }): Promise<'imported' | 'duplicate' | 'source-changed'> {
+    const { sourceKey, sourceRevision, targetKey, deliveryId, message } = input;
+    if (
+      !sourceKey ||
+      !targetKey ||
+      sourceKey === targetKey ||
+      !deliveryId ||
+      message.role !== 'assistant'
+    ) {
+      throw new Error(
+        'A context handoff requires distinct sessions, a delivery ID, and historical assistant text'
+      );
+    }
+    await this.adopt(targetKey);
+    return this.transaction(() => {
+      if (
+        this.db
+          .prepare('SELECT 1 FROM receipts WHERE session=? AND id=?')
+          .get(targetKey, deliveryId)
+      )
+        return 'duplicate';
+      if (
+        !this.has(sourceKey) ||
+        this.revision(sourceKey) !== sourceRevision ||
+        this.readInbox(sourceKey).pending().length
+      )
+        return 'source-changed';
+      this.create(targetKey);
+      this.db.prepare('INSERT INTO receipts VALUES(?,?)').run(targetKey, deliveryId);
+      this.append(targetKey, message, 'assistant', undefined, this.revision(targetKey));
+      return 'imported';
+    });
+  }
+
   /** Claim a host-owned action before dispatch. A receipt makes no claim about its outcome. */
   claimExecutionReceipt(scope: string, id: string): boolean {
     if (!scope || !id) throw new Error('Execution receipt requires a host scope and identity');

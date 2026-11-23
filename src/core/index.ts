@@ -1,4 +1,5 @@
 export { VersionedSessionStore } from './session/versioned-session-store.js';
+export { projectContextHandoff } from './session/versioned-context.js';
 export type {
   ContextCorrection,
   ContextSourceMessage,
