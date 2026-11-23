@@ -9,6 +9,61 @@ import { execTool } from '../../dist/tools/builtin.js';
 import { readFileTool, writeFileTool } from '../../dist/tools/file-tools.js';
 import { runTestsTool } from '../../dist/tools/harness-tools.js';
 
+const configured = {
+  MOSS_JEV_SYSTEMONE_URL: 'https://jev.example.test/v1/systemone',
+  MOSS_JEV_RELAY_KEY: 'fixture-jev-key',
+};
+const defaults = createJevIntentRuntime(configured, {
+  async fetch(url, init) {
+    assert.equal(url, configured.MOSS_JEV_SYSTEMONE_URL);
+    assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer fixture-jev-key');
+    assert.equal(JSON.parse(init.body).questions.completion.type, 'choice');
+    return Response.json({
+      answers: {
+        completion: { type: 'choice', choice: 'verify', probabilities: { verify: 0.99 } },
+      },
+    });
+  },
+});
+assert.deepEqual(defaults.runtimeJudge?.modes, {
+  input: 'active',
+  completion: 'active',
+  approval: 'off',
+  constraint: 'off',
+  output: 'off',
+  progress: 'off',
+});
+assert.equal(
+  (
+    await defaults.runtimeJudge.ask(
+      {},
+      {
+        completion: {
+          type: 'choice',
+          instructions: 'Check completion',
+          criteria: { verify: 'Verify' },
+        },
+      },
+      new AbortController().signal
+    )
+  )?.completion?.choice,
+  'verify'
+);
+assert.deepEqual(createJevIntentRuntime({}), {});
+assert.deepEqual(
+  createJevIntentRuntime({ ...configured, MOSS_JEV_ENABLED: '0', MOSS_JEV_INTENT: 'active' }),
+  {}
+);
+assert.equal(
+  createJevIntentRuntime({ ...configured, MOSS_JEV_INTENT: 'off' }).runtimeJudge?.modes.input,
+  'off'
+);
+assert.equal(
+  createJevIntentRuntime({ ...configured, MOSS_JEV_COMPLETION: 'shadow' }).runtimeJudge?.modes
+    .completion,
+  'shadow'
+);
+
 const live = process.argv.includes('--live');
 const temp = await mkdtemp(path.join(os.tmpdir(), 'moss-jev-runtime-'));
 const workspace = await realpath(temp);

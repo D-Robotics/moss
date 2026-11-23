@@ -70,7 +70,8 @@ function readChoice<T extends Record<string, string>>(answer: unknown, criteria:
   };
 }
 
-function modeOf(value: string | undefined): JudgeMode {
+function modeOf(value: string | undefined, fallback: JudgeMode = 'off'): JudgeMode {
+  if (value === undefined) return fallback;
   return value === 'active' || value === 'shadow' ? value : 'off';
 }
 
@@ -86,21 +87,24 @@ function sanitize(value: JudgeValue, key: string): JudgeValue {
 }
 
 export function createJevIntentRuntime(
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  options: { fetch?: typeof fetch } = {}
 ): Pick<MossAgentConfig, 'observeUserIntent' | 'decideSteeringIntent' | 'runtimeJudge'> {
-  const mode = modeOf(env.MOSS_JEV_INTENT);
+  if (env.MOSS_JEV_ENABLED?.trim() === '0') return {};
+  const mode = modeOf(env.MOSS_JEV_INTENT, 'active');
   const modes: RuntimeJudgeConfig['modes'] = {
     input: mode,
     approval: modeOf(env.MOSS_JEV_APPROVAL),
     constraint: modeOf(env.MOSS_JEV_CONSTRAINT),
     output: modeOf(env.MOSS_JEV_OUTPUT),
     progress: modeOf(env.MOSS_JEV_PROGRESS),
-    completion: modeOf(env.MOSS_JEV_COMPLETION),
+    completion: modeOf(env.MOSS_JEV_COMPLETION, 'active'),
   };
   const runtimeEnabled = Object.values(modes).some((value) => value !== 'off');
   if (!runtimeEnabled) return {};
   const log = getRootLogger().child('jev-intent');
-  const unavailable = mode === 'active' ? { decideSteeringIntent: async () => undefined } : {};
+  const unavailable =
+    env.MOSS_JEV_INTENT === 'active' ? { decideSteeringIntent: async () => undefined } : {};
   const provider = env.MOSS_JEV_PROVIDER?.trim() || 'typesafe';
   if (provider !== 'typesafe' && provider !== 'openrouter' && provider !== 'opencode') {
     log.warn('MOSS_JEV_PROVIDER must be typesafe, openrouter, or opencode');
@@ -127,7 +131,14 @@ export function createJevIntentRuntime(
   const apiKeyEnv = parsed ? 'MOSS_JEV_RELAY_KEY' : spec.apiKeyEnv;
   const apiKey = env[apiKeyEnv]?.trim();
   if (!apiKey && (parsed || provider !== 'opencode')) {
-    log.warn('Jev requires ' + apiKeyEnv + ' in the startup environment');
+    const explicitlyConfigured =
+      endpoint ||
+      env.MOSS_JEV_PROVIDER?.trim() ||
+      Object.keys(modes).some((point) => {
+        const flag = point === 'input' ? 'INTENT' : point.toUpperCase();
+        return modeOf(env['MOSS_JEV_' + flag]) !== 'off';
+      });
+    if (explicitlyConfigured) log.warn('Jev requires ' + apiKeyEnv + ' in the startup environment');
     return unavailable;
   }
 
@@ -135,7 +146,7 @@ export function createJevIntentRuntime(
     const safeState = sanitize(state, apiKey ?? '');
     // An omitted suffix or a redacted operand can change what would be authorized.
     if (questions.approval && JSON.stringify(safeState) !== JSON.stringify(state)) return undefined;
-    const response = await fetch(url, {
+    const response = await (options.fetch ?? fetch)(url, {
       method: 'POST',
       headers: {
         ...(apiKey ? { Authorization: 'Bearer ' + apiKey } : {}),
