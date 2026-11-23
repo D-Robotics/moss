@@ -346,6 +346,7 @@ export class VersionedContextPipeline {
       .map(({ id, origin, message }) => ({
         id,
         origin,
+        role: message.role,
         text:
           typeof message.content === 'string'
             ? message.content
@@ -356,9 +357,10 @@ export class VersionedContextPipeline {
                 .join(' '),
       }))
       .filter(({ text }) => text.trim() && !pendingTexts.includes(text))
-      .map(({ id, origin, text }) => ({
+      .map(({ id, origin, role, text }) => ({
         id,
         origin,
+        role,
         text:
           correctionsOnly && text.length > 360
             ? `${text.slice(0, 180)}\n[…]\n${text.slice(-180)}`

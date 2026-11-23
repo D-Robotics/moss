@@ -1884,6 +1884,10 @@ ${result.stderr ?? ''}`.trim();
       };
     };
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> => {
+      if (intentTurn?.isAnswerOnly) {
+        readOnlyIntentSurface = true;
+        return [];
+      }
       const tools = filterToolsForRun(
         [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
         visibleForRun

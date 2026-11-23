@@ -933,6 +933,15 @@ async function testCapturedCorrection(workspace) {
     workspace,
     async ({ agent, store, modelRequests }) => {
       const session = 'captured-correction';
+      agent.tools.register({
+        name: 'test_correction_pending_action',
+        description: 'Represents an otherwise available host tool',
+        metadata: { sideEffectClass: 'local_write' },
+        inputSchema: { type: 'object', properties: {} },
+        async execute() {
+          throw new Error('A committed answer must not start any business tool');
+        },
+      });
       await add(store, session, 'assistant', oldClaim);
       for (let index = 0; index < 18; index++) {
         await add(store, session, 'assistant', `Independent historical note ${index}. `.repeat(60));
@@ -971,7 +980,8 @@ async function testCapturedCorrection(workspace) {
     {
       onMain(request, count) {
         if (count === 2) {
-          assert(!request.tools?.some(({ name }) => name === 'context_claims'));
+          assert.equal(request.tools?.length ?? 0, 0, 'Rebuilding a corrected answer has no tools');
+          assert.doesNotMatch(request.systemPrompt, /"contextSources":/);
           return response(text(answer));
         }
         const previous = request.systemPrompt
@@ -980,12 +990,15 @@ async function testCapturedCorrection(workspace) {
         assert(previous);
         const { contextSources } = JSON.parse(previous);
         assert(!contextSources.some(({ text }) => text === correctionText) || count === 3);
-        if (count === 1) assert(contextSources.some(({ id }) => id === targetId));
+        const target = contextSources.find(({ id }) => id === targetId);
+        if (count === 1) assert.match(target.correctionId, /^s\d+$/);
         return response(
           toolCall('turn_decision', `capture-${count}`, {
             disposition: 'answer',
             answer,
-            contextCorrections: [{ targetId, quote: correctionText }],
+            contextCorrections: [
+              { targetId: target?.correctionId ?? targetId, quote: correctionText },
+            ],
           }),
           toolCall('context_claims', `invalid-claim-${count}`, {
             claims: [{ text: 'Unsupported', sourceIds: ['unknown'], dependsOn: [] }],

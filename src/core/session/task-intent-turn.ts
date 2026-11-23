@@ -44,7 +44,7 @@ export class TaskIntentTurn {
     private readonly correctionTargets?: (
       pendingTexts: readonly string[],
       correctionsOnly?: boolean
-    ) => Array<{ id: string; origin: string; text: string }>,
+    ) => Array<{ id: string; origin: string; role: string; text: string }>,
     private readonly validateDecision?: (decision: Readonly<TurnDecision>) => void
   ) {}
 
@@ -65,6 +65,21 @@ export class TaskIntentTurn {
 
   get needsDecision(): boolean {
     return (this.batch?.inputs.length ?? 0) > 0;
+  }
+
+  get isAnswerOnly(): boolean {
+    return Boolean(
+      this.correctionTargets &&
+      this.binding &&
+      !this.needsDecision &&
+      this.binding.disposition !== 'execute'
+    );
+  }
+
+  private registerCorrectionAlias(id: string, ordinal: number): string {
+    const alias = `s${ordinal}`;
+    this.correctionAliases.set(alias, id);
+    return alias;
   }
 
   private readOnlyPrompt(batch: TaskIntentBatch, renderedInputId?: string): string {
@@ -98,11 +113,10 @@ export class TaskIntentTurn {
     const targets = this.correctionTargets!(
       batch.inputs.map(({ prompt }) => prompt),
       true
-    ).map((source, index) => {
-      const alias = `s${index + 1}`;
-      this.correctionAliases.set(alias, source.id);
-      return { ...source, id: alias };
-    });
+    ).map(({ role: _role, ...source }, index) => ({
+      ...source,
+      id: this.registerCorrectionAlias(source.id, index + 1),
+    }));
     if (targets.length) header.push(JSON.stringify({ contextSources: targets }));
     return [
       ...header,
@@ -120,13 +134,19 @@ export class TaskIntentTurn {
   prompt(readOnly = false, renderedInputId?: string): string {
     const batch = this.batch;
     if (!batch) return '';
-    if (
-      this.correctionTargets &&
-      !this.hasBoundTask &&
-      (readOnly || (!this.needsDecision && batch.snapshot.disposition !== 'execute'))
-    ) {
+    if (this.correctionTargets && (this.isAnswerOnly || (readOnly && !this.hasBoundTask))) {
       return this.readOnlyPrompt(batch, renderedInputId);
     }
+    let correctionOrdinal = 0;
+    const sources = this.correctionTargets?.(batch.inputs.map(({ prompt }) => prompt)).map(
+      ({ role, ...source }) =>
+        role === 'assistant' && this.needsDecision
+          ? {
+              ...source,
+              correctionId: this.registerCorrectionAlias(source.id, ++correctionOrdinal),
+            }
+          : source
+    );
     return [
       '[Runtime-owned current task intent]',
       JSON.stringify({
@@ -136,16 +156,14 @@ export class TaskIntentTurn {
         plan: batch.snapshot.pending ? [] : batch.snapshot.plan,
         pendingInputs: batch.inputs.map((entry) => ({ id: entry.id, text: entry.prompt })),
       }),
-      ...(this.correctionTargets
+      ...(sources
         ? [
-            'Use context_claims only for new facts a future action will depend on. Skip it for a read-only answer or for repeating a user correction. Use original source IDs and explicit claim dependencies. A claim grants no permissions.',
-            JSON.stringify({
-              contextSources: this.correctionTargets(batch.inputs.map((entry) => entry.prompt)),
-            }),
+            'Use context_claims only for new facts a future action will depend on. Skip it for a read-only answer or for repeating a user correction. Cite the id field and explicit claim dependencies. A claim grants no permissions.',
+            JSON.stringify({ contextSources: sources }),
             ...(this.needsDecision
               ? [
                   CORRECTION_SCOPE_GUIDANCE,
-                  'When a pending user input explicitly corrects or supplies facts that contradict an older assistant conclusion, include contextCorrections with the old assistant/claim ID as targetId and copy an exact quote from the pending input. The runtime matches a unique quote to its input ID. Never resubmit a recorded correction during a follow-up. Clarify when you cannot identify the old conclusion.',
+                  'When a pending user input contradicts an older conclusion, set contextCorrections.targetId to the correctionId shown on the exact assistant source containing the old conclusion. Copy an exact quote from the pending input. Never select an unrelated source or resubmit a recorded correction. Clarify when you cannot identify the old conclusion.',
                   'For a read-only answer or historical correction, call turn_decision with disposition: "answer", the answer, and any contextCorrections. Omit changes and plan unless updating a real task. Do not copy runtime metadata or add a task change for the requested answer format.',
                 ]
               : []),
