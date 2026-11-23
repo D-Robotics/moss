@@ -59,7 +59,10 @@ identity. Close the agent before closing a store owned by the host.
 
 The request pipeline progressively adjusts the output reservation, shortens old
 tool results, prepares checkpoints in the background, reuses compatible
-checkpoints, or performs bounded synchronous summarization. Provider-independent
+checkpoints, or performs bounded synchronous summarization. It keeps the latest
+tool result batch intact when it fits. If that batch still prevents a request,
+the projection sends source-linked excerpts with the same tool call IDs. The
+original results remain available in the archive. Provider-independent
 admission uses a conservative serialized-size estimate. Provider-reported
 overflow triggers a bounded retry with a smaller budget. Structured summaries
 are historical data, and do not authorize work or commit acceptance.

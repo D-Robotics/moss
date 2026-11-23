@@ -231,6 +231,8 @@ function editableView(sources: ContextSourceMessage[], preserveToolResultsFrom: 
     const message = asMessage(source);
     if (source.ordinal >= preserveToolResultsFrom || !Array.isArray(message.content))
       return message;
+    const excerpt = (text: string) =>
+      limitToolOutput(text, source.id, HISTORICAL_TOOL_HEAD_CHARS, HISTORICAL_TOOL_TAIL_CHARS);
     return {
       ...message,
       content: message.content.map((block) =>
@@ -238,12 +240,14 @@ function editableView(sources: ContextSourceMessage[], preserveToolResultsFrom: 
           ? block
           : {
               ...block,
-              content: limitToolOutput(
-                block.content,
-                source.id,
-                HISTORICAL_TOOL_HEAD_CHARS,
-                HISTORICAL_TOOL_TAIL_CHARS
-              ),
+              content: excerpt(block.content),
+              ...(block.structuredContent
+                ? {
+                    structuredContent: block.structuredContent.map((part) =>
+                      part.type === 'text' ? { ...part, text: excerpt(part.text) } : part
+                    ),
+                  }
+                : {}),
             }
       ),
     };
@@ -522,25 +526,29 @@ export class VersionedContextPipeline {
       }
     }
     if (!selected.legal && lastEvidence && lastEvidence.ordinal > currentTurnOrdinal) {
-      // A multi-tool turn can exhaust the window even with a historical
-      // checkpoint. Shorten earlier receipts in the request only, preserving
-      // their source IDs and keeping the latest result batch exact.
-      const edited = fit(complete(editableView(sources, lastEvidence.ordinal)));
-      if (edited.legal) {
-        selected = edited;
-      } else if (
-        pressureCheckpoint &&
-        pressureCheckpoint.checkpoint.throughOrdinal < lastEvidence.ordinal
-      ) {
-        const { checkpoint, stage } = pressureCheckpoint;
-        const projection = projected(checkpoint, lastEvidence.ordinal);
-        if (projection.legal) {
-          selected = projection;
-          submittedSources = retainedIds(checkpoint, projection.evidence, projection.historical);
-          stages.push(stage);
+      // Prefer exact recent evidence. If the latest batch itself exceeds the
+      // model window, project cited excerpts while keeping the archive intact.
+      for (const preserveFrom of [lastEvidence.ordinal, lastEvidence.ordinal + 1]) {
+        const edited = fit(complete(editableView(sources, preserveFrom)));
+        if (edited.legal) {
+          selected = edited;
+        } else if (
+          pressureCheckpoint &&
+          pressureCheckpoint.checkpoint.throughOrdinal < lastEvidence.ordinal
+        ) {
+          const { checkpoint, stage } = pressureCheckpoint;
+          const projection = projected(checkpoint, preserveFrom);
+          if (projection.legal) {
+            selected = projection;
+            submittedSources = retainedIds(checkpoint, projection.evidence, projection.historical);
+            stages.push(stage);
+          }
+        }
+        if (selected.legal) {
+          if (!stages.includes('S2')) stages.unshift('S2');
+          break;
         }
       }
-      if (selected.legal && !stages.includes('S2')) stages.unshift('S2');
     }
     input.signal.throwIfAborted();
     if (this.store.revision(input.sessionKey) !== snapshot.revision) {

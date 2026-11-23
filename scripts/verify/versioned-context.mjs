@@ -544,8 +544,47 @@ async function testActiveToolPressure(workspace) {
     assert(projected.sourceIds.includes(archived.id));
     assert.doesNotMatch(JSON.stringify(projected.messages), /RAW_ARCHIVE_ONLY/);
     assert.deepEqual(await store.sourceMessages(session), sources);
+
+    const oversized =
+      'Full log for the newest board operation.\n' +
+      'diagnostic payload\n'.repeat(1150) +
+      'MIDDLE_ARCHIVE_ONLY\n' +
+      'diagnostic payload\n'.repeat(1150) +
+      'Final detection count: 7';
+    await add(store, session, 'assistant', [toolCall('device_file_read', 'oversized')]);
+    await add(
+      store,
+      session,
+      'user',
+      [
+        {
+          type: 'tool_result',
+          tool_use_id: 'oversized',
+          name: 'device_file_read',
+          content: oversized,
+          structuredContent: [{ type: 'text', text: oversized }],
+        },
+      ],
+      'tool'
+    );
+    const latestSources = await store.sourceMessages(session);
+    const source = latestSources.at(-1);
+    const bounded = await pipeline.prepare(input);
+    assert(bounded.stages.includes('S2'));
+    assert(bounded.messages.some((message) => message.content === user));
+    const excerpt = bounded.messages
+      .flatMap((message) => message.content)
+      .find((part) => part.tool_use_id === 'oversized');
+    assert(excerpt, 'An oversized active tool result must keep its call/result identity');
+    assert(excerpt.content.includes(source.id));
+    assert.match(excerpt.content, /Final detection count: 7/);
+    assert.doesNotMatch(JSON.stringify(bounded.messages), /MIDDLE_ARCHIVE_ONLY/);
+    assert(bounded.sourceIds.includes(source.id));
+    assert.deepEqual(await store.sourceMessages(session), latestSources);
   });
-  console.log('PASS active tool pressure preserves the latest receipt and the full source archive');
+  console.log(
+    'PASS active tool pressure keeps recent receipts when possible and cites oversized archived results'
+  );
 }
 
 async function testConcurrentSummary(workspace) {
