@@ -485,6 +485,8 @@ function resolveConcurrency(raw) {
 const EXCLUSIVE_STAGES = new Set(['startup-timing']);
 
 async function main() {
+  // CLI probes use fixtures. Keep the built-in JEV network service out of verification.
+  process.env.MOSS_JEV_ENABLED = '0';
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
     process.stdout.write(HELP);

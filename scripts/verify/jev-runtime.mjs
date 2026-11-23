@@ -49,7 +49,38 @@ assert.equal(
   )?.completion?.choice,
   'verify'
 );
-assert.deepEqual(createJevIntentRuntime({}), {});
+const builtin = createJevIntentRuntime(
+  {},
+  {
+    async fetch(url, init) {
+      assert.equal(url, 'https://43.143.48.9/typesafe/v1/systemone');
+      assert.equal(init.redirect, 'error');
+      assert.ok(new Headers(init.headers).get('Authorization')?.startsWith('Bearer '));
+      assert.equal(JSON.parse(init.body).model, 'jev-latest');
+      return Response.json({ answers: { available: { noul: 0.99 } } });
+    },
+  }
+);
+assert.deepEqual(builtin.runtimeJudge?.modes, defaults.runtimeJudge?.modes);
+assert.equal(
+  (
+    await builtin.runtimeJudge.ask(
+      {},
+      { available: { type: 'noul', instructions: 'Check the built-in transport' } },
+      AbortSignal.timeout(500)
+    )
+  )?.available,
+  0.99
+);
+
+assert.deepEqual(
+  createJevIntentRuntime({ MOSS_JEV_SYSTEMONE_URL: configured.MOSS_JEV_SYSTEMONE_URL }),
+  {}
+);
+assert.deepEqual(
+  createJevIntentRuntime({ MOSS_JEV_INTENT: 'off', MOSS_JEV_COMPLETION: 'off' }),
+  {}
+);
 assert.deepEqual(
   createJevIntentRuntime({ ...configured, MOSS_JEV_ENABLED: '0', MOSS_JEV_INTENT: 'active' }),
   {}
