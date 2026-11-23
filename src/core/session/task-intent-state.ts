@@ -319,6 +319,22 @@ export const versionedTurnDecisionSchema = {
       ...turnDecisionSchema.properties.changes,
       description:
         'Omit for a read-only answer or historical correction. Only include actual task amendments.',
+      items: {
+        ...turnDecisionSchema.properties.changes.items,
+        properties: {
+          ...turnDecisionSchema.properties.changes.items.properties,
+          messageId: {
+            type: 'string',
+            description: 'Omit when the quote uniquely matches one pending user input.',
+          },
+          quote: {
+            type: 'string',
+            description:
+              'Exact words of the pending input authorizing this amendment. For a removal, quote the new instruction, never the older restriction.',
+          },
+        },
+        required: ['field', 'operation', 'value', 'quote'],
+      },
     },
     plan: {
       ...turnDecisionSchema.properties.plan,

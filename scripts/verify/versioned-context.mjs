@@ -987,6 +987,74 @@ async function testModelDeclaredCorrection(workspace) {
   );
 }
 
+async function testCurrentQuoteAmendsTaskScope(workspace) {
+  const session = 'task-scope-amendment';
+  const prior = 'Inspect the fixture without changes.';
+  const next = 'Now update the first value.';
+  let writes = 0;
+  const change = (operation, quote, messageId) => ({
+    field: 'constraints',
+    operation,
+    value: 'read_only',
+    quote,
+    ...(messageId ? { messageId } : {}),
+  });
+  await usingAgent(
+    workspace,
+    async ({ agent }) => {
+      agent.tools.register({
+        name: 'test_scope_amendment',
+        description: 'Execute the newly authorized fixture write',
+        inputSchema: { type: 'object', properties: {} },
+        metadata: { sideEffectClass: 'local_write' },
+        async execute() {
+          writes++;
+          return 'Fixture updated';
+        },
+      });
+      await agent.chat(session, prior, { userInput: { id: 'prior-inspection' }, taskFlow: false });
+      await agent.chat(session, next, { userInput: { id: 'current-amendment' }, taskFlow: false });
+      assert.equal(agent.getTaskIntentReceipt(session, 'current-amendment').status, 'committed');
+      assert.equal(writes, 1);
+    },
+    {
+      onMain(request, count) {
+        if (count === 1)
+          return response(
+            toolCall('turn_decision', 'inspection', {
+              disposition: 'answer',
+              changes: [change('add', prior)],
+              answer: 'Inspection noted.',
+            })
+          );
+        if (count === 2 || count === 3) {
+          if (count === 3)
+            assert.deepEqual(
+              request.tools.map(({ name }) => name),
+              ['turn_decision']
+            );
+          return response(
+            toolCall('turn_decision', `amend-${count}`, {
+              disposition: 'execute',
+              plan: ['Update the fixture.'],
+              changes: [
+                count === 2 ? change('remove', prior, 'prior-inspection') : change('remove', next),
+              ],
+            })
+          );
+        }
+        assert.equal(writes, count === 4 ? 0 : 1);
+        return count === 4
+          ? response(toolCall('test_scope_amendment'))
+          : response(text('Fixture updated.'));
+      },
+    }
+  );
+  console.log(
+    'PASS scope amendments bind to current exact author quotes without reusing stale citations'
+  );
+}
+
 async function testCapturedCorrection(workspace) {
   let targetId;
   const answer = 'Full acceptance is pending.';
@@ -1684,6 +1752,7 @@ try {
     ['source-validation', testSummarySourceValidation],
     ['approval', testApproval],
     ['declaration', testModelDeclaredCorrection],
+    ['scope-amendment-quote', testCurrentQuoteAmendsTaskScope],
     ['captured-correction', testCapturedCorrection],
     ['read-only-intent', testReadOnlyIntentPrompt],
     ['claims', testClaimDependencies],

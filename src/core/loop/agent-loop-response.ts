@@ -224,7 +224,6 @@ export async function processLlmResponse(
     if (intentResponse.halt) {
       state.taskIntentHalted = true;
       state.finalText = intentResponse.halt;
-      pushGuardedMessageDeltas(push, intentResponse.halt);
     }
     pushTurnEnd();
     if (intentResponse.halt) {

@@ -181,6 +181,10 @@ export class TaskIntentTurn {
               ? 'The runtime binds this declaration to the captured user inputs.'
               : 'Copy revision/inputSeq and all pending messageIds in order.',
             'Propose task changes only with exact quotes from pending inputs. Use set for scalars and add/remove for lists. Use answer for a read-only response, clarify for uncertainty and cancel to stop. Execute requires a concrete plan and existing authorization. Never use an internal engine prompt to replace the user goal.',
+            'When removing a previous constraint, quote the current words that authorize the change. The old restriction is not authorization.',
+            this.correctionTargets
+              ? 'If a quote matches just one pending input, omit the messageId and the runtime will bind it.'
+              : '',
           ].join(' ')
         : 'No new user input needs interpretation. Continue the effective task using its committed plan. Do not emit turn_decision again.',
     ].join('\n');
@@ -226,6 +230,20 @@ export class TaskIntentTurn {
 
   private parseDecision(input: Record<string, unknown>, batch: TaskIntentBatch) {
     if (!this.correctionTargets) return parseTurnDecision(input);
+    const changes: unknown = Array.isArray(input.changes)
+      ? (input.changes as unknown[]).map((item) => {
+          if (!item || typeof item !== 'object') return item;
+          const change = item as Record<string, unknown>;
+          const { quote, messageId } = change;
+          if (messageId !== undefined || typeof quote !== 'string' || !quote.trim()) return change;
+          const matches = batch.inputs.filter((entry) => entry.prompt.includes(quote));
+          if (matches.length !== 1)
+            throw new Error(
+              'Every task change must quote one pending user input. For a removal, quote the new instruction.'
+            );
+          return { ...change, messageId: matches[0]!.id };
+        })
+      : input.changes;
     const corrections: unknown = Array.isArray(input.contextCorrections)
       ? (input.contextCorrections as unknown[]).flatMap((item) => {
           if (!item || typeof item !== 'object') return [item];
@@ -261,7 +279,7 @@ export class TaskIntentTurn {
       baseRevision: input.baseRevision ?? batch.snapshot.revision,
       inputSeq: input.inputSeq ?? batch.snapshot.inputSeq,
       messageIds: input.messageIds ?? batch.inputs.map(({ id }) => id),
-      changes: input.changes ?? [],
+      changes: changes ?? [],
       plan: input.plan ?? [],
       contextCorrections: corrections,
     });
