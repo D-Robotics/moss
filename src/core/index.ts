@@ -1,5 +1,10 @@
 export { VersionedSessionStore } from './session/versioned-session-store.js';
-export { projectContextHandoff } from './session/versioned-context.js';
+export {
+  CONTEXT_TOOL_EVIDENCE_TOOL,
+  projectContextHandoff,
+  readContextToolEvidence,
+} from './session/versioned-context.js';
+export type { ContextToolEvidenceQuery } from './session/versioned-context.js';
 export type {
   ContextCorrection,
   ContextSourceMessage,

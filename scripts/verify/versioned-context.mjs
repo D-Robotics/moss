@@ -17,7 +17,12 @@ const [
   artifacts,
   { resumeTask },
   { createAgentTurnRunner },
-  { VersionedContextPipeline, projectContextHandoff },
+  {
+    CONTEXT_TOOL_EVIDENCE_TOOL,
+    VersionedContextPipeline,
+    projectContextHandoff,
+    readContextToolEvidence,
+  },
   { decodeSummaryEntries, relevantHistoricalExcerpts },
 ] = await Promise.all([
   load('core/agent/moss-agent.js'),
@@ -144,6 +149,62 @@ async function usingAgent(workspace, fn, options) {
 
 async function add(store, session, role, content, origin = role) {
   await store.appendMessage(session, { role, content }, origin);
+}
+
+async function testSameSessionToolEvidence(workspace) {
+  const filename = path.join(workspace, 'tool-evidence.sqlite');
+  const key = 'authorized-session';
+  const store = new VersionedSessionStore(filename);
+  let sourceId;
+  try {
+    const raw = 'a'.repeat(3_000) + '\nORIGINAL_MIDDLE_RECEIPT\n' + 'z'.repeat(3_000);
+    await add(store, key, 'assistant', [toolCall('device_file_read', 'actual-call')]);
+    await add(
+      store,
+      key,
+      'user',
+      [{ type: 'tool_result', tool_use_id: 'actual-call', content: raw, name: 'device_file_read' }],
+      'tool'
+    );
+    await add(store, key, 'assistant', oldClaim);
+    const before = store.snapshot(key);
+    sourceId = before.messages[1].id;
+    const excerpt = readContextToolEvidence(before, { sourceId, match: 'ORIGINAL_MIDDLE_RECEIPT' });
+    assert.match(excerpt.text, /ORIGINAL_MIDDLE_RECEIPT/);
+    assert.equal(excerpt.toolUseId, 'actual-call');
+    assert.equal(excerpt.text.length, 2_000);
+    assert(excerpt.nextOffset > excerpt.offset);
+    assert.equal(readContextToolEvidence(before, { sourceId, match: 'missing' }).offset, null);
+    assert.equal(readContextToolEvidence(store.snapshot('another-session'), { sourceId }), null);
+    const old = before.messages[2].id;
+    await store.correct(key, { id: 'revised-evidence', targetId: old, text: correctionText });
+    assert.equal(readContextToolEvidence(store.snapshot(key), { sourceId: old }), null);
+
+    await add(store, key, 'assistant', [toolCall(CONTEXT_TOOL_EVIDENCE_TOOL, 'derived-call')]);
+    await add(
+      store,
+      key,
+      'user',
+      [{ type: 'tool_result', tool_use_id: 'derived-call', content: 'Derived copy' }],
+      'tool'
+    );
+    const current = store.snapshot(key);
+    assert.equal(readContextToolEvidence(current, { sourceId: current.messages.at(-1).id }), null);
+    assert.equal(readContextToolEvidence(current, { sourceId, offset: -1 }), null);
+  } finally {
+    store.close();
+  }
+  const reopened = new VersionedSessionStore(filename);
+  try {
+    assert.equal(readContextToolEvidence(reopened.snapshot(key), { sourceId }).revision, 1);
+    await reopened.rewind(key, 1);
+    assert.equal(readContextToolEvidence(reopened.snapshot(key), { sourceId }), null);
+  } finally {
+    reopened.close();
+  }
+  console.log(
+    'PASS original tool receipts can be read by source without recovering stale or foreign messages'
+  );
 }
 
 async function testContextHandoff(workspace) {
@@ -1615,6 +1676,7 @@ const workspace = await fs.realpath(
 try {
   for (const [directory, test] of [
     ['context-handoff', testContextHandoff],
+    ['same-session-tool-evidence', testSameSessionToolEvidence],
     ['progressive', testProgressiveStages],
     ['pressure-continuation', testPressureContinuation],
     ['active-tool-pressure', testActiveToolPressure],

@@ -65,6 +65,12 @@ identity. Close the agent before closing a store owned by the host.
 - `/compact` prepares or selects a source-checked checkpoint. It preserves
   original source rows. `MossAgent.listContextSources` can inspect them after
   a restart. Imported sessions can only retain messages still present on disk.
+- Hosts can call `readContextToolEvidence(store.snapshot(sessionKey), query)` to
+  retrieve a bounded excerpt from an original tool receipt. Resolve the session
+  and its owner on the host. The query accepts a source ID, a result block
+  index, an offset and an optional literal match. The result carries the
+  context revision and original tool call ID. A receipt from an earlier
+  execution remains historical evidence for that execution.
 
 The request pipeline progressively adjusts the output reservation, shortens old
 tool results, prepares checkpoints in the background, reuses compatible

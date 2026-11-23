@@ -45,6 +45,8 @@ const MAX_SUMMARY_MS = 25_000;
 const RECENT_GROUP_MESSAGES = 8;
 const HISTORICAL_TOOL_HEAD_CHARS = 800;
 const HISTORICAL_TOOL_TAIL_CHARS = 300;
+export const CONTEXT_TOOL_EVIDENCE_TOOL = 'context_source_read';
+const CONTEXT_TOOL_EVIDENCE_CHARS = 2_000;
 const SUMMARY_POLICY = createHash('sha256').update(SUMMARY_PROMPT).digest('hex');
 
 function asMessage(source: ContextSourceMessage): Message {
@@ -155,6 +157,74 @@ export function projectContextHandoff(snapshot: VersionedContextSnapshot) {
     const text = user ? resumeUserText(raw) : stripThinkingTagsKeepVisible(raw).trim();
     return text && (user || !isInternalAssistantText(text)) ? [{ id: source.id, role, text }] : [];
   });
+}
+
+export interface ContextToolEvidenceQuery {
+  sourceId: string;
+  block?: number;
+  offset?: number;
+  match?: string;
+}
+
+/** Read an original tool receipt from an active, already owner-scoped session snapshot. */
+export function readContextToolEvidence(
+  snapshot: VersionedContextSnapshot,
+  { sourceId, block = 0, offset = 0, match }: ContextToolEvidenceQuery
+) {
+  if (
+    !sourceId ||
+    sourceId.length > 200 ||
+    !Number.isSafeInteger(block) ||
+    block < 0 ||
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    (match !== undefined && (!match || match.length > 200))
+  )
+    return null;
+  const view = contextSourceView(snapshot);
+  const source = view.find((candidate) => candidate.id === sourceId);
+  if (!source || !['tool', 'legacy'].includes(source.origin)) return null;
+  const content = source.message.content;
+  if (!Array.isArray(content)) return null;
+  const results = content.filter((part) => part.type === 'tool_result');
+  const result = results[block];
+  if (
+    !result ||
+    result.name === CONTEXT_TOOL_EVIDENCE_TOOL ||
+    view.some(
+      ({ message }) =>
+        Array.isArray(message.content) &&
+        message.content.some(
+          (part) =>
+            part.type === 'tool_use' &&
+            part.id === result.tool_use_id &&
+            part.name === CONTEXT_TOOL_EVIDENCE_TOOL
+        )
+    )
+  )
+    return null;
+  const text =
+    result.content ||
+    result.structuredContent
+      ?.flatMap((part) => (part.type === 'text' ? [part.text] : []))
+      .join('\n') ||
+    '';
+  const found = match === undefined ? offset : text.indexOf(match, offset);
+  const start = found === -1 ? null : match === undefined ? offset : Math.max(offset, found - 240);
+  const end = start === null ? null : Math.min(text.length, start + CONTEXT_TOOL_EVIDENCE_CHARS);
+  return {
+    sourceId,
+    revision: snapshot.revision,
+    block,
+    blockCount: results.length,
+    toolUseId: result.tool_use_id,
+    ...(result.name ? { tool: result.name } : {}),
+    ...(result.is_error ? { isError: true } : {}),
+    length: text.length,
+    offset: start,
+    nextOffset: end !== null && end < text.length ? end : null,
+    text: start !== null && end !== null ? text.slice(start, end) : '',
+  };
 }
 
 function correctionMessage(snapshot: VersionedContextSnapshot): Message[] {
