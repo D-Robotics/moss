@@ -1629,7 +1629,8 @@ ${result.stderr ?? ''}`.trim();
                   pendingTexts,
                   correctionsOnly
                 )
-            : undefined
+            : undefined,
+          this.config.validateTaskIntentDecision
         )
       : undefined;
     await intentTurn?.prepare();

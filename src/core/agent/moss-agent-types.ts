@@ -7,6 +7,7 @@ import type {
   LLMStreamEvent,
 } from '../llm/llm-provider.js';
 import type { PromptLayersPort } from '../../contracts/prompt-layer.js';
+import type { TurnDecision } from '../../contracts/task-intent.js';
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { SessionStore } from '../session/session.js';
 import type {
@@ -183,6 +184,12 @@ export interface MossAgentConfig
 
   /** Require same-response task updates before acting on genuine user inputs. */
   taskIntent?: boolean;
+
+  /**
+   * Synchronously check a parsed decision before it commits. Throw a
+   * model-facing repair message to reject the decision and its tool batch.
+   */
+  validateTaskIntentDecision?: (decision: Readonly<TurnDecision>) => void;
 
   /** Host provider id (`deepseek`, `openai-compatible`, …). Updated by `switchModel`. */
   provider?: string;

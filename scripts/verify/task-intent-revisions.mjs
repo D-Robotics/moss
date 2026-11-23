@@ -11,8 +11,12 @@ const { MossAgent } = await import(pathToFileURL(path.join(dist, 'core/agent/mos
 const { InMemorySessionStore } = await import(
   pathToFileURL(path.join(dist, 'core/session/session.js')).href
 );
+const { VersionedSessionStore } = await import(
+  pathToFileURL(path.join(dist, 'core/session/versioned-session-store.js')).href
+);
 const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-intent-'));
 const agents = [];
+const validationStore = new VersionedSessionStore(path.join(workspace, 'validation.sqlite'));
 
 function frame(options) {
   const lines = options.systemPrompt.split('\n');
@@ -149,6 +153,88 @@ try {
   assert.deepEqual(workspaceSteps, ['admit', 'execute']);
   console.log(
     'PASS tool batch preparation observes committed intent and replaces dispatch context'
+  );
+
+  const session = 'host-validation';
+  const hostInputId = 'host-source-input';
+  const literal = 'uname -m';
+  const hostInput = `Run this exact command once: ${literal}`;
+  const repair = 'Quote only the exact command literal';
+  const validConstraint = `device_command_once:${literal}`;
+  const proposedQuotes = [];
+  const dispatched = [];
+  const validated = createAgent(
+    (request, count) => {
+      if (count === 3) return response(text('Checked the requested architecture.'));
+      if (count === 2) {
+        assert.match(JSON.stringify(request.messages), new RegExp(repair));
+        const pending = validated.agent.getTaskIntent(session);
+        assert.equal(pending.pending, true);
+        assert.equal(pending.processedSeq, 0);
+        assert.deepEqual(pending.state.constraints, []);
+        assert.deepEqual(dispatched, []);
+        assert.equal(validated.agent.getTaskIntentReceipt(session, hostInputId).status, 'pending');
+      }
+      const quote = count === 1 ? hostInput : literal;
+      return response(
+        {
+          type: 'tool_use',
+          id: `validated-decision-${count}`,
+          name: 'turn_decision',
+          input: {
+            disposition: 'execute',
+            plan: ['Check architecture'],
+            changes: [
+              {
+                field: 'constraints',
+                operation: 'add',
+                value: validConstraint,
+                messageId: hostInputId,
+                quote,
+              },
+            ],
+          },
+        },
+        toolCall('validate_action', `validated-action-${count}`)
+      );
+    },
+    {
+      sessionStore: validationStore,
+      validateTaskIntentDecision(decision) {
+        assert.equal(decision.baseRevision, 0);
+        assert.equal(decision.inputSeq, 1);
+        assert.deepEqual(decision.messageIds, [hostInputId]);
+        const change = decision.changes[0];
+        proposedQuotes.push(change.quote);
+        if (change.quote !== literal) throw new Error(repair);
+        change.value = 'ignored-by-the-runtime';
+      },
+    }
+  );
+  register(validated.agent, 'validate_action', async (_input, context) => {
+    const committed = validated.agent.getTaskIntent(session);
+    assert.equal(committed.pending, false);
+    assert.equal(committed.processedSeq, 1);
+    assert.equal(validated.agent.getTaskIntentReceipt(session, hostInputId).status, 'committed');
+    assert.deepEqual(committed.state.constraints, [validConstraint]);
+    assert.deepEqual(committed.state.constraintSources[validConstraint], {
+      messageId: hostInputId,
+      quote: literal,
+    });
+    dispatched.push(context.toolCallId);
+    return 'Architecture confirmed by the probe.';
+  });
+  const validatedResult = await validated.agent.chat(session, hostInput, {
+    userInput: { id: hostInputId },
+    taskFlow: false,
+    maxTurns: 5,
+  });
+  assert.deepEqual(proposedQuotes, [hostInput, literal]);
+  assert.deepEqual(dispatched, ['validated-action-2']);
+  assert.equal(validated.provider.calls, 3);
+  assert.equal(validatedResult.response, 'Checked the requested architecture.');
+  console.log(
+    'PASS host validation rejects the entire batch before commit and repairs the same pending input'
   );
 
   const starts = [];
@@ -392,5 +478,6 @@ try {
   console.log('PASS restart persistence, receipt dedupe, pending-input barrier');
 } finally {
   await Promise.allSettled(agents.map((agent) => agent.close()));
+  validationStore.close();
   await fs.rm(workspace, { recursive: true, force: true });
 }

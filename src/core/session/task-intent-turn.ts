@@ -3,7 +3,7 @@ import {
   CONTEXT_CLAIMS_TOOL,
   parseClaimDrafts,
 } from './context-claim-declaration.js';
-import type { TaskIntentSnapshot } from '../../contracts/task-intent.js';
+import type { TaskIntentSnapshot, TurnDecision } from '../../contracts/task-intent.js';
 import type { Tool } from '../tools/tool-types.js';
 import { isTaskExecutionSupersededError } from '../task/task-execution-guard.js';
 import type { ContentBlock } from './session-jsonl.js';
@@ -44,7 +44,8 @@ export class TaskIntentTurn {
     private readonly correctionTargets?: (
       pendingTexts: readonly string[],
       correctionsOnly?: boolean
-    ) => Array<{ id: string; origin: string; text: string }>
+    ) => Array<{ id: string; origin: string; text: string }>,
+    private readonly validateDecision?: (decision: Readonly<TurnDecision>) => void
   ) {}
 
   async prepare(): Promise<void> {
@@ -318,6 +319,13 @@ export class TaskIntentTurn {
         calls.some((call) => ![TURN_DECISION_TOOL, CONTEXT_CLAIMS_TOOL].includes(call.name))
       ) {
         throw new Error('answer/clarify/cancel cannot include business tool calls');
+      }
+      const validation: unknown = this.validateDecision?.(structuredClone(decision));
+      if (validation !== undefined) {
+        void Promise.resolve(validation).catch(() => {});
+        throw new Error(
+          'Host task intent validation must finish synchronously without a return value'
+        );
       }
       this.binding = await this.coordinator.commit(this.batch!, decision);
       this.assertCurrent(decision.disposition !== 'execute');

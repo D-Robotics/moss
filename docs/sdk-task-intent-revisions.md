@@ -16,6 +16,15 @@ agent.steer(sessionKey, correction, { id: stableCorrectionId, taskId });
 
 The model proposes field-level changes and a plan through `turn_decision` in its normal response. Runtime checks input identity, exact source quotations, schema and the captured revision before committing. Unmentioned fields survive. This validates protocol and provenance, not the semantic correctness of an interpretation. Ambiguous input should produce `clarify`, and capability questions should produce `answer`, with no business calls.
 
+Hosts can set `MossAgentConfig.validateTaskIntentDecision` when a proposed
+decision must follow host-specific rules. The synchronous callback receives a
+copy of the parsed `TurnDecision` with any runtime-bound fields filled in. Return
+without a value to continue to the SDK's commit checks. Throw an error with
+model-facing repair guidance to reject the decision and every business call in
+the response. The input stays pending, and the existing bounded decision retry
+gives the model a chance to submit a corrected declaration. Use a short error
+message suitable for the model with sensitive details omitted.
+
 `getTaskIntent` returns the committed state plus the current pending-input barrier. `getTaskIntentReceipt` distinguishes semantic commit from canonical message delivery. Input IDs are session-scoped and must never be reused for different text. After the inbox payload limit, processed inputs retain compact hash/receipt tombstones so retries remain idempotent; these small identity records grow with the session.
 
 With `sessionInboxDir`, input, receipt and the retryable task projection share the existing locked, fsynced inbox journal. A projecting entry blocks actions until recovery completes. Deterministically rejected projections remain failed/pending and may be superseded by a valid new input, including a fresh task binding. Storage errors fail closed.
