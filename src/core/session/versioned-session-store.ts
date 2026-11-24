@@ -19,7 +19,11 @@ import type { LLMMessage } from '../llm/llm-provider.js';
 import { redactJsonLine } from './redact-json-line.js';
 import type { SessionMeta, SessionStore } from './session.js';
 import { SessionInbox, type SessionInboxEntry } from './session-inbox.js';
-import { validatePersistedTaskIntent } from './task-intent-state.js';
+import {
+  emptyTaskIntent,
+  readTaskIntent,
+  validatePersistedTaskIntent,
+} from './task-intent-state.js';
 
 const loadBuiltin = createRequire(import.meta.url);
 
@@ -29,6 +33,10 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sessions (
     key TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0,
     created INTEGER NOT NULL, updated INTEGER NOT NULL, imported INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS context_scopes (
+    session TEXT PRIMARY KEY REFERENCES sessions(key) ON DELETE CASCADE,
+    scope TEXT NOT NULL, first_ordinal INTEGER NOT NULL, first_revision INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS messages (
     session TEXT NOT NULL REFERENCES sessions(key) ON DELETE CASCADE,
@@ -210,13 +218,33 @@ export class VersionedSessionStore implements SessionStore {
     });
   }
 
+  private contextScope(
+    key: string
+  ): { scope: string; firstOrdinal: number; firstRevision: number } | undefined {
+    const row = this.db
+      .prepare('SELECT scope,first_ordinal,first_revision FROM context_scopes WHERE session=?')
+      .get(key);
+    return row
+      ? {
+          scope: String(row.scope),
+          firstOrdinal: Number(row.first_ordinal),
+          firstRevision: Number(row.first_revision),
+        }
+      : undefined;
+  }
+
+  activeContextScope(key: string): { id: string; revision: number } | undefined {
+    const current = this.contextScope(key);
+    return current ? { id: current.scope, revision: current.firstRevision } : undefined;
+  }
+
   private sourceRows(key: string, includeInactive = false): ContextSourceMessage[] {
     return this.db
       .prepare(
         `SELECT id,ordinal,origin,body,generation FROM messages WHERE session=?
-      ${includeInactive ? '' : 'AND active=1'} ORDER BY ordinal`
+      ${includeInactive ? '' : 'AND active=1 AND ordinal>=?'} ORDER BY ordinal`
       )
-      .all(key)
+      .all(...(includeInactive ? [key] : [key, this.contextScope(key)?.firstOrdinal ?? 0]))
       .map((row) => ({
         id: String(row.id),
         ordinal: Number(row.ordinal),
@@ -224,6 +252,77 @@ export class VersionedSessionStore implements SessionStore {
         message: parse<LLMMessage>(row.body),
         ...(row.generation === null ? {} : { generatedRevision: Number(row.generation) }),
       }));
+  }
+
+  private activeCorrections(key: string): CommittedContextCorrection[] {
+    const firstRevision = this.contextScope(key)?.firstRevision ?? 0;
+    return this.db
+      .prepare('SELECT body FROM corrections WHERE session=? AND revision>=? ORDER BY revision')
+      .all(key, firstRevision)
+      .map((row) => parse<CommittedContextCorrection>(row.body));
+  }
+
+  /** A trusted host can move the active context to a new scope without changing the source archive. */
+  async enterContextScope(
+    key: string,
+    scope: string,
+    options: { adoptCurrent?: boolean; boundaryMessage?: string } = {}
+  ): Promise<boolean> {
+    if (!scope.trim() || scope.length > 240)
+      throw new MossError({ code: ErrorCode.USER_INPUT_INVALID, message: 'Invalid context scope' });
+    await this.adopt(key);
+    return this.transaction(() => {
+      const previous = this.contextScope(key);
+      if (previous?.scope === scope) return false;
+      const lastOrdinal = this.lastOrdinal(key);
+      const startFresh =
+        (lastOrdinal > 0 || Boolean(previous)) && !(options.adoptCurrent && !previous);
+      this.create(key);
+      if (startFresh) this.retireContextIntent(key);
+      const revision = this.revision(key) + 1;
+      this.db
+        .prepare('INSERT OR REPLACE INTO context_scopes VALUES(?,?,?,?)')
+        .run(key, scope, startFresh ? lastOrdinal + 1 : 0, startFresh ? revision : 0);
+      if (startFresh) {
+        this.db.prepare('UPDATE claims SET active=0 WHERE session=?').run(key);
+        this.db.prepare('DELETE FROM overlays WHERE session=?').run(key);
+        this.db
+          .prepare('UPDATE sessions SET revision=?,updated=? WHERE key=?')
+          .run(revision, Date.now(), key);
+        if (options.boundaryMessage?.trim()) {
+          this.append(key, { role: 'user', content: options.boundaryMessage }, 'runtime');
+        }
+      }
+      return true;
+    });
+  }
+
+  private retireContextIntent(key: string): void {
+    const inbox = this.readInbox(key);
+    const current = readTaskIntent(inbox.toEntries());
+    if (current.pending || inbox.pending().length) {
+      throw new MossError({
+        code: ErrorCode.EXECUTION_STATE_INVALID,
+        message: 'Resolve pending input in the current context before switching scopes',
+      });
+    }
+    if (!current.inputSeq) return;
+    const entry = inbox.admit({
+      id: `context-scope:${randomUUID()}`,
+      prompt: '',
+      metadata: { intentOnly: true },
+    });
+    inbox.promote(entry.id);
+    inbox.setIntent(entry.id, {
+      status: 'committed',
+      snapshot: {
+        ...emptyTaskIntent(),
+        revision: current.revision + 1,
+        inputSeq: entry.admittedSeq,
+        processedSeq: entry.admittedSeq,
+      },
+    });
+    this.saveInbox(key, inbox);
   }
 
   readInbox(key: string, legacy?: () => SessionInbox): SessionInbox {
@@ -266,10 +365,7 @@ export class VersionedSessionStore implements SessionStore {
       () => ({
         revision: this.revision(key),
         messages: this.sourceRows(key),
-        corrections: this.db
-          .prepare('SELECT body FROM corrections WHERE session=? ORDER BY revision')
-          .all(key)
-          .map((row) => parse<CommittedContextCorrection>(row.body)),
+        corrections: this.activeCorrections(key),
         claims: this.claimRows(key),
       }),
       false
@@ -335,6 +431,10 @@ export class VersionedSessionStore implements SessionStore {
     targetKey: string;
     deliveryId: string;
     message: LLMMessage;
+    scopeCheck?: {
+      source?: ReturnType<VersionedSessionStore['activeContextScope']>;
+      target?: ReturnType<VersionedSessionStore['activeContextScope']>;
+    };
   }): Promise<'imported' | 'duplicate' | 'source-changed'> {
     const { sourceKey, sourceRevision, targetKey, deliveryId, message } = input;
     if (
@@ -356,10 +456,20 @@ export class VersionedSessionStore implements SessionStore {
           .get(targetKey, deliveryId)
       )
         return 'duplicate';
+      const scopeMatches = (
+        key: string,
+        expected: ReturnType<VersionedSessionStore['activeContextScope']>
+      ) => {
+        const current = this.activeContextScope(key);
+        return current?.id === expected?.id && current?.revision === expected?.revision;
+      };
       if (
         !this.has(sourceKey) ||
         this.revision(sourceKey) !== sourceRevision ||
-        this.readInbox(sourceKey).pending().length
+        this.readInbox(sourceKey).pending().length ||
+        (input.scopeCheck &&
+          (!scopeMatches(sourceKey, input.scopeCheck.source) ||
+            !scopeMatches(targetKey, input.scopeCheck.target)))
       )
         return 'source-changed';
       this.create(targetKey);
@@ -466,7 +576,11 @@ export class VersionedSessionStore implements SessionStore {
       .get(key, input.id);
     if (previous) {
       const value = parse<CommittedContextCorrection>(previous.body);
-      if (value.targetId !== clean.targetId || value.text !== clean.text) {
+      if (
+        value.targetId !== clean.targetId ||
+        value.text !== clean.text ||
+        value.revision < (this.contextScope(key)?.firstRevision ?? 0)
+      ) {
         throw new MossError({
           code: ErrorCode.EXECUTION_REVISION_CONFLICT,
           message: 'Correction ID was reused for different content',
@@ -475,8 +589,10 @@ export class VersionedSessionStore implements SessionStore {
       return value;
     }
     const target = this.db
-      .prepare('SELECT ordinal,body FROM messages WHERE session=? AND id=? AND active=1')
-      .get(key, clean.targetId);
+      .prepare(
+        'SELECT ordinal,body FROM messages WHERE session=? AND id=? AND active=1 AND ordinal>=?'
+      )
+      .get(key, clean.targetId, this.contextScope(key)?.firstOrdinal ?? 0);
     const claim = this.claimRows(key).find(
       (item) => item.id === clean.targetId && item.status === 'active'
     );
@@ -540,10 +656,7 @@ export class VersionedSessionStore implements SessionStore {
   /** Joins the transaction that is recording the model's validated declaration. */
   registerClaimsInTransaction(key: string, drafts: ContextClaimDraft[]): ContextClaim[] {
     const sources = new Map(this.sourceRows(key).map((row) => [row.id, row]));
-    const corrections = this.db
-      .prepare('SELECT body FROM corrections WHERE session=?')
-      .all(key)
-      .map((row) => parse<CommittedContextCorrection>(row.body));
+    const corrections = this.activeCorrections(key);
     const active = new Set(
       this.claimRows(key)
         .filter((claim) => claim.status === 'active')
@@ -710,9 +823,9 @@ export class VersionedSessionStore implements SessionStore {
   earlierCheckpointBoundary(key: string, revision: number, policyKey: string): number | undefined {
     const row = this.db
       .prepare(
-        `SELECT covered FROM checkpoints WHERE session=? AND revision<? AND substr(policy,instr(policy,':')+1)=? ORDER BY revision DESC, covered DESC LIMIT 1`
+        `SELECT covered FROM checkpoints WHERE session=? AND revision<? AND covered>=? AND substr(policy,instr(policy,':')+1)=? ORDER BY revision DESC, covered DESC LIMIT 1`
       )
-      .get(key, revision, policyKey);
+      .get(key, revision, this.contextScope(key)?.firstOrdinal ?? 0, policyKey);
     return row ? Number(row.covered) : undefined;
   }
 
@@ -720,13 +833,9 @@ export class VersionedSessionStore implements SessionStore {
     const clean = parse<Pick<ContextCorrection, 'targetId' | 'text'>>(
       redactJsonLine({ targetId, text })
     );
-    return this.db
-      .prepare('SELECT body FROM corrections WHERE session=?')
-      .all(key)
-      .some((row) => {
-        const correction = parse<CommittedContextCorrection>(row.body);
-        return correction.targetId === clean.targetId && correction.text === clean.text;
-      });
+    return this.activeCorrections(key).some(
+      (correction) => correction.targetId === clean.targetId && correction.text === clean.text
+    );
   }
 
   checkpoint(key: string, revision: number, policy: string): ContextCheckpoint | undefined {

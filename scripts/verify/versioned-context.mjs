@@ -12,7 +12,7 @@ const dist = process.env.MOSS_VERIFY_DIST_ROOT ?? path.join(root, 'dist');
 const load = (file) => import(pathToFileURL(path.join(dist, file)).href);
 const [
   { MossAgent },
-  { VersionedSessionStore },
+  { VersionedSessionStore, hashContextSources },
   tasks,
   artifacts,
   { resumeTask },
@@ -204,6 +204,119 @@ async function testSameSessionToolEvidence(workspace) {
   }
   console.log(
     'PASS original tool receipts can be read by source without recovering stale or foreign messages'
+  );
+}
+
+async function testContextScope(workspace) {
+  const database = path.join(workspace, 'context.sqlite');
+  const key = 'same-conversation';
+  const first = new VersionedSessionStore(database);
+  const original = createAgent(workspace, first);
+  let originalIds;
+  try {
+    assert.equal(await first.enterContextScope(key, 'first-project'), true);
+    await original.agent.chat(key, 'Old workspace goal and target', {
+      userInput: { id: 'old-goal' },
+    });
+    assert.equal(
+      original.agent.getTaskIntent(key).state.goal,
+      'Old workspace goal and target'
+    );
+    await add(first, key, 'assistant', [toolCall('read_file', 'old-read')]);
+    await add(
+      first,
+      key,
+      'user',
+      [{ type: 'tool_result', tool_use_id: 'old-read', content: 'OLD_WORKSPACE_RECEIPT' }],
+      'tool'
+    );
+    await add(first, key, 'assistant', 'OLD_WORKSPACE_CONCLUSION');
+    const old = first.snapshot(key);
+    originalIds = old.messages.map(({ id }) => id);
+    const sourceId = old.messages.at(-2).id;
+    const targetId = old.messages.at(-1).id;
+    const correction = { id: 'old-correction', targetId, text: 'OLD_WORKSPACE_CORRECTION' };
+    await first.correct(key, correction);
+    const corrected = first.snapshot(key);
+    const priorCheckpoint = {
+      revision: corrected.revision,
+      policy: 'summary:project-test',
+      throughOrdinal: corrected.messages.at(-1).ordinal,
+      sourceHash: hashContextSources(corrected.messages),
+      entries: [{ kind: 'observation', text: 'OLD_WORKSPACE_SUMMARY', sourceIds: [sourceId] }],
+    };
+    assert(first.commitCheckpoint(key, priorCheckpoint));
+    await first.replaceMessages(key, [{ role: 'assistant', content: 'OLD_WORKSPACE_OVERLAY' }]);
+    const scopeCheck = { target: first.activeContextScope(key) };
+    await first.enterContextScope('same-project-other-device', 'first-project');
+    await add(first, 'same-project-other-device', 'assistant', 'OLD_DEVICE_HISTORY');
+    scopeCheck.source = first.activeContextScope('same-project-other-device');
+
+    first.updateInbox(key, (inbox) =>
+      inbox.admit({ id: 'pending', prompt: 'Complete old pending request' })
+    );
+    await assert.rejects(first.enterContextScope(key, 'next-project'), /Resolve pending input/);
+    assert.deepEqual(first.activeContextScope(key), scopeCheck.target);
+    first.updateInbox(key, (inbox) => inbox.promote('pending'));
+
+    assert.equal(
+      await first.enterContextScope(key, 'next-project', {
+        boundaryMessage: 'Use only the active project.',
+      }),
+      true
+    );
+    const switched = first.snapshot(key);
+    assert.equal(switched.revision, corrected.revision + 1);
+    assert.deepEqual(switched.corrections, []);
+    assert.equal(readContextToolEvidence(switched, { sourceId }), null);
+    assert.equal(
+      first.earlierCheckpointBoundary(key, switched.revision, 'project-test'),
+      undefined
+    );
+    assert.equal(first.commitCheckpoint(key, priorCheckpoint), false);
+    await assert.rejects(first.correct(key, correction), /Correction ID was reused/);
+    await assert.rejects(
+      first.correct(key, { ...correction, id: 'retry-stale' }),
+      /active assistant message/
+    );
+    assert.equal(original.agent.getTaskIntent(key).state.goal, '');
+    assert.equal(original.agent.getTaskIntent(key).planId, '');
+    assert.equal(await first.enterContextScope(key, 'next-project'), false);
+    assert.equal(
+      await first.appendContextHandoffOnce({
+        sourceKey: 'same-project-other-device',
+        sourceRevision: first.revision('same-project-other-device'),
+        targetKey: key,
+        deliveryId: 'delayed-import',
+        scopeCheck,
+        message: { role: 'assistant', content: 'OLD_DEVICE_HISTORY' },
+      }),
+      'source-changed'
+    );
+  } finally {
+    await original.agent.close();
+    first.close();
+  }
+
+  const reopened = new VersionedSessionStore(database);
+  const updated = createAgent(workspace, reopened);
+  try {
+    assert.equal(reopened.activeContextScope(key)?.id, 'next-project');
+    assert.deepEqual(
+      (await reopened.sourceMessages(key)).slice(0, originalIds.length).map(({ id }) => id),
+      originalIds
+    );
+    await updated.agent.chat(key, 'Inspect the new project.', { userInput: { id: 'next-goal' } });
+    const request = JSON.stringify(updated.modelRequests[0]);
+    assert.match(request, /Use only the active project/);
+    assert.doesNotMatch(request, /OLD_WORKSPACE_|OLD_DEVICE_HISTORY|Old workspace goal/);
+    assert.equal(updated.agent.getTaskIntent(key).state.goal, 'Inspect the new project.');
+  } finally {
+    await updated.agent.close();
+    reopened.close();
+  }
+  console.log(
+    'PASS project scope retains old raw history, retires old decisions, and survives restart'
   );
 }
 
@@ -1744,6 +1857,7 @@ const workspace = await fs.realpath(
 try {
   for (const [directory, test] of [
     ['context-handoff', testContextHandoff],
+    ['context-scope', testContextScope],
     ['same-session-tool-evidence', testSameSessionToolEvidence],
     ['progressive', testProgressiveStages],
     ['pressure-continuation', testPressureContinuation],

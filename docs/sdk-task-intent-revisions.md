@@ -71,6 +71,14 @@ identity. Close the agent before closing a store owned by the host.
   index, an offset and an optional literal match. The result carries the
   context revision and original tool call ID. A receipt from an earlier
   execution remains historical evidence for that execution.
+- Hosts that switch the active workspace within a session can call
+  `store.enterContextScope(sessionKey, scopeId)` with an identity selected by the
+  host. Switching starts a new revision and hides the previous workspace's
+  sources, corrections, claims and checkpoints from the next model request.
+  The original rows remain in `sourceMessages`. The store rejects scope changes
+  while an input is still pending. `activeContextScope` returns a scope identity
+  and revision that a host can include in a context handoff's `scopeCheck` to
+  reject a transfer captured before either session changed scope.
 
 The request pipeline progressively adjusts the output reservation, shortens old
 tool results, prepares checkpoints in the background, reuses compatible
