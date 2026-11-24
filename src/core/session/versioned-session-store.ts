@@ -19,6 +19,7 @@ import type { LLMMessage } from '../llm/llm-provider.js';
 import { redactJsonLine } from './redact-json-line.js';
 import type { SessionMeta, SessionStore } from './session.js';
 import { SessionInbox, type SessionInboxEntry } from './session-inbox.js';
+import { loadSessionInbox } from './session-inbox-store.js';
 import {
   emptyTaskIntent,
   readTaskIntent,
@@ -239,12 +240,16 @@ export class VersionedSessionStore implements SessionStore {
   }
 
   private sourceRows(key: string, includeInactive = false): ContextSourceMessage[] {
+    const scope = includeInactive ? undefined : this.contextScope(key);
     return this.db
       .prepare(
         `SELECT id,ordinal,origin,body,generation FROM messages WHERE session=?
-      ${includeInactive ? '' : 'AND active=1 AND ordinal>=?'} ORDER BY ordinal`
+      ${includeInactive ? '' : 'AND active=1 AND ordinal>=? AND (generation IS NULL OR generation>=?)'}
+      ORDER BY ordinal`
       )
-      .all(...(includeInactive ? [key] : [key, this.contextScope(key)?.firstOrdinal ?? 0]))
+      .all(
+        ...(includeInactive ? [key] : [key, scope?.firstOrdinal ?? 0, scope?.firstRevision ?? 0])
+      )
       .map((row) => ({
         id: String(row.id),
         ordinal: Number(row.ordinal),
@@ -266,7 +271,7 @@ export class VersionedSessionStore implements SessionStore {
   async enterContextScope(
     key: string,
     scope: string,
-    options: { adoptCurrent?: boolean; boundaryMessage?: string } = {}
+    options: { adoptCurrent?: boolean; boundaryMessage?: string; legacyInboxPath?: string } = {}
   ): Promise<boolean> {
     if (!scope.trim() || scope.length > 240)
       throw new MossError({ code: ErrorCode.USER_INPUT_INVALID, message: 'Invalid context scope' });
@@ -275,10 +280,15 @@ export class VersionedSessionStore implements SessionStore {
       const previous = this.contextScope(key);
       if (previous?.scope === scope) return false;
       const lastOrdinal = this.lastOrdinal(key);
+      const inbox = this.readInbox(key, () =>
+        options.legacyInboxPath ? loadSessionInbox(options.legacyInboxPath) : new SessionInbox()
+      );
       const startFresh =
-        (lastOrdinal > 0 || Boolean(previous)) && !(options.adoptCurrent && !previous);
+        (lastOrdinal > 0 || Boolean(previous) || inbox.toEntries().length > 0) &&
+        !(options.adoptCurrent && !previous);
       this.create(key);
-      if (startFresh) this.retireContextIntent(key);
+      if (startFresh) this.retireContextIntent(inbox);
+      this.saveInbox(key, inbox);
       const revision = this.revision(key) + 1;
       this.db
         .prepare('INSERT OR REPLACE INTO context_scopes VALUES(?,?,?,?)')
@@ -297,8 +307,7 @@ export class VersionedSessionStore implements SessionStore {
     });
   }
 
-  private retireContextIntent(key: string): void {
-    const inbox = this.readInbox(key);
+  private retireContextIntent(inbox: SessionInbox): void {
     const current = readTaskIntent(inbox.toEntries());
     if (current.pending || inbox.pending().length) {
       throw new MossError({
@@ -322,7 +331,6 @@ export class VersionedSessionStore implements SessionStore {
         processedSeq: entry.admittedSeq,
       },
     });
-    this.saveInbox(key, inbox);
   }
 
   readInbox(key: string, legacy?: () => SessionInbox): SessionInbox {

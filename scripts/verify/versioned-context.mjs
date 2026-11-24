@@ -218,10 +218,7 @@ async function testContextScope(workspace) {
     await original.agent.chat(key, 'Old workspace goal and target', {
       userInput: { id: 'old-goal' },
     });
-    assert.equal(
-      original.agent.getTaskIntent(key).state.goal,
-      'Old workspace goal and target'
-    );
+    assert.equal(original.agent.getTaskIntent(key).state.goal, 'Old workspace goal and target');
     await add(first, key, 'assistant', [toolCall('read_file', 'old-read')]);
     await add(
       first,
@@ -267,6 +264,14 @@ async function testContextScope(workspace) {
     );
     const switched = first.snapshot(key);
     assert.equal(switched.revision, corrected.revision + 1);
+    await first.appendMessage(
+      key,
+      { role: 'assistant', content: 'OLD_WORKSPACE_LATE_ANSWER' },
+      'assistant',
+      corrected.revision
+    );
+    assert.doesNotMatch(JSON.stringify(first.snapshot(key)), /OLD_WORKSPACE_LATE_ANSWER/);
+    assert.match(JSON.stringify(await first.sourceMessages(key)), /OLD_WORKSPACE_LATE_ANSWER/);
     assert.deepEqual(switched.corrections, []);
     assert.equal(readContextToolEvidence(switched, { sourceId }), null);
     assert.equal(
@@ -318,6 +323,28 @@ async function testContextScope(workspace) {
   console.log(
     'PASS project scope retains old raw history, retires old decisions, and survives restart'
   );
+
+  const legacyInboxPath = path.join(workspace, 'legacy-inbox.json');
+  const { updateSessionInbox } = await load('core/session/session-inbox-store.js');
+  const migrated = new VersionedSessionStore(path.join(workspace, 'legacy-scope.sqlite'));
+  try {
+    updateSessionInbox(legacyInboxPath, (inbox) => {
+      const entry = inbox.admit({ id: 'legacy-steer', prompt: 'Finish the previous project' });
+      inbox.defer(entry.id);
+    });
+    await assert.rejects(
+      migrated.enterContextScope(key, 'new-project', { legacyInboxPath }),
+      /Resolve pending input/
+    );
+    updateSessionInbox(legacyInboxPath, (inbox) => inbox.promote('legacy-steer'));
+    assert.equal(await migrated.enterContextScope(key, 'new-project', { legacyInboxPath }), true);
+    assert.deepEqual(
+      migrated.readInbox(key, () => assert.fail('legacy fallback was reused')).pending(),
+      []
+    );
+  } finally {
+    migrated.close();
+  }
 }
 
 async function testContextHandoff(workspace) {
