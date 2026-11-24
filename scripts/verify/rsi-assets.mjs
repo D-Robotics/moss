@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { runProcess } from '../../dist/utils/run-process.js';
+import { diskUsage } from '../../dist/core/rsi/asset-io.js';
 import {
   RsiAssetStore,
   RsiStore,
@@ -37,6 +38,41 @@ const put = (content, extra = {}) =>
     ...extra,
   });
 try {
+  // NTFS file IDs may exceed Number precision; adjacent IDs must not become a cycle.
+  const inodeRoot = path.join(root, 'exact-inodes');
+  fs.mkdirSync(inodeRoot);
+  const firstFile = path.join(inodeRoot, 'first');
+  const secondFile = path.join(inodeRoot, 'second');
+  const hardLink = path.join(inodeRoot, 'first-link');
+  fs.writeFileSync(firstFile, 'first');
+  fs.writeFileSync(secondFile, 'second');
+  fs.linkSync(firstFile, hardLink);
+  const firstInode = 2n ** 53n;
+  assert.equal(Number(firstInode), Number(firstInode + 1n));
+  const inodes = new Map([
+    [inodeRoot, firstInode],
+    [firstFile, firstInode + 1n],
+    [secondFile, firstInode + 2n],
+    [hardLink, firstInode + 1n],
+  ]);
+  const originalLstat = fs.lstatSync;
+  try {
+    fs.lstatSync = (file, options) => {
+      const stat = originalLstat(file, options);
+      const inode = inodes.get(String(file));
+      if (inode !== undefined) stat.ino = options?.bigint ? inode : Number(inode);
+      return stat;
+    };
+    assert.equal(
+      diskUsage(inodeRoot),
+      11,
+      'distinct IDs count while hard links remain deduplicated'
+    );
+  } finally {
+    fs.lstatSync = originalLstat;
+  }
+  fs.rmSync(inodeRoot, { recursive: true });
+
   const legacy = store.read(scope);
   const adapter = {
     id: 'legacy-adapter',
