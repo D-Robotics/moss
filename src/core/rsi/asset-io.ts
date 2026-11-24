@@ -62,9 +62,9 @@ export function diskUsage(directory: string, workspaces: readonly string[] = [])
   };
   function walk(file: string, workspace?: string): number {
     if (++count > 100_000) throw new RsiError('asset_scan_limit', 409);
-    let stat: fs.Stats;
+    let stat: fs.BigIntStats;
     try {
-      stat = fs.lstatSync(file);
+      stat = fs.lstatSync(file, { bigint: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0;
       throw error;
@@ -87,14 +87,14 @@ export function diskUsage(directory: string, workspaces: readonly string[] = [])
       seen.add(key);
       active.add(key);
       try {
-        return stat.size + walk(target, workspace);
+        return Number(stat.size) + walk(target, workspace);
       } finally {
         active.delete(key);
       }
     }
     if (seen.has(key)) return 0;
     seen.add(key);
-    if (stat.isFile()) return stat.size;
+    if (stat.isFile()) return Number(stat.size);
     if (!stat.isDirectory()) throw new RsiError('asset_special_file_refused', 409);
     active.add(key);
     try {
