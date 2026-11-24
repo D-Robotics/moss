@@ -82,6 +82,9 @@ export function createMossAgentLoopEventAdapter(
   const textRedactor = createAssistantTextRedactor({
     normalizeLeadingWhitespace: options?.normalizeLeadingWhitespace !== false,
   });
+  const draftRedactor = createAssistantTextRedactor({
+    normalizeLeadingWhitespace: options?.normalizeLeadingWhitespace !== false,
+  });
   let continuingOutput = false;
   const thinkingRedactor = createAssistantTextRedactor();
   const thinking: string[] = [];
@@ -144,6 +147,14 @@ export function createMossAgentLoopEventAdapter(
   return {
     onMiniEvent(event) {
       switch (event.type) {
+        case 'message_draft_delta': {
+          if (options?.isAborted?.()) return [];
+          const delta = draftRedactor.push(event.delta);
+          return delta ? [{ type: 'text_draft_delta', delta }] : [];
+        }
+        case 'message_draft_end':
+          draftRedactor.reset();
+          return [{ type: 'text_draft_end', accepted: event.accepted }];
         case 'message_delta': {
           response += event.delta;
           // Public prose starts after the reasoning block has settled. Emit

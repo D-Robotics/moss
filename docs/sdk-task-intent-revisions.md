@@ -16,6 +16,15 @@ agent.steer(sessionKey, correction, { id: stableCorrectionId, taskId });
 
 The model proposes field-level changes and a plan through `turn_decision` in its normal response. Runtime checks input identity, exact source quotations, schema and the captured revision before committing. Unmentioned fields survive. This validates protocol and provenance, not the semantic correctness of an interpretation. Ambiguous input should produce `clarify`, and capability questions should produce `answer`, with no business calls.
 
+Hosts can set `MossAgentConfig.validateTaskIntentDecision` when a proposed
+decision must follow host-specific rules. The synchronous callback receives a
+copy of the parsed `TurnDecision` with any runtime-bound fields filled in. Return
+without a value to continue to the SDK's commit checks. Throw an error with
+model-facing repair guidance to reject the decision and every business call in
+the response. The input stays pending, and the existing bounded decision retry
+gives the model a chance to submit a corrected declaration. Use a short error
+message suitable for the model with sensitive details omitted.
+
 `getTaskIntent` returns the committed state plus the current pending-input barrier. `getTaskIntentReceipt` distinguishes semantic commit from canonical message delivery. Input IDs are session-scoped and must never be reused for different text. After the inbox payload limit, processed inputs retain compact hash/receipt tombstones so retries remain idempotent; these small identity records grow with the session.
 
 With `sessionInboxDir`, input, receipt and the retryable task projection share the existing locked, fsynced inbox journal. A projecting entry blocks actions until recovery completes. Deterministically rejected projections remain failed/pending and may be superseded by a valid new input, including a fresh task binding. Storage errors fail closed.
@@ -25,6 +34,16 @@ Every action binds its original input sequence, intent revision and plan ID. Adm
 For native tasks, `applyTaskRevision` commits a revision with an idempotent `revisionId` and `expectedRevision`. It retains the original goal for audit, invalidates the old plan and requires revision-matching evidence. `resumeTask(..., { replan: true })` plans before verification. Accepted task history is immutable. A PASS already dispatched at the native append boundary may finish settlement; later corrections belong to subsequent work.
 
 Host callbacks outside normal tool execution must freeze the binding at callback creation and use `withTaskExecutionGuard(() => agent.assertTaskIntentCurrent(sessionKey, capturedIntent), action)`. Do not reread a new binding when an old callback wakes. Host evidence must also preserve its producing plan identity: stamping an old observation with the current revision does not make it current evidence.
+
+Hosts that provision an isolated workspace can register `hooks.prepareToolBatch`.
+The hook receives currently available, schema-checked business calls after the
+runtime commits the pending decision. Use `assertCurrent()` before provisioning
+and after each asynchronous step. The hook can update the host tool registry and
+return a dispatch context with the new workspace. The SDK rechecks the decision,
+resolves the updated tools and applies its usual approval and execution guards.
+An answer or decision with no business calls skips the hook.
+
+Each active constraint may have an exact author citation in `state.constraintSources`. A host can use that citation to bind an execution allowance to its originating input. `VersionedSessionStore.claimExecutionReceipt(scope, id)` atomically reserves a host action in a durable namespace. Call it when a validated operation is about to cross its dispatch boundary. A reservation only records admission and survives an uncertain or failed dispatch. Confirm the outcome from the transport or tool receipt.
 
 The SDK defaults to the existing path when this option is absent. Studio enables it for ordinary runs, while fixed JSON execution profiles retain their own protocol.
 
@@ -46,10 +65,19 @@ identity. Close the agent before closing a store owned by the host.
 - `/compact` prepares or selects a source-checked checkpoint. It preserves
   original source rows. `MossAgent.listContextSources` can inspect them after
   a restart. Imported sessions can only retain messages still present on disk.
+- Hosts can call `readContextToolEvidence(store.snapshot(sessionKey), query)` to
+  retrieve a bounded excerpt from an original tool receipt. Resolve the session
+  and its owner on the host. The query accepts a source ID, a result block
+  index, an offset and an optional literal match. The result carries the
+  context revision and original tool call ID. A receipt from an earlier
+  execution remains historical evidence for that execution.
 
 The request pipeline progressively adjusts the output reservation, shortens old
 tool results, prepares checkpoints in the background, reuses compatible
-checkpoints, or performs bounded synchronous summarization. Provider-independent
+checkpoints, or performs bounded synchronous summarization. It keeps the latest
+tool result batch intact when it fits. If that batch still prevents a request,
+the projection sends source-linked excerpts with the same tool call IDs. The
+original results remain available in the archive. Provider-independent
 admission uses a conservative serialized-size estimate. Provider-reported
 overflow triggers a bounded retry with a smaller budget. Structured summaries
 are historical data, and do not authorize work or commit acceptance.

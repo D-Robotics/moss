@@ -28,6 +28,7 @@ import {
   dedupeUnchangedReadToolResults,
   invalidateStaleReadToolResults,
 } from '../../context/stale-read-invalidate.js';
+import { isInternalAssistantText, resumeUserText } from './internal-transcript.js';
 
 const SUMMARY_PROMPT = [
   'Summarize the supplied historical data. Use corrections to filter obsolete interpretations. Do not produce entries for corrections themselves, which are already retained in the context.',
@@ -44,6 +45,8 @@ const MAX_SUMMARY_MS = 25_000;
 const RECENT_GROUP_MESSAGES = 8;
 const HISTORICAL_TOOL_HEAD_CHARS = 800;
 const HISTORICAL_TOOL_TAIL_CHARS = 300;
+export const CONTEXT_TOOL_EVIDENCE_TOOL = 'context_source_read';
+const CONTEXT_TOOL_EVIDENCE_CHARS = 2_000;
 const SUMMARY_POLICY = createHash('sha256').update(SUMMARY_PROMPT).digest('hex');
 
 function asMessage(source: ContextSourceMessage): Message {
@@ -139,6 +142,91 @@ export function contextSourceView(snapshot: VersionedContextSnapshot): ContextSo
   });
 }
 
+/** Visible historical text after correction, with original source identities. */
+export function projectContextHandoff(snapshot: VersionedContextSnapshot) {
+  return contextSourceView(snapshot).flatMap((source) => {
+    const { role, content } = source.message;
+    const user = role === 'user' && trustedUser(source);
+    const assistant =
+      role === 'assistant' && (source.origin === 'assistant' || source.origin === 'legacy');
+    if (!user && !assistant) return [];
+    const raw =
+      typeof content === 'string'
+        ? content
+        : content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n');
+    const text = user ? resumeUserText(raw) : stripThinkingTagsKeepVisible(raw).trim();
+    return text && (user || !isInternalAssistantText(text)) ? [{ id: source.id, role, text }] : [];
+  });
+}
+
+export interface ContextToolEvidenceQuery {
+  sourceId: string;
+  block?: number;
+  offset?: number;
+  match?: string;
+}
+
+/** Read an original tool receipt from an active, already owner-scoped session snapshot. */
+export function readContextToolEvidence(
+  snapshot: VersionedContextSnapshot,
+  { sourceId, block = 0, offset = 0, match }: ContextToolEvidenceQuery
+) {
+  if (
+    !sourceId ||
+    sourceId.length > 200 ||
+    !Number.isSafeInteger(block) ||
+    block < 0 ||
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    (match !== undefined && (!match || match.length > 200))
+  )
+    return null;
+  const view = contextSourceView(snapshot);
+  const source = view.find((candidate) => candidate.id === sourceId);
+  if (!source || !['tool', 'legacy'].includes(source.origin)) return null;
+  const content = source.message.content;
+  if (!Array.isArray(content)) return null;
+  const results = content.filter((part) => part.type === 'tool_result');
+  const result = results[block];
+  if (
+    !result ||
+    result.name === CONTEXT_TOOL_EVIDENCE_TOOL ||
+    view.some(
+      ({ message }) =>
+        Array.isArray(message.content) &&
+        message.content.some(
+          (part) =>
+            part.type === 'tool_use' &&
+            part.id === result.tool_use_id &&
+            part.name === CONTEXT_TOOL_EVIDENCE_TOOL
+        )
+    )
+  )
+    return null;
+  const text =
+    result.content ||
+    result.structuredContent
+      ?.flatMap((part) => (part.type === 'text' ? [part.text] : []))
+      .join('\n') ||
+    '';
+  const found = match === undefined ? offset : text.indexOf(match, offset);
+  const start = found === -1 ? null : match === undefined ? offset : Math.max(offset, found - 240);
+  const end = start === null ? null : Math.min(text.length, start + CONTEXT_TOOL_EVIDENCE_CHARS);
+  return {
+    sourceId,
+    revision: snapshot.revision,
+    block,
+    blockCount: results.length,
+    toolUseId: result.tool_use_id,
+    ...(result.name ? { tool: result.name } : {}),
+    ...(result.is_error ? { isError: true } : {}),
+    length: text.length,
+    offset: start,
+    nextOffset: end !== null && end < text.length ? end : null,
+    text: start !== null && end !== null ? text.slice(start, end) : '',
+  };
+}
+
 function correctionMessage(snapshot: VersionedContextSnapshot): Message[] {
   const claims = snapshot.claims.filter((claim) => claim.status === 'active').slice(-32);
   if (!snapshot.corrections.length && !claims.length) return [];
@@ -204,7 +292,7 @@ function summaryMessage(
   );
 }
 
-/** Keep exact tool output available to the turn that requested it. */
+/** Keep exact authored input as the boundary for ordinary tool-output editing. */
 function activeTurnStart(sources: ContextSourceMessage[]): number {
   for (let index = sources.length - 1; index >= 0; index--) {
     if (trustedUser(sources[index]!)) return index;
@@ -226,10 +314,13 @@ function limitToolOutput(text: string, id: string, head: number, tail: number): 
   return `${text.slice(0, head)}\n[Output shortened. Original source: ${id}]\n${text.slice(-tail)}`;
 }
 
-function editableView(sources: ContextSourceMessage[], currentTurnOrdinal: number): Message[] {
+function editableView(sources: ContextSourceMessage[], preserveToolResultsFrom: number): Message[] {
   const messages = sources.map((source) => {
     const message = asMessage(source);
-    if (source.ordinal >= currentTurnOrdinal || !Array.isArray(message.content)) return message;
+    if (source.ordinal >= preserveToolResultsFrom || !Array.isArray(message.content))
+      return message;
+    const excerpt = (text: string) =>
+      limitToolOutput(text, source.id, HISTORICAL_TOOL_HEAD_CHARS, HISTORICAL_TOOL_TAIL_CHARS);
     return {
       ...message,
       content: message.content.map((block) =>
@@ -237,12 +328,14 @@ function editableView(sources: ContextSourceMessage[], currentTurnOrdinal: numbe
           ? block
           : {
               ...block,
-              content: limitToolOutput(
-                block.content,
-                source.id,
-                HISTORICAL_TOOL_HEAD_CHARS,
-                HISTORICAL_TOOL_TAIL_CHARS
-              ),
+              content: excerpt(block.content),
+              ...(block.structuredContent
+                ? {
+                    structuredContent: block.structuredContent.map((part) =>
+                      part.type === 'text' ? { ...part, text: excerpt(part.text) } : part
+                    ),
+                  }
+                : {}),
             }
       ),
     };
@@ -323,6 +416,7 @@ export class VersionedContextPipeline {
       .map(({ id, origin, message }) => ({
         id,
         origin,
+        role: message.role,
         text:
           typeof message.content === 'string'
             ? message.content
@@ -333,9 +427,10 @@ export class VersionedContextPipeline {
                 .join(' '),
       }))
       .filter(({ text }) => text.trim() && !pendingTexts.includes(text))
-      .map(({ id, origin, text }) => ({
+      .map(({ id, origin, role, text }) => ({
         id,
         origin,
+        role,
         text:
           correctionsOnly && text.length > 360
             ? `${text.slice(0, 180)}\n[…]\n${text.slice(-180)}`
@@ -427,10 +522,13 @@ export class VersionedContextPipeline {
         hashContextSources(
           snapshot.messages.filter((row) => row.ordinal <= candidate.throughOrdinal)
         );
-    const projected = (checkpoint: ContextCheckpoint) => {
+    const projected = (
+      checkpoint: ContextCheckpoint,
+      preserveToolResultsFrom = currentTurnOrdinal
+    ) => {
       const tail = editableView(
         sources.filter((row) => row.ordinal > checkpoint.throughOrdinal || trustedUser(row)),
-        currentTurnOrdinal
+        preserveToolResultsFrom
       );
       const evidence =
         lastEvidence && lastEvidence.ordinal <= checkpoint.throughOrdinal
@@ -470,6 +568,8 @@ export class VersionedContextPipeline {
         return { ...minimal, evidence: undefined, historical: [] };
       return best;
     };
+    let pressureCheckpoint = isCompatible ? { checkpoint: candidate, stage: 'S4' } : undefined;
+    let summaryFailure: { error: unknown } | undefined;
     if (isCompatible) {
       const projection = projected(candidate);
       if (projection.legal && projection.tokens < selected.tokens) {
@@ -481,6 +581,7 @@ export class VersionedContextPipeline {
     if (boundary && (!selected.legal || (input.force && !stages.includes('S4')))) {
       try {
         const checkpoint = await this.prepareSummary(input, snapshot, sources, boundary, policy);
+        pressureCheckpoint = { checkpoint, stage: 'S5' };
         const projection = projected(checkpoint);
         if (projection.legal && projection.tokens < selected.tokens) {
           selected = projection;
@@ -489,7 +590,8 @@ export class VersionedContextPipeline {
         }
       } catch (error) {
         input.signal.throwIfAborted();
-        if (!selected.legal || input.force) throw error;
+        if (input.force) throw error;
+        if (!selected.legal) summaryFailure = { error };
       }
     } else if (boundary && (retired || raw.tokens >= capacity * 0.5)) {
       // The current source view already excludes superseded conclusions. A
@@ -513,6 +615,31 @@ export class VersionedContextPipeline {
         stages.push('S3');
       }
     }
+    if (!selected.legal && lastEvidence && lastEvidence.ordinal > currentTurnOrdinal) {
+      // Prefer exact recent evidence. If the latest batch itself exceeds the
+      // model window, project cited excerpts while keeping the archive intact.
+      for (const preserveFrom of [lastEvidence.ordinal, lastEvidence.ordinal + 1]) {
+        const edited = fit(complete(editableView(sources, preserveFrom)));
+        if (edited.legal) {
+          selected = edited;
+        } else if (
+          pressureCheckpoint &&
+          pressureCheckpoint.checkpoint.throughOrdinal < lastEvidence.ordinal
+        ) {
+          const { checkpoint, stage } = pressureCheckpoint;
+          const projection = projected(checkpoint, preserveFrom);
+          if (projection.legal) {
+            selected = projection;
+            submittedSources = retainedIds(checkpoint, projection.evidence, projection.historical);
+            stages.push(stage);
+          }
+        }
+        if (selected.legal) {
+          if (!stages.includes('S2')) stages.unshift('S2');
+          break;
+        }
+      }
+    }
     input.signal.throwIfAborted();
     if (this.store.revision(input.sessionKey) !== snapshot.revision) {
       throw new MossError({
@@ -522,6 +649,7 @@ export class VersionedContextPipeline {
       });
     }
     if (!selected.legal) {
+      if (summaryFailure) throw summaryFailure.error;
       throw new MossError({
         code: ErrorCode.PROVIDER_CONTEXT_OVERFLOW,
         message: 'Protected context cannot fit the model window with the current output budget',

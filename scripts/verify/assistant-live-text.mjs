@@ -34,6 +34,9 @@ const cases = [
   '- RDK-X5 状态正常。\n- 第二个条目正常。',
   '```text\nname=stream-check\nstatus=ready\n```\n代码说明继续输出。',
   '普通路径 https://example.test/docs 之后继续写作。',
+  '可行，而且板子上已经有路径。要看你想要哪种「YOLO」。\n\n|项|状态|\n|---|:---:|\n|BPU|正常|',
+  '|项|状态|\n|---|---|\n|password="full credential sample"|已掩码|',
+  '先看「板端状态」。\n- -----BEGIN PRIVATE KEY-----\nABCdef12345\n-----END PRIVATE KEY-----',
   '普通输出路径为 /tmp/stream-check/result.txt。针对 RDK-X5 继续说明。',
   '\n\n  原始前导空白用于校验纯脱敏函数的原文一致性。',
   'name=stream-check status=ready password="full credential sample"',
@@ -223,6 +226,24 @@ assert.equal(
   '普通输出路径为 /tmp/stream-check/result.txt。针对 RDK-X5 继续说明。'
 );
 assert.equal(formatted.flush(), '');
+
+const table = createAssistantTextRedactor();
+const tableChunks = [
+  '结论：可行。要看你想要哪种',
+  '「YOLO」。\n\n',
+  '|项|状态|\n',
+  '|---|:---:|\n',
+  '|BPU|正常|\n',
+  '下一步可用静态图。',
+];
+let liveTable = '';
+for (const chunk of tableChunks) {
+  const delta = table.push(chunk);
+  assert.ok(delta, `the stream stalled on ${JSON.stringify(chunk)}`);
+  liveTable += delta;
+}
+assert.equal(liveTable, tableChunks.join(''));
+assert.equal(table.flush(), '');
 
 const normalized = createMossAgentLoopEventAdapter();
 normalized.onMiniEvent({ type: 'turn_start', turn: 1 });

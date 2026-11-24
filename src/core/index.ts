@@ -1,4 +1,10 @@
 export { VersionedSessionStore } from './session/versioned-session-store.js';
+export {
+  CONTEXT_TOOL_EVIDENCE_TOOL,
+  projectContextHandoff,
+  readContextToolEvidence,
+} from './session/versioned-context.js';
+export type { ContextToolEvidenceQuery } from './session/versioned-context.js';
 export type {
   ContextCorrection,
   ContextSourceMessage,
@@ -12,6 +18,7 @@ export type {
   OutputGuardrailRequest,
   OutputGuardrailDecision,
   ToolApprovalRequest,
+  ToolBatchPreparation,
   ToolApprovalDecision,
 } from './agent/index.js';
 export { CommandQueueRegistry } from './agent/index.js';

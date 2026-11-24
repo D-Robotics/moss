@@ -112,8 +112,8 @@ const CREDENTIAL_WORD = new RegExp(
   'i'
 );
 const PROSE_SYMBOL =
-  /[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D.,!?;'"()[\]{}#*`，。！？、；：“”‘’（）《》…—–]/uy;
-const PROSE_BREAK = /^[ \t\r\n.,!?;'"()[\]{}#*`]|^[^\x00-\x7f]/u;
+  /[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D.,!?;'"()[\]{}#*`|，。！？、；：“”‘’（）《》「」『』【】…—–]/uy;
+const PROSE_BREAK = /^[ \t\r\n.,!?;'"()[\]{}#*`|]|^[^\x00-\x7f]/u;
 const ATOM_BREAK = /^[\s'"`()\[\]{};,!]/u;
 
 /**
@@ -175,7 +175,8 @@ export function createAssistantTextRedactor(
         const words = value.match(/[A-Za-z0-9_]+/g) ?? [];
         const contextual =
           CREDENTIAL_WORD.test(value) || words.some((word) => CREDENTIAL_WORD.test(word));
-        const flag = value.startsWith('-') && !/^-\d/.test(value);
+        // A Markdown divider is ordinary punctuation once its boundary is known.
+        const flag = value.startsWith('-') && !/^(?:-\d|---+:?$)/.test(value);
         const url = value.includes('://');
         // A URL password can include non-ASCII text and punctuation. Only
         // actual URL/argv terminators make such an atom complete.
@@ -191,7 +192,7 @@ export function createAssistantTextRedactor(
         if (scanned + 1 === raw.length && /[\uD800-\uDBFF]/.test(char)) return;
         symbol.lastIndex = scanned;
         if (!symbol.test(raw)) return;
-        structured ||= char === '`' || char === '{' || char === '}';
+        structured ||= char === '`' || char === '{' || char === '}' || char === '|';
         scanned = symbol.lastIndex;
       }
       proseEnd = scanned;

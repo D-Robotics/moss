@@ -17,7 +17,12 @@ const [
   artifacts,
   { resumeTask },
   { createAgentTurnRunner },
-  { VersionedContextPipeline },
+  {
+    CONTEXT_TOOL_EVIDENCE_TOOL,
+    VersionedContextPipeline,
+    projectContextHandoff,
+    readContextToolEvidence,
+  },
   { decodeSummaryEntries, relevantHistoricalExcerpts },
 ] = await Promise.all([
   load('core/agent/moss-agent.js'),
@@ -144,6 +149,121 @@ async function usingAgent(workspace, fn, options) {
 
 async function add(store, session, role, content, origin = role) {
   await store.appendMessage(session, { role, content }, origin);
+}
+
+async function testSameSessionToolEvidence(workspace) {
+  const filename = path.join(workspace, 'tool-evidence.sqlite');
+  const key = 'authorized-session';
+  const store = new VersionedSessionStore(filename);
+  let sourceId;
+  try {
+    const raw = 'a'.repeat(3_000) + '\nORIGINAL_MIDDLE_RECEIPT\n' + 'z'.repeat(3_000);
+    await add(store, key, 'assistant', [toolCall('device_file_read', 'actual-call')]);
+    await add(
+      store,
+      key,
+      'user',
+      [{ type: 'tool_result', tool_use_id: 'actual-call', content: raw, name: 'device_file_read' }],
+      'tool'
+    );
+    await add(store, key, 'assistant', oldClaim);
+    const before = store.snapshot(key);
+    sourceId = before.messages[1].id;
+    const excerpt = readContextToolEvidence(before, { sourceId, match: 'ORIGINAL_MIDDLE_RECEIPT' });
+    assert.match(excerpt.text, /ORIGINAL_MIDDLE_RECEIPT/);
+    assert.equal(excerpt.toolUseId, 'actual-call');
+    assert.equal(excerpt.text.length, 2_000);
+    assert(excerpt.nextOffset > excerpt.offset);
+    assert.equal(readContextToolEvidence(before, { sourceId, match: 'missing' }).offset, null);
+    assert.equal(readContextToolEvidence(store.snapshot('another-session'), { sourceId }), null);
+    const old = before.messages[2].id;
+    await store.correct(key, { id: 'revised-evidence', targetId: old, text: correctionText });
+    assert.equal(readContextToolEvidence(store.snapshot(key), { sourceId: old }), null);
+
+    await add(store, key, 'assistant', [toolCall(CONTEXT_TOOL_EVIDENCE_TOOL, 'derived-call')]);
+    await add(
+      store,
+      key,
+      'user',
+      [{ type: 'tool_result', tool_use_id: 'derived-call', content: 'Derived copy' }],
+      'tool'
+    );
+    const current = store.snapshot(key);
+    assert.equal(readContextToolEvidence(current, { sourceId: current.messages.at(-1).id }), null);
+    assert.equal(readContextToolEvidence(current, { sourceId, offset: -1 }), null);
+  } finally {
+    store.close();
+  }
+  const reopened = new VersionedSessionStore(filename);
+  try {
+    assert.equal(readContextToolEvidence(reopened.snapshot(key), { sourceId }).revision, 1);
+    await reopened.rewind(key, 1);
+    assert.equal(readContextToolEvidence(reopened.snapshot(key), { sourceId }), null);
+  } finally {
+    reopened.close();
+  }
+  console.log(
+    'PASS original tool receipts can be read by source without recovering stale or foreign messages'
+  );
+}
+
+async function testContextHandoff(workspace) {
+  const database = path.join(workspace, 'handoff.sqlite');
+  const store = new VersionedSessionStore(database);
+  const sourceKey = 'original-device';
+  const targetKey = 'new-device';
+  const request = { sourceKey, targetKey, deliveryId: 'handoff-one' };
+  try {
+    await add(store, sourceKey, 'user', 'Keep model M.');
+    await add(store, sourceKey, 'assistant', 'Model M is ready to inspect.');
+    await add(store, sourceKey, 'assistant', oldClaim);
+    const targetId = (await store.sourceMessages(sourceKey)).at(-1).id;
+    await store.correct(sourceKey, { id: 'correct-original', targetId, text: correctionText });
+    const snapshot = store.snapshot(sourceKey);
+    const projected = projectContextHandoff(snapshot);
+    assert.deepEqual(
+      projected.map(({ text }) => text),
+      ['Keep model M.', 'Model M is ready to inspect.']
+    );
+    const content = projected.map(({ text }) => text).join('\n') + '\n' + correctionText;
+    const input = {
+      ...request,
+      sourceRevision: snapshot.revision,
+      message: { role: 'assistant', content },
+    };
+    assert.equal(
+      await store.appendContextHandoffOnce({ ...input, sourceRevision: 0 }),
+      'source-changed'
+    );
+    assert.deepEqual(await store.loadMessages(targetKey), []);
+    assert.equal(await store.appendContextHandoffOnce(input), 'imported');
+    assert.equal(await store.appendContextHandoffOnce(input), 'duplicate');
+    assert.deepEqual(
+      store.snapshot(targetKey).messages.map(({ origin }) => origin),
+      ['assistant']
+    );
+    store.updateInbox(sourceKey, (inbox) => inbox.admit({ prompt: 'A correction may follow.' }));
+    assert.equal(
+      await store.appendContextHandoffOnce({ ...input, deliveryId: 'handoff-two' }),
+      'source-changed'
+    );
+  } finally {
+    store.close();
+  }
+  const reopened = new VersionedSessionStore(database);
+  try {
+    const transferred = await reopened.sourceMessages(targetKey);
+    assert.equal(transferred.length, 1);
+    assert.doesNotMatch(JSON.stringify(transferred), new RegExp(oldClaim));
+    await reopened.correct(targetKey, {
+      id: 'correct-import',
+      targetId: transferred[0].id,
+      text: 'Model M still needs testing.',
+    });
+    assert.deepEqual(projectContextHandoff(reopened.snapshot(targetKey)), []);
+  } finally {
+    reopened.close();
+  }
 }
 
 async function seed(store, session) {
@@ -492,6 +612,101 @@ async function testPressureContinuation(workspace) {
   );
 }
 
+async function testActiveToolPressure(workspace) {
+  const session = 'active-tool-pressure';
+  const user = 'Inspect the selected board and report the exact detection count.';
+  const original =
+    'Board model is RDK X5.\n' +
+    'log line\n'.repeat(1600) +
+    'RAW_ARCHIVE_ONLY\n' +
+    'log line\n'.repeat(1600) +
+    'End of board diagnostics.';
+  const latest = 'Inference exited with status 0.\n' + 'trace\n'.repeat(250) + 'Detection count: 4';
+  await usingAgent(workspace, async ({ store }) => {
+    await add(store, session, 'user', user);
+    for (const [id, name, content] of [
+      ['diagnostics', 'device_diagnose', original],
+      ['inference', 'device_exec', latest],
+    ]) {
+      await add(store, session, 'assistant', [toolCall(name, id)]);
+      await add(
+        store,
+        session,
+        'user',
+        [{ type: 'tool_result', tool_use_id: id, name, content }],
+        'tool'
+      );
+    }
+    const pipeline = new VersionedContextPipeline(store);
+    const input = {
+      sessionKey: session,
+      window: 10_000,
+      output: 2048,
+      minOutput: 1024,
+      policyKey: 'active-tool-pressure-probe',
+      measure: (messages) => 3400 + Math.ceil(Buffer.byteLength(JSON.stringify(messages)) / 4),
+      summarize: async () => {
+        throw new Error('The active turn cannot be summarized');
+      },
+      signal: AbortSignal.timeout(8_000),
+    };
+    const sources = await store.sourceMessages(session);
+    const archived = sources.find((row) => row.message.content[0]?.tool_use_id === 'diagnostics');
+    assert.ok(archived);
+    const full = await pipeline.prepare({ ...input, window: 40_000 });
+    assert(full.messages.some((message) => message.content[0]?.content === original));
+    const projected = await pipeline.prepare(input);
+    assert(projected.stages.includes('S2'));
+    assert(projected.messages.some((message) => message.content === user));
+    assert(projected.messages.some((message) => message.content[0]?.content === latest));
+    assert.match(JSON.stringify(projected.messages), /Board model is RDK X5/);
+    assert(JSON.stringify(projected.messages).includes(archived.id));
+    assert(projected.sourceIds.includes(archived.id));
+    assert.doesNotMatch(JSON.stringify(projected.messages), /RAW_ARCHIVE_ONLY/);
+    assert.deepEqual(await store.sourceMessages(session), sources);
+
+    const oversized =
+      'Full log for the newest board operation.\n' +
+      'diagnostic payload\n'.repeat(1150) +
+      'MIDDLE_ARCHIVE_ONLY\n' +
+      'diagnostic payload\n'.repeat(1150) +
+      'Final detection count: 7';
+    await add(store, session, 'assistant', [toolCall('device_file_read', 'oversized')]);
+    await add(
+      store,
+      session,
+      'user',
+      [
+        {
+          type: 'tool_result',
+          tool_use_id: 'oversized',
+          name: 'device_file_read',
+          content: oversized,
+          structuredContent: [{ type: 'text', text: oversized }],
+        },
+      ],
+      'tool'
+    );
+    const latestSources = await store.sourceMessages(session);
+    const source = latestSources.at(-1);
+    const bounded = await pipeline.prepare(input);
+    assert(bounded.stages.includes('S2'));
+    assert(bounded.messages.some((message) => message.content === user));
+    const excerpt = bounded.messages
+      .flatMap((message) => message.content)
+      .find((part) => part.tool_use_id === 'oversized');
+    assert(excerpt, 'An oversized active tool result must keep its call/result identity');
+    assert(excerpt.content.includes(source.id));
+    assert.match(excerpt.content, /Final detection count: 7/);
+    assert.doesNotMatch(JSON.stringify(bounded.messages), /MIDDLE_ARCHIVE_ONLY/);
+    assert(bounded.sourceIds.includes(source.id));
+    assert.deepEqual(await store.sourceMessages(session), latestSources);
+  });
+  console.log(
+    'PASS active tool pressure keeps recent receipts when possible and cites oversized archived results'
+  );
+}
+
 async function testConcurrentSummary(workspace) {
   const summaryStarted = latch();
   const releaseSummary = latch();
@@ -772,6 +987,74 @@ async function testModelDeclaredCorrection(workspace) {
   );
 }
 
+async function testCurrentQuoteAmendsTaskScope(workspace) {
+  const session = 'task-scope-amendment';
+  const prior = 'Inspect the fixture without changes.';
+  const next = 'Now update the first value.';
+  let writes = 0;
+  const change = (operation, quote, messageId) => ({
+    field: 'constraints',
+    operation,
+    value: 'read_only',
+    quote,
+    ...(messageId ? { messageId } : {}),
+  });
+  await usingAgent(
+    workspace,
+    async ({ agent }) => {
+      agent.tools.register({
+        name: 'test_scope_amendment',
+        description: 'Execute the newly authorized fixture write',
+        inputSchema: { type: 'object', properties: {} },
+        metadata: { sideEffectClass: 'local_write' },
+        async execute() {
+          writes++;
+          return 'Fixture updated';
+        },
+      });
+      await agent.chat(session, prior, { userInput: { id: 'prior-inspection' }, taskFlow: false });
+      await agent.chat(session, next, { userInput: { id: 'current-amendment' }, taskFlow: false });
+      assert.equal(agent.getTaskIntentReceipt(session, 'current-amendment').status, 'committed');
+      assert.equal(writes, 1);
+    },
+    {
+      onMain(request, count) {
+        if (count === 1)
+          return response(
+            toolCall('turn_decision', 'inspection', {
+              disposition: 'answer',
+              changes: [change('add', prior)],
+              answer: 'Inspection noted.',
+            })
+          );
+        if (count === 2 || count === 3) {
+          if (count === 3)
+            assert.deepEqual(
+              request.tools.map(({ name }) => name),
+              ['turn_decision']
+            );
+          return response(
+            toolCall('turn_decision', `amend-${count}`, {
+              disposition: 'execute',
+              plan: ['Update the fixture.'],
+              changes: [
+                count === 2 ? change('remove', prior, 'prior-inspection') : change('remove', next),
+              ],
+            })
+          );
+        }
+        assert.equal(writes, count === 4 ? 0 : 1);
+        return count === 4
+          ? response(toolCall('test_scope_amendment'))
+          : response(text('Fixture updated.'));
+      },
+    }
+  );
+  console.log(
+    'PASS scope amendments bind to current exact author quotes without reusing stale citations'
+  );
+}
+
 async function testCapturedCorrection(workspace) {
   let targetId;
   const answer = 'Full acceptance is pending.';
@@ -779,6 +1062,15 @@ async function testCapturedCorrection(workspace) {
     workspace,
     async ({ agent, store, modelRequests }) => {
       const session = 'captured-correction';
+      agent.tools.register({
+        name: 'test_correction_pending_action',
+        description: 'Represents an otherwise available host tool',
+        metadata: { sideEffectClass: 'local_write' },
+        inputSchema: { type: 'object', properties: {} },
+        async execute() {
+          throw new Error('A committed answer must not start any business tool');
+        },
+      });
       await add(store, session, 'assistant', oldClaim);
       for (let index = 0; index < 18; index++) {
         await add(store, session, 'assistant', `Independent historical note ${index}. `.repeat(60));
@@ -817,7 +1109,8 @@ async function testCapturedCorrection(workspace) {
     {
       onMain(request, count) {
         if (count === 2) {
-          assert(!request.tools?.some(({ name }) => name === 'context_claims'));
+          assert.equal(request.tools?.length ?? 0, 0, 'Rebuilding a corrected answer has no tools');
+          assert.doesNotMatch(request.systemPrompt, /"contextSources":/);
           return response(text(answer));
         }
         const previous = request.systemPrompt
@@ -826,12 +1119,15 @@ async function testCapturedCorrection(workspace) {
         assert(previous);
         const { contextSources } = JSON.parse(previous);
         assert(!contextSources.some(({ text }) => text === correctionText) || count === 3);
-        if (count === 1) assert(contextSources.some(({ id }) => id === targetId));
+        const target = contextSources.find(({ id }) => id === targetId);
+        if (count === 1) assert.match(target.correctionId, /^s\d+$/);
         return response(
           toolCall('turn_decision', `capture-${count}`, {
             disposition: 'answer',
             answer,
-            contextCorrections: [{ targetId, quote: correctionText }],
+            contextCorrections: [
+              { targetId: target?.correctionId ?? targetId, quote: correctionText },
+            ],
           }),
           toolCall('context_claims', `invalid-claim-${count}`, {
             claims: [{ text: 'Unsupported', sourceIds: ['unknown'], dependsOn: [] }],
@@ -1353,22 +1649,116 @@ if (process.argv[2] === '--commit-and-exit') {
   process.exit(0);
 }
 
+async function testVersionedDrafts(workspace) {
+  for (const steer of [false, true]) {
+    const store = new VersionedSessionStore(
+      path.join(workspace, steer ? 'steer.sqlite' : 'accept.sqlite')
+    );
+    const session = 'draft-test';
+    const seen = latch();
+    const withdrawn = latch();
+    const release = latch();
+    const events = [];
+    const first = '这里是实时输出的待校验正文。';
+    const tail = '这段文字由第二个模型增量产生。';
+    const corrected = '更正已生效，以下仅以最新输入为准。';
+    let requests = 0;
+    const agent = new MossAgent({
+      sessionStore: store,
+      workspaceDir: workspace,
+      contextTokens: 32_000,
+      maxTokens: 1024,
+      taskIntent: true,
+      enableFollowUpGuard: false,
+      llmProvider: {
+        id: 'draft-fixture',
+        displayName: 'Draft fixture',
+        async complete(request) {
+          return summarize(summaryInput(request));
+        },
+        async stream(request, emit) {
+          const step = ++requests;
+          if (step === 1) return response(...decide(request, 'execute'));
+          if (step === 2) {
+            emit({ type: 'content_block_delta', text: first });
+            await release.promise;
+            emit({ type: 'content_block_delta', text: tail });
+            return response(text(first + tail));
+          }
+          assert.equal(step, 3);
+          return response(...decide(request, 'answer', { answer: corrected }));
+        },
+      },
+    });
+    const run = (async () => {
+      for await (const event of agent.streamChat(session, 'Check the workspace before answering.', {
+        userInput: { id: 'initial' },
+        streamVersionedDrafts: true,
+      })) {
+        events.push(event);
+        if (event.type === 'text_draft_delta') seen.resolve();
+        if (event.type === 'text_draft_end' && !event.accepted) withdrawn.resolve();
+      }
+    })();
+    try {
+      await observeRace(run, seen, 'the first draft before provider completion');
+      assert.equal(
+        events.some((event) => event.type === 'text_delta'),
+        false
+      );
+      assert(!JSON.stringify(await store.sourceMessages(session)).includes(first));
+      if (steer) {
+        assert(agent.steer(session, '更正，先停止旧任务，只回答本次更正。', { id: 'correction' }));
+        await observeRace(run, withdrawn, 'draft withdrawal while the provider is blocked');
+      }
+      release.resolve();
+      await waitFor(run, 'canonical output');
+      const draft = events
+        .filter((event) => event.type === 'text_draft_delta')
+        .map((event) => event.delta)
+        .join('');
+      const canonical = events
+        .filter((event) => event.type === 'text_delta')
+        .map((event) => event.delta)
+        .join('');
+      assert.equal(draft, steer ? first : first + tail);
+      assert.equal(canonical, steer ? corrected : first + tail);
+      assert.deepEqual(
+        events.filter((event) => event.type === 'text_draft_end').map((event) => event.accepted),
+        [!steer]
+      );
+    } finally {
+      release.resolve();
+      await run.catch(() => {});
+      store.close();
+    }
+  }
+  console.log(
+    'PASS versioned drafts stream before provider completion and disappear when a new input supersedes them'
+  );
+}
+
 const workspace = await fs.realpath(
   await fs.mkdtemp(path.join(os.tmpdir(), 'moss-versioned-context-'))
 );
 try {
   for (const [directory, test] of [
+    ['context-handoff', testContextHandoff],
+    ['same-session-tool-evidence', testSameSessionToolEvidence],
     ['progressive', testProgressiveStages],
     ['pressure-continuation', testPressureContinuation],
+    ['active-tool-pressure', testActiveToolPressure],
     ['checkpoint', testConcurrentSummary],
     ['source-validation', testSummarySourceValidation],
     ['approval', testApproval],
     ['declaration', testModelDeclaredCorrection],
+    ['scope-amendment-quote', testCurrentQuoteAmendsTaskScope],
     ['captured-correction', testCapturedCorrection],
     ['read-only-intent', testReadOnlyIntentPrompt],
     ['claims', testClaimDependencies],
     ['acceptance', testLateAcceptance],
     ['restart', testProcessRestart],
+    ['streaming-drafts', testVersionedDrafts],
     ['unsettled-mutation', testUnknownMutationRecovery],
     ['cli', testCliCorrections],
   ]) {
