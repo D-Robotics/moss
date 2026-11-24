@@ -14,10 +14,17 @@ export type DeviceKind = 'rdk' | 'linux';
 
 /** How to authenticate against the device. Secrets stay in env vars / files. */
 export interface DeviceAuthConfig {
-  method: 'password' | 'private-key';
+  /**
+   * `ssh-agent` borrows the host's running agent (SSH_AUTH_SOCK). With no
+   * `privateKeyPath` nothing is read from disk — the method that needs no
+   * secret reference at all. When a `privateKeyPath` is also given it is tried
+   * first, which covers the usual `~/.ssh/config` IdentityFile setup where the
+   * agent holds no identities.
+   */
+  method: 'password' | 'private-key' | 'ssh-agent';
   /** Env var holding the password (read at connect time). */
   passwordEnvVar?: string;
-  /** Absolute path to a private key file on the moss host. */
+  /** Path to a private key file on the moss host; `~/` is expanded at connect time. */
   privateKeyPath?: string;
   /** Env var holding the private key passphrase, if any. */
   passphraseEnvVar?: string;
@@ -142,6 +149,13 @@ export interface DeviceConnection {
   readonly target: DeviceTarget;
   readonly status: DeviceConnectionStatus;
   exec(command: string, options?: DeviceExecOptions): Promise<DeviceCommandResult>;
+  /**
+   * Run `command` inside one long-lived shell for this connection. `cd`, `export`
+   * and `source` carry over between calls, so a ROS overlay is sourced once per
+   * session instead of once per command. Implementations without a shell fall
+   * back to {@link exec}; the result is the same shape with merged output.
+   */
+  execPersistent?(command: string, options?: DeviceExecOptions): Promise<DeviceCommandResult>;
   readFile(remotePath: string, options?: DeviceReadFileOptions): Promise<string>;
   writeFile(remotePath: string, options: DeviceWriteFileOptions): Promise<void>;
   listDir(remotePath: string): Promise<DeviceFileEntry[]>;

@@ -146,12 +146,13 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 
 ## 设备子系统（robotics closed loop P0）
 
-- 设备目标从 `MOSS_DEVICE_HOST/PORT/USER/KIND` + `MOSS_DEVICE_PASSWORD`（或 `MOSS_DEVICE_KEY`）解析，
+- 设备目标从 `MOSS_DEVICE_HOST/PORT/USER/KIND` + `MOSS_DEVICE_PASSWORD`（或 `MOSS_DEVICE_KEY`，或
+  `MOSS_DEVICE_SSH_AGENT=1` 借用宿主 ssh-agent，可同时给 `MOSS_DEVICE_KEY` 指定密钥文件并优先尝试，`~/` 会展开）解析，
   凭据只在 env/.env，绝不写入 DeviceTarget / 日志。`safeChildEnv` 剥离全部 `MOSS_DEVICE_*`（含 HOST/PORT/USER/KIND/ID 与 PASSWORD/KEY/KEY_PASSPHRASE）。子进程看不到这些值；环境提示和 `printenv` 脚注只列出已设置的变量名。
 - `device_probe`（kind=info/processes/resources/temperature/network/cameras/robotics_status）与
   `device_file_read/file_list` 为 readonly（可并行、自动重试）；旧的无参探针名（`device_info` 等）仍注册但
   `hiddenFromModel`，供旧 transcript/SDK 按名调用；
-  `device_exec` / `device_file_write` / `device_deploy` 为 `device_mutation`。`manual` /
+  `device_exec` / `device_sync` / `device_file_write` / `device_deploy` 为 `device_mutation`。`manual` /
   `acceptEdits` 逐次询问（allow 规则可豁免），`plan` 类级拒绝。`full`（默认）放行只读与可逆变更；
   毁灭性档（重启、刷机、`/boot` 与 `/etc`、网络、卸系统包、关键单元的 systemd stop/disable/mask、ssh 与账号）
   与敏感读取档（`/etc/shadow`、私钥、`sshd_config`、`authorized_keys`）在 TTY 上确认，headless 拒绝，
@@ -159,6 +160,13 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
   `permissions.trustedDevices` / `MOSS_DEVICE_TRUST_DEVICES` 或匹配的 allow 规则。会话里选 `a`
   只信任提示写明的命令范围。deny 规则在任何模式下都赢。分类器在 `src/safety/device-risk.ts`。
   工具名已被 subagent scope、截断预算、loop-guard 等按保留名引用，改名等于破坏契约。
+- `device_exec` 默认跑在**每设备一个持久 shell**（`SshDeviceConnection.execPersistent`，无 PTY；帧协议在
+  `src/device/shell-protocol.ts`：`eval '<cmd>' 2>&1` + `<sentinel><exit>` 行，`eval` 让非交互 bash 遇到语法错误只返回 2
+  而不是退出；`cd`/`export`/`source` 跨调用保留；打开时自动 source 一次 `/opt/tros/humble/setup.bash`（找不到就不 source），
+  首个结果尾部带 `[ROS_ENV_SOURCED …]`；超时即拆 shell 重建，状态归零）。`persistent:false` 走一次性 exec。
+  `device_sync` 把本地工作区（默认排除 build/install/log/.git/node_modules 等）按 路径+size 增量打成一条 tar 流上传到板端
+  目录（`remote_dir` 必须是 ≥2 层的绝对路径；`delete_removed` 才镜像删除），然后 `device_exec` 在板端跑——
+  与 cargo-device / torq 的 rsync+ssh 模型一致，不再逐文件上传。离线探针 `scripts/verify/device-workspace.mjs`。
 - RDK 手册知识（烧录、引脚、TROS / hobot_dnn API、规格）不写进提示或 skill，由 rdk-docs MCP 按需供给
   （`moss mcp add rdk-docs npx -y rdk-docs-mcp@latest`）；提示里只留连接、探测、安全与验收契约。
   落地计划见 `docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`。

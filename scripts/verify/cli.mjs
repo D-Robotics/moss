@@ -46,6 +46,7 @@ import { stage as tinyWindowTuiNoticeStage } from './stages/tiny-window-tui-noti
 import { stage as tuiFinishStage } from './stages/tui-finish.mjs';
 import { stage as transcriptNoiseStage } from './stages/transcript-noise.mjs';
 import { stage as shellApprovalStage } from './stages/shell-approval.mjs';
+import { stage as deviceWorkspaceStage } from './stages/device-workspace.mjs';
 import { stage as readImageStage } from './stages/read-image.mjs';
 import { stage as readPdfStage } from './stages/read-pdf.mjs';
 import { stage as osSandboxStage } from './stages/os-sandbox.mjs';
@@ -162,6 +163,7 @@ const STAGES = new Map(
     tuiFinishStage,
     transcriptNoiseStage,
     shellApprovalStage,
+    deviceWorkspaceStage,
     readImageStage,
     readPdfStage,
     osSandboxStage,
@@ -278,6 +280,7 @@ const FAST_GATE = [
   'tui-finish',
   'transcript-noise',
   'shell-approval',
+  'device-workspace',
   'read-image',
   'read-pdf',
   'os-sandbox',

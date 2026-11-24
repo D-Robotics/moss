@@ -1410,6 +1410,11 @@ export function classifyDeviceOperation(
   if (input.toolName === 'device_file_write') {
     return withTrust({ ...classifyWritePath(path), operand: path });
   }
+  if (input.toolName === 'device_sync') {
+    // The destination is judged like a file write: a sync into /boot or /etc is
+    // the destructive tier even though the transfer itself is a plain upload.
+    return withTrust({ ...classifyWritePath(remotePath), operand: remotePath });
+  }
   if (input.toolName === 'device_deploy') {
     let best = classifyWritePath(remotePath);
     if (startCommand) best = higher(best, classifyCommand(startCommand).judgement);

@@ -46,6 +46,18 @@ export function configureDeviceWorkspace(workspaceDir: string | null): void {
 }
 
 function envAuth(): DeviceAuthConfig | undefined {
+  // Explicit agent selection wins: borrow SSH_AUTH_SOCK, plus an explicit key
+  // file when one is named (tried first). No secret on disk otherwise.
+  if (/^(?:1|true|yes)$/i.test(process.env.MOSS_DEVICE_SSH_AGENT?.trim() ?? '')) {
+    const privateKeyPath = process.env.MOSS_DEVICE_KEY?.trim();
+    return {
+      method: 'ssh-agent',
+      ...(privateKeyPath ? { privateKeyPath } : {}),
+      ...(process.env.MOSS_DEVICE_KEY_PASSPHRASE
+        ? { passphraseEnvVar: 'MOSS_DEVICE_KEY_PASSPHRASE' }
+        : {}),
+    };
+  }
   const privateKeyPath = process.env.MOSS_DEVICE_KEY?.trim();
   if (privateKeyPath) {
     return {

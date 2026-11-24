@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import type { Client } from 'ssh2';
 import type {
   DeviceCommandResult,
@@ -13,6 +15,14 @@ import type {
 import { ErrorCode, MossError } from '../errors.js';
 import { uiText } from '../utils/ui-language.js';
 import { classifyDeviceConnectError, formatDeviceConnectError } from './device-connect-error.js';
+import {
+  buildRosSourceCommand,
+  buildShellInit,
+  frameShellCommand,
+  makeShellSentinel,
+  parseSourcedRosSetup,
+  parseShellFrame,
+} from './shell-protocol.js';
 
 /**
  * B18: `ssh2` (27 CommonJS modules incl. tweetnacl/asn1/bcrypt-pbkdf) was
@@ -75,15 +85,48 @@ interface SshAuth {
   password?: string;
   privateKey?: string;
   passphrase?: string;
+  /** Path to the host's ssh-agent socket (`ssh-agent` method). */
+  agent?: string;
 }
 
 async function resolveAuth(target: DeviceTarget): Promise<SshAuth> {
   const username = target.user || 'root';
   const auth = target.auth;
   if (!auth) return { username };
+  if (auth.method === 'ssh-agent') {
+    const agent = process.env.SSH_AUTH_SOCK?.trim();
+    const passphrase = auth.passphraseEnvVar ? process.env[auth.passphraseEnvVar] : undefined;
+    // An explicit key file is tried before the agent (ssh2 order: password,
+    // publickey, agent), so ~/.ssh/config-style setups work with an empty agent.
+    if (auth.privateKeyPath) {
+      const privateKey = await fs.readFile(expandHome(auth.privateKeyPath), 'utf8');
+      return {
+        username,
+        privateKey,
+        ...(passphrase ? { passphrase } : {}),
+        ...(agent ? { agent } : {}),
+      };
+    }
+    if (!agent) {
+      throw new MossError({
+        code: ErrorCode.CONFIG_IO_FAILED,
+        message: uiText(
+          'Device auth is ssh-agent but SSH_AUTH_SOCK is not set on the moss host.',
+          '设备认证方式为 ssh-agent，但 moss 宿主机未设置 SSH_AUTH_SOCK。'
+        ),
+        hint: uiText(
+          'Start the agent (ssh-add) or configure MOSS_DEVICE_KEY for a key file.',
+          '先启动 ssh-agent（ssh-add），或改用 MOSS_DEVICE_KEY 指定密钥文件。'
+        ),
+        recoverable: true,
+      });
+    }
+    return { username, agent };
+  }
   if (auth.method === 'private-key') {
     if (!auth.privateKeyPath) return { username };
-    const privateKey = await fs.readFile(auth.privateKeyPath, 'utf8');
+    const keyPath = expandHome(auth.privateKeyPath);
+    const privateKey = await fs.readFile(keyPath, 'utf8');
     const passphrase = auth.passphraseEnvVar ? process.env[auth.passphraseEnvVar] : undefined;
     return { username, privateKey, ...(passphrase ? { passphrase } : {}) };
   }
@@ -91,9 +134,267 @@ async function resolveAuth(target: DeviceTarget): Promise<SshAuth> {
   return { username, ...(password ? { password } : {}) };
 }
 
+function expandHome(value: string): string {
+  if (value === '~') return os.homedir();
+  if (value.startsWith('~/')) return path.join(os.homedir(), value.slice(2));
+  return value;
+}
+
 export interface SshConnectOptions {
   /** Overrides the 10s connect bound. Tests use a short value. */
   connectTimeoutMs?: number;
+}
+
+/** Sourcing a TROS/ROS overlay chains dozens of setup scripts on an embedded board (seconds, not ms). */
+export const ROS_SOURCE_TIMEOUT_MS = 60_000;
+/** Bound for the shell's own startup frame. */
+const SHELL_READY_TIMEOUT_MS = 20_000;
+const SHELL_OUTPUT_CAP_BYTES = STREAM_CAP_BYTES;
+
+type ShellStream = import('ssh2').ClientChannel;
+
+interface PendingFrame {
+  sentinel: string;
+  resolve: (result: DeviceCommandResult) => void;
+  reject: (err: Error) => void;
+  timer: NodeJS.Timeout | null;
+  command: string;
+  startedAt: number;
+  timedOut: boolean;
+  abortHandler?: () => void;
+  signal?: AbortSignal;
+}
+
+/**
+ * One long-lived remote bash for a connection. Commands run strictly one at a
+ * time; state (`cd`, `export`, `source`) persists between them. The robotics
+ * overlay is sourced lazily — only when a command actually needs it — and only
+ * once per shell.
+ */
+export class PersistentDeviceShell {
+  private stream: ShellStream | null = null;
+  private opening: Promise<void> | null = null;
+  private readonly sentinel = makeShellSentinel();
+  private buffer = '';
+  private pending: PendingFrame | null = null;
+  private queue: Promise<unknown> = Promise.resolve();
+  private rosSetup: string | null = null;
+  private rosAnnounced = false;
+  private readonly readyTimeoutMs: number;
+
+  constructor(
+    private readonly client: Client,
+    options: { readyTimeoutMs?: number } = {}
+  ) {
+    this.readyTimeoutMs = options.readyTimeoutMs ?? SHELL_READY_TIMEOUT_MS;
+  }
+
+  /** Which overlay the shell has sourced, when any. */
+  get sourcedRosSetup(): string | null {
+    return this.rosSetup;
+  }
+
+  async run(command: string, options: DeviceExecOptions = {}): Promise<DeviceCommandResult> {
+    const run = this.queue.then(async () => {
+      const result = await this.runExclusive(command, options);
+      if (this.rosSetup && !this.rosAnnounced) {
+        this.rosAnnounced = true;
+        return { ...result, stdout: `${result.stdout}\n[ROS_ENV_SOURCED ${this.rosSetup}]` };
+      }
+      return result;
+    });
+    // Keep the chain alive after a failure so the next command still runs.
+    this.queue = run.catch(() => undefined);
+    return await run;
+  }
+
+  close(): void {
+    this.failPending(new Error('device shell closed'));
+    const stream = this.stream;
+    this.stream = null;
+    this.opening = null;
+    if (stream) {
+      try {
+        stream.close();
+      } catch {
+        // Already gone.
+      }
+    }
+  }
+
+  private failPending(err: Error): void {
+    const pending = this.pending;
+    this.pending = null;
+    if (pending) {
+      if (pending.timer) clearTimeout(pending.timer);
+      if (pending.signal && pending.abortHandler)
+        pending.signal.removeEventListener('abort', pending.abortHandler);
+      pending.reject(err);
+    }
+  }
+
+  private async open(): Promise<void> {
+    if (this.stream) return;
+    if (this.opening) return await this.opening;
+    this.opening = (async () => {
+      this.buffer = '';
+      this.rosSetup = null;
+      this.rosAnnounced = false;
+      // `false` = no pty-req: nothing echoes, nothing paginates, no program
+      // switches into interactive mode because it sees a terminal.
+      const stream = await new Promise<ShellStream>((resolve, reject) => {
+        this.client.shell(false, (err, s) => (err ? reject(err) : resolve(s)));
+      });
+      this.stream = stream;
+      stream.on('data', (chunk: Buffer) => this.onData(chunk));
+      stream.once('close', () => {
+        if (this.stream === stream) {
+          this.stream = null;
+          this.failPending(new Error('device shell closed by remote'));
+        }
+      });
+      stream.once('error', (err: Error) => {
+        if (this.stream === stream) {
+          this.stream = null;
+          this.failPending(err);
+        }
+      });
+      // Startup frame: same sentinel, READY marker, exit code 0.
+      const ready = await this.exchange(buildShellInit(), this.readyTimeoutMs);
+      if (!/READY/.test(ready.stdout)) {
+        this.close();
+        throw new Error(`device shell did not report READY (got: ${ready.stdout.slice(0, 120)})`);
+      }
+      // Parity with the developer's interactive shell: `python3 -c "import rclpy"`
+      // fails on the board until the overlay is sourced. Done once per shell,
+      // before the first command, so no task ever loses a round trip to it.
+      await this.ensureRosEnv();
+    })();
+    try {
+      await this.opening;
+    } finally {
+      this.opening = null;
+    }
+  }
+
+  private onData(chunk: Buffer): void {
+    this.buffer += chunk.toString('utf8');
+    if (this.buffer.length > SHELL_OUTPUT_CAP_BYTES) {
+      // Keep the tail: the sentinel is always at the end.
+      this.buffer = this.buffer.slice(-Math.floor(SHELL_OUTPUT_CAP_BYTES / 2));
+    }
+    this.trySettle();
+  }
+
+  private trySettle(): void {
+    const pending = this.pending;
+    if (!pending) return;
+    const frame = parseShellFrame(this.buffer, pending.sentinel);
+    if (!frame) return;
+    this.buffer = frame.rest;
+    this.pending = null;
+    if (pending.timer) clearTimeout(pending.timer);
+    if (pending.signal && pending.abortHandler)
+      pending.signal.removeEventListener('abort', pending.abortHandler);
+    pending.resolve({
+      command: pending.command,
+      exitCode: pending.timedOut ? null : frame.exitCode,
+      stdout: frame.stdout,
+      stderr: '',
+      timedOut: pending.timedOut,
+      durationMs: Date.now() - pending.startedAt,
+    });
+  }
+
+  private exchange(
+    command: string,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<DeviceCommandResult> {
+    return new Promise<DeviceCommandResult>((resolve, reject) => {
+      const stream = this.stream;
+      if (!stream) {
+        reject(new Error('device shell is not open'));
+        return;
+      }
+      const pending: PendingFrame = {
+        sentinel: this.sentinel,
+        resolve,
+        reject,
+        timer: null,
+        command,
+        startedAt: Date.now(),
+        timedOut: false,
+        signal,
+      };
+      if (signal) {
+        if (signal.aborted) {
+          reject(new Error('device shell command aborted'));
+          return;
+        }
+        pending.abortHandler = () => this.abortPending(pending);
+        signal.addEventListener('abort', pending.abortHandler, { once: true });
+      }
+      pending.timer = setTimeout(() => {
+        if (this.pending !== pending) return;
+        pending.timedOut = true;
+        // Without a PTY there is no Ctrl-C to send; tearing the shell down is
+        // what stops the remote command (sshd delivers SIGHUP to the session).
+        this.failPendingWithTimeout(pending);
+        this.close();
+      }, timeoutMs);
+      this.pending = pending;
+      stream.write(`${frameShellCommand(command, this.sentinel)}\n`);
+    });
+  }
+
+  private abortPending(pending: PendingFrame): void {
+    if (this.pending !== pending) return;
+    this.failPending(new Error('device shell command aborted'));
+    this.close();
+  }
+
+  private failPendingWithTimeout(pending: PendingFrame): void {
+    if (this.pending !== pending) return;
+    this.pending = null;
+    if (pending.timer) clearTimeout(pending.timer);
+    if (pending.signal && pending.abortHandler)
+      pending.signal.removeEventListener('abort', pending.abortHandler);
+    pending.resolve({
+      command: pending.command,
+      exitCode: null,
+      stdout: this.buffer,
+      stderr: '',
+      timedOut: true,
+      durationMs: Date.now() - pending.startedAt,
+    });
+  }
+
+  private async runExclusive(
+    command: string,
+    options: DeviceExecOptions
+  ): Promise<DeviceCommandResult> {
+    await this.open();
+    return await this.exchange(
+      command,
+      options.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS,
+      options.signal
+    );
+  }
+
+  /**
+   * Source the robotics overlay once. A failure is not fatal: the command runs
+   * anyway and the model sees the overlay is missing from the command output.
+   */
+  private async ensureRosEnv(): Promise<void> {
+    try {
+      const result = await this.exchange(buildRosSourceCommand(), ROS_SOURCE_TIMEOUT_MS);
+      const setup = parseSourcedRosSetup(result.stdout);
+      if (result.exitCode === 0 && setup) this.rosSetup = setup;
+    } catch (err) {
+      if (!(err instanceof Error && /closed|aborted/.test(err.message))) throw err;
+    }
+  }
 }
 
 export class SshDeviceConnection implements DeviceConnection {
@@ -104,6 +405,8 @@ export class SshDeviceConnection implements DeviceConnection {
   private readonly connectTimeoutMs: number;
   private _status: DeviceConnectionStatus = 'disconnected';
   private _lastError: string | undefined;
+  private shell: PersistentDeviceShell | null = null;
+  private shellClient: Client | null = null;
   execCount = 0;
   lastActiveAt: number | undefined;
 
@@ -126,7 +429,7 @@ export class SshDeviceConnection implements DeviceConnection {
     this._status = 'connecting';
     this.readyPromise = (async () => {
       const auth = await resolveAuth(this.target);
-      if (!auth.password && !auth.privateKey) {
+      if (!auth.password && !auth.privateKey && !auth.agent) {
         const where = `${this.target.host}:${this.target.port ?? 22}`;
         const copy = formatDeviceConnectError({
           kind: 'credentials',
@@ -213,6 +516,7 @@ export class SshDeviceConnection implements DeviceConnection {
           ...(auth.password ? { password: auth.password } : {}),
           ...(auth.privateKey ? { privateKey: auth.privateKey } : {}),
           ...(auth.passphrase ? { passphrase: auth.passphrase } : {}),
+          ...(auth.agent ? { agent: auth.agent } : {}),
           readyTimeout: timeoutMs,
           keepaliveInterval: 15_000,
         });
@@ -231,6 +535,58 @@ export class SshDeviceConnection implements DeviceConnection {
     this.readyPromise = null;
     this._status = 'error';
     this._lastError = reason;
+    this.teardownShell();
+  }
+
+  private teardownShell(): void {
+    const shell = this.shell;
+    this.shell = null;
+    this.shellClient = null;
+    if (shell) shell.close();
+  }
+
+  /**
+   * Persistent shell per connection: `cd` / `export` / `source` persist across
+   * calls and the ROS overlay is sourced once. Falls back to one-shot exec when
+   * the server refuses a shell channel.
+   */
+  async execPersistent(
+    command: string,
+    options: DeviceExecOptions = {}
+  ): Promise<DeviceCommandResult> {
+    const startedAt = Date.now();
+    this.execCount++;
+    let client: Client;
+    try {
+      client = await this.connect();
+    } catch (err) {
+      this.execCount--;
+      throw err;
+    }
+    if (!this.shell || this.shellClient !== client) {
+      this.teardownShell();
+      this.shell = new PersistentDeviceShell(client);
+      this.shellClient = client;
+    }
+    try {
+      const result = await this.shell.run(command, options);
+      this.lastActiveAt = Date.now();
+      return { ...result, durationMs: Date.now() - startedAt };
+    } catch (err) {
+      // A dropped shell is recoverable: the next call opens a fresh one. Report
+      // the same bilingual hint the one-shot path uses.
+      this.teardownShell();
+      throw new MossError({
+        code: ErrorCode.TOOL_EXECUTION_FAILED,
+        message: uiText(
+          `Device shell failed on ${this.target.deviceId}: ${err instanceof Error ? err.message : String(err)}`,
+          `设备 ${this.target.deviceId} 的持久 shell 失败：${err instanceof Error ? err.message : String(err)}`
+        ),
+        hint: uiText(DEVICE_RUNTIME_FAILURE_HINT.en, DEVICE_RUNTIME_FAILURE_HINT.zh),
+        recoverable: true,
+        context: { deviceId: this.target.deviceId, command },
+      });
+    }
   }
 
   private async withClient<T>(fn: (client: Client) => Promise<T>): Promise<T> {
@@ -470,6 +826,7 @@ export class SshDeviceConnection implements DeviceConnection {
     this.client = null;
     this.readyPromise = null;
     this._status = 'disconnected';
+    this.teardownShell();
     if (client) {
       client.end();
     }

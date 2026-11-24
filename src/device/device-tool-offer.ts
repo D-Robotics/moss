@@ -12,6 +12,7 @@ export const DEVICE_TOOL_NAMES: readonly string[] = [
   // possible answer is "no device configured". Measured in B05: ~1 KB per turn.
   'device_probe',
   'device_exec',
+  'device_sync',
   'device_file_read',
   'device_file_list',
   'device_file_write',

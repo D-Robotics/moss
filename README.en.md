@@ -159,11 +159,11 @@ The first screen shows the last run (status / age / goal) and a next step — a 
 
 ## Capabilities
 
-**Write code.** The agent loop handles turns, compaction, nudges and loop guards; **51 built-in
+**Write code.** The agent loop handles turns, compaction, nudges and loop guards; **52 built-in
 tools** cover read/write/patch/search, processes and background jobs, web fetch/search, type and
 lint diagnostics, test running, sub-agents and task contracts. Write tools go through approvals;
 sessions can be saved / searched / exported / forked. One screen for what this install can do:
-`moss capabilities` (tools / skills / commands / agents / hooks / MCP / devices, read-only, no model config). **13 device tools** bring SSH hardware work
+`moss capabilities` (tools / skills / commands / agents / hooks / MCP / devices, read-only, no model config). **14 device tools** bring SSH hardware work
 into the same evidence and acceptance model; `moss device fleet` inspects many boards in one command.
 
 **Long runs.** Each run record (task / loop / workflow / superagent / `-p` chat) carries token usage (plus an estimated cost when the gateway has a known price or you configured `pricing.models` — never an invented one) and a structured record of which gate held the answer (acceptance / verification / review / plan / background + kind); After a goal/task run finishes, the REPL prints a fresh ledger-derived `Next` line (a resume command / `/diff` / `moss runs`) instead of leaving boot-time guidance stale; `/goal` and `moss goal` share one task state machine; `moss loop` repeats
