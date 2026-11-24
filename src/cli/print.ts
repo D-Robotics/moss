@@ -532,6 +532,9 @@ export function formatHeadlessStreamEvent(
   event: MossAgentEvent
 ): HeadlessStreamEvent[] {
   switch (event.type) {
+    case 'text_draft_delta':
+    case 'text_draft_end':
+      return [];
     case 'text_delta':
       state.finalText += event.delta;
       state.pendingAssistantText += streamRedactorFor(state).push(event.delta);

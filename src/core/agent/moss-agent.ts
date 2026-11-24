@@ -1629,7 +1629,8 @@ ${result.stderr ?? ''}`.trim();
                   pendingTexts,
                   correctionsOnly
                 )
-            : undefined
+            : undefined,
+          this.config.validateTaskIntentDecision
         )
       : undefined;
     await intentTurn?.prepare();
@@ -1814,6 +1815,7 @@ ${result.stderr ?? ''}`.trim();
       this.deferredTools.reveal('task');
     }
     const hostDescribeMissingTool = this.config.describeMissingTool;
+    let toolWorkspaceDir = workspaceDir;
     const enrichedRun = enrichRunToolContext(hooks?.enrichToolContext, {
       workspaceDir,
       runId,
@@ -1828,7 +1830,11 @@ ${result.stderr ?? ''}`.trim();
       ...(this.config.fileWriteRoots ? { fileWriteRoots: this.config.fileWriteRoots } : {}),
       ...(this.config.osSandbox ? { osSandbox: true } : {}),
       mergeWorkspacePatch: async (leaseId, patchId) => {
-        const result = await mergeLeasePatch({ parentWorkspace: workspaceDir, leaseId, patchId });
+        const result = await mergeLeasePatch({
+          parentWorkspace: toolWorkspaceDir,
+          leaseId,
+          patchId,
+        });
         return {
           status: result.status,
           conflictingPaths: result.status === 'merge_conflict' ? result.conflictingPaths : [],
@@ -1878,6 +1884,10 @@ ${result.stderr ?? ''}`.trim();
       };
     };
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> => {
+      if (intentTurn?.isAnswerOnly) {
+        readOnlyIntentSurface = true;
+        return [];
+      }
       const tools = filterToolsForRun(
         [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
         visibleForRun
@@ -1894,6 +1904,10 @@ ${result.stderr ?? ''}`.trim();
         hostFiltersTools &&
         (!claimTool || !hostFiltersTools(claimTool))
       );
+      if (intentTurn?.isRepairingDecision) {
+        const decisionTool = intentTurn.tool(readOnlyIntentSurface);
+        if (decisionTool) return [decisionTool];
+      }
       const declarations = [
         intentTurn?.tool(readOnlyIntentSurface),
         readOnlyIntentSurface ? undefined : claimTool,
@@ -1956,7 +1970,9 @@ ${result.stderr ?? ''}`.trim();
     const streamFn = createStreamFunctionFromLlmProvider({
       provider,
       getToolChoice: (tools) =>
-        readOnlyIntentSurface && intentTurn?.needsDecision && tools?.length === 1
+        (readOnlyIntentSurface || intentTurn?.isRepairingDecision) &&
+        intentTurn?.needsDecision &&
+        tools?.length === 1
           ? 'required'
           : undefined,
       preferStructuredOutput: () => Boolean(preparedProjection?.revision),
@@ -2084,7 +2100,9 @@ ${result.stderr ?? ''}`.trim();
       reasoning: runReasoning,
       toolHooks: this.toolHooks,
       spawnRegistry: this.spawnRegistry,
-      workspaceDir,
+      get workspaceDir() {
+        return toolWorkspaceDir;
+      },
       ...(toolCtx.protectedConfigPaths
         ? { protectedConfigPaths: toolCtx.protectedConfigPaths }
         : {}),
@@ -2595,6 +2613,14 @@ ${result.stderr ?? ''}`.trim();
         };
       },
       checkToolApproval: buildToolApprovalCheck(sessionKey, runId),
+      prepareToolBatch:
+        hooks?.prepareToolBatch &&
+        (async (request) => {
+          const prepared = await hooks.prepareToolBatch!(request);
+          request.assertCurrent();
+          if (prepared) toolWorkspaceDir = prepared.workspaceDir;
+          return prepared;
+        }),
       toolAbortSignalFor: options?.toolAbortSignalFor,
       enrichToolContext: (baseContext) =>
         this.userQuestionAsker
@@ -2638,6 +2664,7 @@ ${result.stderr ?? ''}`.trim();
         });
       },
       ...(intentTurn ? { taskIntentTurn: intentTurn } : {}),
+      streamVersionedDrafts: options?.streamVersionedDrafts === true,
       getFollowUpMessages:
         this.config.enableFollowUpGuard !== false
           ? async () => {
@@ -2671,7 +2698,6 @@ ${result.stderr ?? ''}`.trim();
         : undefined,
       // Buffer only when a host completionGate may rewrite or discard the answer.
       shouldBufferAssistantOutput: () =>
-        Boolean(intentTurn) ||
         this.config.bufferAssistantUntilComplete === true ||
         runtimeJudge?.shouldBufferCompletion() === true,
       completionGate,

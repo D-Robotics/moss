@@ -11,6 +11,8 @@ export interface TaskIntentState {
   target: string;
   executionSurface: string;
   constraints: string[];
+  /** Latest exact author quote for each active constraint value. */
+  constraintSources?: Record<string, { messageId: string; quote: string }>;
   responseRequirements: string[];
   sources: Record<string, { messageId: string; quote: string }[]>;
 }

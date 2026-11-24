@@ -19,14 +19,25 @@ import type { LLMMessage } from '../llm/llm-provider.js';
 import { redactJsonLine } from './redact-json-line.js';
 import type { SessionMeta, SessionStore } from './session.js';
 import { SessionInbox, type SessionInboxEntry } from './session-inbox.js';
-import { validatePersistedTaskIntent } from './task-intent-state.js';
+import { loadSessionInbox } from './session-inbox-store.js';
+import {
+  emptyTaskIntent,
+  readTaskIntent,
+  validatePersistedTaskIntent,
+} from './task-intent-state.js';
 
 const loadBuiltin = createRequire(import.meta.url);
+
+import { assertTaskExecutionCurrent } from '../task/task-execution-guard.js';
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sessions (
     key TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0,
     created INTEGER NOT NULL, updated INTEGER NOT NULL, imported INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS context_scopes (
+    session TEXT PRIMARY KEY REFERENCES sessions(key) ON DELETE CASCADE,
+    scope TEXT NOT NULL, first_ordinal INTEGER NOT NULL, first_revision INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS messages (
     session TEXT NOT NULL REFERENCES sessions(key) ON DELETE CASCADE,
@@ -69,6 +80,11 @@ const SCHEMA = `
     session TEXT NOT NULL REFERENCES sessions(key) ON DELETE CASCADE,
     id TEXT NOT NULL, revision INTEGER NOT NULL, body TEXT NOT NULL,
     PRIMARY KEY(session, id)
+  );
+  CREATE TABLE IF NOT EXISTS execution_receipts (
+    scope TEXT NOT NULL,
+    id TEXT NOT NULL,
+    PRIMARY KEY(scope, id)
   );
   CREATE TABLE IF NOT EXISTS invocations (
     session TEXT NOT NULL REFERENCES sessions(key) ON DELETE CASCADE,
@@ -203,13 +219,37 @@ export class VersionedSessionStore implements SessionStore {
     });
   }
 
+  private contextScope(
+    key: string
+  ): { scope: string; firstOrdinal: number; firstRevision: number } | undefined {
+    const row = this.db
+      .prepare('SELECT scope,first_ordinal,first_revision FROM context_scopes WHERE session=?')
+      .get(key);
+    return row
+      ? {
+          scope: String(row.scope),
+          firstOrdinal: Number(row.first_ordinal),
+          firstRevision: Number(row.first_revision),
+        }
+      : undefined;
+  }
+
+  activeContextScope(key: string): { id: string; revision: number } | undefined {
+    const current = this.contextScope(key);
+    return current ? { id: current.scope, revision: current.firstRevision } : undefined;
+  }
+
   private sourceRows(key: string, includeInactive = false): ContextSourceMessage[] {
+    const scope = includeInactive ? undefined : this.contextScope(key);
     return this.db
       .prepare(
         `SELECT id,ordinal,origin,body,generation FROM messages WHERE session=?
-      ${includeInactive ? '' : 'AND active=1'} ORDER BY ordinal`
+      ${includeInactive ? '' : 'AND active=1 AND ordinal>=? AND (generation IS NULL OR generation>=?)'}
+      ORDER BY ordinal`
       )
-      .all(key)
+      .all(
+        ...(includeInactive ? [key] : [key, scope?.firstOrdinal ?? 0, scope?.firstRevision ?? 0])
+      )
       .map((row) => ({
         id: String(row.id),
         ordinal: Number(row.ordinal),
@@ -217,6 +257,80 @@ export class VersionedSessionStore implements SessionStore {
         message: parse<LLMMessage>(row.body),
         ...(row.generation === null ? {} : { generatedRevision: Number(row.generation) }),
       }));
+  }
+
+  private activeCorrections(key: string): CommittedContextCorrection[] {
+    const firstRevision = this.contextScope(key)?.firstRevision ?? 0;
+    return this.db
+      .prepare('SELECT body FROM corrections WHERE session=? AND revision>=? ORDER BY revision')
+      .all(key, firstRevision)
+      .map((row) => parse<CommittedContextCorrection>(row.body));
+  }
+
+  /** A trusted host can move the active context to a new scope without changing the source archive. */
+  async enterContextScope(
+    key: string,
+    scope: string,
+    options: { adoptCurrent?: boolean; boundaryMessage?: string; legacyInboxPath?: string } = {}
+  ): Promise<boolean> {
+    if (!scope.trim() || scope.length > 240)
+      throw new MossError({ code: ErrorCode.USER_INPUT_INVALID, message: 'Invalid context scope' });
+    await this.adopt(key);
+    return this.transaction(() => {
+      const previous = this.contextScope(key);
+      if (previous?.scope === scope) return false;
+      const lastOrdinal = this.lastOrdinal(key);
+      const inbox = this.readInbox(key, () =>
+        options.legacyInboxPath ? loadSessionInbox(options.legacyInboxPath) : new SessionInbox()
+      );
+      const startFresh =
+        (lastOrdinal > 0 || Boolean(previous) || inbox.toEntries().length > 0) &&
+        !(options.adoptCurrent && !previous);
+      this.create(key);
+      if (startFresh) this.retireContextIntent(inbox);
+      this.saveInbox(key, inbox);
+      const revision = this.revision(key) + 1;
+      this.db
+        .prepare('INSERT OR REPLACE INTO context_scopes VALUES(?,?,?,?)')
+        .run(key, scope, startFresh ? lastOrdinal + 1 : 0, startFresh ? revision : 0);
+      if (startFresh) {
+        this.db.prepare('UPDATE claims SET active=0 WHERE session=?').run(key);
+        this.db.prepare('DELETE FROM overlays WHERE session=?').run(key);
+        this.db
+          .prepare('UPDATE sessions SET revision=?,updated=? WHERE key=?')
+          .run(revision, Date.now(), key);
+        if (options.boundaryMessage?.trim()) {
+          this.append(key, { role: 'user', content: options.boundaryMessage }, 'runtime');
+        }
+      }
+      return true;
+    });
+  }
+
+  private retireContextIntent(inbox: SessionInbox): void {
+    const current = readTaskIntent(inbox.toEntries());
+    if (current.pending || inbox.pending().length) {
+      throw new MossError({
+        code: ErrorCode.EXECUTION_STATE_INVALID,
+        message: 'Resolve pending input in the current context before switching scopes',
+      });
+    }
+    if (!current.inputSeq) return;
+    const entry = inbox.admit({
+      id: `context-scope:${randomUUID()}`,
+      prompt: '',
+      metadata: { intentOnly: true },
+    });
+    inbox.promote(entry.id);
+    inbox.setIntent(entry.id, {
+      status: 'committed',
+      snapshot: {
+        ...emptyTaskIntent(),
+        revision: current.revision + 1,
+        inputSeq: entry.admittedSeq,
+        processedSeq: entry.admittedSeq,
+      },
+    });
   }
 
   readInbox(key: string, legacy?: () => SessionInbox): SessionInbox {
@@ -259,10 +373,7 @@ export class VersionedSessionStore implements SessionStore {
       () => ({
         revision: this.revision(key),
         messages: this.sourceRows(key),
-        corrections: this.db
-          .prepare('SELECT body FROM corrections WHERE session=? ORDER BY revision')
-          .all(key)
-          .map((row) => parse<CommittedContextCorrection>(row.body)),
+        corrections: this.activeCorrections(key),
         claims: this.claimRows(key),
       }),
       false
@@ -319,6 +430,73 @@ export class VersionedSessionStore implements SessionStore {
       this.append(key, message, id.startsWith('tool-continuation:') ? 'tool' : 'user');
       return true;
     });
+  }
+
+  /** Import quoted historical context without admitting it as a new user input. */
+  async appendContextHandoffOnce(input: {
+    sourceKey: string;
+    sourceRevision: number;
+    targetKey: string;
+    deliveryId: string;
+    message: LLMMessage;
+    scopeCheck?: {
+      source?: ReturnType<VersionedSessionStore['activeContextScope']>;
+      target?: ReturnType<VersionedSessionStore['activeContextScope']>;
+    };
+  }): Promise<'imported' | 'duplicate' | 'source-changed'> {
+    const { sourceKey, sourceRevision, targetKey, deliveryId, message } = input;
+    if (
+      !sourceKey ||
+      !targetKey ||
+      sourceKey === targetKey ||
+      !deliveryId ||
+      message.role !== 'assistant'
+    ) {
+      throw new Error(
+        'A context handoff requires distinct sessions, a delivery ID, and historical assistant text'
+      );
+    }
+    await this.adopt(targetKey);
+    return this.transaction(() => {
+      if (
+        this.db
+          .prepare('SELECT 1 FROM receipts WHERE session=? AND id=?')
+          .get(targetKey, deliveryId)
+      )
+        return 'duplicate';
+      const scopeMatches = (
+        key: string,
+        expected: ReturnType<VersionedSessionStore['activeContextScope']>
+      ) => {
+        const current = this.activeContextScope(key);
+        return current?.id === expected?.id && current?.revision === expected?.revision;
+      };
+      if (
+        !this.has(sourceKey) ||
+        this.revision(sourceKey) !== sourceRevision ||
+        this.readInbox(sourceKey).pending().length ||
+        (input.scopeCheck &&
+          (!scopeMatches(sourceKey, input.scopeCheck.source) ||
+            !scopeMatches(targetKey, input.scopeCheck.target)))
+      )
+        return 'source-changed';
+      this.create(targetKey);
+      this.db.prepare('INSERT INTO receipts VALUES(?,?)').run(targetKey, deliveryId);
+      this.append(targetKey, message, 'assistant', undefined, this.revision(targetKey));
+      return 'imported';
+    });
+  }
+
+  /** Claim a host-owned action before dispatch. A receipt makes no claim about its outcome. */
+  claimExecutionReceipt(scope: string, id: string): boolean {
+    if (!scope || !id) throw new Error('Execution receipt requires a host scope and identity');
+    assertTaskExecutionCurrent();
+    return this.transaction(() =>
+      Boolean(
+        this.db.prepare('INSERT OR IGNORE INTO execution_receipts VALUES(?,?)').run(scope, id)
+          .changes
+      )
+    );
   }
 
   async seedIfEmpty(key: string, messages: LLMMessage[]): Promise<LLMMessage[]> {
@@ -406,7 +584,11 @@ export class VersionedSessionStore implements SessionStore {
       .get(key, input.id);
     if (previous) {
       const value = parse<CommittedContextCorrection>(previous.body);
-      if (value.targetId !== clean.targetId || value.text !== clean.text) {
+      if (
+        value.targetId !== clean.targetId ||
+        value.text !== clean.text ||
+        value.revision < (this.contextScope(key)?.firstRevision ?? 0)
+      ) {
         throw new MossError({
           code: ErrorCode.EXECUTION_REVISION_CONFLICT,
           message: 'Correction ID was reused for different content',
@@ -415,8 +597,10 @@ export class VersionedSessionStore implements SessionStore {
       return value;
     }
     const target = this.db
-      .prepare('SELECT ordinal,body FROM messages WHERE session=? AND id=? AND active=1')
-      .get(key, clean.targetId);
+      .prepare(
+        'SELECT ordinal,body FROM messages WHERE session=? AND id=? AND active=1 AND ordinal>=?'
+      )
+      .get(key, clean.targetId, this.contextScope(key)?.firstOrdinal ?? 0);
     const claim = this.claimRows(key).find(
       (item) => item.id === clean.targetId && item.status === 'active'
     );
@@ -480,10 +664,7 @@ export class VersionedSessionStore implements SessionStore {
   /** Joins the transaction that is recording the model's validated declaration. */
   registerClaimsInTransaction(key: string, drafts: ContextClaimDraft[]): ContextClaim[] {
     const sources = new Map(this.sourceRows(key).map((row) => [row.id, row]));
-    const corrections = this.db
-      .prepare('SELECT body FROM corrections WHERE session=?')
-      .all(key)
-      .map((row) => parse<CommittedContextCorrection>(row.body));
+    const corrections = this.activeCorrections(key);
     const active = new Set(
       this.claimRows(key)
         .filter((claim) => claim.status === 'active')
@@ -650,9 +831,9 @@ export class VersionedSessionStore implements SessionStore {
   earlierCheckpointBoundary(key: string, revision: number, policyKey: string): number | undefined {
     const row = this.db
       .prepare(
-        `SELECT covered FROM checkpoints WHERE session=? AND revision<? AND substr(policy,instr(policy,':')+1)=? ORDER BY revision DESC, covered DESC LIMIT 1`
+        `SELECT covered FROM checkpoints WHERE session=? AND revision<? AND covered>=? AND substr(policy,instr(policy,':')+1)=? ORDER BY revision DESC, covered DESC LIMIT 1`
       )
-      .get(key, revision, policyKey);
+      .get(key, revision, this.contextScope(key)?.firstOrdinal ?? 0, policyKey);
     return row ? Number(row.covered) : undefined;
   }
 
@@ -660,13 +841,9 @@ export class VersionedSessionStore implements SessionStore {
     const clean = parse<Pick<ContextCorrection, 'targetId' | 'text'>>(
       redactJsonLine({ targetId, text })
     );
-    return this.db
-      .prepare('SELECT body FROM corrections WHERE session=?')
-      .all(key)
-      .some((row) => {
-        const correction = parse<CommittedContextCorrection>(row.body);
-        return correction.targetId === clean.targetId && correction.text === clean.text;
-      });
+    return this.activeCorrections(key).some(
+      (correction) => correction.targetId === clean.targetId && correction.text === clean.text
+    );
   }
 
   checkpoint(key: string, revision: number, policy: string): ContextCheckpoint | undefined {

@@ -30,6 +30,7 @@ import {
 import { executeAgentLoopToolCalls } from './agent-loop-tool-execution.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
 import type { TaskIntentTurn } from '../session/task-intent-turn.js';
+import { validateToolInputObject } from '../tools/tool-pipeline.js';
 import { isTaskExecutionSupersededError } from '../task/task-execution-guard.js';
 
 export const EMPTY_MODEL_RESPONSE =
@@ -106,6 +107,7 @@ export interface ProcessLlmResponseParams {
   maxToolCalls?: number;
   toolStartGuard?: AgentLoopExtensions['toolStartGuard'];
   runtimeJudge?: AgentLoopExtensions['runtimeJudge'];
+  prepareToolBatch?: import('./agent-loop-types.js').AgentLoopToolInput['prepareToolBatch'];
   checkToolApproval?: (call: {
     id: string;
     name: string;
@@ -128,6 +130,7 @@ export interface ProcessLlmResponseParams {
   >;
   completionGate?: AgentLoopExtensions['completionGate'];
   delayedVisibleDeltas?: boolean;
+  settleTextDraft?: (accepted: boolean) => void;
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
   evaluateSteering: () => Message[];
@@ -221,7 +224,6 @@ export async function processLlmResponse(
     if (intentResponse.halt) {
       state.taskIntentHalted = true;
       state.finalText = intentResponse.halt;
-      pushGuardedMessageDeltas(push, intentResponse.halt);
     }
     pushTurnEnd();
     if (intentResponse.halt) {
@@ -477,6 +479,7 @@ export async function processLlmResponse(
       return { control: 'continue' };
     }
   }
+  params.settleTextDraft?.(!outputLimited && !hasThinkingOnly);
   if (delayedVisibleDeltas && !hasThinkingOnly) {
     pushGuardedMessageDeltas(push, visibleAssistantText);
   }
@@ -672,6 +675,43 @@ export async function processLlmResponse(
     assistantBuffer.shift();
   }
   const intentGuard = params.taskIntentTurn?.executionGuard();
+  let supersededPreparation: unknown;
+  const assertExecutionCurrent = () => {
+    if (supersededPreparation) throw supersededPreparation;
+    params.assertContextCurrent?.();
+    intentGuard?.();
+  };
+  let dispatchContext = toolCtx;
+  if (params.prepareToolBatch && toolCalls.length > 0) {
+    const availableTools = new Map(resolveToolsForRun().map((tool) => [tool.name, tool]));
+    const calls = toolCalls.flatMap((call) => {
+      const tool = availableTools.get(call.name);
+      if (!tool) return [];
+      const input = validateToolInputObject(tool, call.input);
+      return input.ok ? [{ ...call, input: input.value, tool }] : [];
+    });
+    if (calls.length > 0) {
+      const assertCurrent = () => {
+        abortSignal.throwIfAborted();
+        assertExecutionCurrent();
+      };
+      try {
+        assertCurrent();
+        const prepared = await params.prepareToolBatch({
+          calls,
+          context: toolCtx,
+          abortSignal,
+          assertCurrent,
+        });
+        assertCurrent();
+        if (prepared) dispatchContext = prepared;
+      } catch (error) {
+        // The ordinary per-call guard records suppressed results for the stale batch.
+        if (!isTaskExecutionSupersededError(error)) throw error;
+        supersededPreparation = error;
+      }
+    }
+  }
   const toolExecution = await executeAgentLoopToolCalls({
     initialToolResults: intentResponse?.results,
     registerToolInvocation: params.registerToolInvocation
@@ -679,11 +719,8 @@ export async function processLlmResponse(
           params.registerToolInvocation!(id, name, mutates, intentGuard ?? (() => {}))
       : undefined,
     assertExecutionCurrent:
-      params.assertContextCurrent || intentGuard
-        ? () => {
-            params.assertContextCurrent?.();
-            intentGuard?.();
-          }
+      params.assertContextCurrent || intentGuard || supersededPreparation
+        ? assertExecutionCurrent
         : undefined,
     state,
     runId,
@@ -693,7 +730,7 @@ export async function processLlmResponse(
     assistantContent,
     toolCalls,
     resolveToolsForRun,
-    toolCtx,
+    toolCtx: dispatchContext,
     toolHooks,
     abortSignal,
     toolTimeoutMs,

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { VersionedSessionStore } from '../../dist/core/session/versioned-session-store.js';
 import { TaskIntentCoordinator } from '../../dist/core/session/task-intent-coordinator.js';
 import {
   loadSessionInbox,
@@ -67,6 +68,48 @@ try {
       else process.env.MOSS_ACCEPT_LOGIN_PATH = previous;
     }
     console.log('PASS correction during acceptance environment setup prevents process startup');
+  }
+  {
+    const authorizationInbox = path.join(workspace, 'authorization.json');
+    const authorization = new TaskIntentCoordinator(port(authorizationInbox), workspace);
+    authorization.admit({ id: 'action-1', text: 'Run exactly uname -a once' });
+    const authorizationBatch = await authorization.capture();
+    const change = {
+      field: 'constraints',
+      operation: 'add',
+      value: 'example:uname -a',
+      messageId: 'action-1',
+      quote: 'uname -a',
+    };
+    await authorization.commit(
+      authorizationBatch,
+      proposal(authorizationBatch, 'execute', [change])
+    );
+    const recovered = new TaskIntentCoordinator(port(authorizationInbox), workspace);
+    assert.deepEqual((await recovered.capture()).snapshot.state.constraintSources?.[change.value], {
+      messageId: 'action-1',
+      quote: 'uname -a',
+    });
+    recovered.admit({ id: 'action-remove', text: 'Remove the uname -a permission' });
+    const removal = await recovered.capture();
+    await recovered.commit(
+      removal,
+      proposal(removal, 'answer', [{ ...change, operation: 'remove', messageId: 'action-remove' }])
+    );
+    assert.equal(
+      (await recovered.capture()).snapshot.state.constraintSources?.[change.value],
+      undefined
+    );
+    const db = path.join(workspace, 'execution.sqlite');
+    const firstStore = new VersionedSessionStore(db);
+    assert.equal(firstStore.claimExecutionReceipt('session', 'action-1'), true);
+    firstStore.close();
+    const restartedStore = new VersionedSessionStore(db);
+    assert.equal(restartedStore.claimExecutionReceipt('session', 'action-1'), false);
+    assert.equal(restartedStore.claimExecutionReceipt('other-session', 'action-1'), true);
+    assert.deepEqual((await restartedStore.loadDeliverySnapshot('session')).deliveryIds, []);
+    restartedStore.close();
+    console.log('PASS active constraint provenance and durable once-only action admission');
   }
   const file = path.join(workspace, 'receipt.json');
   const a = new TaskIntentCoordinator(port(file), workspace);

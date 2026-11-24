@@ -7,6 +7,7 @@ import type {
   LLMStreamEvent,
 } from '../llm/llm-provider.js';
 import type { PromptLayersPort } from '../../contracts/prompt-layer.js';
+import type { TurnDecision } from '../../contracts/task-intent.js';
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { SessionStore } from '../session/session.js';
 import type {
@@ -184,6 +185,12 @@ export interface MossAgentConfig
   /** Require same-response task updates before acting on genuine user inputs. */
   taskIntent?: boolean;
 
+  /**
+   * Synchronously check a parsed decision before it commits. Throw a
+   * model-facing repair message to reject the decision and its tool batch.
+   */
+  validateTaskIntentDecision?: (decision: Readonly<TurnDecision>) => void;
+
   /** Host provider id (`deepseek`, `openai-compatible`, …). Updated by `switchModel`. */
   provider?: string;
 
@@ -321,6 +328,8 @@ export interface MossAgentConfig
 }
 
 export interface ChatOptions {
+  /** Opt in to provisional text events that a host can retract. Canonical text is still guarded. */
+  streamVersionedDrafts?: boolean;
   /** Trusted raw user input; false marks autonomous engine prompts. */
   userInput?: { id: string; text?: string; taskId?: string } | false;
   /** Host-owned native Task Runtime binding, including autonomous turns. */
@@ -432,6 +441,8 @@ export interface ChatResult {
 
 export type MossAgentEvent =
   | { type: 'text_delta'; delta: string }
+  | { type: 'text_draft_delta'; delta: string }
+  | { type: 'text_draft_end'; accepted: boolean }
   | { type: 'thinking_delta'; delta: string }
   | { type: 'tool_start'; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | {

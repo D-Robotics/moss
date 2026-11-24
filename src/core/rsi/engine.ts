@@ -1221,7 +1221,9 @@ export class RsiEngine {
         } catch {
           if (!run.coverage.gaps.includes('persistence_gap')) {
             run.coverage.gaps.push('persistence_gap');
-            getRootLogger().child('rsi').warn('RSI run record could not be persisted', { runId: run.runId });
+            getRootLogger()
+              .child('rsi')
+              .warn('RSI run record could not be persisted', { runId: run.runId });
           }
         }
       };

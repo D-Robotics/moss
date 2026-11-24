@@ -119,15 +119,14 @@ class StubLLM(BaseHTTPRequestHandler):
         self._send(body.encode('utf-8'), 'text/event-stream')
 
 
-def read_until_prompt(master, timeout, quiet=1.0):
-    chunks = []
+def read_until_prompt(master, timeout, quiet=1.0, completion=None):
     text = ''
     deadline = time.time() + timeout
     last_output = time.time()
     while time.time() < deadline:
         ready, _, _ = select.select([master], [], [], 0.05)
         if not ready:
-            if chunks and time.time() - last_output > quiet:
+            if completion is None and text and time.time() - last_output > quiet:
                 break
             continue
         try:
@@ -136,12 +135,12 @@ def read_until_prompt(master, timeout, quiet=1.0):
             break
         if not chunk:
             break
-        chunks.append(chunk)
         text += chunk.decode('utf-8', 'replace')
         last_output = time.time()
         plain = ANSI_RE.sub('', text).replace('\r', '\n')
         lines = [line for line in plain.split('\n') if line.strip()]
-        if lines and lines[-1].rstrip().endswith(PROMPT):
+        completed = completion is None or completion in plain
+        if completed and lines and lines[-1].rstrip().endswith(PROMPT):
             break
     return text
 
@@ -197,7 +196,13 @@ def main():
             print(json.dumps({'error': 'REPL prompt not detected', 'boot': boot[-1200:]}))
             return 1
         os.write(master, b'plan the refactor\n')
-        read_until_prompt(master, 30.0)
+        # The REPL also paints prompts and may go quiet while a turn is running.
+        # Only send a new slash command once the stub's response and prompt arrive.
+        turn = read_until_prompt(master, 30.0, completion='checklist written')
+        plain_turn = ANSI_RE.sub('', turn)
+        if 'checklist written' not in plain_turn or not plain_turn.rstrip().endswith(PROMPT):
+            print(json.dumps({'error': 'Initial turn did not finish', 'output': plain_turn[-900:]}))
+            return 1
         os.write(master, b'/todos\n')
         output = read_until_prompt(master, 20.0)
     finally:

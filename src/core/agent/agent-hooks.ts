@@ -12,6 +12,13 @@ export interface ToolApprovalRequest {
   abortSignal: AbortSignal;
 }
 
+export interface ToolBatchPreparation {
+  calls: ReadonlyArray<Readonly<ToolCall> & { readonly tool: Tool }>;
+  context: Readonly<ToolContext>;
+  abortSignal: AbortSignal;
+  assertCurrent(): void;
+}
+
 export type ToolApprovalDecision =
   | { approved: true; updatedInput?: Record<string, unknown> }
   | {
@@ -49,6 +56,9 @@ export interface AgentHooks {
   onInputGuardrail?(request: InputGuardrailRequest): Promise<InputGuardrailDecision>;
 
   onOutputGuardrail?(request: OutputGuardrailRequest): Promise<OutputGuardrailDecision>;
+
+  /** Prepare host resources after task intent commits, before resolving final tools and approvals. */
+  prepareToolBatch?(request: ToolBatchPreparation): Promise<ToolContext | void>;
 
   onBeforeToolExec?(request: ToolApprovalRequest): Promise<ToolApprovalDecision>;
 

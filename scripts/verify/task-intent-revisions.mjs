@@ -11,8 +11,12 @@ const { MossAgent } = await import(pathToFileURL(path.join(dist, 'core/agent/mos
 const { InMemorySessionStore } = await import(
   pathToFileURL(path.join(dist, 'core/session/session.js')).href
 );
+const { VersionedSessionStore } = await import(
+  pathToFileURL(path.join(dist, 'core/session/versioned-session-store.js')).href
+);
 const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-intent-'));
 const agents = [];
+const validationStore = new VersionedSessionStore(path.join(workspace, 'validation.sqlite'));
 
 function frame(options) {
   const lines = options.systemPrompt.split('\n');
@@ -106,6 +110,133 @@ function register(agent, name, execute) {
 }
 
 try {
+  const workspaceSteps = [];
+  const admittedWorkspace = path.join(workspace, 'admitted');
+  const admitted = createAgent(
+    (request, count) => {
+      if (count > 1) return response(text('Workspace verified.'));
+      return response(declaration(frame(request)), toolCall('workspace_probe'));
+    },
+    {
+      hooks: {
+        prepareToolBatch: async ({ calls, context, assertCurrent }) => {
+          assertCurrent();
+          assert.deepEqual(
+            calls.map((call) => call.name),
+            ['workspace_probe']
+          );
+          assert.equal(admitted.agent.getTaskIntent('workspace-admission').disposition, 'execute');
+          assert.equal(
+            admitted.agent.getTaskIntentReceipt('workspace-admission', 'workspace-input').status,
+            'committed'
+          );
+          workspaceSteps.push('admit');
+          admitted.agent.tools.remove('workspace_probe');
+          register(admitted.agent, 'workspace_probe', async (_input, ctx) => {
+            assert.equal(ctx.workspaceDir, admittedWorkspace);
+            workspaceSteps.push('execute');
+            return 'Verified the admitted workspace.';
+          });
+          return { ...context, workspaceDir: admittedWorkspace };
+        },
+      },
+    }
+  );
+  register(admitted.agent, 'workspace_probe', async () => {
+    workspaceSteps.push('stale tool');
+    return 'This tool was replaced before dispatch.';
+  });
+  await admitted.agent.chat('workspace-admission', 'Verify the project', {
+    userInput: { id: 'workspace-input' },
+    taskFlow: false,
+  });
+  assert.deepEqual(workspaceSteps, ['admit', 'execute']);
+  console.log(
+    'PASS tool batch preparation observes committed intent and replaces dispatch context'
+  );
+
+  const session = 'host-validation';
+  const hostInputId = 'host-source-input';
+  const literal = 'uname -m';
+  const hostInput = `Run this exact command once: ${literal}`;
+  const repair = 'Quote only the exact command literal';
+  const validConstraint = `device_command_once:${literal}`;
+  const proposedQuotes = [];
+  const dispatched = [];
+  const validated = createAgent(
+    (request, count) => {
+      if (count === 3) return response(text('Checked the requested architecture.'));
+      if (count === 2) {
+        assert.match(JSON.stringify(request.messages), new RegExp(repair));
+        const pending = validated.agent.getTaskIntent(session);
+        assert.equal(pending.pending, true);
+        assert.equal(pending.processedSeq, 0);
+        assert.deepEqual(pending.state.constraints, []);
+        assert.deepEqual(dispatched, []);
+        assert.equal(validated.agent.getTaskIntentReceipt(session, hostInputId).status, 'pending');
+      }
+      const quote = count === 1 ? hostInput : literal;
+      return response(
+        {
+          type: 'tool_use',
+          id: `validated-decision-${count}`,
+          name: 'turn_decision',
+          input: {
+            disposition: 'execute',
+            plan: ['Check architecture'],
+            changes: [
+              {
+                field: 'constraints',
+                operation: 'add',
+                value: validConstraint,
+                messageId: hostInputId,
+                quote,
+              },
+            ],
+          },
+        },
+        toolCall('validate_action', `validated-action-${count}`)
+      );
+    },
+    {
+      sessionStore: validationStore,
+      validateTaskIntentDecision(decision) {
+        assert.equal(decision.baseRevision, 0);
+        assert.equal(decision.inputSeq, 1);
+        assert.deepEqual(decision.messageIds, [hostInputId]);
+        const change = decision.changes[0];
+        proposedQuotes.push(change.quote);
+        if (change.quote !== literal) throw new Error(repair);
+        change.value = 'ignored-by-the-runtime';
+      },
+    }
+  );
+  register(validated.agent, 'validate_action', async (_input, context) => {
+    const committed = validated.agent.getTaskIntent(session);
+    assert.equal(committed.pending, false);
+    assert.equal(committed.processedSeq, 1);
+    assert.equal(validated.agent.getTaskIntentReceipt(session, hostInputId).status, 'committed');
+    assert.deepEqual(committed.state.constraints, [validConstraint]);
+    assert.deepEqual(committed.state.constraintSources[validConstraint], {
+      messageId: hostInputId,
+      quote: literal,
+    });
+    dispatched.push(context.toolCallId);
+    return 'Architecture confirmed by the probe.';
+  });
+  const validatedResult = await validated.agent.chat(session, hostInput, {
+    userInput: { id: hostInputId },
+    taskFlow: false,
+    maxTurns: 5,
+  });
+  assert.deepEqual(proposedQuotes, [hostInput, literal]);
+  assert.deepEqual(dispatched, ['validated-action-2']);
+  assert.equal(validated.provider.calls, 3);
+  assert.equal(validatedResult.response, 'Checked the requested architecture.');
+  console.log(
+    'PASS host validation rejects the entire batch before commit and repairs the same pending input'
+  );
+
   const starts = [];
   const { agent, provider } = createAgent((request, count) => {
     const f = frame(request);
@@ -253,7 +384,16 @@ try {
   console.log('PASS input during receipt persistence prevents stale answer publication');
 
   let illegalStarts = 0;
-  const invalid = createAgent(() => response(toolCall('illegal')));
+  const invalid = createAgent((request, count) => {
+    if (count === 2) {
+      assert.deepEqual(
+        request.tools.map(({ name }) => name),
+        ['turn_decision']
+      );
+      assert.equal(request.toolChoice, 'required');
+    }
+    return response(toolCall('illegal'));
+  });
   register(invalid.agent, 'illegal', async () => {
     illegalStarts++;
     return 'should not execute';
@@ -267,6 +407,40 @@ try {
   assert.equal(invalid.provider.calls, 2, 'invalid declarations should have one bounded repair');
   assert.equal(held.stopReason, 'task_intent_hold');
   console.log('PASS missing declaration blocks all actions with bounded repair');
+
+  let recoveredStarts = 0;
+  const recovered = createAgent((request, count) => {
+    if (count === 1) return response(toolCall('recovered_action'));
+    if (count === 2) {
+      assert.deepEqual(
+        request.tools.map(({ name }) => name),
+        ['turn_decision']
+      );
+      return response(declaration(frame(request), 'execute'));
+    }
+    if (count === 3) {
+      assert(request.tools.some(({ name }) => name === 'recovered_action'));
+      return response(toolCall('recovered_action'));
+    }
+    return response(text('Verified after the decision repair.'));
+  });
+  register(recovered.agent, 'recovered_action', async () => {
+    recoveredStarts++;
+    return 'verified';
+  });
+  await recovered.agent.chat('decision-repair', 'Recover the pending task', {
+    userInput: { id: 'decision-repair-1' },
+    taskFlow: false,
+    maxTurns: 5,
+  });
+  assert.equal(recoveredStarts, 1);
+  assert.equal(
+    recovered.agent.getTaskIntentReceipt('decision-repair', 'decision-repair-1').status,
+    'committed'
+  );
+  console.log(
+    'PASS a failed declaration can repair and execute without replaying its original tool call'
+  );
 
   const raceStarts = [];
   let race;
@@ -347,5 +521,6 @@ try {
   console.log('PASS restart persistence, receipt dedupe, pending-input barrier');
 } finally {
   await Promise.allSettled(agents.map((agent) => agent.close()));
+  validationStore.close();
   await fs.rm(workspace, { recursive: true, force: true });
 }

@@ -600,6 +600,9 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           state.thinkingNoted = true;
         }
         break;
+      case 'text_draft_delta':
+      case 'text_draft_end':
+        break;
       case 'text_delta':
         spinner?.stop();
         if (state.thinkingOpen) {
