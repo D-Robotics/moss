@@ -206,7 +206,7 @@ export function writeSafetyLedger(directory: string, state: RsiState): void {
     temporary = assetPath(directory, `safety-ledger-${randomUUID()}.tmp`);
   try {
     fs.writeFileSync(temporary, bytes, { mode: 0o600, flag: 'wx' });
-    const fd = fs.openSync(temporary, 'r');
+    const fd = fs.openSync(temporary, 'r+');
     try {
       fs.fsyncSync(fd);
     } finally {

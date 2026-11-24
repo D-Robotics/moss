@@ -397,7 +397,7 @@ export class RsiStore {
       // Safety claims become durable before the policy/index can advertise their result.
       writeSafetyLedger(directory, state);
       fs.writeFileSync(temporary, indexBytes, { mode: 0o600 });
-      const indexFd = fs.openSync(temporary, 'r');
+      const indexFd = fs.openSync(temporary, 'r+');
       try {
         fs.fsyncSync(indexFd);
       } finally {
