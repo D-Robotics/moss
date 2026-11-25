@@ -15,8 +15,7 @@ import {
 } from '../tools/background-process-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import {
-  tinyWindowToolDescription,
-  tinyWindowToolSchema,
+  slimTinyWindowTool,
   tinyWindowToolSurfaceEnabled,
   toolAllowedOnTinyWindow,
 } from '../tools/tiny-window-tools.js';
@@ -1865,24 +1864,7 @@ ${result.stderr ?? ''}`.trim();
         planMode: this.config.planModeActive?.() === true,
       }) &&
       (options?.toolFilter?.(tool) ?? true);
-    // B72: on a tiny window the five declarations are a quarter of the prompt;
-    // their long descriptions enumerate tools this surface does not offer.
-    const slimTinyWindowTool = (tool: Tool): Tool => {
-      if (!tinyToolSurface) return tool;
-      const slim = tinyWindowToolDescription(tool.name, tool.description);
-      const schema = tinyWindowToolSchema(tool.name, tool.inputSchema);
-      // The wire prefers `metadata.leanDescription` on any window <=64k (all tiny
-      // windows qualify), so set both: `description` stays the host-facing text.
-      // Precedent for spending fewer declaration bytes on constrained surfaces:
-      // Cursor's reduced-prompt tier (compactShellDescription) and Claude's
-      // ToolSearch. Trimming the *schema* by window is Moss's own extension.
-      return {
-        ...tool,
-        description: slim,
-        ...(schema ? { inputSchema: schema as typeof tool.inputSchema } : {}),
-        metadata: { ...(tool.metadata ?? {}), leanDescription: slim },
-      };
-    };
+    const toolForWindow = (tool: Tool): Tool => (tinyToolSurface ? slimTinyWindowTool(tool) : tool);
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> => {
       if (intentTurn?.isAnswerOnly) {
         readOnlyIntentSurface = true;
@@ -1891,7 +1873,7 @@ ${result.stderr ?? ''}`.trim();
       const tools = filterToolsForRun(
         [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
         visibleForRun
-      ).map(slimTinyWindowTool);
+      ).map(toolForWindow);
       const claimTool = intentTurn?.claimTool();
       const hostFiltersTools = options?.toolFilter;
       readOnlyIntentSurface = Boolean(
@@ -1932,7 +1914,7 @@ ${result.stderr ?? ''}`.trim();
       const resolved = await hostResolveMissingTool(name, signal);
       if (!resolved) return undefined;
       const tool = filterToolsForRun([resolved], visibleForRun)[0];
-      return tool ? slimTinyWindowTool(tool) : undefined;
+      return tool ? toolForWindow(tool) : undefined;
     };
 
     const toolCtx: ToolContext = {

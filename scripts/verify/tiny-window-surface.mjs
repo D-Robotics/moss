@@ -18,8 +18,7 @@ const {
   TINY_WINDOW_AUTO_CONTEXT_TOKENS,
   TINY_WINDOW_TOOL_NAMES,
   compactToolSchema,
-  tinyWindowToolDescription,
-  tinyWindowToolSchema,
+  slimTinyWindowTool,
   tinyWindowToolSurfaceEnabled,
 } = await import(pathToFileURL(path.join(root, 'dist/core/tools/tiny-window-tools.js')).href);
 const { buildProviderToolDeclarations, shouldLeanToolDescriptions } = await import(
@@ -176,7 +175,8 @@ assert.ok(
 // ── Tool declarations: every name on the tiny surface has a terse description. ──
 let tinyDescriptionChars = 0;
 for (const name of TINY_WINDOW_TOOL_NAMES) {
-  const text = tinyWindowToolDescription(name, 'x'.repeat(900));
+  const tool = builtinTools.find((entry) => entry.name === name);
+  const text = slimTinyWindowTool(tool).description;
   assert.notEqual(text, 'x'.repeat(900), `${name} must have a tiny-window description`);
   assert.ok(text.length <= 130, `${name} description is ${text.length} chars, expected <= 130`);
   tinyDescriptionChars += text.length;
@@ -185,17 +185,11 @@ assert.ok(
   tinyDescriptionChars < 500,
   `the whole tiny-surface prose must stay small, got ${tinyDescriptionChars} chars`
 );
-assert.equal(
-  tinyWindowToolDescription('create_subagent', 'full text'),
-  'full text',
-  'tools outside the tiny surface keep their own description'
-);
-
 // ── Wire schemas: tiny windows keep the parameters a one-step run needs. ──────
 const execTool = builtinTools.find((tool) => tool.name === 'exec');
 const editTool = builtinTools.find((tool) => tool.name === 'edit_file');
-const tinyExecSchema = tinyWindowToolSchema('exec', execTool.inputSchema);
-const tinyEditSchema = tinyWindowToolSchema('edit_file', editTool.inputSchema);
+const tinyExecSchema = slimTinyWindowTool(execTool).inputSchema;
+const tinyEditSchema = slimTinyWindowTool(editTool).inputSchema;
 assert.deepEqual(Object.keys(tinyExecSchema.properties), ['command', 'timeout_ms']);
 assert.deepEqual(Object.keys(tinyEditSchema.properties), [
   'path',
@@ -211,14 +205,8 @@ assert.ok(
   fullChars - prunedChars > 1_000,
   `pruning must free real schema bytes, freed ${fullChars - prunedChars}`
 );
-assert.equal(
-  tinyWindowToolSchema('read_file', execTool.inputSchema),
-  execTool.inputSchema,
-  'tools without a tiny schema keep their own'
-);
-
 // ── Lean windows (<=64k) prune the wire schema too, not just descriptions. ────
-assert.equal(compactToolSchema('read_file', execTool.inputSchema), execTool.inputSchema);
+assert.equal(compactToolSchema(execTool.inputSchema, undefined), execTool.inputSchema);
 assert.equal(shouldLeanToolDescriptions({ contextWindowTokens: 32_000, env: {} }), true);
 assert.equal(shouldLeanToolDescriptions({ contextWindowTokens: 200_000, env: {} }), false);
 const leanDeclarations = buildProviderToolDeclarations([execTool, editTool], {
@@ -234,6 +222,36 @@ assert.equal(propsOf(leanDeclarations, 'exec'), 2, 'a lean window sends only com
 assert.equal(propsOf(leanDeclarations, 'edit_file'), 4, 'a lean window drops the batched edits[]');
 assert.equal(propsOf(wideDeclarations, 'exec'), 7, 'a wide window keeps the full exec schema');
 assert.equal(propsOf(wideDeclarations, 'edit_file'), 5);
+
+// SDK hosts can use a builtin name with a different tool contract.
+const hostEditor = {
+  name: 'edit_file',
+  description: 'Apply a batch of previewable edits.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      edits: { type: 'array', items: { type: 'string' } },
+      dryRun: { type: 'boolean' },
+    },
+    required: ['path', 'edits'],
+    additionalProperties: false,
+  },
+  async execute() {
+    return 'ok';
+  },
+};
+assert.equal(slimTinyWindowTool(hostEditor), hostEditor);
+for (const contextWindowTokens of [tinyBudget, 32_000, 200_000]) {
+  const [declaration] = buildProviderToolDeclarations([hostEditor], { contextWindowTokens });
+  assert.equal(declaration.description, hostEditor.description);
+  assert.deepEqual(declaration.parameters, hostEditor.inputSchema);
+}
+assert.equal(
+  compactToolSchema(hostEditor.inputSchema, ['path']),
+  hostEditor.inputSchema,
+  'a compact profile cannot remove a required input'
+);
 
 // ── Tool results: a tiny window must not accept a result sized for a big one. ──
 const { tinyWindowToolResultTokens } = await import(

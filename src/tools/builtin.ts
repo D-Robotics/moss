@@ -164,6 +164,10 @@ export const execTool: Tool = {
   metadata: {
     leanDescription:
       'Run one shell command; returns stdout, stderr, exit code. Long-running: run_in_background. Not for reads/search/edits.',
+    smallWindow: {
+      tinyDescription: 'Run a shell command (cwd does not persist; use absolute paths, no cd).',
+      inputProperties: ['command', 'timeout_ms'],
+    },
     classification: { verifyShell: true, shellCommand: true },
     maxResultTokens: 4_500,
     truncationHint: 'output was cut — narrow the command (grep/head/tail) to the slice you need',

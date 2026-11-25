@@ -129,10 +129,9 @@ export function buildProviderToolDeclarations(
   const lean = shouldLeanToolDescriptions(options);
   return [...toolsForRun].sort(compareToolName).map((tool) => {
     const schema = tool.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : {};
-    // B76: a lean window also drops the one-step-only parameters from the wire
-    // declaration (the tool still accepts them). The tiny tier already pruned
-    // the Tool object, so this is idempotent there.
-    const pruned = lean ? (compactToolSchema(tool.name, schema) ?? schema) : schema;
+    const pruned = lean
+      ? compactToolSchema(schema, tool.metadata?.smallWindow?.inputProperties)
+      : schema;
     return {
       name: tool.name,
       description: toolDescriptionForModel(tool, lean),

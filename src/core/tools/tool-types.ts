@@ -316,6 +316,14 @@ export interface ToolMetadata {
    */
   leanDescription?: string;
 
+  /** Opt-in declaration profile for this tool on smaller context windows. */
+  smallWindow?: {
+    /** Short description for the tiny-window surface. */
+    tinyDescription?: string;
+    /** Properties to advertise on lean and tiny surfaces. Required fields are retained. */
+    inputProperties?: readonly string[];
+  };
+
   /**
    * Registered (SDK hosts and old transcripts still resolve the name) but not
    * offered to the model. Used when one newer tool subsumes several old ones and

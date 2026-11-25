@@ -1,3 +1,5 @@
+import type { Tool } from './tool-types.js';
+
 /**
  * B66: a model whose window cannot even host the standard tool surface.
  *
@@ -55,64 +57,34 @@ export function toolAllowedOnTinyWindow(name: string): boolean {
 }
 
 /**
- * B72: on a tiny window these five declarations are ~26% of the whole prompt,
- * and most of that is prose. Keep the constraint the model needs per tool and
- * drop the enumerations -- they mostly name tools this surface does not offer.
+ * B73/B76: shorten declarations for tools that opt in. A host can register a
+ * tool with the same name as a builtin and supply its own contract.
  */
-const TINY_WINDOW_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = {
-  exec: 'Run a shell command (cwd does not persist; use absolute paths, no cd).',
-  read_file:
-    'Read a file with line numbers; page with offset (1-based) and limit. Do not copy the line numbers into edits.',
-  write_file: 'Create or overwrite a file with the full content.',
-  edit_file:
-    'Replace an exact string in an existing file. read_file it first; include no line-number prefixes.',
-  list_directory: 'List one directory level.',
-};
-
-export function tinyWindowToolDescription(name: string, description: string | undefined): string {
-  return TINY_WINDOW_TOOL_DESCRIPTIONS[name] ?? description ?? '';
+export function compactToolSchema<T extends Record<string, unknown>>(
+  schema: T,
+  keep: readonly string[] | undefined
+): T {
+  if (!keep?.length) return schema;
+  const properties = schema.properties;
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return schema;
+  const keys = new Set(keep);
+  if (keep.some((key) => !Object.hasOwn(properties, key))) return schema;
+  if (Array.isArray(schema.required) && schema.required.some((key) => !keys.has(key)))
+    return schema;
+  const pruned = Object.fromEntries(Object.entries(properties).filter(([key]) => keys.has(key)));
+  return { ...schema, properties: pruned };
 }
 
-/**
- * B73/B76: the wire schema is the other half of the declaration cost. On a tiny
- * window the exec/edit_file schemas spend most of their bytes advertising
- * optional modes (background runs, batched edits) that B71's small-context
- * guidance tells the model not to use. Keep the parameters a one-step-at-a-time
- * run needs; the tool still accepts the others when a caller passes them.
- */
-const TINY_WINDOW_TOOL_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
-  exec: ['command', 'timeout_ms'],
-  edit_file: ['path', 'old_string', 'new_string', 'replace_all'],
-  list_directory: ['path', 'depth'],
-};
-
-export function compactToolSchema(
-  name: string,
-  schema: Record<string, unknown> | undefined
-): Record<string, unknown> | undefined {
-  const keep = TINY_WINDOW_TOOL_PROPERTIES[name];
-  if (!keep || !schema || typeof schema !== 'object') return schema;
-  const properties = schema.properties;
-  if (!properties || typeof properties !== 'object') return schema;
-  const pruned: Record<string, unknown> = {};
-  for (const key of keep) {
-    const value = (properties as Record<string, unknown>)[key];
-    if (value !== undefined) pruned[key] = value;
-  }
-  const required = Array.isArray(schema.required)
-    ? schema.required.filter((key) => typeof key === 'string' && key in pruned)
-    : undefined;
+export function slimTinyWindowTool(tool: Tool): Tool {
+  const profile = tool.metadata?.smallWindow;
+  if (!profile) return tool;
+  const description = profile.tinyDescription;
   return {
-    ...schema,
-    properties: pruned,
-    ...(required && required.length > 0 ? { required } : { required: undefined }),
+    ...tool,
+    inputSchema: compactToolSchema(tool.inputSchema, profile.inputProperties),
+    // The provider prefers leanDescription even on the tiny surface.
+    ...(description
+      ? { description, metadata: { ...tool.metadata, leanDescription: description } }
+      : {}),
   };
 }
-
-/**
- * B76: the lean surface (<=64k windows) makes the same trade, so one helper
- * serves both tiers. Cursor's reduced-prompt tier and Claude's ToolSearch are
- * the observed precedents for spending fewer declaration bytes on constrained
- * surfaces; the per-window schema prune itself is Moss's extension.
- */
-export const tinyWindowToolSchema = compactToolSchema;

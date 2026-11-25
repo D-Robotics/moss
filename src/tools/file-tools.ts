@@ -271,6 +271,10 @@ export const readFileTool: Tool = {
   metadata: {
     leanDescription:
       'Read a workspace file; page with offset/limit. Line-number+tab prefixes are not content. Not for dirs, images or search.',
+    smallWindow: {
+      tinyDescription:
+        'Read a file with line numbers; page with offset (1-based) and limit. Do not copy the line numbers into edits.',
+    },
     classification: { singleCallExempt: true, discovery: true },
     maxResultTokens: 10_000,
     truncationHint: 'the dropped region is not in context — re-read only it with offset/limit',
@@ -417,6 +421,7 @@ export const writeFileTool: Tool = {
   metadata: {
     leanDescription:
       'Create or overwrite a file (dirs created); read an existing path first. Not for targeted edits (edit_file).',
+    smallWindow: { tinyDescription: 'Create or overwrite a file with the full content.' },
     classification: { singleCallExempt: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
@@ -966,6 +971,11 @@ export const editFileTool: Tool = {
   metadata: {
     leanDescription:
       'Replace exact unique strings in an existing file (read first); empty new_string deletes. Not for new files.',
+    smallWindow: {
+      tinyDescription:
+        'Replace an exact string in an existing file. read_file it first; include no line-number prefixes.',
+      inputProperties: ['path', 'old_string', 'new_string', 'replace_all'],
+    },
     classification: { singleCallExempt: true, surgicalEdit: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
@@ -1267,6 +1277,10 @@ export const listDirectoryTool: Tool = {
   metadata: {
     leanDescription:
       'List one directory (max depth 5). Not for finding names (search_files) or content (search_code).',
+    smallWindow: {
+      tinyDescription: 'List one directory level.',
+      inputProperties: ['path', 'depth'],
+    },
     classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',
