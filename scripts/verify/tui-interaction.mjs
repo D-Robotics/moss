@@ -686,11 +686,10 @@ if (process.platform === 'win32') {
   const withTools = (spec) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-clipboard-'));
     for (const [name, ending] of Object.entries(spec)) {
-      fs.writeFileSync(
-        path.join(dir, name),
-        `#!/bin/sh\ncat > "${dir}/${name}.stdin"\n${ending}\n`,
-        { mode: 0o755 }
-      );
+      const script = ending.startsWith('#!')
+        ? ending
+        : `#!/bin/sh\ncat > "${dir}/${name}.stdin"\n${ending}`;
+      fs.writeFileSync(path.join(dir, name), `${script}\n`, { mode: 0o755 });
     }
     process.env.PATH = `${dir}${path.delimiter}${originalPath}`;
     return dir;
@@ -713,7 +712,13 @@ if (process.platform === 'win32') {
   assert.ok(Date.now() - started < 3_000);
   ok('a tool that never exits is reported as timed out, and does not hang the shell');
 
-  withTools({});
+  // A tool that cannot run: its interpreter does not exist, so the spawn
+  // fails with ENOENT wherever this runs. The stand-ins stay first on PATH,
+  // so a machine that has the real xclip neither copies nor is touched.
+  withTools({
+    xclip: '#!/nonexistent/moss-probe-interpreter',
+    xsel: '#!/nonexistent/moss-probe-interpreter',
+  });
   assert.deepEqual(await session({ DISPLAY: ':0' }), {
     kind: 'failed',
     tool: 'xsel',
