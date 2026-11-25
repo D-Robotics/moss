@@ -2,6 +2,7 @@
 // Zero-quota OpenAI-compatible stub for TUI feel measurements.
 //   "longstream" -> ~90-line markdown answer streamed in 12-char deltas every 25ms
 //   "toolstorm"  -> 20 sequential list_directory calls, then a short answer
+//   "holdstream" -> one delta, then the stream stays open until POST /__tui-feel/release
 //   anything else -> one short answer
 import fs from 'node:fs';
 import http from 'node:http';
@@ -34,6 +35,8 @@ const done = (res) => {
 let seq = 0;
 let streamSeq = 0;
 const streams = new Map();
+// Responses of "holdstream" runs, finished by POST /__tui-feel/release.
+const held = new Set();
 const streamEvents = process.env.MOSS_TUI_FEEL_EVENTS;
 function recordStreamEvent(event) {
   if (streamEvents) fs.appendFileSync(streamEvents, `${JSON.stringify(event)}\n`);
@@ -68,10 +71,30 @@ const server = http
         res.end(JSON.stringify(event));
         return;
       }
+      if (req.url === '/__tui-feel/release') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ released: held.size }));
+        for (const stream of held) done(stream);
+        held.clear();
+        return;
+      }
       const messages = Array.isArray(body.messages) ? body.messages : [];
       const text = lastUser(messages);
       const toolResults = messages.filter((m) => m.role === 'tool').length;
       sse(res);
+      if (/holdstream/i.test(text)) {
+        send(res, {
+          choices: [
+            {
+              index: 0,
+              delta: { role: 'assistant', content: 'Holding the answer until released. ' },
+            },
+          ],
+        });
+        held.add(res);
+        res.on('close', () => held.delete(res));
+        return;
+      }
       if (/longstream/i.test(text)) {
         const pieces = LONG.match(/[\s\S]{1,12}/g) ?? [];
         const streamId = ++streamSeq;

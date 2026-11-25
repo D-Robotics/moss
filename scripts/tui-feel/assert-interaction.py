@@ -102,7 +102,7 @@ def type_line(session, text, settle=0.5):
 def queue_scenario():
     with Session(cols=100, rows=30) as s:
         s.wait_for_prompt()
-        s.submit("longstream", wait=1.2)
+        s.submit("holdstream", wait=1.2)
         check("queue: a run is streaming", "Working" in screen_text(s))
 
         type_line(s, "/queue second task")
@@ -148,10 +148,10 @@ def queue_scenario():
         )
         press(s, "ctrl+l")
         s.key("up")
-        s.pump(0.4)
+        recalled = s.wait_for(lambda: composer_text(s) == f"{PROMPT_GLYPH} sixth", 5)
         check(
             "queue: plain ↑ with an empty composer takes the newest back",
-            composer_text(s) == f"{PROMPT_GLYPH} sixth",
+            recalled,
             composer_text(s),
         )
 
@@ -171,7 +171,7 @@ def queue_scenario():
 
     with Session(cols=100, rows=30) as s:
         s.wait_for_prompt()
-        s.submit("longstream", wait=1.2)
+        s.submit("holdstream", wait=1.2)
         type_line(s, "/queue later one", settle=0.4)
         type_line(s, "/queue later two", settle=0.4)
         type_line(s, "/queue pause", settle=0.6)
@@ -190,8 +190,10 @@ def queue_scenario():
         type_line(s, "/queue later two", settle=0.4)
         type_line(s, "/queue resume", settle=0.5)
         check("queue: resume clears the paused row", "Queue paused" not in screen_text(s))
-        # The long stream ends on its own (~10s); the first queued line then
-        # runs, and the stub answers it with a short reply.
+        # The held stream ends when the stub is told to; the first queued line
+        # then runs, and the stub answers it with a short reply.
+        released = s.release_streams()
+        check("queue: the held run was still in flight before the release", released == 1, released)
         s.wait_for(lambda: "worked for" in screen_text(s), timeout=25)
         check(
             "queue: the queue drains when the run ends",

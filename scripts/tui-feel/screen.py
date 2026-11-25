@@ -331,6 +331,20 @@ class Session:
         finally:
             conn.close()
 
+    def release_streams(self):
+        """Finish every `holdstream` run the stub is holding open."""
+        conn = http.client.HTTPConnection("127.0.0.1", self.stub_port, timeout=5)
+        try:
+            conn.request("POST", "/__tui-feel/release", "{}",
+                         {"content-type": "application/json"})
+            response = conn.getresponse()
+            body = response.read(4096)
+            if response.status != 200:
+                raise RuntimeError(f"stub refused release: HTTP {response.status}")
+            return json.loads(body).get("released", 0)
+        finally:
+            conn.close()
+
     def stream_events(self):
         """Read complete local-stub stream lifecycle records, if any."""
         try:
