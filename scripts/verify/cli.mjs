@@ -44,6 +44,7 @@ import { stage as tinyWindowCliBootStage } from './stages/tiny-window-cli-boot.m
 import { stage as tinyWindowDiagnosticsStage } from './stages/tiny-window-diagnostics.mjs';
 import { stage as tinyWindowTuiNoticeStage } from './stages/tiny-window-tui-notice.mjs';
 import { stage as tuiFinishStage } from './stages/tui-finish.mjs';
+import { stage as tuiInteractionStage } from './stages/tui-interaction.mjs';
 import { stage as transcriptNoiseStage } from './stages/transcript-noise.mjs';
 import { stage as shellApprovalStage } from './stages/shell-approval.mjs';
 import { stage as deviceWorkspaceStage } from './stages/device-workspace.mjs';
@@ -161,6 +162,7 @@ const STAGES = new Map(
     tinyWindowDiagnosticsStage,
     tinyWindowTuiNoticeStage,
     tuiFinishStage,
+    tuiInteractionStage,
     transcriptNoiseStage,
     shellApprovalStage,
     deviceWorkspaceStage,
@@ -278,6 +280,7 @@ const FAST_GATE = [
   'tiny-window-diagnostics',
   'tiny-window-tui-notice',
   'tui-finish',
+  'tui-interaction',
   'transcript-noise',
   'shell-approval',
   'device-workspace',

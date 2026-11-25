@@ -171,6 +171,10 @@ export const ZH: Readonly<Record<string, string>> = {
   'Yes, and don’t ask again for file edits (saved)': '是，文件修改不再询问（已保存）',
   'keys paused — dialog just opened': '按键已暂停 — 对话框刚刚打开',
   'Press up to edit queued messages': '按 ↑ 编辑排队消息',
+  'Queue paused — /queue resume': '队列已暂停 — /queue resume',
+  '… +{count} more queued — /queue to list': '… 还有 {count} 条排队 — /queue 查看',
+  'Alt+↑ edits the newest · ↑ when the composer is empty':
+    'Alt+↑ 编辑最新一条 · 编辑器为空时按 ↑ 也可以',
   'ctrl+x ctrl+s to send now': 'ctrl+x ctrl+s 立即发送',
   '[Pasted text #{id} +{lines} lines]': '[粘贴文本 #{id} +{lines} 行]',
   'paste again to expand': '再次粘贴可展开',
@@ -335,7 +339,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'exit moss': '退出 moss',
   'start a new conversation with an empty context': '开始一段空上下文的新对话',
   'list background shell and sub-agent jobs': '列出后台终端与子代理任务',
-  'inspect or control the input queue': '查看或控制输入队列',
+  'queue a follow-up for after the run, or inspect and control the input queue':
+    '排队一条运行结束后再发的消息，或查看并控制输入队列',
   'inject a constraint into the live run': '向当前运行注入一条约束',
   'work until a condition is met; /goal clear cancels': '持续工作直到条件满足；`/goal clear` 取消',
   'AGENTS.md · {count} facts': 'AGENTS.md · {count} 条记忆',

@@ -292,6 +292,13 @@ import {
 import { selectionText, type SelectionPoint } from './selection.js';
 import { spawnProcess, runProcess } from '../../utils/run-process.js';
 import { filterHistory, renderHistoryRule, renderHistorySearch } from './history-search.js';
+import {
+  parseQueueCommand,
+  recallQueuedInput,
+  renderQueueChrome,
+  returnQueueToDraft,
+  type QueuedInput,
+} from './queue-view.js';
 import { renderPermissionsPanel, type PermissionPanelRule } from './permissions-panel.js';
 import { buildResumeReplay } from '../resume-replay.js';
 import { getPackageVersion } from '../package-info.js';
@@ -669,7 +676,7 @@ export function TuiAppRoot({
   const pendingDialogRef = useRef<PendingDialog | null>(null);
   /** Timer behind the D-7 two-press Ctrl+C quit confirmation. */
   const quitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const queueRef = useRef<Array<{ display: string; text: string; internal?: boolean }>>([]);
+  const queueRef = useRef<QueuedInput[]>([]);
   const queuePausedRef = useRef(false);
   /** Re-entry guard: draining a queued line must not start a second drain. */
   const drainingRef = useRef(false);
@@ -2666,17 +2673,17 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/queue' || text.startsWith('/queue ')) {
-        const sub = text.split(' ')[1] ?? 'list';
-        if (sub === 'pause') {
+        const command = parseQueueCommand(text.slice('/queue'.length).trim());
+        if (command.kind === 'pause') {
           queuePausedRef.current = true;
           setQueueRevision((n) => n + 1);
           printBlock('Queue', [tui('paused — new submissions wait')]);
-        } else if (sub === 'resume') {
+        } else if (command.kind === 'resume') {
           queuePausedRef.current = false;
           setQueueRevision((n) => n + 1);
           printBlock('Queue', [tui('resumed')]);
           if (!store.run.running && queueRef.current.length > 0) void drainQueue();
-        } else if (sub === 'drop') {
+        } else if (command.kind === 'drop') {
           const dropped = queueRef.current.shift();
           setQueueRevision((n) => n + 1);
           printBlock('Queue', [
@@ -2684,7 +2691,7 @@ export function TuiAppRoot({
               ? tui('dropped: {text}', { text: dropped.display.slice(0, 60) })
               : tui('queue empty'),
           ]);
-        } else if (sub === 'clear') {
+        } else if (command.kind === 'clear') {
           const count = queueRef.current.length;
           queueRef.current.length = 0;
           setQueueRevision((n) => n + 1);
@@ -2693,6 +2700,13 @@ export function TuiAppRoot({
               count,
             }),
           ]);
+        } else if (command.kind === 'enqueue') {
+          // An explicit follow-up: unlike Enter it never steers the live run.
+          // The rows above the composer are the confirmation.
+          queueRef.current.push({ display: command.text, text: command.text });
+          setQueueRevision((n) => n + 1);
+          // Idle, there is nothing to wait for: the line runs now.
+          if (!store.run.running && !drainingRef.current) void drainQueue();
         } else {
           // Block titles mirror command names, so they stay raw (`/queue`).
           printBlock(
@@ -3771,10 +3785,10 @@ export function TuiAppRoot({
       }
       if (abortRef.current) {
         if (queueRef.current.length > 0) {
-          const returned = queueRef.current.map((item) => item.display).join('\n');
-          queueRef.current = [];
+          // Interrupting never discards what the user queued: every line goes
+          // back into the composer, above a draft being typed.
+          setInput(returnQueueToDraft(queueRef.current, input));
           setQueueRevision((n) => n + 1);
-          if (input.length === 0) setInput(returned);
         }
         abortRef.current.abort();
         return;
@@ -3805,6 +3819,15 @@ export function TuiAppRoot({
       // A history walk keeps using Up/Down even when the recalled prompt is
       // multi-line. Otherwise the first multi-line entry traps the arrows.
       const walking = historyCursorRef.current.index !== undefined;
+      // Alt+↑ recalls the newest queued line even mid-draft (the draft stays
+      // below it); plain ↑ needs an empty composer so history recall and
+      // multi-line navigation keep their keys.
+      if (key.upArrow && key.meta && queueRef.current.length > 0 && !walking) {
+        const recalled = recallQueuedInput(queueRef.current, input);
+        setQueueRevision((n) => n + 1);
+        if (recalled !== undefined) setInput(recalled);
+        return;
+      }
       if (!walking && input.includes('\n')) {
         setComposer((current) =>
           composerMove(current, key.upArrow ? 'up' : 'down', Math.max(4, columns - 2))
@@ -3812,9 +3835,9 @@ export function TuiAppRoot({
         return;
       }
       if (key.upArrow && input.length === 0 && queueRef.current.length > 0 && !walking) {
-        const last = queueRef.current.pop();
+        const recalled = recallQueuedInput(queueRef.current, input);
         setQueueRevision((n) => n + 1);
-        if (last) setInput(last.display);
+        if (recalled !== undefined) setInput(recalled);
         return;
       }
       // Fullscreen has no terminal scrollback. Up/Down moves the transcript
@@ -4451,30 +4474,14 @@ export function TuiAppRoot({
     ...(historyCursor.index !== undefined
       ? [renderHistoryRule(historyCursor.index + 1, history.length, columns)]
       : []),
-    // Queued follow-ups sit directly above the composer so ↑ can take one back.
-    ...(!approval && queueRef.current.length > 0
-      ? [
-          ...queueRef.current.slice(0, 5).map((item, index) =>
-            line(
-              clip(
-                tui('  queued {n}. {text}', {
-                  n: index + 1,
-                  text: item.display.replace(/\s+/g, ' ').trim().slice(0, 72),
-                }),
-                columns
-              ),
-              { dim: true }
-            )
-          ),
-          line(clip(`  ${tui('Press up to edit queued messages')}`, columns), { dim: true }),
-          ...(running
-            ? [
-                line(clip(`  ${tui('queued — applies when this run finishes')}`, columns), {
-                  dim: true,
-                }),
-              ]
-            : []),
-        ]
+    // Queued follow-ups sit directly above the composer so ↑ / Alt+↑ can take
+    // the newest one back.
+    ...(!approval
+      ? renderQueueChrome(queueRef.current, {
+          width: columns,
+          running,
+          paused: queuePausedRef.current,
+        })
       : []),
     line(rule(columns), ruleTone),
   ];

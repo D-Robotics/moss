@@ -304,9 +304,8 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       },
       {
         command: '/queue',
-        args: '[pause|resume|drop|clear]',
-        description: 'inspect or control the input queue',
-        hidden: true,
+        args: '[<follow-up> | pause|resume|drop|clear]',
+        description: 'queue a follow-up for after the run, or inspect and control the input queue',
         // Mid-run input only exists in the TUI: the REPL cannot type while a
         // turn is running, so advertising these on the repl surface made the
         // catalog claim commands that answer "unknown command".

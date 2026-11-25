@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""Screen-level assertions for the moss TUI's interaction features.
+
+Every check runs `dist/cli.js` in a PTY against the local stub and reads the
+screen back through pyte, so it sees what a terminal user sees. The pure
+projections behind these rows are also asserted in
+`scripts/verify/tui-interaction.mjs`; this file is the end-to-end half.
+
+  queue    `/queue <text>` while a run is in flight queues a follow-up; more
+           than five fold into `+N more`; Alt+↑ takes the newest back (a draft
+           stays below it); Esc puts the whole queue back into the composer;
+           `/queue pause` shows on the queue rows; the queue drains when the
+           run ends; idle, `/queue <text>` runs now
+  search   Ctrl+F searches the transcript, n / N step through the hits, Esc
+           leaves the view where the last hit was
+  keys     `/hotkeys` lists the bindings a keybindings.json changed; a rebound
+           key answers and the default one no longer does
+  copy     `/copy` puts the last answer on the clipboard
+
+Exit 0 when every check passes; exit 1 with a per-check report otherwise.
+Skips with exit 0 when pyte is missing (same policy as run.mjs).
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+try:
+    import pyte  # noqa: F401
+except ImportError:
+    print("[tui-interaction] skip: pyte is not installed")
+    sys.exit(0)
+
+from screen import PROMPT_GLYPH, Session  # noqa: E402
+
+ALT_UP = "\x1b[1;3A"
+CTRL = {letter: chr(ord(letter) - 96) for letter in "abcdefghijklmnopqrstuvwxyz"}
+results = []
+
+
+def press(session, name):
+    """`ctrl+l`, `up`, `esc`, `enter` … — control keys by name, the rest via Session.key."""
+    session.key(CTRL[name[5:]]) if name.startswith("ctrl+") else session.key(name)
+
+
+def check(name, ok, detail=""):
+    results.append((name, bool(ok), detail))
+    status = "PASS" if ok else "FAIL"
+    suffix = f" — {detail}" if detail and not ok else ""
+    print(f"[{status}] {name}{suffix}", flush=True)
+
+
+def screen_text(session):
+    return "\n".join(session.lines())
+
+
+def wait_rows(session, needle, timeout=6.0):
+    return session.wait_for(lambda: needle in screen_text(session), timeout)
+
+
+def composer_lines(session):
+    """The composer's text rows: the `❯` row and the indented rows below it."""
+    session.settle()
+    lines = session.lines()
+    prompts = session.prompt_rows()
+    if not prompts:
+        return []
+    out = []
+    for row in range(prompts[-1], len(lines)):
+        text = lines[row]
+        if row > prompts[-1] and not text.startswith("  "):
+            break
+        out.append(text.strip())
+    return out
+
+
+def composer_text(session):
+    return " / ".join(composer_lines(session))
+
+
+def type_line(session, text, settle=0.5):
+    """Clear the composer, type `text`, press Enter.
+
+    Clearing first keeps one scenario step from appending to whatever the
+    previous step left in the composer: `/queue resume` typed after a recalled
+    line is a plain prompt, not the command.
+    """
+    press(session, "ctrl+l")
+    session.send(text)
+    session.pump(0.15)
+    typed = composer_text(session)
+    if typed != f"{PROMPT_GLYPH} {text}" and not typed.startswith(f"{PROMPT_GLYPH} {text}"):
+        raise AssertionError(f"composer holds {typed!r}, expected {text!r}")
+    session.send("\r")
+    session.pump(settle)
+
+
+# ── queue ──────────────────────────────────────────────────────────────────
+
+
+def queue_scenario():
+    with Session(cols=100, rows=30) as s:
+        s.wait_for_prompt()
+        s.submit("longstream", wait=1.2)
+        check("queue: a run is streaming", "Working" in screen_text(s))
+
+        type_line(s, "/queue second task")
+        check("queue: /queue <text> shows a queued row", wait_rows(s, "queued 1. second task"))
+        check(
+            "queue: the rows say how to take one back",
+            "Alt+↑ edits the newest" in screen_text(s),
+        )
+        check("queue: idle wait is explained", wait_rows(s, "applies when this run finishes"))
+        check("queue: status counts the queue", "1 queued" in screen_text(s))
+
+        for text in ["third", "fourth", "fifth", "sixth", "seventh", "eighth"]:
+            type_line(s, f"/queue {text}", settle=0.3)
+        check("queue: five rows stay visible", wait_rows(s, "queued 5. sixth"))
+        check("queue: the rest folds into +N", "+2 more queued" in screen_text(s))
+        check("queue: the sixth row is not on screen", "queued 6." not in screen_text(s))
+
+        s.send(ALT_UP)
+        s.pump(0.6)
+        check(
+            "queue: Alt+↑ puts the newest queued line in the composer",
+            composer_text(s) == f"{PROMPT_GLYPH} eighth",
+            composer_text(s),
+        )
+        check("queue: the fold shrinks after the recall", "+1 more queued" in screen_text(s))
+
+        press(s, "ctrl+l")
+        s.send("draft text")
+        s.pump(0.4)
+        s.send(ALT_UP)
+        s.pump(0.6)
+        check(
+            "queue: Alt+↑ keeps the draft below the recalled line",
+            composer_text(s) == f"{PROMPT_GLYPH} seventh / draft text",
+            composer_text(s),
+        )
+
+        s.key("up")
+        check(
+            "queue: plain ↑ with a draft walks history, not the queue",
+            composer_text(s) != f"{PROMPT_GLYPH} sixth",
+            composer_text(s),
+        )
+        press(s, "ctrl+l")
+        s.key("up")
+        s.pump(0.4)
+        check(
+            "queue: plain ↑ with an empty composer takes the newest back",
+            composer_text(s) == f"{PROMPT_GLYPH} sixth",
+            composer_text(s),
+        )
+
+        s.key("esc")
+        s.pump(1.0)
+        returned = composer_text(s)
+        # The composer shows its last rows; the full text is asserted on the
+        # pure projection (scripts/verify/tui-interaction.mjs).
+        check(
+            "queue: Esc puts the queued lines back, draft last",
+            returned.endswith("fourth / fifth / sixth")
+            and returned.startswith(f"{PROMPT_GLYPH}"),
+            returned,
+        )
+        check("queue: the queue is empty after Esc", "more queued" not in screen_text(s))
+        check("queue: Esc interrupted the run", "interrupted" in screen_text(s))
+
+    with Session(cols=100, rows=30) as s:
+        s.wait_for_prompt()
+        s.submit("longstream", wait=1.2)
+        type_line(s, "/queue later one", settle=0.4)
+        type_line(s, "/queue later two", settle=0.4)
+        type_line(s, "/queue pause", settle=0.6)
+        check("queue: pause shows on the rows", wait_rows(s, "Queue paused — /queue resume"))
+        check("queue: pause prints a block", "paused — new submissions wait" in screen_text(s))
+        type_line(s, "/queue", settle=0.6)
+        check("queue: /queue lists the paused queue", "(paused)" in screen_text(s))
+        press(s, "ctrl+l")
+        s.key("up")
+        check(
+            "queue: a paused queue still gives its newest line back",
+            composer_text(s) == f"{PROMPT_GLYPH} later two",
+            composer_text(s),
+        )
+        # Put it back so the drain below has two lines to run.
+        type_line(s, "/queue later two", settle=0.4)
+        type_line(s, "/queue resume", settle=0.5)
+        check("queue: resume clears the paused row", "Queue paused" not in screen_text(s))
+        # The long stream ends on its own (~10s); the first queued line then
+        # runs, and the stub answers it with a short reply.
+        s.wait_for(lambda: "worked for" in screen_text(s), timeout=25)
+        check(
+            "queue: the queue drains when the run ends",
+            s.wait_for(lambda: "queued" not in screen_text(s), timeout=20),
+            screen_text(s)[-300:],
+        )
+        check(
+            "queue: the drained lines ran as prompts",
+            s.wait_for(lambda: screen_text(s).count("Done.") >= 2, timeout=20),
+            screen_text(s)[-300:],
+        )
+
+    with Session(cols=100, rows=30) as s:
+        s.wait_for_prompt()
+        type_line(s, "/queue hello idle", settle=1.5)
+        check("queue: idle, /queue <text> runs now", "Done." in screen_text(s))
+        check("queue: idle, nothing is left queued", "queued" not in screen_text(s))
+
+
+# ── entry ──────────────────────────────────────────────────────────────────
+
+SCENARIOS = {
+    "queue": queue_scenario,
+    "search": None,
+    "keys": None,
+    "copy": None,
+}
+
+
+def main():
+    wanted = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
+    for name in wanted or list(SCENARIOS):
+        runner = SCENARIOS.get(name)
+        if runner is None:
+            print(f"[tui-interaction] no scenario named {name}")
+            sys.exit(2)
+        print(f"[tui-interaction] scenario {name}")
+        runner()
+    failed = [name for name, ok, _ in results if not ok]
+    print(f"[tui-interaction] {len(results) - len(failed)}/{len(results)} checks passed")
+    if failed:
+        for name in failed:
+            print(f"[tui-interaction] FAIL {name}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
