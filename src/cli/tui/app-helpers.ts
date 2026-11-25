@@ -251,6 +251,7 @@ export function inkTextStyle(style: {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  inverse?: boolean;
   dim?: boolean;
 }): Record<string, unknown> {
   const color = paintColor(style.color);
@@ -259,6 +260,7 @@ export function inkTextStyle(style: {
     ...(style.bold ? { bold: true } : {}),
     ...(style.italic ? { italic: true } : {}),
     ...(style.underline ? { underline: true } : {}),
+    ...(style.inverse ? { inverse: true } : {}),
     ...(style.dim ? { dimColor: true } : {}),
   };
 }

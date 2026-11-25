@@ -11,8 +11,9 @@ projections behind these rows are also asserted in
            stays below it); Esc puts the whole queue back into the composer;
            `/queue pause` shows on the queue rows; the queue drains when the
            run ends; idle, `/queue <text>` runs now
-  search   Ctrl+F searches the transcript, n / N step through the hits, Esc
-           leaves the view where the last hit was
+  search   Ctrl+F searches the transcript; Enter and ↓ go to the next hit, ↑ and
+           Shift+Enter to the previous one; Esc leaves the view on the hit and
+           the draft in the composer; Ctrl+F again resumes the query
   keys     `/hotkeys` lists the bindings a keybindings.json changed; a rebound
            key answers and the default one no longer does
   copy     `/copy` puts the last answer on the clipboard
@@ -384,11 +385,184 @@ def copy_scenario():
         check("copy: the clipboard now holds the second answer", again, clipboard_text(s))
 
 
+# ── search ─────────────────────────────────────────────────────────────────
+
+SEARCH_PROMPT = "searchmark"
+NEEDLE = "Here is the needle."
+SEARCH_HINT = "type to search"
+# The stub puts the needle on paragraphs 4, 24 and 34 of sixty, one paragraph per row.
+NEEDLE_ROWS = ("04", "24", "34")
+SHIFT_ENTER = "\x1b[13;2u"
+
+
+def needle_row(session, paragraph):
+    """The screen row holding paragraph `paragraph` with the needle, if shown."""
+    return next(
+        (
+            row
+            for row, text in enumerate(session.lines())
+            if f"Paragraph {paragraph}" in text and NEEDLE in text
+        ),
+        None,
+    )
+
+
+def bar_text(session):
+    """The two rows of the search bar joined: `⌕ needle 1 of 3 · …`."""
+    lines = session.lines()
+    for row, text in enumerate(lines):
+        if text.startswith("⌕"):
+            return f"{text.strip()} {' '.join(line.strip() for line in lines[row + 1 : row + 2])}"
+    return ""
+
+
+def wait_bar(session, expected, timeout=6.0):
+    return session.wait_for(lambda: expected in bar_text(session), timeout)
+
+
+def marked(session, attr):
+    """What the screen prints with the character attribute `attr`
+    (`reverse` or `underline` is `underscore` in pyte): one string per row."""
+    buffer = session.screen.buffer
+    out = []
+    for row in sorted(buffer):
+        run = "".join(
+            char.data for _, char in sorted(buffer[row].items()) if getattr(char, attr)
+        )
+        if run:
+            out.append(run)
+    return out
+
+
+def search_scenario():
+    with Session(cols=100, rows=30) as s:
+        s.wait_for_prompt()
+        s.submit(SEARCH_PROMPT, wait=1.5)
+        s.wait_for(lambda: "worked for" in screen_text(s), 25)
+        check("search: the answer scrolls", "Paragraph 60" in screen_text(s), screen_text(s)[-300:])
+        check(
+            "search: the needle is off screen before the search",
+            not any(NEEDLE in row for row in s.lines()),
+        )
+        # A draft in the composer must survive the search untouched.
+        s.send("draft words")
+        s.pump(0.5)
+        check("search: the composer holds a draft", composer_text(s) == f"{PROMPT_GLYPH} draft words", composer_text(s))
+
+        press(s, "ctrl+f")
+        check("search: Ctrl+F opens the bar", wait_rows(s, SEARCH_HINT))
+        check("search: the bar says how to step and close", "Esc close" in bar_text(s), bar_text(s))
+        check(
+            "search: Ctrl+F left the draft alone",
+            "draft words" in screen_text(s) and not any(row.startswith("⌕ draft") for row in s.lines()),
+        )
+
+        s.send("needle")
+        check("search: typing searches the transcript", wait_bar(s, "⌕ needle 1 of 3"), bar_text(s))
+        check(
+            "search: the view jumps to the first hit, from the bottom of a long answer",
+            s.wait_for(lambda: needle_row(s, NEEDLE_ROWS[0]) is not None, 8),
+            screen_text(s)[-300:],
+        )
+        row = needle_row(s, NEEDLE_ROWS[0])
+        check("search: the hit is centred, not on the edge", row is not None and 4 <= row <= s.rows - 5, row)
+        check(
+            "search: the hit row's text is unchanged by the highlight",
+            s.lines()[row].strip() == f"Paragraph {NEEDLE_ROWS[0]} of the search transcript. {NEEDLE}",
+            s.lines()[row] if row is not None else None,
+        )
+        check("search: the hit the reader is on is inverted", "needle" in "".join(marked(s, "reverse")), marked(s, "reverse"))
+        check("search: nothing on screen is inverted besides the hit", "".join(marked(s, "reverse")).strip("needle") == "", marked(s, "reverse"))
+
+        press(s, "enter")
+        check("search: Enter goes to the next hit", wait_bar(s, "⌕ needle 2 of 3"), bar_text(s))
+        check("search: the view follows Enter", wait_rows(s, f"Paragraph {NEEDLE_ROWS[1]} of the search transcript. {NEEDLE}"))
+        check("search: the first hit is off screen now", needle_row(s, NEEDLE_ROWS[0]) is None)
+        press(s, "enter")
+        check("search: Enter again reaches the third hit", wait_bar(s, "⌕ needle 3 of 3"), bar_text(s))
+        press(s, "enter")
+        check("search: Enter past the last hit wraps to the first", wait_bar(s, "⌕ needle 1 of 3"), bar_text(s))
+
+        s.key("up")
+        check("search: ↑ goes back, wrapping past the first", wait_bar(s, "⌕ needle 3 of 3"), bar_text(s))
+        s.key("down")
+        check("search: ↓ goes forward", wait_bar(s, "⌕ needle 1 of 3"), bar_text(s))
+        s.send(SHIFT_ENTER)
+        check("search: Shift+Enter goes back", s.wait_for(lambda: "⌕ needle 3 of 3" in bar_text(s), 6), bar_text(s))
+        press(s, "enter")
+
+        s.key("esc")
+        s.pump(0.6)
+        check("search: Esc closes the bar", "Esc close" not in screen_text(s) and not any(row.startswith("⌕") for row in s.lines()))
+        check("search: Esc leaves the view on the hit", needle_row(s, NEEDLE_ROWS[0]) is not None)
+        check("search: the mark is gone with the bar", "".join(marked(s, "reverse")) == "", marked(s, "reverse"))
+        check("search: Esc leaves the draft alone", composer_text(s) == f"{PROMPT_GLYPH} draft words", composer_text(s))
+        s.send(" more")
+        s.pump(0.5)
+        check("search: after Esc typing goes to the composer again", composer_text(s) == f"{PROMPT_GLYPH} draft words more", composer_text(s))
+
+        # Ctrl+F again resumes the query on the hit it was left on, selected.
+        press(s, "ctrl+f")
+        check("search: Ctrl+F resumes the query", wait_bar(s, "⌕ needle 1 of 3"), bar_text(s))
+        check(
+            "search: the resumed query is shown selected, the hit still marked",
+            marked(s, "reverse") == ["needle", "needle"],
+            marked(s, "reverse"),
+        )
+        check("search: the hint says typing replaces the selection", "type to replace" in bar_text(s), bar_text(s))
+        s.send("zz")
+        check("search: typing replaces a selected query", wait_bar(s, "⌕ zz no match"), bar_text(s))
+        check("search: the selection is gone once the query changes", "".join(marked(s, "reverse")) == "", marked(s, "reverse"))
+        press(s, "ctrl+u")
+        check("search: Ctrl+U clears the query", wait_bar(s, "⌕ type to search"), bar_text(s))
+        s.send("need")
+        check("search: a new query can be typed after clearing", wait_bar(s, "⌕ need 1 of 3"), bar_text(s))
+        s.send("zz")
+        check("search: a query without hits says so", wait_bar(s, "⌕ needzz no match"), bar_text(s))
+        check("search: nothing is marked without hits", "".join(marked(s, "reverse")) == "", marked(s, "reverse"))
+        s.key("\x7f")
+        s.key("\x7f")
+        check("search: the hits come back when the query is repaired", wait_bar(s, "⌕ need 1 of 3"), bar_text(s))
+        s.key("\x7f")
+        check("search: Backspace edits a query that is not selected", wait_bar(s, "⌕ nee 1 of 3"), bar_text(s))
+        s.key("esc")
+        s.pump(0.6)
+        press(s, "ctrl+f")
+        check("search: Ctrl+F resumes the repaired query, selected", wait_bar(s, "⌕ nee 1 of 3"), bar_text(s))
+        s.key("\x7f")
+        check("search: Backspace clears a selected query", wait_bar(s, "⌕ type to search"), bar_text(s))
+        s.key("esc")
+        s.pump(0.6)
+        check("search: the draft outlives the whole search", composer_text(s) == f"{PROMPT_GLYPH} draft words more", composer_text(s))
+
+    # Searching during a run neither interrupts it nor steals the stream.
+    with Session(cols=100, rows=30) as s:
+        s.wait_for_prompt()
+        s.submit("holdstream", wait=1.2)
+        check("search: a run is streaming", "Working" in screen_text(s))
+        press(s, "ctrl+f")
+        check("search: Ctrl+F works during a run", wait_rows(s, SEARCH_HINT))
+        s.send("Holding")
+        check("search: the bar counts hits during a run", wait_bar(s, "⌕ Holding 1 of 1"), bar_text(s))
+        s.key("esc")
+        s.pump(0.6)
+        released = s.release_streams()
+        check("search: closing the bar left the run in flight", released == 1, released)
+
+    # The inline renderer has no bar: the key says why instead of staying silent.
+    with Session(cols=100, rows=30, renderer="inline") as s:
+        s.wait_for_prompt()
+        press(s, "ctrl+f")
+        shown = s.wait_for(lambda: "find works in the fullscreen view" in screen_text(s), 8)
+        check("search: the inline view explains why Ctrl+F does nothing", shown, screen_text(s)[-300:])
+        check("search: the inline view opens no bar", not any(row.startswith("⌕") for row in s.lines()))
+
+
 # ── entry ──────────────────────────────────────────────────────────────────
 
 SCENARIOS = {
     "queue": queue_scenario,
-    "search": None,
+    "search": search_scenario,
     "keys": keys_scenario,
     "copy": copy_scenario,
 }

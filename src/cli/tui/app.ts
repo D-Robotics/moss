@@ -201,7 +201,7 @@ import {
   runStatusLineCommand,
   type StatusCommandPayload,
 } from '../status-line.js';
-import { clip, line, padEndTo, rule, wrap, type TuiLine } from './text.js';
+import { clip, line, padEndTo, prevGraphemeIndex, rule, wrap, type TuiLine } from './text.js';
 import { displayWidth } from '../terminal-text.js';
 import {
   chatInterruptNoticeLine,
@@ -236,6 +236,7 @@ import {
   moveTranscript,
   scrollThumb,
   scrollViewport,
+  viewportAtLine,
   viewportAtRatio,
   viewportWindow,
   type ViewportLine,
@@ -292,6 +293,15 @@ import {
 import { selectionText, type SelectionPoint } from './selection.js';
 import { spawnProcess, runProcess } from '../../utils/run-process.js';
 import { filterHistory, renderHistoryRule, renderHistorySearch } from './history-search.js';
+import {
+  findMatches,
+  highlightMatch,
+  renderTranscriptSearch,
+  searchText,
+  visibleText,
+  type SearchMatch,
+  type TranscriptSearch,
+} from './search.js';
 import {
   parseQueueCommand,
   recallQueuedInput,
@@ -651,6 +661,15 @@ export function TuiAppRoot({
   const [historySearch, setHistorySearch] = useState<{ query: string; cursor: number } | undefined>(
     undefined
   );
+  /**
+   * Ctrl+F transcript search: `{ query, current }` while the bar is open.
+   * `current` indexes the hits of the frame. The last search outlives Esc, so
+   * Ctrl+F again resumes it on the hit it was left on.
+   */
+  const [transcriptSearch, setTranscriptSearch] = useState<TranscriptSearch | undefined>(undefined);
+  const lastSearchRef = useRef<TranscriptSearch | undefined>(undefined);
+  /** Hits of the last frame, for the key handler: it runs before the next render. */
+  const searchHitsRef = useRef<SearchMatch[]>([]);
   /** Boot session picker (`moss resume` on a TTY): query + cursor overlay. */
   const [sessionPicker, setSessionPicker] = useState<{ query: string; cursor: number } | undefined>(
     options.resumePicker ? { query: '', cursor: 0 } : undefined
@@ -3125,6 +3144,50 @@ export function TuiAppRoot({
   );
 
   const osc11FilterRef = useRef(createOsc11ReplyFilter());
+  // ── transcript search (Ctrl+F) ───────────────────────────────────────────
+  /**
+   * Show the hit the reader is on: the window is centred on it and is no
+   * longer pinned to the bottom.
+   */
+  const showSearchHit = (state: TranscriptSearch, hits: SearchMatch[]): void => {
+    // The selection is how a resumed search opens, not something to resume to.
+    lastSearchRef.current = { query: state.query, current: state.current };
+    setTranscriptSearch(lastSearchRef.current);
+    const hit = hits[Math.min(Math.max(0, state.current), hits.length - 1)];
+    if (!hit) return;
+    setViewport(
+      viewportAtLine(
+        projectedFullRef.current,
+        Math.max(1, mouseLayoutRef.current.viewportRows),
+        hit.line
+      )
+    );
+  };
+
+  /**
+   * A changed query starts at the first hit at or below the hit the reader is
+   * on, or the top of the window with no hit yet: the search starts where they
+   * are reading. Past the last hit it wraps to the first one, like less does.
+   */
+  const editSearchQuery = (text: string): void => {
+    const query = searchText(text);
+    const lines = projectedFullRef.current;
+    const hits = findMatches(
+      lines.map((entry) => visibleText(entry.text)),
+      query
+    );
+    const previous =
+      searchHitsRef.current[
+        Math.min(Math.max(0, transcriptSearch?.current ?? -1), searchHitsRef.current.length - 1)
+      ];
+    const anchor =
+      previous?.line ??
+      viewportWindow(lines, viewport, Math.max(1, mouseLayoutRef.current.viewportRows)).start;
+    let current = hits.findIndex((hit) => hit.line >= anchor);
+    if (current < 0) current = 0;
+    showSearchHit({ query, current }, hits);
+  };
+
   useInput((chunk, key) => {
     const control = Boolean(
       key.return ||
@@ -3429,7 +3492,7 @@ export function TuiAppRoot({
     // Every registry command runs from here, so a command reaches the same
     // code whether it sits on a Ctrl letter (the block below) or on a key the
     // user chose (`Alt+↑`, `F3`, …). Returns whether the key was consumed.
-    const runShellCommand = (command: ShellCommand | undefined, letter: string): boolean => {
+    const runKeyCommand = (command: ShellCommand | undefined, letter: string): boolean => {
       if (command === 'edit.attachClipboard') {
         // Ctrl+V: the clipboard is read here (async) and an image is staged under
         // .moss/runtime/attachments; the composer gets an @path the model opens
@@ -3480,6 +3543,18 @@ export function TuiAppRoot({
       if (command === 'history.search') {
         // A2.22: readline/reference muscle memory — search earlier prompts.
         setHistorySearch({ query: '', cursor: 0 });
+        return true;
+      }
+      if (command === 'view.search') {
+        if (approval || helpOverlay) return true;
+        if (!fullscreen) {
+          setStatusLine(tui('find works in the fullscreen view'));
+          return true;
+        }
+        // A resumed search shows its earlier query, selected. The viewport is
+        // left alone: the layout still describes the frame without the bar.
+        const resumed = lastSearchRef.current;
+        setTranscriptSearch(resumed ? { ...resumed, selected: true } : { query: '', current: -1 });
         return true;
       }
       if (command === 'queue.recall') {
@@ -3826,6 +3901,61 @@ export function TuiAppRoot({
       return;
     }
 
+    if (transcriptSearch) {
+      // The Ctrl+F bar owns the keyboard: typing searches, Enter and ↓ go to
+      // the next hit, Shift+Enter and ↑ to the previous one, Ctrl+U clears the
+      // query, and Esc closes the bar while the viewport stays on the hit. A
+      // resumed query arrives selected: typing replaces it, Backspace clears it.
+      const query = transcriptSearch.query;
+      const selected = transcriptSearch.selected === true;
+      const step = (delta: number): void => {
+        const hits = searchHitsRef.current;
+        if (hits.length === 0) return;
+        const total = hits.length;
+        const from = Math.min(Math.max(0, transcriptSearch.current), total - 1);
+        showSearchHit({ query, current: (from + delta + total) % total }, hits);
+      };
+      if (key.escape) {
+        setTranscriptSearch(undefined);
+        return;
+      }
+      if (key.return && (key.shift || key.meta)) {
+        step(-1);
+        return;
+      }
+      if (key.return || key.downArrow) {
+        step(1);
+        return;
+      }
+      if (key.upArrow) {
+        step(-1);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        // ink reports one key per read, so this deletes one character, exactly
+        // like the composer does.
+        editSearchQuery(selected ? '' : query.slice(0, prevGraphemeIndex(query, query.length)));
+        return;
+      }
+      if (key.ctrl && chunk === 'u') {
+        editSearchQuery('');
+        return;
+      }
+      if (
+        typeof chunk === 'string' &&
+        chunk &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.tab &&
+        !chunk.startsWith('\x1b') &&
+        !/[\r\n]/.test(chunk)
+      ) {
+        editSearchQuery(`${selected ? '' : query}${chunk}`);
+        return;
+      }
+      return;
+    }
+
     if (mentionOpen) {
       if (key.upArrow || key.downArrow) {
         setMentionCursor((current) =>
@@ -3941,7 +4071,7 @@ export function TuiAppRoot({
       const spec = keyEventSpec(key, chunk);
       const bound =
         spec && !/^ctrl\+[a-z]$/.test(spec) ? commandForKey(keymap.bindings, spec) : undefined;
-      if (bound && runShellCommand(bound, '')) return;
+      if (bound && runKeyCommand(bound, '')) return;
     }
     if (key.return) {
       // Shift/Alt+Enter inserts a newline; a trailing backslash is the classic
@@ -4087,7 +4217,7 @@ export function TuiAppRoot({
       const letter = code >= 1 && code <= 26 ? String.fromCharCode(code + 96) : chunk.toLowerCase();
       // The registry (keymap.ts) owns every action key; `x` is the chord prefix
       // (Ctrl+X Ctrl+S) and stays a plain letter.
-      runShellCommand(commandForKey(keymap.bindings, `ctrl+${letter}`), letter);
+      runKeyCommand(commandForKey(keymap.bindings, `ctrl+${letter}`), letter);
       return;
     }
     // NB: key.shift must NOT be in this guard — ink reports shift=true for
@@ -4143,6 +4273,14 @@ export function TuiAppRoot({
   });
 
   usePaste((text) => {
+    // The Ctrl+F bar takes the paste as its query, on one line, in place of a
+    // selected query.
+    if (transcriptSearch) {
+      editSearchQuery(
+        `${transcriptSearch.selected ? '' : transcriptSearch.query}${text.replace(/\s+/g, ' ')}`
+      );
+      return;
+    }
     lastEditAtRef.current = Date.now();
     setComposer((current) => {
       const doc = insertPaste(
@@ -4435,6 +4573,23 @@ export function TuiAppRoot({
         ]
       : [];
   const statusRight = renderStatusRight(status, columns);
+  // The bar counts the hits of the last painted frame; the viewport marks the
+  // hits of this one, computed once the projection is built below.
+  const searchHitsShown = transcriptSearch
+    ? findMatches(
+        projectedFullRef.current.map((entry) => visibleText(entry.text)),
+        transcriptSearch.query
+      )
+    : [];
+  const transcriptSearchOverlay = transcriptSearch
+    ? renderTranscriptSearch(
+        transcriptSearch.query,
+        Math.min(Math.max(0, transcriptSearch.current), Math.max(0, searchHitsShown.length - 1)),
+        searchHitsShown.length,
+        columns,
+        transcriptSearch.selected === true
+      )
+    : [];
   const chromeTop: TuiLine[] = [
     // D-13: the dialog gets a height budget (terminal rows minus the rest of the
     // pinned chrome and any extra composer rows) so a short terminal can never
@@ -4491,6 +4646,7 @@ export function TuiAppRoot({
     ...(!approval && !helpOverlay ? palette : []),
     ...(!approval && !helpOverlay ? sessionPickerOverlay : []),
     ...(!approval && !helpOverlay ? historySearchOverlay : []),
+    ...(!approval && !helpOverlay ? transcriptSearchOverlay : []),
     ...(!approval && !helpOverlay ? mentions : []),
     ...(!helpOverlay && setupView
       ? [
@@ -4606,6 +4762,26 @@ export function TuiAppRoot({
   }
   projectedFullRef.current = projected;
   viewportLinesRef.current = projected.length;
+  // Hits of the open search, every frame on purpose: rows fold and stream
+  // while the bar is open.
+  const searchHits = transcriptSearch
+    ? findMatches(
+        projected.map((entry) => visibleText(entry.text)),
+        transcriptSearch.query
+      )
+    : [];
+  searchHitsRef.current = searchHits;
+  const searchIndex =
+    transcriptSearch && searchHits.length > 0
+      ? Math.min(Math.max(0, transcriptSearch.current), searchHits.length - 1)
+      : -1;
+  const currentHit = searchIndex >= 0 ? searchHits[searchIndex] : undefined;
+  const searchHitsByLine = new Map<number, SearchMatch[]>();
+  for (const hit of searchHits) {
+    const group = searchHitsByLine.get(hit.line);
+    if (group) group.push(hit);
+    else searchHitsByLine.set(hit.line, [hit]);
+  }
   const view = fullscreen
     ? viewportWindow(projected, viewport, frameLayout.viewportRows)
     : undefined;
@@ -4672,7 +4848,8 @@ export function TuiAppRoot({
   // Overlay query boxes (Ctrl+R search, the session picker) take the hardware
   // cursor at the end of their query, the same way the composer does.
   const overlayQueryRow = chromeTop.findIndex((entry) => entry.text.includes('⌕'));
-  const overlayQuery = overlayQueryRow >= 0 && Boolean(historySearch || sessionPicker);
+  const overlayQuery =
+    overlayQueryRow >= 0 && Boolean(historySearch || sessionPicker || transcriptSearch);
   // A selector (approval, model list, session list, permissions) owns the caret:
   // the hardware cursor sits on its `❯` row so IME and screen readers follow the
   // choice, the same way the composer and the search query do.
@@ -4834,7 +5011,10 @@ export function TuiAppRoot({
           const top = selected ? Math.min(selected.anchor.y, selected.head.y) : -1;
           const bottom = selected ? Math.max(selected.anchor.y, selected.head.y) : -1;
           const bar = barCells[index];
-          const body = entry.line ?? line(entry.text);
+          let body = entry.line ?? line(entry.text);
+          for (const hit of searchHitsByLine.get(view.start + index) ?? []) {
+            body = highlightMatch(body, hit.start, hit.end, hit === currentHit);
+          }
           // Runs are needed whenever the bar is drawn: a single row style would
           // paint the bar in the body's colour.
           const runs = body.runs?.length ? body.runs : [{ text: body.text }];

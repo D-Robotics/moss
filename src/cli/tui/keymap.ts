@@ -31,6 +31,7 @@ export type ShellCommand =
   | 'edit.yank'
   | 'edit.attachClipboard'
   | 'history.search'
+  | 'view.search'
   | 'editor.external'
   | 'draft.stash'
   | 'view.toggleVerbose'
@@ -67,6 +68,7 @@ export const DEFAULT_KEYBINDINGS: readonly KeyBinding[] = [
   binding('edit.yank', ['ctrl+y'], 'paste deleted text'),
   binding('edit.attachClipboard', ['ctrl+v'], 'attach clipboard image (staged for read_image)'),
   binding('history.search', ['ctrl+r'], 'search your earlier prompts'),
+  binding('view.search', ['ctrl+f'], 'search the transcript'),
   binding('editor.external', ['ctrl+g'], 'edit the draft in $EDITOR'),
   binding('draft.stash', ['ctrl+s'], 'stash the draft · press again to bring it back'),
   binding('view.toggleVerbose', ['ctrl+o'], 'detailed transcript (full output, reasoning)'),

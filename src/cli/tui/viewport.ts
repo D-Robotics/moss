@@ -60,6 +60,29 @@ export interface ViewportWindow {
   unread: number;
 }
 
+/**
+ * The window that shows visual line `index`, centred when the transcript is
+ * long enough to leave room above and below it. A transcript search jumps to
+ * its hit with this.
+ */
+export function viewportAtLine(
+  lines: readonly ViewportLine[],
+  viewportRows: number,
+  index: number
+): ViewportState {
+  const height = Math.max(1, viewportRows);
+  const total = lines.length;
+  if (total <= height) return pinViewport();
+  // Not clamped to the last start that leaves room to centre: a hit on the
+  // final rows must stay on screen, which pins the window to the bottom.
+  const start = Math.max(0, index - Math.floor(height / 2));
+  const offset = total - Math.min(total, start + height);
+  if (offset <= 0) return pinViewport();
+  const state: ViewportState = { offsetFromBottom: offset, pinned: false, total };
+  const top = lines[start];
+  return top ? { ...state, anchor: { rowId: top.rowId, lineIndex: top.lineIndex } } : state;
+}
+
 function anchorIndex(lines: readonly ViewportLine[], anchor: ViewportAnchor): number {
   return lines.findIndex(
     (line) => line.rowId === anchor.rowId && line.lineIndex === anchor.lineIndex

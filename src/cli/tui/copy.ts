@@ -270,6 +270,15 @@ export const ZH: Readonly<Record<string, string>> = {
   'delete to line start · paste deleted text': '删除到行首 · 粘贴已删除文本',
   'stash the draft · press again to bring it back': '暂存草稿 · 再按取回',
   'search your earlier prompts': '搜索早先的提示',
+  'search the transcript': '在对话记录中查找',
+  'type to search': '输入以搜索',
+  'no match': '没有匹配',
+  '{n} of {count}': '第 {n} 个，共 {count} 个',
+  'Enter ↓ next · ↑ previous · Esc close · Ctrl+U clear':
+    'Enter ↓ 下一个 · ↑ 上一个 · Esc 关闭 · Ctrl+U 清空',
+  'Enter ↓ next · ↑ previous · type to replace · Esc close':
+    'Enter ↓ 下一个 · ↑ 上一个 · 输入以替换 · Esc 关闭',
+  'find works in the fullscreen view': '查找只在全屏视图下可用',
   'edit the draft in $EDITOR': '用 $EDITOR 编辑草稿',
   'scroll the transcript': '滚动对话记录',
   'scroll the transcript · End jumps to the latest': '滚动对话记录 · 文末 跳到最新',

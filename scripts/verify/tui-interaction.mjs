@@ -403,4 +403,236 @@ assert.deepEqual([...copyRow.surfaces], ['tui']);
 assert.equal(copyRow.availableDuringRun, 'immediate');
 ok('the catalog advertises /copy on the TUI surface, mid-run');
 
+// ── transcript search ──────────────────────────────────────────────────────
+
+const search = await load('dist/cli/tui/search.js');
+const viewport = await load('dist/cli/tui/viewport.js');
+
+assert.equal(search.visibleText('plain'), 'plain');
+assert.equal(search.visibleText('\x1b[1mbold\x1b[0m'), 'bold');
+assert.equal(
+  search.visibleText('\x1b]8;;https://x.dev\x1b\\link text\x1b]8;;\x07after'),
+  'link textafter'
+);
+assert.equal(search.visibleText('a\x1b'), 'a');
+ok('visible text drops CSI, OSC 8 hyperlinks and a dangling escape');
+
+const lines = ['RDK X5 is a board.', 'rdk x5 again', 'no board here', 'rdk x5'];
+const spans = (found) => found.map(({ line, start, end }) => [line, start, end]);
+assert.deepEqual(spans(search.findMatches(lines, 'rdk x5')), [
+  [0, 0, 6],
+  [1, 0, 6],
+  [3, 0, 6],
+]);
+assert.deepEqual(
+  spans(search.findMatches(lines, 'RDK  X5')),
+  spans(search.findMatches(lines, 'rdk x5'))
+);
+assert.deepEqual(spans(search.findMatches(lines, 'board')), [
+  [0, 12, 17],
+  [2, 3, 8],
+]);
+assert.deepEqual(search.findMatches(lines, 'again no board'), [], 'a hit sits on one line');
+assert.deepEqual(search.findMatches(lines, ''), []);
+assert.deepEqual(search.findMatches(lines, '   '), []);
+assert.deepEqual(spans(search.findMatches(['rdk x5 rdk x5'], 'RDK')), [
+  [0, 0, 3],
+  [0, 7, 10],
+]);
+ok('find is literal and case-insensitive, every hit carries its line and offsets');
+
+// Offsets are UTF-16 positions and a character that lowercases to several
+// units must not shift the ones after it.
+assert.deepEqual(spans(search.findMatches(['İstanbul x'], 'X')), [[0, 9, 10]]);
+assert.deepEqual(spans(search.findMatches(['École x'], 'école')), [[0, 0, 5]]);
+assert.deepEqual(spans(search.findMatches(['a 👍 b'], '👍')), [[0, 2, 4]]);
+ok('offsets survive characters that fold wide or sit outside the BMP');
+
+const marked = search.highlightMatch(text.line('read file.rs now'), 5, 12, true);
+const runMarks = (painted) =>
+  painted.runs.map((run) => [
+    run.text,
+    run.inverse === true,
+    run.bold === true,
+    run.underline === true,
+  ]);
+assert.deepEqual(runMarks(marked), [
+  ['read ', false, false, false],
+  ['file.rs', true, true, false],
+  [' now', false, false, false],
+]);
+const styled = search.highlightMatch(
+  text.line('read file.rs now', { color: 'cyan', bold: true }),
+  5,
+  12,
+  false
+);
+assert.equal(styled.runs[1].color, 'cyan', 'a hit keeps its colour');
+assert.equal(styled.runs[1].underline, true);
+assert.equal(styled.runs[1].inverse, undefined, 'only the hit the reader is on is inverted');
+const emoji = search.highlightMatch(text.line('a👍b'), 1, 3, true);
+assert.deepEqual(runMarks(emoji).slice(1, 2), [['👍', true, true, false]]);
+ok('a hit is underlined or inverted, on whole characters, without losing its style');
+
+// A hyperlink is split around its label: the escapes stay, the label is marked.
+const open = '\x1b]8;;https://x.dev\x1b\\';
+const close = '\x1b]8;;\x1b\\';
+const linked = {
+  text: `see ${open}docs and${close} more`,
+  runs: [
+    { text: 'see ' },
+    { text: `${open}docs and${close} `, color: 'cyan' },
+    { text: 'more', italic: true },
+  ],
+};
+const paintedLink = search.highlightMatch(linked, 4, 12, false);
+assert.equal(paintedLink.text, linked.text, 'the line text is not rewritten');
+assert.equal(
+  search.visibleText(paintedLink.runs.map((run) => run.text).join('')),
+  'see docs and more'
+);
+assert.equal(
+  paintedLink.runs
+    .filter((run) => run.underline)
+    .map((run) => search.visibleText(run.text))
+    .join(''),
+  'docs and'
+);
+assert.ok(
+  paintedLink.runs.some((run) => run.text.startsWith(open)),
+  'the hyperlink opener is kept'
+);
+assert.ok(
+  paintedLink.runs.some((run) => run.text.includes(close)),
+  'the hyperlink closer is kept'
+);
+ok('a hit inside a hyperlink keeps the link and marks only its label');
+
+const bar = search.renderTranscriptSearch('', -1, 0, 80);
+assert.equal(bar[0].text, '⌕ ');
+assert.equal(
+  bar[1].text,
+  '  type to search · Enter ↓ next · ↑ previous · Esc close · Ctrl+U clear'
+);
+// Every variant of the hint row fits 80 columns, so no key is ever clipped.
+for (const variant of [
+  bar,
+  search.renderTranscriptSearch('x', 1, 3, 80),
+  search.renderTranscriptSearch('needle', 0, 3, 80, true),
+]) {
+  assert.ok(!variant[1].text.includes('…'), `clipped at 80 columns: ${variant[1].text}`);
+}
+assert.equal(
+  search.renderTranscriptSearch('needle', 0, 3, 80, true)[1].text,
+  '  1 of 3 · Enter ↓ next · ↑ previous · type to replace · Esc close'
+);
+assert.match(search.renderTranscriptSearch('zz', -1, 0, 80)[1].text, /^ {2}no match · /);
+assert.ok(search.renderTranscriptSearch('rdk', 1, 3, 80)[1].text.startsWith('  2 of 3 · '));
+assert.ok(
+  text.displayWidth(search.renderTranscriptSearch('q'.repeat(60), 0, 3, 40)[0].text) <= 40,
+  'a long query is clipped to the width'
+);
+assert.deepEqual(helpers.inkTextStyle({ inverse: true }), { inverse: true });
+ok('the bar shows the query, where the reader is, and the keys; inverse reaches ink');
+
+// A resumed search shows its query selected: the text inverted, the glyph not.
+const selectedBar = search.renderTranscriptSearch('needle', 0, 3, 80, true);
+assert.equal(selectedBar[0].text, '⌕ needle');
+assert.deepEqual(
+  selectedBar[0].runs.map((run) => [run.text, run.inverse === true]),
+  [
+    ['⌕ ', false],
+    ['needle', true],
+  ]
+);
+assert.equal(search.renderTranscriptSearch('needle', 0, 3, 80)[0].runs, undefined);
+// A paste cannot carry escapes or line breaks into the one-row query.
+assert.equal(search.searchText('a\x1b[31mb\n c\x00d\u009be'), 'a[31mb cde');
+ok('a resumed query is shown selected, and a paste loses its control characters');
+
+copy.setTuiLocale(true);
+try {
+  assert.equal(
+    search.renderTranscriptSearch('zz', -1, 0, 80)[1].text,
+    '  没有匹配 · Enter ↓ 下一个 · ↑ 上一个 · Esc 关闭 · Ctrl+U 清空'
+  );
+  assert.equal(
+    search.renderTranscriptSearch('x', 1, 3, 80)[1].text,
+    '  第 2 个，共 3 个 · Enter ↓ 下一个 · ↑ 上一个 · Esc 关闭 · Ctrl+U 清空'
+  );
+  for (const key of [
+    'search the transcript',
+    'type to search',
+    'Enter ↓ next · ↑ previous · type to replace · Esc close',
+    'no match',
+    '{n} of {count}',
+    'Enter ↓ next · ↑ previous · Esc close · Ctrl+U clear',
+    'find works in the fullscreen view',
+  ]) {
+    const value = copy.ZH[key];
+    assert.ok(value && value.length > 0, `${key} has a zh string`);
+    assert.notEqual(value, key, `${key} translates to something else`);
+  }
+} finally {
+  copy.setTuiLocale(false);
+}
+ok('the search bar and its strings read in Chinese too');
+
+assert.equal(keymap.commandForKey(defaults.bindings, 'ctrl+f'), 'view.search');
+assert.equal(
+  rows.find((row) => row.label === 'search the transcript').keys,
+  'Ctrl+F',
+  'the default help lists it'
+);
+ok('Ctrl+F opens the search and the help says so');
+
+const vlines = Array.from({ length: 30 }, (_, index) => ({
+  rowId: index,
+  lineIndex: 0,
+  text: `line ${index}`,
+}));
+const windowAt = (state, height) => viewport.viewportWindow(vlines, state, height);
+const centred = windowAt(viewport.viewportAtLine(vlines, 10, 15), 10);
+assert.deepEqual(
+  [centred.start, centred.lines.length, centred.pinned, centred.lines[5].text],
+  [10, 10, false, 'line 15'],
+  'a hit with room on both sides lands in the middle of the window'
+);
+assert.equal(windowAt(viewport.viewportAtLine(vlines, 10, 0), 10).start, 0);
+const atEnd = windowAt(viewport.viewportAtLine(vlines, 10, 29), 10);
+assert.deepEqual(
+  [atEnd.pinned, atEnd.start, atEnd.lines.length, atEnd.lines.at(-1).text],
+  [true, 20, 10, 'line 29'],
+  'a hit on the last line pins to the bottom, where that line is on screen'
+);
+const nearEnd = windowAt(viewport.viewportAtLine(vlines, 10, 17), 10);
+assert.deepEqual(
+  [nearEnd.pinned, nearEnd.start],
+  [false, 12],
+  'a hit with room below it is centred like any other'
+);
+// Five rows below the hit is the last row that still centres it (24 - 5 = 19).
+const lastCentred = windowAt(viewport.viewportAtLine(vlines, 10, 24), 10);
+assert.deepEqual(
+  [lastCentred.pinned, lastCentred.start, lastCentred.lines[5].text, lastCentred.lines.length],
+  [false, 19, 'line 24', 10],
+  'a hit five rows above the end is the last row of an unpinned window'
+);
+const edge = windowAt(viewport.viewportAtLine(vlines, 10, 25), 10);
+assert.deepEqual(
+  [edge.pinned, edge.start, edge.lines[5].text],
+  [true, 20, 'line 25'],
+  'four rows above the end the window pins, hit still on screen'
+);
+const short = Array.from({ length: 5 }, (_, index) => ({ rowId: index, lineIndex: 0, text: '' }));
+const tiny = viewport.viewportWindow(short, viewport.viewportAtLine(short, 10, 2), 10);
+assert.deepEqual([tiny.pinned, tiny.start, tiny.lines.length], [true, 0, 5]);
+// A taller transcript under the same state (an anchor keeps the reader in place).
+const longer = Array.from({ length: 60 }, (_, index) => ({ rowId: index, lineIndex: 0, text: '' }));
+assert.equal(
+  viewport.viewportWindow(longer, viewport.viewportAtLine(vlines, 10, 15), 10).start,
+  10
+);
+ok('a hit near the top, the bottom or a short transcript is still inside the window');
+
 console.log(`[tui-interaction] ${String(checks)} checks passed`);

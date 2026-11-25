@@ -4,6 +4,7 @@
 //   "toolstorm"  -> 20 sequential list_directory calls, then a short answer
 //   "holdstream" -> one delta, then the stream stays open until POST /__tui-feel/release
 //   "copymark"   -> one answer in markdown, so a copy differs from the painted screen
+//   "searchmark" -> 60 paragraphs one per delta, three carrying a needle for Ctrl+F
 //   anything else -> one short answer
 import fs from 'node:fs';
 import http from 'node:http';
@@ -17,6 +18,15 @@ const LONG = Array.from({ length: 30 }, (_, i) =>
     `- bullet ${i + 1}`,
   ].join('\n')
 ).join('\n\n');
+
+// One paragraph per visual line at 100 columns, streamed one paragraph per
+// delta so the transcript has a fixed shape: paragraphs 4, 24 and 34 carry
+// the needle, each 40, 20 and 20 visual lines from its neighbours or the end.
+const SEARCHMARK_PARAGRAPHS = Array.from({ length: 60 }, (_, i) =>
+  [4, 24, 34].includes(i + 1)
+    ? `Paragraph ${String(i + 1).padStart(2, '0')} of the search transcript. Here is the needle.`
+    : `Paragraph ${String(i + 1).padStart(2, '0')} of the search transcript. Nothing to see here.`
+);
 
 function lastUser(messages) {
   const m = [...messages].reverse().find((x) => x.role === 'user');
@@ -83,6 +93,20 @@ const server = http
       const text = lastUser(messages);
       const toolResults = messages.filter((m) => m.role === 'tool').length;
       sse(res);
+      if (/searchmark/i.test(text)) {
+        let i = 0;
+        const timer = setInterval(() => {
+          if (i < SEARCHMARK_PARAGRAPHS.length) {
+            const content = (i ? '\n\n' : '') + SEARCHMARK_PARAGRAPHS[i++];
+            send(res, { choices: [{ index: 0, delta: { content } }] });
+          } else {
+            clearInterval(timer);
+            done(res);
+          }
+        }, 10);
+        res.on('close', () => clearInterval(timer));
+        return;
+      }
       if (/copymark/i.test(text)) {
         send(res, {
           choices: [{ index: 0, delta: { content: 'A **bold** claim and `npm run check`.' } }],

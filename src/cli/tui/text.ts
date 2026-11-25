@@ -20,6 +20,8 @@ export interface TuiLineRun {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  /** Swap foreground and background (the hit of a transcript search). */
+  inverse?: boolean;
 }
 
 export interface TuiLine {
