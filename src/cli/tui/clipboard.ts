@@ -48,7 +48,10 @@ export type ClipboardWrite =
   | { kind: 'copied'; tool: string }
   /** This session has no clipboard tool: only the terminal route was taken. */
   | { kind: 'terminal' }
-  /** Every tool failed; `tool` and `reason` are the last one's. */
+  /**
+   * Every tool failed. `tool` and `reason` are the failure to act on: the
+   * first tool that ran and failed, or the first missing one when none ran.
+   */
   | { kind: 'failed'; tool: string; reason: string };
 
 /**
@@ -103,12 +106,18 @@ export async function writeSystemClipboard(
     timeoutMs?: number;
   }
 ): Promise<ClipboardWrite> {
-  let failure: ClipboardWrite | undefined;
+  let failure: Extract<ClipboardWrite, { kind: 'failed' }> | undefined;
   const timeoutMs = context.timeoutMs ?? CLIPBOARD_TIMEOUT_MS;
   for (const command of clipboardCommands(context.platform, context.env)) {
     const reason = await runClipboardTool(command, text, timeoutMs);
     if (reason === undefined) return { kind: 'copied', tool: command.command };
-    failure = { kind: 'failed', tool: command.command, reason };
+    // A tool that ran and failed says more than one that is not installed: a
+    // display that is gone makes xclip exit non-zero, and reporting the xsel
+    // after it as "not found" would send the user to install a tool that
+    // cannot help. So a missing tool never replaces a failure already kept.
+    if (failure === undefined || (failure.reason === 'not found' && reason !== 'not found')) {
+      failure = { kind: 'failed', tool: command.command, reason };
+    }
   }
   return failure ?? { kind: 'terminal' };
 }

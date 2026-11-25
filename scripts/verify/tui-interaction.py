@@ -434,7 +434,8 @@ def main():
         checks += 1
         # A tool that exits non-zero is reported as failed, by name: never as
         # "copied". With the cause gone, the next copy is a copy again.
-        failing = "pbcopy" if sys.platform == "darwin" else "xsel"
+        # Linux tries xclip first, and the report names it, not the xsel after.
+        failing = "pbcopy" if sys.platform == "darwin" else "xclip"
         open(clipboard_fail, "w").close()
         mark = len(raw)
         send("/copy\r")
@@ -453,15 +454,22 @@ def main():
             # text still goes to the terminal, and the status says so.
             without = dict(env)
             without.pop("DISPLAY")
+            # The stand-ins write this file when they run. It is gone before the
+            # session starts, so its presence afterwards would mean a tool ran.
+            os.remove(clipboard)
             notice, osc_text = copy_without_clipboard_tool(without, workspace)
             if notice != "sent to the terminal (OSC 52); this session has no clipboard tool":
                 raise AssertionError(f"/copy without a clipboard tool said {notice!r}")
             checks += 1
-            if osc_text != "Answer to: hi":
-                raise AssertionError(f"without a tool the OSC 52 write carried {osc_text!r}")
+            # The stub answers with the whole prompt it was sent, and the first
+            # turn's prompt ends with the session's injected <turn-context>
+            # block. The copy is that answer, so it starts with these words.
+            if not (osc_text or "").startswith("Answer to: hi"):
+                raise AssertionError(f"without a tool the OSC 52 write carried {osc_text[:60]!r}")
             checks += 1
             if os.path.exists(clipboard):
                 raise AssertionError("a session without a clipboard tool ran one")
+            checks += 1
         # ── transcript search ──
         # The transcript holds three answers: "Streaming a long answer.", then
         # the two queued ones. The prompt search prints the same glyph, so the

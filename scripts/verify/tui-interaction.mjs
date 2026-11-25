@@ -705,7 +705,12 @@ if (process.platform === 'win32') {
   assert.ok(!fs.existsSync(path.join(dir, 'xsel.stdin')));
   ok('the first tool fails, the next one copies it whole (UTF-8), the rest never run');
 
-  withTools({ 'wl-copy': 'exit 3', xclip: 'exit 2', xsel: 'exec sleep 30' });
+  // The first two are missing, so the one that hangs is the failure to report.
+  withTools({
+    'wl-copy': '#!/nonexistent/moss-probe-interpreter',
+    xclip: '#!/nonexistent/moss-probe-interpreter',
+    xsel: 'exec sleep 30',
+  });
   const started = Date.now();
   const timedOut = await session(wayland, 200);
   assert.deepEqual(timedOut, { kind: 'failed', tool: 'xsel', reason: 'timed out' });
@@ -719,14 +724,31 @@ if (process.platform === 'win32') {
     xclip: '#!/nonexistent/moss-probe-interpreter',
     xsel: '#!/nonexistent/moss-probe-interpreter',
   });
+  // Every tool is missing: the report names the first one.
   assert.deepEqual(await session({ DISPLAY: ':0' }), {
     kind: 'failed',
-    tool: 'xsel',
+    tool: 'xclip',
     reason: 'not found',
   });
   assert.deepEqual(await session({}), { kind: 'terminal' });
   process.env.PATH = originalPath;
   ok('a session whose tools are not installed, or has none, is reported as such');
+
+  // A display that is gone: xclip runs and fails, xsel is not installed. The
+  // report names the tool that ran. "xsel failed (not found)" would send the
+  // user to install a tool that cannot help.
+  withTools({ xclip: 'exit 1', xsel: '#!/nonexistent/moss-probe-interpreter' });
+  assert.deepEqual(await session({ DISPLAY: ':0' }), {
+    kind: 'failed',
+    tool: 'xclip',
+    reason: 'exit 1',
+  });
+  assert.match(
+    notice({ kind: 'failed', tool: 'xclip', reason: 'exit 1' }),
+    /xclip failed \(exit 1\)/
+  );
+  process.env.PATH = originalPath;
+  ok('a display that is gone is reported as xclip failing, not as a missing xsel');
 }
 
 console.log(`[tui-interaction] ${String(checks)} checks passed`);
