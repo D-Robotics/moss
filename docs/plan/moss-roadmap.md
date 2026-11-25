@@ -214,6 +214,8 @@
 
 **2026-11-26 同步（owner 定调：尽可能发挥大模型能力，不加过多约束）**：O38 的 nudge 一半没有等消融，已直接执行。15 个规则式 nudge、steering 规则引擎、follow-up guard、宿主从计划文本合成工具调用全部删除，回归探测是 `scripts/verify/harness-injection.mjs`。消融未跑（本机没有 `MOSS_BENCH_API_KEY`），通过数变化未测；经验库 A/B 未动。
 
+**2026-11-26 同步（第二轮删除：工具循环守卫与编辑纪律）**：`tool-loop-guard` 的六类上限（相同输入、同命令同输出失败、工具故障、发现类失败、按路径编辑失败、搜索变体）与按正则的「RSS 证据已足够」禁搜不再有默认值，宿主用 `MOSS_TOOL_LOOP_*` 显式设置才生效。读取范围锁、同一步内即时新闻去重、新鲜观测预算保留。编辑没打上不再清读取信用，因为文件没有变。工具结果之后的模型调用不再丢推理档位。回归探测是 `scripts/verify/loop-guard-defaults.mjs`、`scripts/verify/reasoning-follow-up.mjs` 和改写后的 `scripts/verify/edit-recovery.mjs`。bench 未跑。
+
 ---
 
 ## 7. 运作方式

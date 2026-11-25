@@ -15,28 +15,19 @@ import path from 'node:path';
 import { canonicalPath, findProtectedWrite } from '../../safety/shell-write-detect.js';
 import { FILE_UNCHANGED_TRUNCATED_STUB } from '../../contracts/file-read-observation.js';
 
-const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
+// No limit in this file has a default. Each one is the harness deciding that
+// the model has repeated, failed, re-read or searched enough, and the call it
+// stops never runs. A host that runs unattended work can set a limit for one
+// run with the MOSS_TOOL_LOOP_* variables; without them the model decides when
+// to stop retrying. What stays on is what does not judge the model: the
+// read-scope lock, the in-flight fresh-news dedupe and the two budgets below.
+//
 // No matter how often an observation changes, bounded probes cannot extend a
 // single signature indefinitely or collectively evade the run's other limits.
 const FRESH_OBSERVATION_SIGNATURE_LIMIT = 12;
 const FRESH_OBSERVATION_EXTRA_LIMIT = 24;
-const DEFAULT_TOOL_FAILURE_LIMIT = 3;
-/** Failed discovery retries on the same tool before short-circuit (stricter than generic 3). */
-const DEFAULT_DISCOVERY_FAILURE_LIMIT = 2;
-
-// Default 6 — headroom for a few genuinely different search angles (a Chinese
-// query, an English query, the brand name, a refined keyword set) before
-// blocking the 7th. The old cap of 4 was too tight: with the keyless backend
-// often returning degraded results the model legitimately needs more than one
-// refinement, and a 4-query cap drove it into guessing URLs instead. Override
-// via MOSS_WEB_SEARCH_VARIATION_LIMIT.
-const DEFAULT_WEB_SEARCH_VARIATION_LIMIT = 6;
-
-/** Max failed surgical edits per path before forcing re-read (identical input limit still applies). */
-const DEFAULT_EDIT_PATH_FAILURE_LIMIT = 3;
-
-/** Consecutive same-command failures with identical output before hinting to change approach. */
-const DEFAULT_SAME_COMMAND_FAILURE_LIMIT = 3;
+/** Ordinary repeats a fresh observation may make before it counts as extra. */
+const FRESH_OBSERVATION_BASE_LIMIT = 3;
 
 export type ShellFaultKind = 'timeout' | 'start_failure' | 'killed' | 'unusable';
 
@@ -94,7 +85,6 @@ export type ToolLoopGuardState = {
 
   webSearchQueries: Set<string>;
   freshNewsSearchRequested: boolean;
-  hasSufficientRssNewsEvidence: boolean;
   total: number;
 };
 
@@ -260,7 +250,6 @@ export function createToolLoopGuardState(
     readScopeLockedPaths: new Set(),
     webSearchQueries: new Set(),
     freshNewsSearchRequested: false,
-    hasSufficientRssNewsEvidence: false,
     total: 0,
   };
 }
@@ -509,15 +498,6 @@ export function recordToolLoopOutcome(
   platform: NodeJS.Platform | string = process.platform,
   options: { outputTruncated?: boolean } = {}
 ): void {
-  if (
-    toolName === 'web_search' &&
-    !isError &&
-    /RSS news snapshot: dated publisher\/feed summaries above are sufficient/i.test(
-      resultText ?? ''
-    )
-  ) {
-    state.hasSufficientRssNewsEvidence = true;
-  }
   trackReadScopeLocks(
     state,
     toolName,
@@ -664,14 +644,6 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
       'Wait for and use the first result instead of launching parallel language or keyword variants.',
       'If that result is empty, a later assistant step may try one refined query.',
-    ].join(' ');
-  }
-  if (/dated RSS news snapshot/i.test(reason)) {
-    return [
-      `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
-      'The current turn already has dated headlines, publisher names, source URLs, and summaries.',
-      'Answer now using that evidence; do not broaden the search merely to restate the same news.',
-      'Only continue with a known original publisher page when the user explicitly requested full-text verification of a specific claim.',
     ].join(' ');
   }
   // Per-URL web_fetch failure: only this *specific URL* is stuck, not the
@@ -944,23 +916,15 @@ export function shouldShortCircuitToolCall(
   input: Record<string, unknown>,
   options: { parallelBatch?: boolean; freshObservation?: boolean } = {}
 ): string | null {
-  const identicalLimit = resolveOptionalPositiveIntEnv(
-    'MOSS_TOOL_LOOP_IDENTICAL_LIMIT',
-    DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT
-  );
+  const identicalLimit = resolveOptionalPositiveIntEnv('MOSS_TOOL_LOOP_IDENTICAL_LIMIT');
   const singleToolLimit = resolveOptionalPositiveIntEnv('MOSS_TOOL_LOOP_SINGLE_TOOL_LIMIT');
   const totalLimit = resolveOptionalPositiveIntEnv('MOSS_TOOL_LOOP_TOTAL_LIMIT');
-  const failureLimit = resolveOptionalPositiveIntEnv(
-    'MOSS_TOOL_LOOP_FAILURE_LIMIT',
-    DEFAULT_TOOL_FAILURE_LIMIT
-  );
+  const failureLimit = resolveOptionalPositiveIntEnv('MOSS_TOOL_LOOP_FAILURE_LIMIT');
   const discoveryFailureLimit = resolveOptionalPositiveIntEnv(
-    'MOSS_TOOL_LOOP_DISCOVERY_FAILURE_LIMIT',
-    DEFAULT_DISCOVERY_FAILURE_LIMIT
+    'MOSS_TOOL_LOOP_DISCOVERY_FAILURE_LIMIT'
   );
   const editPathFailureLimit = resolveOptionalPositiveIntEnv(
-    'MOSS_TOOL_LOOP_EDIT_PATH_FAILURE_LIMIT',
-    DEFAULT_EDIT_PATH_FAILURE_LIMIT
+    'MOSS_TOOL_LOOP_EDIT_PATH_FAILURE_LIMIT'
   );
   const signature = `${toolName}:${stableSerializeToolInput(input)}`;
   const sameSignatureCount = state.bySignature.get(signature) ?? 0;
@@ -1011,9 +975,6 @@ export function shouldShortCircuitToolCall(
     }
   }
 
-  if (toolName === 'web_search' && state.hasSufficientRssNewsEvidence) {
-    return 'this user turn already has a dated RSS news snapshot with sufficient publisher provenance';
-  }
   if (
     toolName === 'web_search' &&
     state.freshNewsSearchRequested &&
@@ -1025,10 +986,7 @@ export function shouldShortCircuitToolCall(
 
   // O96: same-command identical-output streak (independent of byToolFailure).
   if (isVerifyShellTool(toolName)) {
-    const sameCmdLimit = resolveOptionalPositiveIntEnv(
-      'MOSS_TOOL_LOOP_SAME_COMMAND_LIMIT',
-      DEFAULT_SAME_COMMAND_FAILURE_LIMIT
-    );
+    const sameCmdLimit = resolveOptionalPositiveIntEnv('MOSS_TOOL_LOOP_SAME_COMMAND_LIMIT');
     const sig = normalizeVerifyCommandSignature(toolName, input);
     if (sig && sameCmdLimit !== undefined) {
       const streak = state.bySameCommandFailure.get(sig.key);
@@ -1075,12 +1033,12 @@ export function shouldShortCircuitToolCall(
     return `${toolName} has failed ${failureCount} time(s) in this user turn`;
   }
   const observation = options.freshObservation ? state.freshObservations.get(signature) : undefined;
-  // A host can raise or disable the ordinary identical-call guard. Fresh
+  // A host can set or raise the ordinary identical-call limit. Fresh
   // observations still need their own absolute budgets in those modes; count
-  // calls beyond at most the default allowance as extra observations.
+  // calls beyond at most the base allowance as extra observations.
   const freshBaseLimit = Math.min(
-    identicalLimit ?? DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT,
-    DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT
+    identicalLimit ?? FRESH_OBSERVATION_BASE_LIMIT,
+    FRESH_OBSERVATION_BASE_LIMIT
   );
   if (
     options.freshObservation &&
@@ -1112,10 +1070,7 @@ export function shouldShortCircuitToolCall(
     return `the user turn already requested ${state.total} tool call(s)`;
   }
 
-  const webSearchVariationLimit = resolveOptionalPositiveIntEnv(
-    'MOSS_WEB_SEARCH_VARIATION_LIMIT',
-    DEFAULT_WEB_SEARCH_VARIATION_LIMIT
-  );
+  const webSearchVariationLimit = resolveOptionalPositiveIntEnv('MOSS_WEB_SEARCH_VARIATION_LIMIT');
   if (webSearchVariationLimit !== undefined && toolName === 'web_search') {
     const query = String(input?.query ?? '')
       .trim()

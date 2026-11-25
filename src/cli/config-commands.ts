@@ -473,7 +473,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_TOOL_LOOP_EDIT_PATH_FAILURE_LIMIT',
       'MOSS_TOOL_LOOP_FAILURE_LIMIT',
       'MOSS_TOOL_LOOP_IDENTICAL_LIMIT',
-      'MOSS_TOOL_LOOP_SAME_COMMAND_LIMIT (same-command consecutive failure limit; default 3)',
+      'MOSS_TOOL_LOOP_SAME_COMMAND_LIMIT (same-command consecutive failure limit; all MOSS_TOOL_LOOP_* limits are off unless set)',
       'MOSS_TOOL_LOOP_SINGLE_TOOL_LIMIT',
       'MOSS_TOOL_LOOP_TOTAL_LIMIT',
       'MOSS_TOOL_NAME',

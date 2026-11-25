@@ -101,11 +101,7 @@ export type {
   ContextBudgetPlan,
   ContextBudgetPlannerInput,
 } from './loop/index.js';
-export {
-  lastMessageNeedsToolFollowUp,
-  hasToolResultAfterLastAssistant,
-  shouldSuppressReasoningForToolFollowUpRound,
-} from './loop/index.js';
+export { lastMessageNeedsToolFollowUp, hasToolResultAfterLastAssistant } from './loop/index.js';
 
 export { InMemorySessionStore } from './session/index.js';
 export type { SessionStore, SessionMeta, SessionDeliverySnapshot } from './session/index.js';

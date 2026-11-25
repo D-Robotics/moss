@@ -214,10 +214,7 @@ function preflightToolCall(
       sessionKey: ctx.sessionKey,
     });
     const text = formatToolLoopGuardMessage(loopReason, call.name);
-    if (
-      /fresh-news search is already in progress/i.test(loopReason) ||
-      /dated RSS news snapshot/i.test(loopReason)
-    ) {
+    if (/fresh-news search is already in progress/i.test(loopReason)) {
       return {
         kind: 'completed',
         text,

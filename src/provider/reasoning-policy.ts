@@ -21,12 +21,6 @@ export function hasToolResultAfterLastAssistant(messages: readonly MessageLike[]
   return lastMessageNeedsToolFollowUp(messages);
 }
 
-export function shouldSuppressReasoningForToolFollowUpRound(
-  messages: readonly MessageLike[]
-): boolean {
-  return hasToolResultAfterLastAssistant(messages);
-}
-
 type RoundTripContentBlock = {
   type?: string;
   id?: string;

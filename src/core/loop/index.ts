@@ -37,5 +37,4 @@ export type {
 export {
   lastMessageNeedsToolFollowUp,
   hasToolResultAfterLastAssistant,
-  shouldSuppressReasoningForToolFollowUpRound,
 } from '../../provider/reasoning-policy.js';

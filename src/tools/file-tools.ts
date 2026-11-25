@@ -905,15 +905,7 @@ async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string
         replaceAll,
       });
       if (!result.ok) {
-        // Ambiguity writes nothing, so the staged files' prior reads stay
-        // valid; a content mismatch invalidates them (all-or-nothing: nothing
-        // is written either way).
-        if (result.reason !== 'ambiguous') {
-          for (const b of buffers.values()) {
-            globalToolStateManager.invalidateFileState(b.filePath);
-          }
-          globalToolStateManager.invalidateFileState(buf.filePath);
-        }
+        // Nothing is written on a miss, so the staged files keep their reads.
         const missExtra =
           result.reason === 'not-found' || result.reason === 'ambiguous'
             ? ''
@@ -1038,10 +1030,8 @@ export const editFileTool: Tool = {
         replaceAll: Boolean(input.replace_all),
       });
       if (!result.ok) {
-        // A content mismatch makes the prior read stale. An ambiguous match
-        // leaves the file untouched, so that read credit stays valid and the
-        // retry does not need an extra read_file round trip.
-        if (result.reason !== 'ambiguous') globalToolStateManager.invalidateFileState(filePath);
+        // Nothing is written on a miss, so the read stays valid and a retry
+        // needs no extra read_file round trip.
         const body = result.error.includes('old_string not found')
           ? result.error.replace('old_string not found.', `old_string not found in ${displayPath}.`)
           : result.error;

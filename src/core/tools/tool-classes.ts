@@ -17,19 +17,19 @@
 import type { Tool } from './tool-types.js';
 
 export interface ToolClassification {
-  /** More than the generic 3 identical calls per turn are allowed (reads, edits). */
+  /** Not counted against a host's single-tool limit (reads, edits). */
   singleCallExempt?: boolean;
-  /** A discovery/observation probe: repeated failures should stop sooner. */
+  /** A discovery/observation probe: takes the discovery failure limit when a host sets one. */
   discovery?: boolean;
   /** Reads a workspace file, using path or file_path, with optional offset/limit. */
   fileRead?: boolean;
-  /** Surgical edit whose stale body thrashes per path (edit_file, apply_patch). */
+  /** Surgical edit whose per-path failures take the edit failure limit when a host sets one. */
   surgicalEdit?: boolean;
   /** Shell tool whose non-zero exit is a verification result, not a tool failure. */
   verifyShell?: boolean;
   /** Edit/write tool that can lock a path after a partial-read refusal. */
   fileMutation?: boolean;
-  /** Carries a shell command string (same-command thrash detection). */
+  /** Carries a shell command string (same-command failure tracking). */
   shellCommand?: boolean;
 }
 

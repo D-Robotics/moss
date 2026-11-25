@@ -1,5 +1,4 @@
 import type { LLMMessage, LLMContentBlock } from '../core/llm/llm-provider.js';
-import { shouldSuppressReasoningForToolFollowUpRound } from './reasoning-policy.js';
 import { shouldRoundTripAssistantThinking } from './reasoning-policy.js';
 
 export interface PiAiModelInfo {
@@ -258,29 +257,6 @@ export function resolvePiStreamErrorPayload(
     } as NonNullable<PiAiStreamEvent['error']>;
   }
   return undefined;
-}
-
-function findLastPiWireAssistantIndex(converted: readonly unknown[]): number {
-  for (let i = converted.length - 1; i >= 0; i--) {
-    if ((converted[i] as { role?: string })?.role === 'assistant') return i;
-  }
-  return -1;
-}
-
-function wireConvertedHasToolResultAfterLastAssistant(converted: readonly unknown[]): boolean {
-  const aix = findLastPiWireAssistantIndex(converted);
-  const last = converted[converted.length - 1] as { role?: string } | undefined;
-  return converted.length > aix + 1 && last?.role === 'toolResult';
-}
-
-export function resolveToolFollowReasoningSuppress(
-  internalMessages: LLMMessage[] | undefined,
-  converted: readonly unknown[]
-): boolean {
-  if (Array.isArray(internalMessages) && internalMessages.length > 0) {
-    if (shouldSuppressReasoningForToolFollowUpRound(internalMessages)) return true;
-  }
-  return wireConvertedHasToolResultAfterLastAssistant(converted);
 }
 
 export function hasThinkingModeConfigured(

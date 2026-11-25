@@ -15,7 +15,6 @@ import {
   createInlineThinkingRouter,
   splitThinkingTagsFromAssistantText,
 } from '../llm/inline-thinking-stream.js';
-import { shouldSuppressReasoningForToolFollowUpRound } from '../../provider/reasoning-policy.js';
 import { normalizeToolCallInput } from './agent-loop-tool-helpers.js';
 import {
   classifyLlmError,
@@ -171,10 +170,8 @@ export async function runAgentLoopLlmTurn(
     maxLLMRetries,
     topP,
     abortSignal,
-    messagesForModel,
     toolsForRun,
     sessionKey,
-    turn: turns,
     runStartMs,
     suppressVisibleDeltas,
   } = params;
@@ -240,24 +237,12 @@ export async function runAgentLoopLlmTurn(
         const streamSignal = combineAbortSignals(abortSignal, firstChunkCtrl.signal) ?? abortSignal;
 
         try {
-          const modelReasoningConfigured =
-            Boolean(reasoning) ||
-            Boolean((modelDef as Model<any> & { reasoning?: unknown }).reasoning);
-          const suppressReasoningAfterToolUse =
-            modelReasoningConfigured &&
-            shouldSuppressReasoningForToolFollowUpRound(messagesForModel);
-          if (suppressReasoningAfterToolUse) {
-            params.logDebug(
-              'suppressing reasoning for tool-result follow-up LLM call (provider compatibility)',
-              { sessionKey, turn: turns, model: modelDef.id }
-            );
-          }
           const streamOpts: SimpleStreamOptions = {
             maxTokens: params.maxTokens ?? modelDef.maxTokens,
             signal: streamSignal,
             apiKey,
             ...(temperature !== undefined ? { temperature } : {}),
-            ...(reasoning && !suppressReasoningAfterToolUse ? { reasoning } : {}),
+            ...(reasoning ? { reasoning } : {}),
             ...(topP !== undefined ? { onPayload: chainTopPOnPayload(topP) } : {}),
           };
           const effectiveModelDef = params.requestModel

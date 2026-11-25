@@ -16,10 +16,10 @@ import {
   hasThinkingModeConfigured,
   normalizePiAiModelInfo,
   rejectAnthropicOAuthToken,
-  resolveToolFollowReasoningSuppress,
   type PiAiModelInfo,
   type PiAiStreamEvent,
 } from './pi-ai-wire-format.js';
+import { lastMessageNeedsToolFollowUp } from './reasoning-policy.js';
 import { processEvent, convertStreamEvent } from './pi-ai-stream-parser.js';
 import { PiAiFirstEventTimeoutError, startFirstEventWatchdog } from './pi-ai-watchdog.js';
 import { ErrorCode, isMossError, MossError } from '../errors.js';
@@ -176,10 +176,7 @@ export class PiAiLLMProvider implements LLMProvider {
     this.displayName = config.displayName ?? `pi-ai (${config.model.provider})`;
   }
 
-  private buildPiModelForCall(
-    options: LLMRequestOptions,
-    _toolFollowSuppress: boolean
-  ): PiAiModelInfo {
+  private buildPiModelForCall(options: LLMRequestOptions): PiAiModelInfo {
     let model = this.model;
     // v0.12 model routing: a per-request model id (same gateway/key) wins.
     if (options.model && options.model !== this.model.id) {
@@ -210,12 +207,8 @@ export class PiAiLLMProvider implements LLMProvider {
       options.reasoning
     );
     let convertedMessages = convertMessages(options.messages, this.model, requestThinkingMode);
-    const toolFollowSuppress = resolveToolFollowReasoningSuppress(
-      options.messages,
-      convertedMessages
-    );
     if (
-      toolFollowSuppress &&
+      lastMessageNeedsToolFollowUp(options.messages) &&
       !requestThinkingMode &&
       (hasProviderNativeThinkingHistory(this.model, this.reasoning) ||
         hasAssistantThinkingHistory(options.messages))
@@ -224,8 +217,8 @@ export class PiAiLLMProvider implements LLMProvider {
     }
     const piContext = this.buildPiContext(options, convertedMessages);
     const watchdog = startFirstEventWatchdog(options.abortSignal, this.model);
-    const piOptions = this.buildPiOptions(options, watchdog.signal, toolFollowSuppress);
-    const piModel = this.buildPiModelForCall(options, toolFollowSuppress);
+    const piOptions = this.buildPiOptions(options, watchdog.signal);
+    const piModel = this.buildPiModelForCall(options);
 
     try {
       for await (const event of this.streamFn(piModel, piContext, piOptions)) {
@@ -282,12 +275,8 @@ export class PiAiLLMProvider implements LLMProvider {
       options.reasoning
     );
     let convertedMessages = convertMessages(options.messages, this.model, requestThinkingMode);
-    const toolFollowSuppress = resolveToolFollowReasoningSuppress(
-      options.messages,
-      convertedMessages
-    );
     if (
-      toolFollowSuppress &&
+      lastMessageNeedsToolFollowUp(options.messages) &&
       !requestThinkingMode &&
       (hasProviderNativeThinkingHistory(this.model, this.reasoning) ||
         hasAssistantThinkingHistory(options.messages))
@@ -296,8 +285,8 @@ export class PiAiLLMProvider implements LLMProvider {
     }
     const piContext = this.buildPiContext(options, convertedMessages);
     const watchdog = startFirstEventWatchdog(options.abortSignal, this.model);
-    const piOptions = this.buildPiOptions(options, watchdog.signal, toolFollowSuppress);
-    const piModel = this.buildPiModelForCall(options, toolFollowSuppress);
+    const piOptions = this.buildPiOptions(options, watchdog.signal);
+    const piModel = this.buildPiModelForCall(options);
 
     const tracePiAiStream =
       process.env.MOSS_TRACE_PI_AI_STREAM === '1' || process.env.MOSS_TRACE_PI_AI_STREAM === 'true';
@@ -431,8 +420,7 @@ export class PiAiLLMProvider implements LLMProvider {
 
   private buildPiOptions(
     options: LLMRequestOptions,
-    overrideAbortSignal?: AbortSignal,
-    toolFollowSuppress = false
+    overrideAbortSignal?: AbortSignal
   ): Record<string, unknown> {
     const tcRaw = envPreferMoss('MOSS_PI_AI_TOOL_CHOICE', 'PI_AI_TOOL_CHOICE');
     const configuredToolChoice =
@@ -442,7 +430,7 @@ export class PiAiLLMProvider implements LLMProvider {
     const effectiveSignal = overrideAbortSignal ?? options.abortSignal;
 
     let reasoningForPi: string | undefined;
-    if (options.reasoning === null || options.reasoning === '' || toolFollowSuppress) {
+    if (options.reasoning === null || options.reasoning === '') {
       reasoningForPi = undefined;
     } else if (options.reasoning !== undefined) {
       reasoningForPi = options.reasoning;

@@ -23,7 +23,7 @@ import {
 } from '../../context/window-economics.js';
 import { repairMissingToolResults } from '../tools/tool-result-roundtrip-guard.js';
 import { runProactiveWindowCompaction, runPromptPruneCompaction } from './agent-loop-compaction.js';
-import { shouldSuppressReasoningForToolFollowUpRound } from '../../provider/reasoning-policy.js';
+import { lastMessageNeedsToolFollowUp } from '../../provider/reasoning-policy.js';
 import { hasAssistantThinkingHistory } from './agent-loop-assistant-turn.js';
 import { convertMessagesToPi } from '../tools/message-convert.js';
 import { compactToolSchema } from '../tools/tiny-window-tools.js';
@@ -46,8 +46,7 @@ export function shouldIncludeThinkingInBudget(
 ): boolean {
   return (
     modelRoundTripsThinkingHistory(modelDef) ||
-    (shouldSuppressReasoningForToolFollowUpRound(currentMessages) &&
-      hasAssistantThinkingHistory(currentMessages))
+    (lastMessageNeedsToolFollowUp(currentMessages) && hasAssistantThinkingHistory(currentMessages))
   );
 }
 
@@ -515,8 +514,7 @@ export async function prepareTurnContext(
 
   const toolsForRun = getToolsForRun();
   const toolFollowupNeedsThinkingHistory =
-    shouldSuppressReasoningForToolFollowUpRound(messagesForModel) &&
-    hasAssistantThinkingHistory(messagesForModel);
+    lastMessageNeedsToolFollowUp(messagesForModel) && hasAssistantThinkingHistory(messagesForModel);
   const modelDefForMessageConversion = toolFollowupNeedsThinkingHistory
     ? ({ ...(modelDef as object), reasoning: true } as typeof modelDef)
     : modelDef;
