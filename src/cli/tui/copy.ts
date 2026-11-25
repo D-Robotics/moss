@@ -531,6 +531,10 @@ export const ZH: Readonly<Record<string, string>> = {
   'copied {count} chars to clipboard': '已复制 {count} 个字符到剪贴板',
   'copied the last answer ({count} chars)': '已复制上一条回答（{count} 个字符）',
   'no answer to copy yet': '还没有可复制的回答',
+  'sent to the terminal (OSC 52); this session has no clipboard tool':
+    '已交给终端（OSC 52）；本会话没有剪贴板工具',
+  '{tool} failed ({reason}); the text also went to the terminal (OSC 52)':
+    '{tool} 失败（{reason}）；文本也已交给终端（OSC 52）',
   '  ↓ Jump to bottom (click or End)': '  ↓ 跳到底部（点击或按 文末）',
   'Ctrl+D quits — press Esc twice to drop the draft first': 'Ctrl+D 退出 — 先连按两次 Esc 丢弃草稿',
   'finish the pending approval before changing interaction mode':

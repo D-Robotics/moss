@@ -8,7 +8,9 @@ lands in the queue, that the queued rows are painted, and that the queue
 drains once the run ends; that a key the user put in keybindings.json (Alt+R)
 reaches the command through the same registry, and that `/hotkeys` paints the
 key list with its problems; that `/copy` puts the newest answer on both
-clipboard paths (the OSC 52 write and the native `pbcopy`); and that Ctrl+F
+clipboard routes (the OSC 52 write and the session's clipboard tool, a
+stand-in here), reports a tool that fails by name and copies again once it
+works, and on Linux says when the session has no tool at all; and that Ctrl+F
 opens a transcript search whose typing, stepping, resuming and closing all
 reach the real screen.
 
@@ -26,6 +28,7 @@ import os
 import pty
 import re
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -38,6 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 NODE = sys.argv[1]
 CLI = sys.argv[2]
 COLS, ROWS = 100, 30
+LINUX = sys.platform.startswith("linux")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\x1b[=>]")
 HOLD = threading.Event()
 
@@ -132,6 +136,50 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
 
 
+def copy_without_clipboard_tool(env, workspace):
+    """A second session with `env`, one answer, then `/copy`. Returns the
+    status the shell reported and what its OSC 52 write decoded to."""
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
+    proc = subprocess.Popen(
+        [NODE, CLI], stdin=slave, stdout=slave, stderr=slave, env=env,
+        cwd=os.path.realpath(workspace), preexec_fn=os.setsid,
+    )
+    os.close(slave)
+    raw = bytearray()
+    try:
+        def wait(needle):
+            deadline = time.time() + 20
+            while time.time() < deadline:
+                if needle in ANSI.sub("", raw.decode("utf-8", "replace")):
+                    return True
+                ready, _, _ = select.select([master], [], [], 0.1)
+                if ready:
+                    try:
+                        raw.extend(os.read(master, 65536))
+                    except OSError:
+                        return False
+            return False
+
+        if not wait("❯"):
+            return "the shell did not start", None
+        os.write(master, b"hi\r")
+        if not wait("Answer to: hi"):
+            return "the stub did not answer", None
+        raw.clear()
+        os.write(master, b"/copy\r")
+        notice = "sent to the terminal (OSC 52); this session has no clipboard tool"
+        if not wait(notice):
+            return None, None
+        osc = re.search(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)\x07", bytes(raw))
+        decoded = base64.b64decode(osc.group(1)).decode("utf-8") if osc else None
+        return notice, decoded
+    finally:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+        os.close(master)
+
+
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     port = server.server_address[1]
@@ -155,15 +203,19 @@ def main():
     # composer keeps, so /hotkeys has a problem to report.
     json.dump({"history.search": ["ctrl+r", "alt+r"], "draft.stash": "enter"},
               open(os.path.join(config_dir, "keybindings.json"), "w"))
-    # A stand-in for macOS `pbcopy`, first on PATH: the probe must not touch
-    # the developer's clipboard, and its file shows what the native path got.
+    # Stand-ins for the session's clipboard tools (`pbcopy` on macOS, the X11
+    # tools on Linux), first on PATH: the probe must not touch the developer's
+    # clipboard, and their file shows what the native path got. Each exits 3
+    # for as long as `clipboard-fail` exists.
     bin_dir = os.path.join(home, "bin")
     os.makedirs(bin_dir)
     clipboard = os.path.join(home, "clipboard.txt")
-    pbcopy = os.path.join(bin_dir, "pbcopy")
-    with open(pbcopy, "w") as handle:
-        handle.write(f"#!/bin/sh\ncat > '{clipboard}'\n")
-    os.chmod(pbcopy, 0o755)
+    clipboard_fail = os.path.join(home, "clipboard-fail")
+    for tool in ("pbcopy", "xclip", "xsel"):
+        stand_in = os.path.join(bin_dir, tool)
+        with open(stand_in, "w") as handle:
+            handle.write(f"#!/bin/sh\n[ -e '{clipboard_fail}' ] && exit 3\ncat > '{clipboard}'\n")
+        os.chmod(stand_in, 0o755)
     env = {
         "PATH": bin_dir + os.pathsep + os.environ["PATH"],
         "HOME": home,
@@ -178,6 +230,9 @@ def main():
         "COLUMNS": str(COLS),
         "LINES": str(ROWS),
     }
+    if LINUX:
+        # Linux picks its tools from the session's display variables.
+        env["DISPLAY"] = ":0"
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
     proc = subprocess.Popen(
@@ -375,8 +430,38 @@ def main():
                     break
             time.sleep(0.1)
         if native != "Answer to: third":
-            raise AssertionError(f"pbcopy received {native!r}")
+            raise AssertionError(f"the clipboard tool received {native!r}")
         checks += 1
+        # A tool that exits non-zero is reported as failed, by name: never as
+        # "copied". With the cause gone, the next copy is a copy again.
+        failing = "pbcopy" if sys.platform == "darwin" else "xsel"
+        open(clipboard_fail, "w").close()
+        mark = len(raw)
+        send("/copy\r")
+        failed = f"{failing} failed (exit 3); the text also went to the terminal (OSC 52)"
+        if not wait_for(failed, 10, mark):
+            raise AssertionError("/copy did not report the clipboard tool that failed")
+        checks += 1
+        os.remove(clipboard_fail)
+        mark = len(raw)
+        send("/copy\r")
+        if not wait_for("copied the last answer (16 chars)", 10, mark):
+            raise AssertionError("/copy did not copy again after the tool recovered")
+        checks += 1
+        if LINUX:
+            # A session without a display has no clipboard tool at all. The
+            # text still goes to the terminal, and the status says so.
+            without = dict(env)
+            without.pop("DISPLAY")
+            notice, osc_text = copy_without_clipboard_tool(without, workspace)
+            if notice != "sent to the terminal (OSC 52); this session has no clipboard tool":
+                raise AssertionError(f"/copy without a clipboard tool said {notice!r}")
+            checks += 1
+            if osc_text != "Answer to: hi":
+                raise AssertionError(f"without a tool the OSC 52 write carried {osc_text!r}")
+            checks += 1
+            if os.path.exists(clipboard):
+                raise AssertionError("a session without a clipboard tool ran one")
         # ── transcript search ──
         # The transcript holds three answers: "Streaming a long answer.", then
         # the two queued ones. The prompt search prints the same glyph, so the

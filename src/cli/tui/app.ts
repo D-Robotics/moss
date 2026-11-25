@@ -213,6 +213,7 @@ import {
   tui,
 } from './copy.js';
 import { WORKSPACE_WRITE_LIMIT_EN } from '../workspace-write-copy.js';
+import { clipboardNotice, writeSystemClipboard } from './clipboard.js';
 import { allocateFrame } from './layout.js';
 import {
   MOUSE_TRACKING_ON,
@@ -291,7 +292,7 @@ import {
   type HistoryCursor,
 } from './prompt-history.js';
 import { selectionText, type SelectionPoint } from './selection.js';
-import { spawnProcess, runProcess } from '../../utils/run-process.js';
+import { spawnProcess } from '../../utils/run-process.js';
 import { filterHistory, renderHistoryRule, renderHistorySearch } from './history-search.js';
 import {
   findMatches,
@@ -2404,8 +2405,10 @@ export function TuiAppRoot({
         if (answer === undefined) {
           setStatusLine(tui('no answer to copy yet'));
         } else {
-          writeClipboard(answer);
-          setStatusLine(tui('copied the last answer ({count} chars)', { count: answer.length }));
+          copyToClipboard(
+            answer,
+            tui('copied the last answer ({count} chars)', { count: answer.length })
+          );
         }
         return;
       }
@@ -3052,17 +3055,19 @@ export function TuiAppRoot({
       session: rule.source === 'session',
     }));
   };
-  // OSC 52 first (terminals that honour it), then the native clipboard on macOS.
-  const writeClipboard = (text: string): void => {
+  /**
+   * The terminal (OSC 52) has the text at once. The system's clipboard tool
+   * runs after it, and only its exit status says whether the clipboard does:
+   * `copied` is the status for that case, anything else says what happened.
+   */
+  const copyToClipboard = (text: string, copied: string): void => {
     writeStdout(osc52(text));
-    if (process.platform === 'darwin') {
-      void runProcess('pbcopy', { args: [], stdin: text }).catch(() => undefined);
-    }
+    void writeSystemClipboard(text, { platform: process.platform, env: process.env }).then(
+      (result) => setStatusLine(clipboardNotice(result, copied))
+    );
   };
-  const copySelection = (text: string): void => {
-    writeClipboard(text);
-    setStatusLine(tui('copied {count} chars to clipboard', { count: text.length }));
-  };
+  const copySelection = (text: string): void =>
+    copyToClipboard(text, tui('copied {count} chars to clipboard', { count: text.length }));
   const toggleExpandedRow = (rowId: number): void => {
     setExpandedRows((current) => {
       const next = new Set(current);

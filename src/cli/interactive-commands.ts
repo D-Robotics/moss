@@ -312,7 +312,8 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       {
         command: '/copy',
         description: 'copy the last answer to the clipboard, as markdown',
-        // The clipboard write belongs to the TUI shell (OSC 52, then pbcopy).
+        // The clipboard write belongs to the TUI shell (OSC 52, then the
+        // session's clipboard tool).
         surfaces: ['tui'],
         availableDuringRun: 'immediate',
       },

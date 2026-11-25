@@ -15,6 +15,7 @@ import select
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -102,17 +103,21 @@ class Session:
         if self.isolated_env:
             require_clean_ancestors(self.home)
         self.stream_events_path = os.path.join(self.home, "stub-stream-events.jsonl")
-        # A stand-in for macOS `pbcopy`, first on PATH: a scenario that copies
-        # must not touch the developer's clipboard, and the file it writes is
-        # what the native clipboard path received.
+        # Stand-ins for the session's clipboard tools (`pbcopy` on macOS, the
+        # X11 tools on Linux), first on PATH: a scenario that copies must not
+        # touch the developer's clipboard, and the file they write is what the
+        # native route received. Linux picks its tools from the display.
         bin_dir = os.path.join(self.home, "bin")
         os.mkdir(bin_dir)
         self.clipboard_path = os.path.join(self.home, "clipboard.txt")
-        pbcopy = os.path.join(bin_dir, "pbcopy")
-        with open(pbcopy, "w", encoding="utf-8") as handle:
-            handle.write(f"#!/bin/sh\ncat > '{self.clipboard_path}'\n")
-        os.chmod(pbcopy, 0o755)
+        for tool in ("pbcopy", "xclip", "xsel"):
+            stand_in = os.path.join(bin_dir, tool)
+            with open(stand_in, "w", encoding="utf-8") as handle:
+                handle.write(f"#!/bin/sh\ncat > '{self.clipboard_path}'\n")
+            os.chmod(stand_in, 0o755)
         inherited["PATH"] = bin_dir + os.pathsep + inherited.get("PATH", "")
+        if sys.platform.startswith("linux"):
+            inherited["DISPLAY"] = ":0"
         # Let the stub bind its own ephemeral port. Waiting for its listening
         # message avoids both a free-port race and a fixed startup delay.
         self.stub = subprocess.Popen(

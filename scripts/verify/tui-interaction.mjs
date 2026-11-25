@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * TUI interaction probe: the pure projections behind the queue rows, the
- * transcript search, the keymap and `/copy`.
+ * transcript search, the keymap, and `/copy`'s choice and running of the
+ * session's clipboard tool.
  *
  * The end-to-end half (a real PTY, real keys, the painted screen) lives in
  * scripts/verify/tui-interaction.py (stdlib, runs in this gate) and in
@@ -10,6 +11,8 @@
  * blank screen.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -634,5 +637,91 @@ assert.equal(
   10
 );
 ok('a hit near the top, the bottom or a short transcript is still inside the window');
+
+// ── /copy: which tools a session has, and what the status line says ───────
+
+const clipboard = await load('dist/cli/tui/clipboard.js');
+const toolsOf = (platform, env) =>
+  clipboard.clipboardCommands(platform, env).map((tool) => [tool.command, ...tool.args]);
+const x11 = [
+  ['xclip', '-selection', 'clipboard'],
+  ['xsel', '--clipboard', '--input'],
+];
+assert.deepEqual(toolsOf('darwin', {}), [['pbcopy']]);
+assert.deepEqual(toolsOf('linux', { WAYLAND_DISPLAY: 'wayland-0', DISPLAY: ':0' }), [
+  ['wl-copy', '-t', 'text/plain'],
+  ...x11,
+]);
+assert.deepEqual(toolsOf('linux', { DISPLAY: ':0' }), x11);
+assert.deepEqual(toolsOf('linux', {}), []);
+assert.deepEqual(toolsOf('linux', { WAYLAND_DISPLAY: '' }), []);
+assert.deepEqual(toolsOf('win32', { DISPLAY: ':0' }), []);
+ok(
+  'the tools of a session: pbcopy on macOS, wl-copy then the X11 tools on Linux, none without a display'
+);
+
+const copiedStatus = 'copied the last answer (12 chars)';
+const notice = (result) => clipboard.clipboardNotice(result, copiedStatus);
+assert.equal(notice({ kind: 'copied', tool: 'pbcopy' }), copiedStatus);
+const terminal = notice({ kind: 'terminal' });
+assert.match(terminal, /sent to the terminal \(OSC 52\)/);
+assert.doesNotMatch(terminal, /copied/i);
+const failed = notice({ kind: 'failed', tool: 'xclip', reason: 'exit 1' });
+assert.match(failed, /xclip failed \(exit 1\)/);
+assert.match(failed, /terminal \(OSC 52\)/);
+copy.setTuiLocale(true);
+assert.match(notice({ kind: 'terminal' }), /已交给终端（OSC 52）；本会话没有剪贴板工具/);
+assert.match(notice({ kind: 'failed', tool: 'xclip', reason: 'exit 1' }), /xclip 失败（exit 1）/);
+copy.setTuiLocale(false);
+ok('the status line says copied only for a tool that exited 0, else what happened');
+
+// The real spawn, against stand-in tools found first on PATH. Each stand-in
+// keeps what it was given, then exits as its name says.
+if (process.platform === 'win32') {
+  const result = await clipboard.writeSystemClipboard('x', { platform: 'win32', env: {} });
+  assert.deepEqual(result, { kind: 'terminal' });
+  ok('a session without a clipboard tool reports the terminal route and runs nothing');
+} else {
+  const originalPath = process.env.PATH;
+  const withTools = (spec) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-clipboard-'));
+    for (const [name, ending] of Object.entries(spec)) {
+      fs.writeFileSync(
+        path.join(dir, name),
+        `#!/bin/sh\ncat > "${dir}/${name}.stdin"\n${ending}\n`,
+        { mode: 0o755 }
+      );
+    }
+    process.env.PATH = `${dir}${path.delimiter}${originalPath}`;
+    return dir;
+  };
+  const wayland = { WAYLAND_DISPLAY: 'wayland-0', DISPLAY: ':0' };
+  const session = (env, timeoutMs) =>
+    clipboard.writeSystemClipboard('回答 answer ✓', { platform: 'linux', env, timeoutMs });
+
+  const dir = withTools({ 'wl-copy': 'exit 3', xclip: 'exit 0', xsel: 'exit 0' });
+  const copied = await session(wayland);
+  assert.deepEqual(copied, { kind: 'copied', tool: 'xclip' });
+  assert.equal(fs.readFileSync(path.join(dir, 'xclip.stdin'), 'utf8'), '回答 answer ✓');
+  assert.ok(!fs.existsSync(path.join(dir, 'xsel.stdin')));
+  ok('the first tool fails, the next one copies it whole (UTF-8), the rest never run');
+
+  withTools({ 'wl-copy': 'exit 3', xclip: 'exit 2', xsel: 'exec sleep 30' });
+  const started = Date.now();
+  const timedOut = await session(wayland, 200);
+  assert.deepEqual(timedOut, { kind: 'failed', tool: 'xsel', reason: 'timed out' });
+  assert.ok(Date.now() - started < 3_000);
+  ok('a tool that never exits is reported as timed out, and does not hang the shell');
+
+  withTools({});
+  assert.deepEqual(await session({ DISPLAY: ':0' }), {
+    kind: 'failed',
+    tool: 'xsel',
+    reason: 'not found',
+  });
+  assert.deepEqual(await session({}), { kind: 'terminal' });
+  process.env.PATH = originalPath;
+  ok('a session whose tools are not installed, or has none, is reported as such');
+}
 
 console.log(`[tui-interaction] ${String(checks)} checks passed`);
