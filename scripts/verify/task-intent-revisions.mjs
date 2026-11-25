@@ -384,16 +384,19 @@ try {
   console.log('PASS input during receipt persistence prevents stale answer publication');
 
   let illegalStarts = 0;
-  const invalid = createAgent((request, count) => {
-    if (count === 2) {
-      assert.deepEqual(
-        request.tools.map(({ name }) => name),
-        ['turn_decision']
-      );
-      assert.equal(request.toolChoice, 'required');
-    }
-    return response(toolCall('illegal'));
-  });
+  const invalid = createAgent(
+    (request, count) => {
+      if (count > 1) {
+        assert.deepEqual(
+          request.tools.map(({ name }) => name),
+          ['turn_decision']
+        );
+        assert.equal(request.toolChoice, 'required');
+      }
+      return response(toolCall('illegal'));
+    },
+    { budget: { maxTurns: 5 } }
+  );
   register(invalid.agent, 'illegal', async () => {
     illegalStarts++;
     return 'should not execute';
@@ -404,21 +407,22 @@ try {
     maxTurns: 5,
   });
   assert.equal(illegalStarts, 0);
-  assert.equal(invalid.provider.calls, 2, 'invalid declarations should have one bounded repair');
-  assert.equal(held.stopReason, 'task_intent_hold');
-  console.log('PASS missing declaration blocks all actions with bounded repair');
+  assert.equal(invalid.provider.calls, 5, 'only the ordinary run budget limits protocol repair');
+  assert.equal(held.stopReason, 'budget_turns_reached');
+  assert.doesNotMatch(held.response, /Execution is paused|could not be applied reliably/);
+  console.log('PASS malformed decisions stay internal and respect the ordinary run budget');
 
   let recoveredStarts = 0;
   const recovered = createAgent((request, count) => {
-    if (count === 1) return response(toolCall('recovered_action'));
-    if (count === 2) {
+    if (count <= 3) return response(toolCall('recovered_action'));
+    if (count === 4) {
       assert.deepEqual(
         request.tools.map(({ name }) => name),
         ['turn_decision']
       );
       return response(declaration(frame(request), 'execute'));
     }
-    if (count === 3) {
+    if (count === 5) {
       assert(request.tools.some(({ name }) => name === 'recovered_action'));
       return response(toolCall('recovered_action'));
     }
@@ -428,18 +432,23 @@ try {
     recoveredStarts++;
     return 'verified';
   });
-  await recovered.agent.chat('decision-repair', 'Recover the pending task', {
-    userInput: { id: 'decision-repair-1' },
-    taskFlow: false,
-    maxTurns: 5,
-  });
+  const recoveredResult = await recovered.agent.chat(
+    'decision-repair',
+    'Recover the pending task',
+    {
+      userInput: { id: 'decision-repair-1' },
+      taskFlow: false,
+      maxTurns: 8,
+    }
+  );
+  assert.match(recoveredResult.response, /Verified after the decision repair/);
   assert.equal(recoveredStarts, 1);
   assert.equal(
     recovered.agent.getTaskIntentReceipt('decision-repair', 'decision-repair-1').status,
     'committed'
   );
   console.log(
-    'PASS a failed declaration can repair and execute without replaying its original tool call'
+    'PASS repeated decision failures recover and finish in one run without replaying rejected tools'
   );
 
   const raceStarts = [];
