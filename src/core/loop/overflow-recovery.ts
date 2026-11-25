@@ -62,6 +62,9 @@ export interface OverflowRecoveryState {
 
   microcompactTotalSavedChars: number;
 
+  /** Elisions from per-turn context management not yet written to the store. */
+  contextWritebackChars: number;
+
   compactionOverflowRetries: number;
 }
 
@@ -82,6 +85,7 @@ export function createOverflowRecoveryState(): OverflowRecoveryState {
     overflowRecoveries: 0,
     contextCompactions: 0,
     microcompactTotalSavedChars: 0,
+    contextWritebackChars: 0,
     compactionOverflowRetries: 0,
   };
 }

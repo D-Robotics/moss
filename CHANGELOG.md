@@ -2,7 +2,27 @@
 
 ## Unreleased
 
-### The model decides; the harness stops second-guessing it (SDK 0.37)
+### Context write-back waits for the end of the run (SDK 0.38)
+
+- A run no longer rewrites the whole session file each time an unchanged tool result is folded
+  into a pointer. The rewrite happens once, when the run ends. Against an instant model, a
+  12-turn run that re-read the same file went from 10 rewrites to 1 and is 13 to 14 percent
+  faster than 0.37.0; a run that reads 12 distinct files is unchanged. Messages are still
+  appended as they arrive, so a crash loses only the folding savings, not the conversation.
+  Measurements: `docs/bench/0.38-before-after.md`.
+
+### Queue, search, copy and rebindable keys in the TUI (SDK 0.38)
+
+- Adds `/queue [<follow-up> | list | pause | resume | drop | clear]` to the TUI. A queued line
+  is sent after the current turn ends. The queue shows up to 5 rows and folds the rest into
+  `+N more queued`. While a turn runs, `Alt+Up` takes the newest queued message back into the
+  composer, and `Esc` returns every unsent queued line to it.
+- `Ctrl+F` searches the transcript. `/copy` puts the last answer on the clipboard and names the
+  tool that did it.
+- Keys can be changed in `~/.config/moss/keybindings.json`, a command id mapped to one key or a
+  list of keys such as `view.search`. `/hotkeys` lists the keys in effect.
+
+### The model decides; the harness stops second-guessing it (SDK 0.38)
 
 - Removes the regex rules that added model turns or refused tool calls on the harness's own
   judgment: the nudge registry and its 15 rule modules, the `SteeringEngine` and its five

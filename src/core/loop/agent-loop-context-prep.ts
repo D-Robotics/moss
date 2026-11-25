@@ -325,9 +325,11 @@ export async function prepareTurnContext(
     });
     state.overflowState.microcompactTotalSavedChars += ctxMgmt.savedChars;
     // Folds (and the stale-read pass beside them) only live in this array
-    // until they are written back. The next user turn reloads the store.
+    // until they are written back. The next user turn reloads the store, so
+    // the write-back waits for the end of the run: one session rewrite per run
+    // instead of one per turn that re-reads an unchanged file.
     if (ctxMgmt.durableChars > 0) {
-      await persistCurrentMessages();
+      state.overflowState.contextWritebackChars += ctxMgmt.durableChars;
     }
   }
 

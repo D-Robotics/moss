@@ -876,6 +876,14 @@ export function runAgentLoop(
         if (!params.replaceMessages)
           throw new Error('Suspension requires a durable session replacement port');
         await params.replaceMessages(sessionKey, currentMessages);
+      } else if (state.overflowState.contextWritebackChars > 0 && params.replaceMessages) {
+        // Every message is already durable through appendMessage; this write-back
+        // only keeps the elisions. Losing it costs context, never the conversation.
+        try {
+          await persistCurrentMessages();
+        } catch (error) {
+          log.warn('deferred context write-back failed', { error: describeError(error) });
+        }
       }
       stream.push({ type: 'agent_end', runId, messages: currentMessages });
       stream.end({
