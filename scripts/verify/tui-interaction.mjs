@@ -173,6 +173,9 @@ try {
     '  Keys · Esc to close',
     'edit the newest queued message',
     'show every shortcut, the keys the composer keeps, and keybinding problems',
+    'copied the last answer ({count} chars)',
+    'no answer to copy yet',
+    'copy the last answer to the clipboard, as markdown',
   ]) {
     const value = copy.ZH[key];
     assert.ok(value && value.length > 0, `${key} has a zh string`);
@@ -335,5 +338,69 @@ assert.equal(hotkeysRow.hidden, undefined, '/hotkeys is in the everyday menu');
 assert.deepEqual([...hotkeysRow.surfaces], ['tui']);
 assert.equal(hotkeysRow.availableDuringRun, 'immediate');
 ok('the catalog advertises /hotkeys on the TUI surface, mid-run');
+
+// ── /copy ──────────────────────────────────────────────────────────────────
+
+// `/copy` reads the same rows the transcript paints, so build them the way
+// render-bridge does: a fresh answer block, `progress` narration, and
+// `continuation` paragraphs.
+const transcriptRow = (kind, text, extra = {}) => ({ id: 0, kind, text, ...extra });
+
+assert.equal(helpers.lastAnswerText([]), undefined);
+assert.equal(helpers.lastAnswerText([transcriptRow('user', 'hello')]), undefined);
+assert.equal(
+  helpers.lastAnswerText([transcriptRow('assistant', 'Let me look.', { progress: true })]),
+  undefined,
+  'narration alone is not an answer'
+);
+ok('/copy has nothing to copy before the first answer');
+
+const answer = 'Use `npm run check`.\n\n```sh\nnpm run check\n```';
+assert.equal(
+  helpers.lastAnswerText([
+    transcriptRow('user', 'how do I verify?'),
+    transcriptRow('assistant', 'Let me look at the scripts.', { progress: true }),
+    transcriptRow('tool', 'read_file'),
+    transcriptRow('result', 'Read 12 lines'),
+    transcriptRow('assistant', answer),
+  ]),
+  answer,
+  'the answer is copied as markdown source, without the narration'
+);
+ok('/copy copies the newest answer as markdown source');
+
+const summary = { text: 'Compacted 2 turns' };
+assert.equal(
+  helpers.lastAnswerText([
+    transcriptRow('assistant', answer),
+    transcriptRow('summary', summary.text),
+    transcriptRow('system', 'resumed'),
+  ]),
+  answer,
+  'rows after the answer do not hide it'
+);
+assert.equal(
+  helpers.lastAnswerText([
+    transcriptRow('assistant', 'First draft.', { progress: true }),
+    transcriptRow('assistant', 'The real answer.'),
+    transcriptRow('assistant', 'Second paragraph.', { continuation: true }),
+  ]),
+  'The real answer.\n\nSecond paragraph.',
+  'a superseded block stays out, the continuation paragraphs come along'
+);
+assert.equal(
+  helpers.lastAnswerText([transcriptRow('assistant', '   \n ')]),
+  undefined,
+  'a blank block is not an answer'
+);
+ok('/copy follows the answer across later rows and superseded blocks');
+
+const copyRow = catalog.INTERACTIVE_COMMAND_SECTIONS.flatMap((section) => section.rows).find(
+  (row) => row.command === '/copy'
+);
+assert.equal(copyRow.hidden, undefined, '/copy is in the everyday menu');
+assert.deepEqual([...copyRow.surfaces], ['tui']);
+assert.equal(copyRow.availableDuringRun, 'immediate');
+ok('the catalog advertises /copy on the TUI surface, mid-run');
 
 console.log(`[tui-interaction] ${String(checks)} checks passed`);

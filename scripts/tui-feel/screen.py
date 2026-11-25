@@ -75,6 +75,7 @@ class Session:
         self.home = None
         self.workspace = None
         self.stream_events_path = None
+        self.clipboard_path = None
         self.screen = pyte.HistoryScreen(cols, rows, history=5000)
         self.stream = pyte.Stream(self.screen)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -101,6 +102,17 @@ class Session:
         if self.isolated_env:
             require_clean_ancestors(self.home)
         self.stream_events_path = os.path.join(self.home, "stub-stream-events.jsonl")
+        # A stand-in for macOS `pbcopy`, first on PATH: a scenario that copies
+        # must not touch the developer's clipboard, and the file it writes is
+        # what the native clipboard path received.
+        bin_dir = os.path.join(self.home, "bin")
+        os.mkdir(bin_dir)
+        self.clipboard_path = os.path.join(self.home, "clipboard.txt")
+        pbcopy = os.path.join(bin_dir, "pbcopy")
+        with open(pbcopy, "w", encoding="utf-8") as handle:
+            handle.write(f"#!/bin/sh\ncat > '{self.clipboard_path}'\n")
+        os.chmod(pbcopy, 0o755)
+        inherited["PATH"] = bin_dir + os.pathsep + inherited.get("PATH", "")
         # Let the stub bind its own ephemeral port. Waiting for its listening
         # message avoids both a free-port race and a fixed startup delay.
         self.stub = subprocess.Popen(
@@ -230,6 +242,7 @@ class Session:
             self.home = None
             self.workspace = None
             self.stream_events_path = None
+            self.clipboard_path = None
             if home:
                 shutil.rmtree(home, ignore_errors=True)
             if workspace:

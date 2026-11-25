@@ -292,6 +292,7 @@ export const ZH: Readonly<Record<string, string>> = {
   '  Keys · Esc to close': '  快捷键 · Esc 关闭',
   '{count} keybinding problem{s} — /hotkeys · {notice}':
     '{count} 个键位配置问题 — /hotkeys · {notice}',
+  'copy the last answer to the clipboard, as markdown': '把上一条回答以 Markdown 原文复制到剪贴板',
   'show every shortcut, the keys the composer keeps, and keybinding problems':
     '显示全部快捷键、编辑区固定占用的键与键位配置问题',
 
@@ -519,6 +520,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'set $EDITOR to edit the draft externally': '设置 $EDITOR 后可在外部编辑草稿',
   'could not read the edited draft': '读不回编辑后的草稿',
   'copied {count} chars to clipboard': '已复制 {count} 个字符到剪贴板',
+  'copied the last answer ({count} chars)': '已复制上一条回答（{count} 个字符）',
+  'no answer to copy yet': '还没有可复制的回答',
   '  ↓ Jump to bottom (click or End)': '  ↓ 跳到底部（点击或按 文末）',
   'Ctrl+D quits — press Esc twice to drop the draft first': 'Ctrl+D 退出 — 先连按两次 Esc 丢弃草稿',
   'finish the pending approval before changing interaction mode':

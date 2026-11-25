@@ -318,6 +318,7 @@ import {
   buildHelpOverlayLines,
   buildHotkeyLines,
   formatSteered,
+  lastAnswerText,
   sliceHelpOverlay,
   relativeAge,
   filterPickerSessions,
@@ -2378,6 +2379,17 @@ export function TuiAppRoot({
         });
         return;
       }
+      if (text === '/copy') {
+        // The newest answer block and its continuation paragraphs, as markdown.
+        const answer = lastAnswerText(store.rows);
+        if (answer === undefined) {
+          setStatusLine(tui('no answer to copy yet'));
+        } else {
+          writeClipboard(answer);
+          setStatusLine(tui('copied the last answer ({count} chars)', { count: answer.length }));
+        }
+        return;
+      }
       if (text === '/hotkeys') {
         setHelpOverlay({
           lines: buildHotkeyLines(keymap.bindings, keymap.warnings),
@@ -3021,11 +3033,15 @@ export function TuiAppRoot({
       session: rule.source === 'session',
     }));
   };
-  const copySelection = (text: string): void => {
+  // OSC 52 first (terminals that honour it), then the native clipboard on macOS.
+  const writeClipboard = (text: string): void => {
     writeStdout(osc52(text));
     if (process.platform === 'darwin') {
       void runProcess('pbcopy', { args: [], stdin: text }).catch(() => undefined);
     }
+  };
+  const copySelection = (text: string): void => {
+    writeClipboard(text);
     setStatusLine(tui('copied {count} chars to clipboard', { count: text.length }));
   };
   const toggleExpandedRow = (rowId: number): void => {

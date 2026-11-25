@@ -480,6 +480,31 @@ export function buildHotkeyLines(
   ];
 }
 
+/**
+ * `/copy`: the newest answer as the transcript paints it. That is the last
+ * fresh assistant block plus the paragraphs that continue it. Pre-tool
+ * narration and a superseded block are folded to a dim line on screen
+ * (`progress`) and stay out, and rows of other kinds after the answer (a
+ * summary, an error) do not hide it. Markdown source, not rendered text.
+ */
+export function lastAnswerText(rows: readonly TranscriptRow[]): string | undefined {
+  let start = -1;
+  for (let index = rows.length - 1; index >= 0; index--) {
+    const row = rows[index];
+    if (row.kind === 'assistant' && row.progress !== true && row.continuation !== true) {
+      start = index;
+      break;
+    }
+  }
+  if (start < 0) return undefined;
+  const parts: string[] = [];
+  for (const row of rows.slice(start)) {
+    if (row.kind !== 'assistant' || row.progress === true) break;
+    parts.push(row.text);
+  }
+  return parts.join('\n\n').trim() || undefined;
+}
+
 /** Slice the help list and tell the user it scrolls, instead of asking them to resize. */
 export function sliceHelpOverlay(
   lines: readonly string[],

@@ -310,6 +310,13 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
+        command: '/copy',
+        description: 'copy the last answer to the clipboard, as markdown',
+        // The clipboard write belongs to the TUI shell (OSC 52, then pbcopy).
+        surfaces: ['tui'],
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/queue',
         args: '[<follow-up> | pause|resume|drop|clear]',
         description: 'queue a follow-up for after the run, or inspect and control the input queue',

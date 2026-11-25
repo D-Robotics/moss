@@ -7,7 +7,8 @@ projection checks cannot: that `/queue <text>` typed during a run really
 lands in the queue, that the queued rows are painted, and that the queue
 drains once the run ends; that a key the user put in keybindings.json (Alt+R)
 reaches the command through the same registry, and that `/hotkeys` paints the
-key list with its problems.
+key list with its problems; and that `/copy` puts the newest answer on both
+clipboard paths (the OSC 52 write and the native `pbcopy`).
 
 The PTY is not a terminal emulator: nothing answers the kitty keyboard query,
 so every key here is the legacy byte sequence a plain xterm would send.
@@ -15,6 +16,7 @@ so every key here is the legacy byte sequence a plain xterm would send.
 Prints one JSON line: {"ok": true, "checks": N} or {"ok": false, "error": "..."}.
 Exit 0 only when every check passed.
 """
+import base64
 import fcntl
 import http.client
 import json
@@ -136,8 +138,17 @@ def main():
     # composer keeps, so /hotkeys has a problem to report.
     json.dump({"history.search": ["ctrl+r", "alt+r"], "draft.stash": "enter"},
               open(os.path.join(config_dir, "keybindings.json"), "w"))
+    # A stand-in for macOS `pbcopy`, first on PATH: the probe must not touch
+    # the developer's clipboard, and its file shows what the native path got.
+    bin_dir = os.path.join(home, "bin")
+    os.makedirs(bin_dir)
+    clipboard = os.path.join(home, "clipboard.txt")
+    pbcopy = os.path.join(bin_dir, "pbcopy")
+    with open(pbcopy, "w") as handle:
+        handle.write(f"#!/bin/sh\ncat > '{clipboard}'\n")
+    os.chmod(pbcopy, 0o755)
     env = {
-        "PATH": os.environ["PATH"],
+        "PATH": bin_dir + os.pathsep + os.environ["PATH"],
         "HOME": home,
         "MOSS_CONFIG_DIR": config_dir,
         "MOSS_CONFIG_FILE": config,
@@ -207,6 +218,10 @@ def main():
     try:
         if not wait_for("❯", 20):
             raise AssertionError("the composer never appeared")
+        send("/copy\r")
+        if not wait_for("no answer to copy yet", 10):
+            raise AssertionError("/copy before the first answer did not say so")
+        checks += 1
         send("holdstream\r")
         if not wait_for("Working", 15):
             raise AssertionError("the first prompt never started a run")
@@ -261,6 +276,29 @@ def main():
             raise AssertionError("/hotkeys does not show the keybinding problem")
         checks += 1
         send("\x1b")
+        time.sleep(0.4)
+        # The newest answer is the last queued line's. Both clipboard paths
+        # must carry exactly that text.
+        send("/copy\r")
+        if not wait_for("copied the last answer (16 chars)", 10):
+            raise AssertionError("/copy did not report the newest answer")
+        checks += 1
+        osc = re.search(r"\x1b\]52;c;([A-Za-z0-9+/=]+)\x07", raw.decode("utf-8", "replace"))
+        if not osc or base64.b64decode(osc.group(1)).decode("utf-8") != "Answer to: third":
+            raise AssertionError("the OSC 52 write did not carry the newest answer")
+        checks += 1
+        # The native path is spawned, not awaited: give the stand-in a moment.
+        native = None
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if os.path.exists(clipboard):
+                with open(clipboard, encoding="utf-8") as handle:
+                    native = handle.read()
+                break
+            time.sleep(0.1)
+        if native != "Answer to: third":
+            raise AssertionError(f"pbcopy received {native!r}")
+        checks += 1
         print(json.dumps({"ok": True, "checks": checks}))
     except AssertionError as error:
         tail = re.sub(r"\s+", " ", text())[-400:]

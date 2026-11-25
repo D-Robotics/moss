@@ -209,9 +209,16 @@ def queue_scenario():
 
     with Session(cols=100, rows=30) as s:
         s.wait_for_prompt()
-        type_line(s, "/queue hello idle", settle=1.5)
-        check("queue: idle, /queue <text> runs now", "Done." in screen_text(s))
-        check("queue: idle, nothing is left queued", "queued" not in screen_text(s))
+        type_line(s, "/queue hello idle", settle=0.5)
+        # Wait for the answer instead of sleeping: under load the stub's reply
+        # took longer than a fixed settle once, on a healthy build.
+        ran = s.wait_for(lambda: "Done." in screen_text(s), 15)
+        check("queue: idle, /queue <text> runs now", ran, screen_text(s)[-300:])
+        check(
+            "queue: idle, nothing is left queued",
+            s.wait_for(lambda: "queued" not in screen_text(s), 10),
+            screen_text(s)[-300:],
+        )
 
 
 # ── keys ───────────────────────────────────────────────────────────────────
@@ -319,13 +326,71 @@ def keys_scenario():
         check("keys: the key it moved to answers", HISTORY_SEARCH_OPEN in screen_text(s))
 
 
+# ── /copy ──────────────────────────────────────────────────────────────────
+
+COPY_PROMPT = "copymark"
+# What the stub answers to it; the screen paints this without the markdown marks.
+COPY_ANSWER = "A **bold** claim and `npm run check`."
+
+
+def clipboard_text(session):
+    """What the `pbcopy` stand-in last received (None before it ran)."""
+    if session.clipboard_path is None:
+        return None
+    try:
+        with open(session.clipboard_path, encoding="utf-8") as handle:
+            return handle.read()
+    except FileNotFoundError:
+        return None
+
+
+def copy_scenario():
+    with Session(cols=100, rows=30) as s:
+        s.wait_for_prompt()
+        type_line(s, "/copy", settle=0.8)
+        check(
+            "copy: before the first answer it says so",
+            "no answer to copy yet" in screen_text(s),
+            screen_text(s)[-300:],
+        )
+        check("copy: nothing reached the clipboard", clipboard_text(s) is None)
+
+        s.submit(COPY_PROMPT, wait=2.5)
+        s.wait_for(lambda: "A bold claim and npm run check." in screen_text(s), 15)
+        check(
+            "copy: the screen shows the rendered answer",
+            "**bold**" not in screen_text(s) and "`npm run check`" not in screen_text(s),
+            screen_text(s)[-400:],
+        )
+        type_line(s, "/copy", settle=0.8)
+        check(
+            "copy: the status line reports the newest answer",
+            f"copied the last answer ({len(COPY_ANSWER)} chars)" in screen_text(s),
+            screen_text(s)[-300:],
+        )
+        copied = s.wait_for(lambda: clipboard_text(s) == COPY_ANSWER, 5)
+        check("copy: the clipboard holds the markdown source", copied, clipboard_text(s))
+
+        # A second answer: /copy takes the newest one, not the first.
+        s.submit("second turn", wait=2.5)
+        s.wait_for(lambda: "Done." in screen_text(s), 15)
+        type_line(s, "/copy", settle=0.8)
+        check(
+            "copy: the second copy reports the second answer",
+            "copied the last answer (5 chars)" in screen_text(s),
+            screen_text(s)[-300:],
+        )
+        again = s.wait_for(lambda: clipboard_text(s) == "Done.", 5)
+        check("copy: the clipboard now holds the second answer", again, clipboard_text(s))
+
+
 # ── entry ──────────────────────────────────────────────────────────────────
 
 SCENARIOS = {
     "queue": queue_scenario,
     "search": None,
     "keys": keys_scenario,
-    "copy": None,
+    "copy": copy_scenario,
 }
 
 

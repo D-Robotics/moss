@@ -3,6 +3,7 @@
 //   "longstream" -> ~90-line markdown answer streamed in 12-char deltas every 25ms
 //   "toolstorm"  -> 20 sequential list_directory calls, then a short answer
 //   "holdstream" -> one delta, then the stream stays open until POST /__tui-feel/release
+//   "copymark"   -> one answer in markdown, so a copy differs from the painted screen
 //   anything else -> one short answer
 import fs from 'node:fs';
 import http from 'node:http';
@@ -82,6 +83,13 @@ const server = http
       const text = lastUser(messages);
       const toolResults = messages.filter((m) => m.role === 'tool').length;
       sse(res);
+      if (/copymark/i.test(text)) {
+        send(res, {
+          choices: [{ index: 0, delta: { content: 'A **bold** claim and `npm run check`.' } }],
+        });
+        done(res);
+        return;
+      }
       if (/holdstream/i.test(text)) {
         send(res, {
           choices: [
