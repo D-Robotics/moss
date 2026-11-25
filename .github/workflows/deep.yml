@@ -58,6 +58,10 @@ jobs:
         if: runner.os != 'Windows'
         env:
           VERIFY_BUDGET_SECONDS: '0'
+          # The PTY half of tui-interaction (queue, search, /copy in a real
+          # shell) waits for the shell to settle: evidence for these untimed
+          # legs, not for the 60s gate.
+          VERIFY_TUI_PTY: '1'
         run: npm run verify
 
       # B288: behavior probes assume POSIX shells/PTys in places that are still

@@ -233,6 +233,8 @@ Linux CI 不是 macOS。改 shell 片段、临时目录或 git 路径时按这�
 - **不要新增 spec 套件（owner 2026-11-04 明确要求保持现状）。** 不新建 `test/*.spec.mjs`、不引回
   spec 跑器；需要回归保护时，加 verify stage、可执行探测或 bench 任务。
 - 动态 ESM import 一律 `pathToFileURL(...).href`（Windows 兼容）。
+- `tui-interaction` 阶段在 gate 里只跑纯函数半；PTY 半（队列、搜索、`/copy` 的真实按键）要
+  `VERIFY_TUI_PTY=1` 才跑（deep 的 Linux/macOS leg 已设）。改这些交互后本地带上这个变量跑一次。
 - `npm pack` 探针必须 `--ignore-scripts`，避免 `prepare` 的构建与共享 `dist/` 竞态。
 - 真实终端检查：`smoke` 覆盖 Unix PTY 启动（Windows 跳过）；tmux / screen / Terminal.app 的体感
   基准走 `npm run bench:tui-feel`（opt-in）。

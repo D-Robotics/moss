@@ -85,9 +85,12 @@ This section is part of the design, not a disclaimer hidden in a log.
   (still not exhaustive) evidence tier.
 - **No install e2e.** The documented `npm ci` + `npm install -g --install-links`
   path is not executed by any automated gate.
-- **No real terminals.** PTY startup is checked by `smoke` on Unix; tmux /
-  screen / Terminal.app behavior is only covered by the opt-in
-  `npm run bench:tui-feel` path.
+- **No real terminals.** PTY startup is checked by `smoke` on Unix. The
+  interaction probe (`tui-interaction`: queue, transcript search and `/copy`
+  in a real PTY) is not part of the timed gate: its projection half is, its
+  PTY half runs with `VERIFY_TUI_PTY=1` (deep.yml sets it on the Linux and
+  macOS legs). tmux / screen / Terminal.app behavior is only covered by the
+  opt-in `npm run bench:tui-feel` path.
 - **Windows** (deep workflow) runs the cross-platform subset the product
   promises there — static, build, CLI smoke and the embedding examples; the
   behavior probes still assume POSIX shells/PTYs in places, so they run on the

@@ -3,8 +3,11 @@
  * `/copy` — pure projections first (node asserts), then the real wiring
  * (a PTY drives `dist/cli.js` against a local stub, stdlib python).
  *
- * The PTY half is skipped where python3/pty is missing, the same policy as
- * `slash-dispatch`; the projection half always runs.
+ * The projection half always runs. The PTY half mostly waits for a real shell
+ * to settle, which is not what the timed gate is for (docs/design/
+ * ci-and-verify.md): it runs when VERIFY_TUI_PTY=1 is set — deep.yml sets it
+ * on its Linux and macOS legs — and is skipped where python3/pty is missing,
+ * the same policy as `slash-dispatch`.
  */
 import path from 'node:path';
 import { captureProcess, formatDuration } from '../lib/proc.mjs';
@@ -34,11 +37,14 @@ export const stage = {
         detail: `projections exited ${String(probe.status ?? probe.signal)}${lastLine ? `: ${lastLine}` : ''}`,
       };
     }
+    const projections = `projections ok in ${formatDuration(Date.now() - started)}`;
+    if (process.env.VERIFY_TUI_PTY !== '1') {
+      console.log(`${projections}; PTY half not requested (VERIFY_TUI_PTY=1)`);
+      return { ok: true };
+    }
     const python = await pythonWithPty();
     if (!python) {
-      console.log(
-        `[tui-interaction] projections ok in ${formatDuration(Date.now() - started)}; PTY skipped`
-      );
+      console.log(`[tui-interaction] ${projections}; PTY skipped`);
       return { ok: true };
     }
     const pty = await captureProcess(

@@ -5,10 +5,10 @@
  * session's clipboard tool.
  *
  * The end-to-end half (a real PTY, real keys, the painted screen) lives in
- * scripts/verify/tui-interaction.py (stdlib, runs in this gate) and in
- * scripts/tui-feel/assert-interaction.py (pyte, opt-in). This file pins the
- * data shapes so a wiring change fails with the row that changed, not with a
- * blank screen.
+ * scripts/verify/tui-interaction.py (stdlib, off the clock: the stage runs
+ * it with VERIFY_TUI_PTY=1) and in scripts/tui-feel/assert-interaction.py
+ * (pyte, opt-in). This file pins the data shapes so a wiring change fails
+ * with the row that changed, not with a blank screen.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
