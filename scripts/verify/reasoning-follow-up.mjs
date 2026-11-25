@@ -7,6 +7,11 @@
  * the loop is the real agent loop, so the options recorded here are what a
  * provider would have received. The second call used to lose its reasoning
  * level with a "provider compatibility" note that no provider had asked for.
+ *
+ * The level is also nobody's to change behind the caller's back: a per-call
+ * level (`/thinking`) beats a configured budget that pins `high` or `max`,
+ * the budget still applies when the caller left the level open, and a turn
+ * error leaves the level alone (the `adaptive` budget used to send `high`).
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -26,7 +31,7 @@ const workspaceDir = await fs.realpath(
 );
 const usage = { input: 12, output: 4 };
 
-async function run(key, config, chatOptions) {
+async function run(key, config, chatOptions, extra = {}) {
   const sent = [];
   const provider = new PiAiLLMProvider({
     apiKey: 'offline-key',
@@ -40,7 +45,11 @@ async function run(key, config, chatOptions) {
       if (sent.length === 1) {
         yield {
           type: 'toolcall_end',
-          toolCall: { id: 'call-1', name: 'read_file', arguments: { path: 'note.txt' } },
+          toolCall: {
+            id: 'call-1',
+            name: extra.firstToolCall?.name ?? 'read_file',
+            arguments: extra.firstToolCall?.arguments ?? { path: 'note.txt' },
+          },
         };
         yield { type: 'done', reason: 'toolCall', usage };
       } else {
@@ -56,6 +65,7 @@ async function run(key, config, chatOptions) {
     baseSystemPrompt: 'Read the file, then answer.',
     domainPrompt: false,
     verificationGate: false,
+    ...(extra.agent ?? {}),
   });
   registerBuiltinTools(agent);
   try {
@@ -108,6 +118,60 @@ try {
     'an explicit off stays off on both calls'
   );
   console.log('[reasoning-follow-up] ok an explicit off is sent as no reasoning option');
+
+  // A level chosen for one call is what goes out. A configured budget that
+  // pins `high` or `max` used to replace it, so `/thinking low` on a session
+  // with budget `max` sent `max` while the screen said `low`.
+  const chosen = await run(
+    'reasoning-chosen-over-budget',
+    { model },
+    { reasoning: 'low' },
+    {
+      agent: { reasoningBudget: 'max' },
+    }
+  );
+  assert.deepEqual(
+    chosen.map((call) => call.reasoning),
+    ['low', 'low'],
+    'a per-call level is sent even when the configured budget pins another one'
+  );
+  console.log('[reasoning-follow-up] ok a per-call level wins over a pinning budget');
+
+  // The budget still applies when the caller left the level open.
+  const pinned = await run(
+    'reasoning-budget-pins',
+    { model },
+    {},
+    {
+      agent: { reasoningBudget: 'max' },
+    }
+  );
+  assert.deepEqual(
+    pinned.map((call) => call.reasoning),
+    ['max', 'max'],
+    'an open level takes the configured budget'
+  );
+  console.log('[reasoning-follow-up] ok an open level takes the pinning budget');
+
+  // A failed verification does not change the level. The `adaptive` budget used
+  // to send `high` on the call after a failed test, which turned a configured
+  // `off` into `high` and lowered `max` to `high`.
+  const afterFailure = await run(
+    'reasoning-after-failed-verify',
+    { model },
+    {},
+    {
+      agent: { reasoning: 'off', reasoningBudget: 'adaptive' },
+      firstToolCall: { name: 'run_tests', arguments: { command: "node -e 'process.exit(1)'" } },
+    }
+  );
+  assert.equal(afterFailure.length, 2, 'the call with the test, then the call after its failure');
+  assert.deepEqual(
+    afterFailure.map((call) => call.reasoning),
+    ['off', 'off'],
+    'the level after a failed verification is the configured one'
+  );
+  console.log('[reasoning-follow-up] ok a failed verification leaves the configured level alone');
 } finally {
   await fs.rm(workspaceDir, { recursive: true, force: true });
 }

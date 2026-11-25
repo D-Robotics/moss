@@ -2452,7 +2452,10 @@ ${result.stderr ?? ''}`.trim();
       topP,
       reasoning: runReasoning,
       ...(this.config.budget ? { budget: this.config.budget } : {}),
-      reasoningBudget: this.config.reasoningBudget ?? 'adaptive',
+      // A level the caller chose for this run goes out as chosen. The
+      // configured budget fills in only when the caller left the level open.
+      reasoningBudget:
+        options?.reasoning !== undefined ? 'off' : (this.config.reasoningBudget ?? 'adaptive'),
       ...(this.config.modelTiers ? { modelTiers: this.config.modelTiers } : {}),
       ...(this.config.bestOfN && this.config.bestOfN >= 2
         ? {

@@ -28,6 +28,8 @@ import { createCliSessionKey } from './session.js';
 import { loadCliConfigFile } from './config.js';
 import { hookEventZhName } from './hook-event-names.js';
 import { configuredBaseUrl, pricingOverridesFromConfig } from './model-pricing.js';
+import { sessionReasoningOption } from './thinking-level.js';
+import type { ThinkingLevel } from '../provider/pi-ai-types.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { acceptanceShell } from '../core/task/acceptance-command.js';
 import { runStopHooks, type StopHookResult } from './hooks.js';
@@ -99,6 +101,12 @@ export interface RunOneShotOptions {
    * mention expanded before the run). Prepended to the run's extra context.
    */
   extraContext?: string;
+  /**
+   * The reasoning level of this turn. Unset means the interactive session's
+   * level (`/thinking`, the config when none was chosen); `null` asks for no
+   * reasoning on this one turn.
+   */
+  reasoning?: ThinkingLevel | null;
 }
 
 const BRIEF_ONE_SHOT_MAX_TURNS = 6;
@@ -585,6 +593,9 @@ export async function runOneShot(
             ...taskFlow,
             ...(options.runId ? { runId: options.runId } : {}),
             ...sampling,
+            // An ordinary turn takes the level the interactive session chose
+            // (`/thinking`); a caller that named its own keeps it.
+            ...sessionReasoningOption(options.reasoning),
             ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),
             toolFilter,
             ...(pureChat ? { omitExtraPromptLayers: true as const } : {}),

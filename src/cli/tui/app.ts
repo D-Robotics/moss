@@ -67,6 +67,13 @@ import { formatBackgroundCompletionFlash } from '../background-completion-ui.js'
 import { redactEgress } from '../../safety/tool-output-redact.js';
 import { installNonTtyOutputDimensions } from './output-dimensions.js';
 import { formatMcpStatusLine } from '../rdk-docs-mcp.js';
+import { createSessionUsageAccumulator } from '../session-usage.js';
+import {
+  getSessionThinkingLevel,
+  nextThinkingLevel,
+  sessionReasoningOption,
+  setSessionThinkingLevel,
+} from '../thinking-level.js';
 import {
   formatBlockedTaskLine,
   formatEvidenceLine,
@@ -633,6 +640,19 @@ export function TuiAppRoot({
     viewportRows: 0,
   });
   const projectedTextRef = useRef<string[]>([]);
+  // What `/session` reports. The registry asks the host for it, and this shell
+  // used to answer nothing, so the command said no model call had been made
+  // while the status row was counting tokens. `/clear` starts a new session
+  // and replaces it, as it zeroes `store.usage` for `/usage`.
+  const usageAccumulatorRef = useRef(createSessionUsageAccumulator());
+  // The session thinking level lives outside React (`thinking-level.ts`), so
+  // the prompt line keeps its own label and both writers refresh it: the
+  // `thinking.cycle` key here and `/thinking` in the command registry.
+  const [thinkingLabel, setThinkingLabel] = useState<string>(() =>
+    getSessionThinkingLevel() ? `thinking:${getSessionThinkingLevel()}` : ''
+  );
+  const syncThinkingLabel = (): void =>
+    setThinkingLabel(getSessionThinkingLevel() ? `thinking:${getSessionThinkingLevel()}` : '');
   const selectionRef = useRef<{ anchor: SelectionPoint; head: SelectionPoint } | undefined>(
     undefined
   );
@@ -1265,6 +1285,7 @@ export function TuiAppRoot({
       const runOptions = {
         abortSignal,
         taskFlow,
+        ...sessionReasoningOption(),
         ...(extraContext ? { extraContext } : {}),
         ...(userIntentText ? { userIntentText } : {}),
       };
@@ -1348,13 +1369,22 @@ export function TuiAppRoot({
 
   const runTurn = useCallback(
     async (message: string, userIntentText?: string) => {
-      await options.onTurnStart?.(message);
+      // The run is in flight from here on, before any await. `onTurnStart` reads
+      // the session file, and a line submitted inside that gap (the second line
+      // of a batched `one\rtwo\r` chunk) used to find an idle TUI and start a
+      // second turn beside the first.
       // Rows committed from this run on — the plan gate asks whether the run
       // actually produced a plan (tools were used, or a substantial answer).
       const firstRowId = store.nextId;
       runtime.beginRun();
       const resumeHint = messageRequestsTaskContract(message);
       beginRun(store, { resumeHint });
+      try {
+        await options.onTurnStart?.(message);
+      } catch (error) {
+        endRun(store, true);
+        throw error;
+      }
       if (options.agent.config.baseUrl) store.run.baseUrl = options.agent.config.baseUrl;
       runStartedAtRef.current = Date.now();
       handle.notify();
@@ -1375,6 +1405,7 @@ export function TuiAppRoot({
           userIntentText
         )) {
           noteRunCompletionEvent(completionTracker, event);
+          usageAccumulatorRef.current.record(event);
           if (event.type === 'error' && isInterruptEvent(controller, event.error)) {
             // D-9: the loop reports the user's own abort as an `error` event
             // ("This operation was aborted"), which used to land in the
@@ -1718,8 +1749,11 @@ export function TuiAppRoot({
             workspace: options.workspaceDir,
             sessionKey,
             signal: controller.signal,
-            onAgentEvent: (event) =>
-              applyAgentEvent(store, event as Parameters<typeof applyAgentEvent>[1]),
+            onAgentEvent: (event) => {
+              const agentEvent = event as Parameters<typeof applyAgentEvent>[1];
+              usageAccumulatorRef.current.record(agentEvent);
+              applyAgentEvent(store, agentEvent);
+            },
             onOutput: (stream, text) => {
               if (stream === 'stderr') {
                 const line = text.trim();
@@ -2141,6 +2175,12 @@ export function TuiAppRoot({
         workspace: options.workspaceDir,
         ...(locale ? { locale } : {}),
         surface: COMMAND_SURFACE,
+        // `/debug` writes what the user saw. When no transcript is on screen
+        // the file says so instead of showing an empty section.
+        getRenderedRows: () => {
+          const rows = projectedTextRef.current;
+          return rows.length > 0 ? rows : ['(no transcript on screen)'];
+        },
         say: (kind, out) =>
           kind === 'error'
             ? printCommandError(blockTitle(), out)
@@ -2150,6 +2190,8 @@ export function TuiAppRoot({
           void dispatchRun(value);
         },
         getContextUsage: () => shellContextUsage(store.usage),
+        getSessionUsage: () => usageAccumulatorRef.current.summary(),
+        getCompactionHistory: () => usageAccumulatorRef.current.compactionHistory(),
         getTodos: () => store.todos,
         setInteractionMode: (mode: CliInteractionMode) => {
           // The policy layer already switched the mode; surface it so the change
@@ -2230,7 +2272,10 @@ export function TuiAppRoot({
       }
 
       try {
-        if (await runRegistryCommand(text, context, customCommands)) return true;
+        if (await runRegistryCommand(text, context, customCommands)) {
+          syncThinkingLabel();
+          return true;
+        }
       } catch (err) {
         printCommandError(
           blockTitle(),
@@ -2456,6 +2501,7 @@ export function TuiAppRoot({
         store.usage.runs = 0;
         store.usage.apiMs = 0;
         store.usage.ttftSamples = [];
+        usageAccumulatorRef.current = createSessionUsageAccumulator();
         store.rows = store.rows.filter((row) => row.kind === 'banner');
         store.version++;
         writeStdout('\x1b[2J\x1b[H');
@@ -3573,6 +3619,15 @@ export function TuiAppRoot({
         if (recalled !== undefined) setInput(recalled);
         return true;
       }
+      if (command === 'thinking.cycle') {
+        const level = nextThinkingLevel(getSessionThinkingLevel());
+        setSessionThinkingLevel(level);
+        syncThinkingLabel();
+        setStatusLine(
+          tui('thinking: {level} (this session) · alt+t to cycle, /thinking to pick', { level })
+        );
+        return true;
+      }
       if (letter === 'x') {
         chordRef.current = 'x';
         return true;
@@ -4232,49 +4287,76 @@ export function TuiAppRoot({
     // and are filtered below.
     if (!chunk || key.meta || key.tab || key.upArrow || key.downArrow) return;
     if (chunk.startsWith('\x1b')) return;
+    // Type text into the draft at the caret. `atLineStart` is true when nothing
+    // precedes the text in the draft, which is what lets `!` enter shell mode.
+    const typeText = (text: string, atLineStart: boolean): void => {
+      // `!` as the FIRST character enters shell mode for this draft: the `!` is
+      // consumed and becomes the composer prefix, exactly like the reference
+      // (`claude-code-surface.md` §5). A batched chunk beginning with `!` counts.
+      if (!shellMode && atLineStart && text.startsWith('!')) {
+        setShellMode(true);
+        const rest = text.slice(1);
+        if (rest) setComposer((current) => composerInsert(current, rest));
+        return;
+      }
+      // Insert AT THE CARET (the bulk setInput shim parks the caret at the end,
+      // which silently turned every mid-text edit into an append).
+      // A real edit ends every transient affordance: history-walk mode, the
+      // `Esc again to clear` arming, and the status note that came with them.
+      if (historyCursorRef.current.index !== undefined) {
+        setHistoryCursor({ index: undefined, draft: '' });
+      }
+      disarmEscClear();
+      setStatusLine((current) =>
+        current !== undefined && transientStatus(current) ? undefined : current
+      );
+      lastEditAtRef.current = Date.now();
+      setComposer((current) => {
+        const doc = insertText({ state: current, tokens: tokensRef.current }, text);
+        tokensRef.current = doc.tokens;
+        return doc.state;
+      });
+    };
     const newlineIdx = chunk.search(/[\r\n]/);
     if (newlineIdx >= 0) {
-      const head = chunk.slice(0, newlineIdx);
-      const tail = chunk.slice(newlineIdx + 1);
-      if (tail.length === 0 && head.length > 0 && !/[\r\n]/.test(head)) {
-        // A batched `!cmd\r` (paste / fast typing) never saw `!` as its own
-        // keypress: run it as a shell submission instead of a goal.
-        if (input.length === 0 && head.startsWith('!')) {
-          const command = head.slice(1).trim();
-          if (command) void runShellSubmission(command);
-          else setShellMode(true);
-          return;
+      // Ink does not split a chunk at a bare CR/LF (they can sit inside pasted
+      // text), so one read can carry several Enter-terminated lines: two
+      // commands sent back to back, or a line typed while the app was busy.
+      // Every terminator is the Enter it is, in order, the way Pi's stdin
+      // buffer delivers one key event per character. The whole chunk used to be
+      // dropped unless the Enter was its last character.
+      let draft = input;
+      let rest = chunk;
+      for (;;) {
+        const end = rest.search(/[\r\n]/);
+        const line = end < 0 ? rest : rest.slice(0, end);
+        const atLineStart = draft.length === 0;
+        draft += line;
+        if (end < 0) {
+          // Text after the last Enter is the next draft, still unsubmitted.
+          if (line) typeText(line, atLineStart);
+          break;
         }
-        void submit(input + head);
+        if (draft) {
+          // A batched `!cmd\r` (paste / fast typing) never saw `!` as its own
+          // keypress: run it as a shell submission instead of a goal.
+          if (atLineStart && line.startsWith('!')) {
+            const command = line.slice(1).trim();
+            if (command) void runShellSubmission(command);
+            else setShellMode(true);
+          } else {
+            void submit(draft);
+          }
+        }
+        draft = '';
+        // CRLF is one Enter. A lone Enter on an empty draft submits nothing,
+        // so skipping repeats loses nothing.
+        rest = rest.slice(end + 1).replace(/^[\r\n]+/, '');
+        if (rest === '') break;
       }
       return;
     }
-    // `!` as the FIRST character enters shell mode for this draft: the `!` is
-    // consumed and becomes the composer prefix, exactly like the reference
-    // (`claude-code-surface.md` §5). A batched chunk beginning with `!` counts.
-    if (!shellMode && input.length === 0 && chunk.startsWith('!')) {
-      setShellMode(true);
-      const rest = chunk.slice(1);
-      if (rest) setComposer((current) => composerInsert(current, rest));
-      return;
-    }
-    // Insert AT THE CARET (the bulk setInput shim parks the caret at the end,
-    // which silently turned every mid-text edit into an append).
-    // A real edit ends every transient affordance: history-walk mode, the
-    // `Esc again to clear` arming, and the status note that came with them.
-    if (historyCursorRef.current.index !== undefined) {
-      setHistoryCursor({ index: undefined, draft: '' });
-    }
-    disarmEscClear();
-    setStatusLine((current) =>
-      current !== undefined && transientStatus(current) ? undefined : current
-    );
-    lastEditAtRef.current = Date.now();
-    setComposer((current) => {
-      const doc = insertText({ state: current, tokens: tokensRef.current }, chunk);
-      tokensRef.current = doc.tokens;
-      return doc.state;
-    });
+    typeText(chunk, input.length === 0);
   });
 
   usePaste((text) => {
@@ -4416,6 +4498,7 @@ export function TuiAppRoot({
     turnOut: store.usage.runTokensOut,
     taskCount: activeTasks.length,
     queueLength: queueRef.current.length,
+    thinking: thinkingLabel,
     contextUsed: store.usage.contextUsed,
     contextTotal: store.usage.contextTotal,
     ...(options.contextInfo?.contextTokensSource === 'unprobed' ? { contextEstimated: true } : {}),

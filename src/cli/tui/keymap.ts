@@ -36,6 +36,7 @@ export type ShellCommand =
   | 'draft.stash'
   | 'view.toggleVerbose'
   | 'queue.recall'
+  | 'thinking.cycle'
   | 'composer.clear'
   | 'run.interrupt'
   | 'app.quit';
@@ -73,6 +74,9 @@ export const DEFAULT_KEYBINDINGS: readonly KeyBinding[] = [
   binding('draft.stash', ['ctrl+s'], 'stash the draft · press again to bring it back'),
   binding('view.toggleVerbose', ['ctrl+o'], 'detailed transcript (full output, reasoning)'),
   binding('queue.recall', ['alt+up'], 'edit the newest queued message'),
+  // Pi cycles the thinking level on Shift+Tab. Here that key cycles the
+  // permission mode, so the level takes an Alt key like queue recall.
+  binding('thinking.cycle', ['alt+t'], 'cycle the thinking level (off … max)'),
   binding('composer.clear', ['ctrl+l'], 'clear the composer'),
   binding('run.interrupt', ['ctrl+c'], 'interrupt the run · press again to quit', true),
   binding('app.quit', ['ctrl+d'], 'quit', true),

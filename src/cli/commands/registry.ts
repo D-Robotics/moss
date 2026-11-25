@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import {
+  getSessionThinkingLevel,
+  parseThinkingLevel,
+  setSessionThinkingLevel,
+  THINKING_CYCLE,
+} from '../thinking-level.js';
+import { findMossPackageRoot } from '../update-command.js';
 
 import { estimateTokensForText } from '../../context/tokens.js';
 import {
@@ -127,6 +136,12 @@ export interface CommandContext {
   getTodos?(): readonly ChecklistItem[] | undefined;
   getSessionUsage?(): SessionUsageSummary | undefined;
   getCompactionHistory?(): readonly CompactionRecord[] | undefined;
+  /**
+   * The screen as the host currently shows it, one string per line. The TUI
+   * supplies it so `/debug` can write what the user saw next to the session.
+   * The readline REPL has no screen of its own and omits it.
+   */
+  getRenderedRows?(): string[];
   /** Optional: keep host interactionMode state in sync with setCliInteractionMode. */
   setInteractionMode?(mode: CliInteractionMode): void;
 }
@@ -785,6 +800,31 @@ const styleCommand: CommandSpec = {
   },
 };
 
+/** The priced lines of `slices`. `/usage` and `/session` print the same ones. */
+function pricedUsageLines(ctx: CommandContext, slices: UsageSlice[], zh: boolean): string[] {
+  let overrides = {};
+  try {
+    overrides = pricingOverridesFromConfig(loadCliConfigFile().config.pricing);
+  } catch {
+    overrides = {};
+  }
+  const baseUrl = configuredBaseUrl(ctx.agent.config as { baseUrl?: string }, ctx.runtime);
+  const quote = quoteUsage(slices, {
+    overrides,
+    env: process.env,
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(ctx.agent.config.model ? { fallbackModel: ctx.agent.config.model } : {}),
+  });
+  if (quote.amount !== null && quote.currency) {
+    const source = priceSourceLine(quote, zh);
+    return [
+      `  ${zh ? '费用' : 'cost'}        ${formatCostEstimate(quote.amount, quote.currency, zh)}`,
+      ...(source ? [`  ${source}`] : []),
+    ];
+  }
+  return [`  ${unknownPriceMessage(quote.unknownModel ?? ctx.agent.config.model, zh)}`];
+}
+
 const usageCommand: CommandSpec = {
   name: '/usage',
   aliases: ['/cost', '/stats'],
@@ -849,28 +889,7 @@ const usageCommand: CommandSpec = {
               cacheCreationTokens: summary.cacheCreationTokens,
             },
           ];
-    let overrides = {};
-    try {
-      overrides = pricingOverridesFromConfig(loadCliConfigFile().config.pricing);
-    } catch {
-      overrides = {};
-    }
-    const baseUrl = configuredBaseUrl(ctx.agent.config as { baseUrl?: string }, ctx.runtime);
-    const quote = quoteUsage(slices, {
-      overrides,
-      env: process.env,
-      ...(baseUrl ? { baseUrl } : {}),
-      ...(ctx.agent.config.model ? { fallbackModel: ctx.agent.config.model } : {}),
-    });
-    if (quote.amount !== null && quote.currency) {
-      lines.push(
-        `  ${zh ? '费用' : 'cost'}        ${formatCostEstimate(quote.amount, quote.currency, zh)}`
-      );
-      const source = priceSourceLine(quote, zh);
-      if (source) lines.push(`  ${source}`);
-    } else {
-      lines.push(`  ${unknownPriceMessage(quote.unknownModel ?? ctx.agent.config.model, zh)}`);
-    }
+    lines.push(...pricedUsageLines(ctx, slices, zh));
     lines.push(
       zh
         ? '  提示：用量为会话内存累计，重启会话后从零开始。'
@@ -1309,7 +1328,192 @@ const mcpCommand: CommandSpec = {
   },
 };
 
+/** The top of a changelog: `## Unreleased` when it is there, then the newest release. */
+export function changelogExcerpt(text: string, maxLines = 24): string {
+  const out: string[] = [];
+  let left = maxLines;
+  for (const part of text.split(/^## /m).slice(1, 3)) {
+    const [title, ...body] = part.split('\n');
+    const lines = body.filter((line) => line.trim() !== '');
+    const shown = lines.slice(0, Math.max(0, left));
+    out.push(`## ${(title ?? '').trim()}`, ...shown);
+    left -= shown.length;
+    if (shown.length < lines.length) {
+      out.push(`  … ${lines.length - shown.length} more line(s) in CHANGELOG.md`);
+    }
+    if (left <= 0) break;
+  }
+  return out.join('\n');
+}
+
+const thinkingCommand: CommandSpec = {
+  name: '/thinking',
+  summary: 'show or set how much reasoning the model uses in this session',
+  run(ctx, args) {
+    const zh = isZh(ctx.locale);
+    const configured = ctx.agent.config.reasoning ?? null;
+    const name = (level: typeof configured): string => level ?? (zh ? '模型默认' : 'model default');
+    const levels = `${THINKING_CYCLE.join(' | ')} | default`;
+    if (args.length === 0) {
+      const current = getSessionThinkingLevel();
+      const source = current ? (zh ? '本会话' : 'session') : configured ? 'config' : '';
+      ctx.say(
+        'system',
+        [
+          zh
+            ? `推理档位：${name(current)}${source ? `（${source}）` : ''}`
+            : `thinking: ${name(current)}${source ? ` (${source})` : ''}`,
+          zh
+            ? `可选：${levels}。TUI 里 Alt+T 循环。`
+            : `levels: ${levels}. Alt+T cycles in the TUI.`,
+        ].join('\n')
+      );
+      return;
+    }
+    const level = parseThinkingLevel(args);
+    if (level === undefined) {
+      ctx.say(
+        'error',
+        zh
+          ? `不认识的档位「${args}」。可选：${levels}。`
+          : `unknown level "${args}". levels: ${levels}.`
+      );
+      return;
+    }
+    setSessionThinkingLevel(level);
+    ctx.say(
+      'system',
+      level === null
+        ? zh
+          ? `推理档位回到配置值（${name(configured)}），下一次请求起生效。`
+          : `thinking follows the config again (${name(configured)}) from the next turn.`
+        : zh
+          ? `推理档位：${level}（本会话），下一次请求起生效。`
+          : `thinking: ${level} (this session) from the next turn.`
+    );
+  },
+};
+
+const sessionCommand: CommandSpec = {
+  name: '/session',
+  summary: 'show this session: id, message count, context use, token usage and cost',
+  async run(ctx) {
+    const zh = isZh(ctx.locale);
+    const config = ctx.agent.config as { model?: string };
+    const pad = (label: string): string => `${label}${' '.repeat(Math.max(1, 11 - label.length))}`;
+    const lines = [
+      zh ? '当前会话' : 'Session',
+      `  ${pad(zh ? 'ID' : 'id')}${ctx.sessionKey}`,
+      `  ${pad(zh ? '工作区' : 'workspace')}${ctx.workspace}`,
+    ];
+    if (config.model) lines.push(`  ${pad(zh ? '模型' : 'model')}${config.model}`);
+    lines.push(
+      `  ${pad(zh ? '消息' : 'messages')}${await ctx.agent.countSessionMessages(ctx.sessionKey)}`
+    );
+    const context = ctx.getContextUsage?.();
+    if (context && context.total > 0) {
+      lines.push(
+        `  ${pad(zh ? '上下文' : 'context')}${Math.round((context.used / context.total) * 100)}% ${context.used.toLocaleString()} / ${context.total.toLocaleString()} tokens`
+      );
+    }
+    const summary = ctx.getSessionUsage?.();
+    if (summary && summary.calls > 0) {
+      lines.push(
+        `  ${pad(zh ? '模型调用' : 'model calls')}${summary.calls}`,
+        `  ${pad(zh ? '输入' : 'input')}${summary.inputTokens.toLocaleString()} tokens`,
+        `  ${pad(zh ? '输出' : 'output')}${summary.outputTokens.toLocaleString()} tokens`,
+        ...pricedUsageLines(
+          ctx,
+          summary.slices && summary.slices.length > 0
+            ? [...summary.slices]
+            : [
+                {
+                  ...(config.model ? { model: config.model } : {}),
+                  inputTokens: summary.inputTokens,
+                  outputTokens: summary.outputTokens,
+                  cacheReadTokens: summary.cacheReadTokens,
+                  cacheCreationTokens: summary.cacheCreationTokens,
+                },
+              ],
+          zh
+        )
+      );
+    } else {
+      lines.push(zh ? '  尚无模型调用。' : '  no model calls yet.');
+    }
+    ctx.say('system', lines.join('\n'));
+  },
+};
+
+const changelogCommand: CommandSpec = {
+  name: '/changelog',
+  summary: 'show what changed in this version',
+  run(ctx) {
+    const zh = isZh(ctx.locale);
+    const file = path.join(findMossPackageRoot(fileURLToPath(import.meta.url)), 'CHANGELOG.md');
+    let text = '';
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch {
+      text = '';
+    }
+    if (text.trim() === '') {
+      ctx.say(
+        'system',
+        zh
+          ? '这个安装里没有 CHANGELOG.md。更新记录见 https://github.com/D-Robotics/moss/blob/main/CHANGELOG.md'
+          : 'This install has no CHANGELOG.md. The history is at https://github.com/D-Robotics/moss/blob/main/CHANGELOG.md'
+      );
+      return;
+    }
+    ctx.say('system', changelogExcerpt(text));
+  },
+};
+
+const debugCommand: CommandSpec = {
+  name: '/debug',
+  summary: 'write the session messages and the screen lines to a log file',
+  async run(ctx) {
+    const zh = isZh(ctx.locale);
+    const config = ctx.agent.config as { model?: string; provider?: string };
+    const rows = ctx.getRenderedRows?.() ?? [];
+    const messages = ctx.agent.projectedConversation(ctx.sessionKey);
+    const dir = path.join(resolveConfigDir(), 'debug');
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const file = path.join(dir, `moss-debug-${stamp}.log`);
+    fs.writeFileSync(
+      file,
+      `${[
+        'moss debug log',
+        `time      ${new Date().toISOString()}`,
+        `session   ${ctx.sessionKey}`,
+        `workspace ${ctx.workspace}`,
+        `model     ${config.model ?? ''}`,
+        `provider  ${config.provider ?? ''}`,
+        '',
+        `== session messages (${messages.length}) ==`,
+        JSON.stringify(messages, null, 2),
+        '',
+        `== screen lines (${rows.length}) ==`,
+        ...rows,
+      ].join('\n')}\n`,
+      { mode: 0o600 }
+    );
+    ctx.say(
+      'system',
+      zh
+        ? `已写入 ${file}（${messages.length} 条消息，${rows.length} 行屏幕内容）。分享前请先检查，里面可能有提示词、工具输出和文件内容。`
+        : `wrote ${file} (${messages.length} messages, ${rows.length} screen lines). Review it before sharing: it can hold prompts, tool output and file contents.`
+    );
+  },
+};
+
 const COMMANDS: readonly CommandSpec[] = [
+  thinkingCommand,
+  sessionCommand,
+  changelogCommand,
+  debugCommand,
   todosCommand,
   statusCommand,
   runsCommand,

@@ -1477,6 +1477,12 @@ export interface StatusView {
   running: boolean;
   blocked?: boolean;
   model?: string;
+  /**
+   * The session thinking level as a short label (`thinking:high`), when the
+   * user set one with `/thinking` or Alt+T. Omit when the session follows the
+   * configured level, so the resting row stays as it was.
+   */
+  thinking?: string;
   tokens: number;
   taskCount: number;
   queueLength: number;
@@ -1745,7 +1751,7 @@ export function renderHint(view: StatusView, width: number): TuiLine {
   // Each item carries a priority. A narrow pane drops the lowest-priority items
   // whole (never a half-word) and keeps the mode label, which is the one thing
   // that must always be readable: what the next Shift+Tab will change.
-  // Priority: mode (always) > what the keys do now > model > ? for shortcuts > counts.
+  // Priority: mode (always) > what the keys do now > model and thinking > ? for shortcuts > counts.
   const items: Array<{ text: string; priority: number }> = [{ text: modeLabel, priority: 0 }];
   if (view.blocked) {
     if (view.dialogKind === 'question') {
@@ -1766,6 +1772,9 @@ export function renderHint(view: StatusView, width: number): TuiLine {
     }
   } else if (view.running) items.push({ text: tui('Esc to interrupt'), priority: 1 });
   if (view.model) items.push({ text: view.model, priority: 2 });
+  // A thinking level the user chose is a setting of the next turn, like the
+  // model, so it travels with the model name when the row narrows.
+  if (view.thinking) items.push({ text: view.thinking, priority: 2 });
   items.push({ text: tui('? for shortcuts'), priority: 3 });
   if (view.verbose) items.push({ text: tui('verbose transcript · ctrl+o to exit'), priority: 4 });
   else if (view.collapsed) items.push({ text: tui('ctrl+o to expand'), priority: 2 });

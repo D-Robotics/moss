@@ -310,6 +310,27 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
+        command: '/thinking',
+        args: '[off|minimal|low|medium|high|xhigh|max|default]',
+        description: 'show or set how much reasoning the model uses in this session',
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/session',
+        description: 'show this session: id, message count, context use, token usage and cost',
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/changelog',
+        description: 'show what changed in this version',
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/debug',
+        description: 'write the session messages and the screen lines to a log file',
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/copy',
         description: 'copy the last answer to the clipboard, as markdown',
         // The clipboard write belongs to the TUI shell (OSC 52, then the

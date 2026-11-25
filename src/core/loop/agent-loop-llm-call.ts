@@ -131,21 +131,16 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
     });
   const requestModel = routedModel === modelDef.id ? undefined : routedModel;
 
-  // v0.10 W4 adaptive reasoning: failure signals (repeated verify failures,
-  // turn errors) escalate to 'high' for the next call; a clean run keeps the
-  // configured level.
+  // A configured budget can pin the level of every call: `high` and `max`
+  // force it. `off` and `adaptive` leave the level alone. `adaptive` used to
+  // raise it to `high` after a failed verification or a turn error, which also
+  // turned a chosen `off` into `high` and lowered `max` to `high`.
   const budget = params.reasoningBudget ?? 'adaptive';
   let effectiveReasoning = reasoning;
   if (budget === 'max') {
     effectiveReasoning = 'max';
   } else if (budget === 'high') {
     effectiveReasoning = 'high';
-  } else if (budget === 'adaptive') {
-    const underPressure =
-      (state.failingVerifyStreak?.count ?? 0) >= 1 || state.consecutiveTurnErrors > 0;
-    if (underPressure && reasoning !== undefined && reasoning !== null) {
-      effectiveReasoning = 'high';
-    }
   }
   // O13: after a thinking-only turn, the next request runs with less (or no)
   // reasoning. One-shot: cleared as soon as it is consumed.

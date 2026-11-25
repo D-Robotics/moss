@@ -33,6 +33,7 @@ import { stage as hooksContractStage } from './stages/hooks-contract.mjs';
 import { stage as steeringIntentStage } from './stages/steering-intent.mjs';
 import { stage as harnessInjectionStage } from './stages/harness-injection.mjs';
 import { stage as loopGuardDefaultsStage } from './stages/loop-guard-defaults.mjs';
+import { stage as commandExtrasStage } from './stages/command-extras.mjs';
 import { stage as reasoningFollowUpStage } from './stages/reasoning-follow-up.mjs';
 import { stage as verificationGateStage } from './stages/verification-gate.mjs';
 import { stage as reviewPipelineStage } from './stages/review-pipeline.mjs';
@@ -223,6 +224,7 @@ const STAGES = new Map(
     editRecoveryStage,
     loopGuardDefaultsStage,
     reasoningFollowUpStage,
+    commandExtrasStage,
     loopHealthStage,
     runTestsVerdictStage,
     mcpPromptSlashStage,
@@ -268,6 +270,7 @@ const FAST_GATE = [
   'edit-recovery',
   'loop-guard-defaults',
   'reasoning-follow-up',
+  'command-extras',
   'static',
   'smoke',
   'examples',

@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### The model decides; the harness stops second-guessing it (SDK 0.37)
+
+- Removes the regex rules that added model turns or refused tool calls on the harness's own
+  judgment: the nudge registry and its 15 rule modules, the `SteeringEngine` and its five
+  built-in rules, the follow-up guard that matched "let me" / "I'll run" in the answer, the
+  tool call synthesised from the model's plan text, and the six default tool-loop ceilings.
+  A host that wants a ceiling opts in with `MOSS_TOOL_LOOP_*` or
+  `MOSS_WEB_SEARCH_VARIATION_LIMIT`. Recovery that keys off a provider fact stays: output-limit
+  continuation, reasoning-only and empty-response retries, truncated tool JSON, and the
+  background completion notice.
+- A failed edit keeps the read credit for that path. The file did not change, so the next
+  attempt no longer starts with a forced re-read.
+- **Breaking for SDK callers.** `MossAgentConfig` no longer accepts `enableSteering`,
+  `replaceDefaultSteeringRules`, `steeringRules`, `enableFollowUpGuard` or
+  `followUpGuardConfig`; `AgentLoopParams` no longer accepts `steeringEngine` or
+  `taskPhaseNudges`. The entry exports 18 fewer names: `SteeringEngine`,
+  `DEFAULT_STEERING_RULES`, `BUILTIN_ERROR_RECOVERY_RULE`, `BUILTIN_WEB_SEARCH_VARIATION_RULE`,
+  `BUILTIN_TOOL_LOOP_RULE`, `BUILTIN_CONTEXT_PRESSURE_RULE`, `DEFAULT_FOLLOW_UP_GUARD_CONFIG`,
+  `detectUnexecutedToolIntents`, `extractThinkingTagBodies`, `extractToolInvocationFromPlanText`,
+  `shouldSuppressReasoningForToolFollowUpRound`, and the types `SteeringRule`, `SteeringContext`,
+  `SteeringResult`, `FollowUpGuardConfig`, `FollowUpPattern`, `TextActionFollowUp`,
+  `ExtractedToolInvocation`. Nothing was added (700 to 682).
+- `agent.reasoningBudget: adaptive` no longer raises the level to `high` after a failed
+  verification or a turn error. `high` and `max` still force their level; `off` and `adaptive`
+  keep the configured one. A caller that passes `options.reasoning` now sends exactly that level
+  on every request, including the requests that follow a tool result.
+
+### `/thinking`, `/session`, `/changelog`, `/debug` and a fix for dropped input
+
+- Adds `/thinking [off|minimal|low|medium|high|xhigh|max|default]` to the REPL and the TUI,
+  and `Alt+T` in the TUI to cycle the levels. The level applies to this session's requests from
+  the next turn; `default` returns to the configured level. The status bar shows the current one.
+- Adds `/session` (session id, workspace, model, message count, context use, model calls, tokens
+  and cost), `/changelog` (the top of `CHANGELOG.md`) and `/debug` (writes the session messages
+  and the screen lines to a file under the config directory's `debug/`).
+- Fixes the TUI dropping input. Two lines that reached the shell in one read arrived as one input
+  event, and only a trailing Enter submitted, so `/usage` followed by `/session` in the same read
+  lost the first command. Each line break now submits its own line, and text after the last break
+  stays in the composer. A turn is also marked as running before its first await, so a second
+  prompt from the same read queues up instead of running beside the first.
+
 ### Managed shared instruction consumption (SDK 0.36)
 
 - Adds the versioned `rsi-managed-package` protocol entry, signed stable manifests

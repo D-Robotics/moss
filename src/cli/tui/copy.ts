@@ -269,6 +269,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'caret to line start / end': '光标移到行首 / 行尾',
   'delete to line start · paste deleted text': '删除到行首 · 粘贴已删除文本',
   'stash the draft · press again to bring it back': '暂存草稿 · 再按取回',
+  'thinking: {level} (this session) · alt+t to cycle, /thinking to pick':
+    '推理档位：{level}（本会话）· alt+t 继续切换，/thinking 直接选择',
   'search your earlier prompts': '搜索早先的提示',
   'search the transcript': '在对话记录中查找',
   'type to search': '输入以搜索',
