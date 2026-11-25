@@ -153,20 +153,25 @@ export function parseTurnDecision(input: unknown): TurnDecision {
   ) {
     throw new Error('Invalid turn_decision revision, sequence, disposition, or changes');
   }
-  const changes = value.changes.map((raw): TaskIntentChange => {
+  const problems: string[] = [];
+  const changes = value.changes.map((raw, index): TaskIntentChange => {
     const item = record(raw);
+    const location = `changes[${index}]`;
     const scalar = ['goal', 'target', 'executionSurface'].includes(String(item.field));
     const list = ['constraints', 'responseRequirements'].includes(String(item.field));
+    if (!scalar && !list) problems.push(`${location}.field must name a task intent field`);
     if (
-      (!scalar && !list) ||
-      (scalar ? item.operation !== 'set' : !['add', 'remove'].includes(String(item.operation))) ||
-      !['value', 'messageId', 'quote'].every(
-        (key) => typeof item[key] === 'string' && (item[key] as string).trim()
-      ) ||
-      (item.value as string).length > 4000 ||
-      (item.quote as string).length > 4000
+      (scalar && item.operation !== 'set') ||
+      (list && !['add', 'remove'].includes(String(item.operation)))
     ) {
-      throw new Error('Invalid task intent change; lists require add/remove, scalars require set');
+      problems.push(`${location}.operation: lists require add/remove, scalars require set`);
+    }
+    for (const key of ['value', 'messageId', 'quote']) {
+      if (typeof item[key] !== 'string' || !(item[key] as string).trim()) {
+        problems.push(`${location}.${key} must be a non-empty string`);
+      } else if (key !== 'messageId' && (item[key] as string).length > 4000) {
+        problems.push(`${location}.${key} must contain at most 4000 characters`);
+      }
     }
     return item as unknown as TaskIntentChange;
   });
@@ -192,11 +197,14 @@ export function parseTurnDecision(input: unknown): TurnDecision {
   });
   const plan = strings(value.plan, 'plan', 32);
   if (value.disposition === 'execute' && plan.length === 0) {
-    throw new Error('execute requires a non-empty plan');
+    problems.push('execute requires a non-empty plan');
   }
   if (value.disposition !== 'execute' && plan.length > 0) {
-    throw new Error('Only execute may submit an executable plan');
+    problems.push(
+      `Only execute may submit an executable plan; for ${value.disposition}, submit plan: [] and put the reply in answer`
+    );
   }
+  if (problems.length) throw new Error(problems.join('; '));
   return {
     baseRevision: value.baseRevision as number,
     inputSeq: value.inputSeq as number,
@@ -280,8 +288,18 @@ export const turnDecisionSchema = {
         additionalProperties: false,
       },
     },
-    disposition: { type: 'string', enum: ['answer', 'execute', 'clarify', 'cancel'] },
-    plan: { type: 'array', items: { type: 'string' } },
+    disposition: {
+      type: 'string',
+      enum: ['answer', 'execute', 'clarify', 'cancel'],
+      description:
+        'execute authorizes a concrete plan; answer, clarify and cancel do not execute a plan.',
+    },
+    plan: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'A non-empty plan is allowed only for execute. For answer, clarify and cancel use an empty array.',
+    },
     planDependsOn: { type: 'array', items: { type: 'string' } },
   },
   required: ['baseRevision', 'inputSeq', 'messageIds', 'changes', 'disposition', 'plan'],
@@ -338,7 +356,8 @@ export const versionedTurnDecisionSchema = {
     },
     plan: {
       ...turnDecisionSchema.properties.plan,
-      description: 'Required for execute. Omit for answer, clarify and cancel.',
+      description:
+        'Required and non-empty for execute. For answer, clarify and cancel omit plan or use an empty array; put the reply in answer.',
     },
     planDependsOn: turnDecisionSchema.properties.planDependsOn,
     answer: {

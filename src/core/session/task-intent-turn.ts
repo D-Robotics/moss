@@ -181,9 +181,10 @@ export class TaskIntentTurn {
               ? 'The runtime binds this declaration to the captured user inputs.'
               : 'Copy revision/inputSeq and all pending messageIds in order.',
             'Propose task changes only with exact quotes from pending inputs. Use set for scalars and add/remove for lists. Use answer for a read-only response, clarify for uncertainty and cancel to stop. Execute requires a concrete plan and existing authorization. Never use an internal engine prompt to replace the user goal.',
+            'Only execute may include a non-empty plan. For clarify, put the specific question in answer and use an empty plan (or omit plan in the versioned declaration). Omit changes when no task fields need amending; do not restate the user goal as a change.',
             'When removing a previous constraint, quote the current words that authorize the change. The old restriction is not authorization.',
             this.correctionTargets
-              ? 'If a quote matches just one pending input, omit the messageId and the runtime will bind it.'
+              ? 'You may omit messageId when a quote matches one pending input or exact repeated inputs for the same task; the runtime binds the latest identical input. If matching inputs differ, specify messageId.'
               : '',
           ].join(' ')
         : 'No new user input needs interpretation. Continue the effective task using its committed plan. Do not emit turn_decision again.',
@@ -196,7 +197,7 @@ export class TaskIntentTurn {
       name: TURN_DECISION_TOOL,
       description: readOnly
         ? 'Submit the reply or pending user correction.'
-        : 'Runtime control declaration: propose the pending user input update and plan in the same response. This does not grant tool permissions.',
+        : 'Submit the pending user input decision. execute requires a plan; clarify requires a question in answer and no plan. This does not grant tool permissions.',
       inputSchema: this.correctionTargets
         ? readOnly
           ? readOnlyTurnDecisionSchema
@@ -228,24 +229,40 @@ export class TaskIntentTurn {
     };
   }
 
+  private quotedInputId(quote: string, batch: TaskIntentBatch, location: string): string {
+    const matches = batch.inputs.filter((entry) => entry.prompt.includes(quote));
+    const latest = matches.at(-1);
+    if (!latest) {
+      throw new Error(`${location}.quote must copy exact words from a pending user input`);
+    }
+    if (
+      !matches.every(
+        (entry) =>
+          entry.prompt === latest.prompt &&
+          entry.intent?.taskId === latest.intent?.taskId &&
+          Boolean(entry.intent?.invalidateTask) === Boolean(latest.intent?.invalidateTask)
+      )
+    ) {
+      throw new Error(
+        `${location}.messageId is required: the quote matches different pending inputs ${JSON.stringify(matches.map(({ id }) => id))}. Choose the authorizing input ID; do not guess.`
+      );
+    }
+    return latest.id;
+  }
+
   private parseDecision(input: Record<string, unknown>, batch: TaskIntentBatch) {
     if (!this.correctionTargets) return parseTurnDecision(input);
     const changes: unknown = Array.isArray(input.changes)
-      ? (input.changes as unknown[]).map((item) => {
+      ? (input.changes as unknown[]).map((item, index) => {
           if (!item || typeof item !== 'object') return item;
           const change = item as Record<string, unknown>;
           const { quote, messageId } = change;
           if (messageId !== undefined || typeof quote !== 'string' || !quote.trim()) return change;
-          const matches = batch.inputs.filter((entry) => entry.prompt.includes(quote));
-          if (matches.length !== 1)
-            throw new Error(
-              'Every task change must quote one pending user input. For a removal, quote the new instruction.'
-            );
-          return { ...change, messageId: matches[0]!.id };
+          return { ...change, messageId: this.quotedInputId(quote, batch, `changes[${index}]`) };
         })
       : input.changes;
     const corrections: unknown = Array.isArray(input.contextCorrections)
-      ? (input.contextCorrections as unknown[]).flatMap((item) => {
+      ? (input.contextCorrections as unknown[]).flatMap((item, index) => {
           if (!item || typeof item !== 'object') return [item];
           const correction = { ...(item as Record<string, unknown>) };
           const alias =
@@ -266,12 +283,12 @@ export class TaskIntentTurn {
           )
             return [];
           if (messageId !== undefined) return [correction];
-          if (matches.length !== 1) {
-            throw new Error(
-              'Copy an exact correction quote unique to one pending input or specify its pending messageId'
-            );
-          }
-          return [{ ...correction, messageId: matches[0]!.id }];
+          return [
+            {
+              ...correction,
+              messageId: this.quotedInputId(quote, batch, `contextCorrections[${index}]`),
+            },
+          ];
         })
       : input.contextCorrections;
     return parseTurnDecision({
@@ -414,7 +431,7 @@ export class TaskIntentTurn {
       if (superseded || this.attempts++ < 1) {
         return {
           results,
-          retry: `[Runtime] ${message}. No business action executed. Read the latest pending inputs and submit one valid turn_decision; do not repeat an obsolete plan.`,
+          retry: `[Runtime] ${message}. No business action executed. Submit one corrected turn_decision. For clarify, put the question in answer and use plan: []; only execute accepts a non-empty plan. Use an empty changes array unless amending task fields. Each change requires value and an exact author quote; use the authorizing pending messageId when matching inputs differ. Never invent a quote or repeat an obsolete plan.`,
         };
       }
       return {
