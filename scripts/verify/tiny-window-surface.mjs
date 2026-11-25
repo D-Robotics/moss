@@ -131,8 +131,6 @@ const promptAgent = new MossAgent({
   sessionStore: new InMemorySessionStore(),
   baseSystemPrompt: 'You are an offline probe agent.',
   domainPrompt: false,
-  enableSteering: false,
-  enableFollowUpGuard: false,
   contextTokens: 4096,
 });
 let fullPrompt;

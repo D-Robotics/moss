@@ -127,16 +127,13 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
     resolveRoutedModel({
       tiers: params.modelTiers,
       defaultModel: modelDef.id,
-      pressure:
-        (state.failingVerifyStreak?.count ?? 0) >= 1 ||
-        state.redVerifyNudgeAttempts > 0 ||
-        state.consecutiveTurnErrors > 0,
+      pressure: (state.failingVerifyStreak?.count ?? 0) >= 1 || state.consecutiveTurnErrors > 0,
     });
   const requestModel = routedModel === modelDef.id ? undefined : routedModel;
 
   // v0.10 W4 adaptive reasoning: failure signals (repeated verify failures,
-  // red-verify attempts, turn errors) escalate to 'high' for the next call;
-  // a clean run keeps the configured level.
+  // turn errors) escalate to 'high' for the next call; a clean run keeps the
+  // configured level.
   const budget = params.reasoningBudget ?? 'adaptive';
   let effectiveReasoning = reasoning;
   if (budget === 'max') {
@@ -145,9 +142,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
     effectiveReasoning = 'high';
   } else if (budget === 'adaptive') {
     const underPressure =
-      (state.failingVerifyStreak?.count ?? 0) >= 1 ||
-      state.redVerifyNudgeAttempts > 0 ||
-      state.consecutiveTurnErrors > 0;
+      (state.failingVerifyStreak?.count ?? 0) >= 1 || state.consecutiveTurnErrors > 0;
     if (underPressure && reasoning !== undefined && reasoning !== null) {
       effectiveReasoning = 'high';
     }

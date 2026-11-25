@@ -114,8 +114,6 @@ function makeAgent(contextTokens) {
     sessionStore: new sessionModule.InMemorySessionStore(),
     baseSystemPrompt: 'probe',
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     ...(contextTokens !== undefined ? { contextTokens } : {}),
     skills: { manifests: () => library },
   });

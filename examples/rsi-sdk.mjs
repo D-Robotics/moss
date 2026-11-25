@@ -52,8 +52,6 @@ async function execute(runId) {
     llmProvider: llm,
     sessionStore: new InMemorySessionStore(),
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     onAgentLoopEvent(event, identity) {
       if (identity.runId === runId) observer.onEvent(event);
     },

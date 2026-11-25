@@ -44,8 +44,6 @@ async function runCase(workspaceDir, name, options) {
           },
         }),
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     verificationGate: false,
     llmProvider: {
       id: 'fixture',

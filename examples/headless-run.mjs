@@ -52,8 +52,6 @@ const agent = new MossAgent({
   // `switchModel` both replace `baseSystemPrompt` with `identityFactory(model)`.
   baseSystemPrompt: 'You are an embedded status agent.',
   domainPrompt: false,
-  enableSteering: false,
-  enableFollowUpGuard: false,
 });
 
 agent.tools.register({

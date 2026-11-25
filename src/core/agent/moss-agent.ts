@@ -74,12 +74,6 @@ import {
 import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
 import { resolveModelOutputBudget } from '../loop/output-limit.js';
 import { resolveMossMaxAgentTurns } from '../../utils/max-agent-turns.js';
-import { SteeringEngine, DEFAULT_STEERING_RULES } from '../loop/steering.js';
-import {
-  detectUnexecutedToolIntents,
-  DEFAULT_FOLLOW_UP_GUARD_CONFIG,
-  gateFollowUpInjections,
-} from '../loop/follow-up-guard.js';
 import { buildCompactionCheckpointOutline } from '../loop/compact-hooks.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
 import { summarizePromptLayers } from '../prompt/report.js';
@@ -153,7 +147,7 @@ import type {
   InternalMessage as SharedInternalMessage,
   UserIntentInput,
 } from './moss-agent-types.js';
-import { toSessionMessages, fromSessionMessages, toLLMMessages } from './moss-agent-types.js';
+import { toSessionMessages, fromSessionMessages } from './moss-agent-types.js';
 import { RuntimeJudgeRun, explicitEditPolicy } from './runtime-judge.js';
 import { INTENT_OBSERVATION_TIMEOUT_MS, SteeringIntentGate } from './steering-intent-gate.js';
 
@@ -366,7 +360,6 @@ export class MossAgent {
   private turnWatchReportedMtimes = new Map<string, number>();
   private turnWatchLastDate: string | undefined;
   private readonly activeStreamAdvances = new Set<Promise<unknown>>();
-  private steeringEngine: SteeringEngine | null = null;
   private readonly remoteCompactProvider: ReturnType<typeof createRemoteCompactProviderFromEnv>;
   private readonly toolHooks: ToolHookRegistry;
   private readonly inboxes = new Map<string, SessionInbox>();
@@ -437,12 +430,6 @@ export class MossAgent {
       },
     });
     this.toolHooks.registerPost(createEditSyntaxCheckHook());
-    if (config.enableSteering !== false) {
-      const rules = config.replaceDefaultSteeringRules
-        ? (config.steeringRules ?? [])
-        : [...DEFAULT_STEERING_RULES, ...(config.steeringRules ?? [])];
-      this.steeringEngine = new SteeringEngine(rules);
-    }
   }
 
   /** Bind a host-owned question channel to this agent instance. @beta */
@@ -2355,7 +2342,7 @@ ${result.stderr ?? ''}`.trim();
     // Robotics loop P0-2/P0-9: hold the final answer until a defined task
     // contract has an acceptance verdict (blocks at most once per run, then
     // an honest FAIL report is allowed through). Runs before the host gate.
-    // The sticky ledger (not the raw taskFlow flag) decides task-phase nudges.
+    // The sticky ledger (not the raw taskFlow flag) decides whether the gate is armed.
     // A plain Q&A session never entered the ledger, so the gate stays quiet.
     // Headless `-p` leaves taskFlow unset and the ledger stays visible.
     const taskAcceptanceGate = ledgerVisible
@@ -2482,9 +2469,7 @@ ${result.stderr ?? ''}`.trim();
       maxLLMRetries: Math.max(0, Math.floor(this.config.maxLLMRetries ?? 2)),
       maxTurns,
       ...(options?.maxToolCalls !== undefined ? { maxToolCalls: options.maxToolCalls } : {}),
-      taskPhaseNudges: ledgerVisible,
       contextTokens,
-      steeringEngine: this.steeringEngine ?? undefined,
       appendMessage: async (key, msg) => {
         const deliveryId = this.steeringDeliveries.get(msg as InternalMessage);
         if (deliveryId) {
@@ -2665,30 +2650,6 @@ ${result.stderr ?? ''}`.trim();
       },
       ...(intentTurn ? { taskIntentTurn: intentTurn } : {}),
       streamVersionedDrafts: options?.streamVersionedDrafts === true,
-      getFollowUpMessages:
-        this.config.enableFollowUpGuard !== false
-          ? async () => {
-              const followUpConfig = {
-                ...DEFAULT_FOLLOW_UP_GUARD_CONFIG,
-                ...this.config.followUpGuardConfig,
-              };
-              if (!followUpConfig.enabled) return [];
-              const followUps = gateFollowUpInjections(
-                detectUnexecutedToolIntents(
-                  toLLMMessages(messages),
-                  followUpConfig.extraPatterns,
-                  followUpConfig.maxFollowUps
-                )
-              );
-              if (followUps.length === 0) return [];
-              const now = Date.now();
-              return followUps.map((fu) => ({
-                role: 'user' as const,
-                content: fu.guidance,
-                timestamp: now,
-              }));
-            }
-          : undefined,
       guardAssistantOutput: hooks?.onOutputGuardrail
         ? async (request) =>
             hooks.onOutputGuardrail!({

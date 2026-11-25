@@ -17,9 +17,6 @@ import { resolveSoulIdentity } from '../core/agent/soul.js';
 import { toolVisibleForRun } from '../core/agent/session-tool-offer.js';
 import { InMemorySessionStore } from '../core/session/session.js';
 import { buildProviderToolDeclarations } from '../core/loop/agent-loop-context-prep.js';
-import { createInitialLoopState } from '../core/loop/agent-loop-state.js';
-import { collectNudgeInjections } from '../core/loop/nudges/registry.js';
-import { NUDGE_IDS } from '../core/loop/nudges/disable.js';
 import { buildMcpStableIndex, mcpSearchToolDeclaration } from '../core/mcp/registry.js';
 import { isDeferredToolName } from '../core/tools/deferred-tool-offer.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from '../core/mcp/rdk-docs.js';
@@ -33,7 +30,6 @@ import { buildAgentsMdLayer } from './project-instructions.js';
 import { buildAnswerLanguageLayer } from './cli-locale.js';
 import { CONSERVATIVE_DEFAULT_UNPROBED } from './config.js';
 import type { Tool } from '../core/tools/tool-types.js';
-import type { Message } from '../core/session/session-jsonl.js';
 
 export const FRESH_SESSION_USER_MESSAGE =
   'Fix the off-by-one in src/parse.js. Expected behavior is in src/parse.test.js.';
@@ -63,9 +59,6 @@ export interface FreshSessionContextReport {
   userMessage: string;
   sections: ContextReportSection[];
   tools: ContextReportToolRow[];
-  nudgeTokens: number;
-  nudgeCount: number;
-  nudgeCatalogSize: number;
   systemTokens: number;
   /** Persona, contracts, and project instructions. Provider caches key off this. */
   stableTokens: number;
@@ -201,7 +194,6 @@ export async function buildFreshSessionContextReport(
     baseSystemPrompt: identity,
     domainPrompt: () => engineering,
     extraPromptLayers: [],
-    enableSteering: false,
     includeLanguagePolicyPrompt: true,
     includeAgentBehaviorPrompt: true,
   });
@@ -285,26 +277,9 @@ export async function buildFreshSessionContextReport(
     }))
   );
 
-  const state = createInitialLoopState();
-  const history: Message[] = [{ role: 'user', content: userMessage, timestamp: Date.now() }];
-  const injected = collectNudgeInjections({
-    state,
-    currentMessages: history,
-    lastUserText: () => userMessage,
-    buildCorrectionMessage: (systemText) => ({
-      role: 'user',
-      content: systemText,
-      timestamp: Date.now(),
-    }),
-  });
-  const nudgeText = injected
-    .map((message) => (typeof message.content === 'string' ? message.content : ''))
-    .join('\n\n');
-
   const systemTokens = tokensOf(systemPrompt);
   const toolTokens = tokensOf(toolsPayload);
   const userTokens = tokensOf(userMessage);
-  const nudgeTokens = tokensOf(nudgeText);
 
   return {
     workspaceDir: options.workspaceDir,
@@ -313,15 +288,12 @@ export async function buildFreshSessionContextReport(
     userMessage,
     sections: labeled,
     tools,
-    nudgeTokens,
-    nudgeCount: injected.length,
-    nudgeCatalogSize: NUDGE_IDS.length,
     systemTokens,
     stableTokens: tokensOf(composed.stable),
     dynamicTokens: tokensOf(composed.dynamic),
     toolTokens,
     userTokens,
-    requestTokens: systemTokens + toolTokens + userTokens + nudgeTokens,
+    requestTokens: systemTokens + toolTokens + userTokens,
     systemPrompt,
     stablePrompt: composed.stable,
   };
@@ -360,11 +332,6 @@ export function formatContextReport(report: FreshSessionContextReport): string {
   lines.push('');
   lines.push(
     `user message${''.padEnd(Math.max(0, nameWidth - 'user message'.length))} ${String(report.userTokens).padStart(6)}`
-  );
-  lines.push(
-    `nudges injected (${report.nudgeCount}/${report.nudgeCatalogSize} catalog)`.padEnd(
-      nameWidth + 2
-    ) + String(report.nudgeTokens).padStart(6)
   );
   lines.push(`REQUEST TOTAL`.padEnd(nameWidth + 2) + String(report.requestTokens).padStart(6));
   return lines.join('\n');

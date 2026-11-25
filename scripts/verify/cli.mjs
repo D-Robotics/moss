@@ -31,6 +31,7 @@ import { stage as smokeStage } from './stages/smoke.mjs';
 import { stage as examplesStage } from './stages/examples.mjs';
 import { stage as hooksContractStage } from './stages/hooks-contract.mjs';
 import { stage as steeringIntentStage } from './stages/steering-intent.mjs';
+import { stage as harnessInjectionStage } from './stages/harness-injection.mjs';
 import { stage as verificationGateStage } from './stages/verification-gate.mjs';
 import { stage as reviewPipelineStage } from './stages/review-pipeline.mjs';
 import { stage as clipboardPasteStage } from './stages/clipboard-paste.mjs';
@@ -56,7 +57,6 @@ import { stage as orgPolicyStage } from './stages/org-policy.mjs';
 import { stage as outputStyleStage } from './stages/output-style.mjs';
 import { stage as planEndStage } from './stages/plan-end.mjs';
 import { stage as rulesActivationStage } from './stages/rules-activation.mjs';
-import { stage as specAuditNudgeStage } from './stages/spec-audit-nudge.mjs';
 import { stage as composerHintStage } from './stages/composer-hint.mjs';
 import { stage as subagentResumeStage } from './stages/subagent-resume.mjs';
 import { stage as subagentPromptStage } from './stages/subagent-prompt-contract.mjs';
@@ -149,6 +149,7 @@ const STAGES = new Map(
     rsiSharedStage,
     hooksContractStage,
     steeringIntentStage,
+    harnessInjectionStage,
     verificationGateStage,
     reviewPipelineStage,
     clipboardPasteStage,
@@ -174,7 +175,6 @@ const STAGES = new Map(
     outputStyleStage,
     planEndStage,
     rulesActivationStage,
-    specAuditNudgeStage,
     composerHintStage,
     subagentPromptStage,
     subagentResumeStage,
@@ -267,6 +267,7 @@ const FAST_GATE = [
   'examples',
   'hooks-contract',
   'steering-intent',
+  'harness-injection',
   'verification-gate',
   'review-pipeline',
   'clipboard-paste',
@@ -292,8 +293,8 @@ const FAST_GATE = [
   'output-style',
   'plan-end',
   'rules-activation',
-  'spec-audit-nudge',
   'composer-hint',
+  'subagent-prompt-contract',
   'subagent-prompt-contract',
   'subagent-resume',
   'tool-surface',

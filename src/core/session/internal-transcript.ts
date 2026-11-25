@@ -33,26 +33,6 @@ export function goalFromPhasePrompt(text: string): string | undefined {
 }
 
 /**
- * Newest real user request for nudge matching. Phase prompts and system
- * injections are not the user's intent (a planning prompt that mentions
- * `npm test` must not look like "the user asked to run tests").
- */
-export function selectNudgeUserText(candidatesNewestFirst: readonly string[]): string {
-  for (const text of candidatesNewestFirst) {
-    // B258: the stored user turn carries the injected <turn-context> (skills
-    // catalog, project notes). Matching nudge triggers against that preamble
-    // made the spec-audit nudge fire on ordinary requests ("spec"/"requirements"
-    // appear in skill descriptions), which bought hidden turns and repeated
-    // answers. Nudges must decide on the user's own words.
-    const cleaned = stripTurnContext(text).replace(/\s+/g, ' ').trim();
-    if (!cleaned) continue;
-    if (isInternalUserText(cleaned)) continue;
-    return cleaned;
-  }
-  return '';
-}
-
-/**
  * Drop a `<turn-context>` block (and a title clipped inside an unclosed one)
  * so session previews show the user's words, not the environment preamble.
  */

@@ -23,7 +23,7 @@ import {
 } from '../../context/window-economics.js';
 import { repairMissingToolResults } from '../tools/tool-result-roundtrip-guard.js';
 import { runProactiveWindowCompaction, runPromptPruneCompaction } from './agent-loop-compaction.js';
-import { shouldSuppressReasoningForToolFollowUpRound } from './follow-up-guard.js';
+import { shouldSuppressReasoningForToolFollowUpRound } from '../../provider/reasoning-policy.js';
 import { hasAssistantThinkingHistory } from './agent-loop-assistant-turn.js';
 import { convertMessagesToPi } from '../tools/message-convert.js';
 import { compactToolSchema } from '../tools/tiny-window-tools.js';

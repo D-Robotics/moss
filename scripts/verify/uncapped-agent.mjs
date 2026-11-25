@@ -65,8 +65,6 @@ async function run(target, limit, repeated = false, budget) {
     sessionStore: new InMemorySessionStore(),
     baseSystemPrompt: 'Use observe_step then deliver.',
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     maxAgentTurns: limit,
     budget,
   });

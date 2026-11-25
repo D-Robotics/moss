@@ -345,8 +345,6 @@ try {
     sessionStore: new InMemorySessionStore(),
     baseSystemPrompt: 'Observe this job.',
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     workspaceDir,
   });
   agent.tools.register(
@@ -371,8 +369,6 @@ try {
     sessionStore: new InMemorySessionStore(),
     baseSystemPrompt: 'Observe this job.',
     includeDomainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     budget: { maxWallMs: 40 },
     workspaceDir,
   });

@@ -301,8 +301,6 @@ const agent = new MossAgent({
   llmProvider: provider,
   sessionStore: new InMemorySessionStore(),
   domainPrompt: false,
-  enableSteering: false,
-  enableFollowUpGuard: false,
 });
 try {
   const live = [];
@@ -372,8 +370,6 @@ async function verifyFormattedReply(buffered, continuation) {
     llmProvider: formattedProvider,
     sessionStore: new InMemorySessionStore(),
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     bufferAssistantUntilComplete: buffered,
   });
   try {

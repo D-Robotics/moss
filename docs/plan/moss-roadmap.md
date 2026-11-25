@@ -212,6 +212,8 @@
 
 **2026-10-12 同步（上游 main `2a7d1873`）**：战役编号已推进到 O98；本表之后新增项的流水账在 box 的 `rsi/state.md`，下表未收录。已在上游落地：O01/O02/O03/O04/O05（fork PR #71/#72/#73/#64 + PR 积压清理，全部合入或关闭）、O06（CI 真跑，含 Windows 修复 PR #86）、O13（PR #82，thinking-only 轮次降推理恢复；自举重跑记录未入仓库）、O43（PR #85 一行安装 + npm 首发 0.26.1）、O57/O58/O66/O67/O70/O83/O85/O87（PR #80–#85）；O86→#90、O88→#88、O90→#89、O97→#92。在途：O94（PR #93）、O98（PR #94）；PR #68（SDK 嵌入宿主，draft，codex 线）待用户裁决。两笔待收的口子：CI test jobs 目前 non-blocking（PR #87，恢复 blocking 待决定）；O22 的 U1–U8 全量重测仍未做，P2 基线还缺。
 
+**2026-11-26 同步（owner 定调：尽可能发挥大模型能力，不加过多约束）**：O38 的 nudge 一半没有等消融，已直接执行。15 个规则式 nudge、steering 规则引擎、follow-up guard、宿主从计划文本合成工具调用全部删除，回归探测是 `scripts/verify/harness-injection.mjs`。消融未跑（本机没有 `MOSS_BENCH_API_KEY`），通过数变化未测；经验库 A/B 未动。
+
 ---
 
 ## 7. 运作方式

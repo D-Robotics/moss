@@ -40,5 +40,3 @@ export {
   parseUrlsFromOpenUrlToolResult,
   maybeSuppressRedundantWebFetchAfterOpenUrl,
 } from './open-url-web-fetch-guard.js';
-export { extractToolInvocationFromPlanText } from './extract-tool-invocation.js';
-export type { ExtractedToolInvocation } from './extract-tool-invocation.js';

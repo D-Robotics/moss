@@ -119,7 +119,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 
 | 想改什么                                                 | 去哪                                                                                                                 |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Agent loop / 轮次控制 / nudge                            | `src/core/loop/`                                                                                                     |
+| Agent loop / 轮次控制 / 截断续写与空响应恢复             | `src/core/loop/`                                                                                                     |
 | 达标驱动自主执行（/goal 验收门）                         | `src/core/task/task-engine.ts`、`src/core/task/acceptance-command.ts`                                                |
 | MossAgent / 配置 / 事件                                  | `src/core/agent/`                                                                                                    |
 | 工具注册与执行管线                                       | `src/tools/builtin.ts`、`src/core/tools/`                                                                            |
@@ -245,6 +245,7 @@ Linux CI 不是 macOS。改 shell 片段、临时目录或 git 路径时按这�
 - 只做必须做的改动，匹配现有风格；修一个 bug 时 grep 同类形状。
 - 行为验证优先于静态检查：逻辑改动后跑这次改动的行为。不要用 typecheck、lint 或全量测试代替那次运行，也不要每一轮都跑它们。
 - 报告真实命令与结果；没有观察到 post-condition 就不报成功。
+- **不用规则指挥模型**（2026-11-26 owner 定调：尽可能发挥大模型能力，不加过多约束）：不要新增按正则读模型散文或用户措辞来注入纠正、提醒、steering，或由宿主从计划文本合成工具调用的机制。harness 只报告结构事实（stop reason、空输出、截断的工具 JSON）和完成门结果，怎么做由模型决定。回归探测 `scripts/verify/harness-injection.mjs`。
 
 ## 会话与工作区纪律（2026-10-01）
 

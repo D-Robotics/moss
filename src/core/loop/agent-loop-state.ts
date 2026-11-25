@@ -18,38 +18,6 @@ export interface AgentLoopMutableState {
   outputTokenCeiling: number;
   /** Set when automatic output-limit recovery is exhausted. The run stops. */
   outputLimitHalted: boolean;
-  /** One-shot counter for the missing-tool-invocation nudge (planned a tool call in text but never executed it). */
-  missingToolNudgeAttempts: number;
-  /** Soft mid-run reminders to open todo_write on multi-step coding (Grok TodoNudge). */
-  todoNudgeAttempts: number;
-  /** Soft mid-run recovery after a red verification result. */
-  redVerifyNudgeAttempts: number;
-  /** Soft mid-run recovery after fan_out/create_subagent child failures. */
-  fanOutNudgeAttempts: number;
-  /** Soft mid-run ask when multi-interpretation coding + edits without clarify. */
-  ambiguityNudgeAttempts: number;
-  /** Soft audit reminder when docs/spec authority conflicts are possible. */
-  specAuditNudgeAttempts: number;
-  /** Soft mid-run reminder while background create_subagent is still STARTED. */
-  subagentRunningNudgeAttempts: number;
-  /** Soft mid-run reminder after subagent_stop without suite evidence. */
-  subagentStoppedNudgeAttempts: number;
-  /** Soft mid-run reminder when web research asked without web tools. */
-  webToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when commit/push asked without git exec. */
-  gitToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when install-deps asked without install exec. */
-  installToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when user asked to run tests without verify tools. */
-  runTestsToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when user asked to build without build exec. */
-  buildToolsNudgeAttempts: number;
-  /** Soft mid-run reminder when dev server start asked without bg exec. */
-  backgroundServerNudgeAttempts: number;
-  /** Soft mid-run recovery after a red task_acceptance verdict (repair-loop discipline). */
-  taskRepairNudgeAttempts: number;
-  /** One mid-run objective re-anchor for deep tool loops (RunAnchorNudge). */
-  runAnchorNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   /** O13: one-shot reasoning level for the request after a thinking-only turn. */
   reasoningOverrideNextTurn?: 'low' | 'off';
@@ -99,22 +67,6 @@ export function createInitialLoopState(): AgentLoopMutableState {
     outputTokenBudget: 0,
     outputTokenCeiling: 0,
     outputLimitHalted: false,
-    missingToolNudgeAttempts: 0,
-    todoNudgeAttempts: 0,
-    redVerifyNudgeAttempts: 0,
-    fanOutNudgeAttempts: 0,
-    ambiguityNudgeAttempts: 0,
-    specAuditNudgeAttempts: 0,
-    subagentRunningNudgeAttempts: 0,
-    subagentStoppedNudgeAttempts: 0,
-    webToolsNudgeAttempts: 0,
-    gitToolsNudgeAttempts: 0,
-    installToolsNudgeAttempts: 0,
-    runTestsToolsNudgeAttempts: 0,
-    buildToolsNudgeAttempts: 0,
-    backgroundServerNudgeAttempts: 0,
-    taskRepairNudgeAttempts: 0,
-    runAnchorNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,

@@ -53,8 +53,6 @@ const agent = new MossAgent({
   sessionStore: new InMemorySessionStore(),
   baseSystemPrompt: 'You are a test agent.',
   domainPrompt: false,
-  enableSteering: false,
-  enableFollowUpGuard: false,
 });
 const ctx = { agent, workspaceDir };
 const ledgerDir = path.join(workspaceDir, '.moss', 'loops');

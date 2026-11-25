@@ -270,8 +270,6 @@ try {
   const agent = new MossAgent({
     model: 'offline-a',
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     sessionStore: new InMemorySessionStore(),
     llmProvider: {
       id: 'offline-a',

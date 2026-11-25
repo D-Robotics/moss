@@ -78,7 +78,6 @@ if (process.argv.includes('--json')) {
     systemTokens: report.systemTokens,
     toolTokens: report.toolTokens,
     userTokens: report.userTokens,
-    nudgeTokens: report.nudgeTokens,
     requestTokens: report.requestTokens,
     sections: report.sections,
     tools: report.tools,

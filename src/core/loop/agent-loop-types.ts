@@ -6,7 +6,6 @@ import type { CompactHookRegistry } from './compact-hooks.js';
 import type { Message } from '../session/session-jsonl.js';
 import type { ToolHookRegistry } from '../tools/tool-hooks.js';
 import type { Tool, ToolContext } from '../tools/tool-types.js';
-import type { SteeringEngine } from './steering.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
 import type { HarnessAdapterReceipt } from '../agent/harness-adapter.js';
@@ -164,7 +163,6 @@ export interface AgentLoopExtensions {
     { approved: true; response?: string } | { approved: false; reason: string; response?: string }
   >;
   compactHooks?: CompactHookRegistry;
-  steeringEngine?: SteeringEngine;
   completionGate?: (request: {
     /** Immutable intent of this response, never the latest state at callback wakeup. */
     taskIntentBinding?: import('../../contracts/task-intent.js').TaskIntentSnapshot;
@@ -200,11 +198,6 @@ export interface AgentLoopExtensions {
    * buffering is actually required this turn (e.g. pending schema validation).
    */
   shouldBufferAssistantOutput?: () => boolean;
-  /**
-   * Plain Q&A (`taskFlow: false`) sets this false so task-repair nudges stay
-   * out of the turn. Unset keeps them — headless benches rely on that.
-   */
-  taskPhaseNudges?: boolean;
 }
 
 export interface AgentLoopDeps {

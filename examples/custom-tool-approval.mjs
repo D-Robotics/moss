@@ -61,8 +61,6 @@ const agent = new MossAgent({
   sessionStore: new InMemorySessionStore(),
   baseSystemPrompt: 'You manage the note archive.',
   domainPrompt: false,
-  enableSteering: false,
-  enableFollowUpGuard: false,
   hooks: {
     async onBeforeToolExec(request) {
       if (request.tool.name === 'purge_archive') {

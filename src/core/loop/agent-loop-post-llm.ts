@@ -8,10 +8,9 @@ export type PostLlmAction =
   | { kind: 'thinking_only_complete' }
   | { kind: 'continuation'; systemText: string; mode: OutputLimitContinuationMode }
   | { kind: 'output_limit_exhausted' }
-  | { kind: 'nudge'; systemText: string; deltaText: string }
   | { kind: 'empty_retry' }
   | { kind: 'empty_complete' }
-  | { kind: 'steering_or_complete' }
+  | { kind: 'complete' }
   | { kind: 'tool_execute' };
 
 export interface PostLlmContext {
@@ -25,11 +24,9 @@ export interface PostLlmContext {
   truncatedToolCall?: boolean;
   outputContinuationCount: number;
   maxOutputContinuations: number;
-  missingToolNudgeAttempts: number;
   finalText: string;
   maxTurns: number | null;
   turns: number;
-  shouldNudge: boolean;
   abortAborted: boolean;
   /** Provider id of the active model (O13: per-provider thinking-only recovery). */
   provider?: string;
@@ -133,24 +130,6 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     return { kind: 'tool_execute' };
   }
 
-  if (
-    !isNudgeDisabled('missing-tool-call') &&
-    ctx.missingToolNudgeAttempts < 1 &&
-    (ctx.maxTurns === null || ctx.turns < ctx.maxTurns) &&
-    ctx.shouldNudge
-  ) {
-    return {
-      kind: 'nudge',
-      systemText:
-        '[System] You described using tools or opening a URL in plain text but did not emit any function/tool calls. ' +
-        'You MUST invoke the appropriate tool now with valid JSON arguments for that URL/intent. ' +
-        'Do not repeat the plan—call the tool immediately.',
-      // The correction stays in the model channel. An empty delta keeps the
-      // nudge out of the assistant transcript.
-      deltaText: '',
-    };
-  }
-
   if (!ctx.finalText.trim()) {
     if (
       !isNudgeDisabled('empty-response') &&
@@ -163,5 +142,5 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     return { kind: 'empty_complete' };
   }
 
-  return { kind: 'steering_or_complete' };
+  return { kind: 'complete' };
 }

@@ -1,9 +1,15 @@
 /**
- * Experiment switch for loop nudges.
+ * Experiment switch for the loop's harness-injected turns.
  *
  * `MOSS_DISABLE_NUDGES=id1,id2` suppresses those injections for the process.
- * Unset, empty, or whitespace-only leaves every nudge on. Unknown ids are
- * ignored by call sites (they simply never match). Ids are case-sensitive.
+ * Unset, empty, or whitespace-only leaves them on. Unknown ids are ignored by
+ * call sites (they simply never match). Ids are case-sensitive.
+ *
+ * What remains under this switch is recovery from a structural provider fact
+ * (output-limit stop, reasoning-only turn, empty response, truncated tool JSON)
+ * and the completion gates. The rule-based nudges that read the model's prose
+ * with regexes, the steering rule engine, and the follow-up guard were removed
+ * on 2026-11-26: the model decides how to work, the harness only reports facts.
  *
  * The dev bench copies this variable into the child Moss environment when
  * the parent set it (`scripts/run-benchmark.mjs`). This module reads only
@@ -11,41 +17,15 @@
  */
 export const MOSS_DISABLE_NUDGES_ENV = 'MOSS_DISABLE_NUDGES';
 
-/**
- * Stable ablation ids. Registry order matches `collectNudgeInjections`.
- * The shell soft-failure appendix lives in frozen `src/safety/**` and is
- * intentionally absent: naming it here would not disable it.
- */
+/** Stable ablation ids. The shell soft-failure appendix lives in frozen `src/safety/**` and is intentionally absent: naming it here would not disable it. */
 export const NUDGE_IDS = [
-  'todo',
-  'red-verify',
-  'fan-out',
-  'ambiguity',
-  'spec-audit',
-  'subagent-running',
-  'subagent-stopped',
-  'web-tools',
-  'git-tools',
-  'install-tools',
-  'run-tests',
-  'build-tools',
-  'background-server',
-  'task-repair',
-  'run-anchor',
   'reasoning-only',
   'output-continuation',
-  'missing-tool-call',
   'empty-response',
-  'steering-error-recovery',
-  'steering-local-exploration-loop',
-  'steering-web-search-variation',
-  'steering-tool-loop',
-  'steering-context-pressure',
+  'truncated-tool-json',
   'background-completion',
   'background-lifecycle-gate',
   'acceptance-gate',
-  'follow-up-guard',
-  'truncated-tool-json',
 ] as const;
 
 export type NudgeId = (typeof NUDGE_IDS)[number];

@@ -200,8 +200,6 @@ try {
     model: 'offline-shared-model',
     sessionStore: new InMemorySessionStore(),
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     llmProvider: {
       id: 'offline-shared-model',
       capabilities: { streaming: false },

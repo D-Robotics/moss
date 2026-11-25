@@ -1,9 +1,9 @@
 /**
  * Provider-level pure reasoning/wire-format predicates.
  *
- * Moved verbatim from core (loop/follow-up-guard.ts, tools/message-convert.ts)
- * so the provider layer no longer reaches into core internals. These functions
- * are stateless message-shape predicates with no session or loop state.
+ * Moved verbatim from core (tools/message-convert.ts) so the provider layer no
+ * longer reaches into core internals. These functions are stateless message-shape
+ * predicates with no session or loop state.
  */
 import type { LLMContentBlock } from '../core/llm/llm-provider.js';
 

@@ -44,8 +44,6 @@ const agent = new MossAgent({
   sessionStore: store,
   baseSystemPrompt: 'You are a test agent.',
   domainPrompt: false,
-  enableSteering: false,
-  enableFollowUpGuard: false,
 });
 const sessionKey = 'rewind-probe';
 let checks = 0;

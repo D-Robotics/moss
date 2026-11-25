@@ -101,7 +101,6 @@ export interface ExecuteAgentLoopToolCallsParams {
   state: AgentLoopMutableState;
   maxToolCalls?: number;
   metrics: AgentLoopToolExecutionMetrics;
-  evaluateSteering: () => Message[];
   appendMessage: (sessionKey: string, msg: Message) => Promise<void>;
   push: (event: MiniAgentEvent) => void;
   pendingToolAborts: PendingToolAbortStore;
@@ -489,7 +488,6 @@ export async function executeAgentLoopToolCalls(
     toolLoopGuard,
     maxToolCalls,
     metrics,
-    evaluateSteering,
     appendMessage,
     push,
   } = params;
@@ -601,9 +599,9 @@ export async function executeAgentLoopToolCalls(
     }
   };
 
-  // Finish every call this assistant message already made. Steering (the
-  // extended tool-loop nudge included) is attached after the batch and guides
-  // the next turn — it does not skip or error the rest of the batch.
+  // Finish every call this assistant message already made. Guidance for the
+  // next turn is attached after the batch — it does not skip or error the rest
+  // of the batch.
   for (const group of toolGroups) {
     if (state.suspendedTool) {
       for (const call of group.calls) {
@@ -774,13 +772,12 @@ export async function executeAgentLoopToolCalls(
   }
 
   let toolResultMsgPersisted = false;
-  let newSteering: Message[] = [];
+  const nextTurnGuidance: Message[] = [];
   try {
     const parallelStartMs = Date.now();
     await appendMessage(sessionKey, resultMsg);
     toolResultMsgPersisted = true;
 
-    newSteering = state.taskAcceptanceCommitted || state.taskWaitTimeout ? [] : evaluateSteering();
     if (
       !state.taskAcceptanceCommitted &&
       !state.taskWaitTimeout &&
@@ -788,7 +785,7 @@ export async function executeAgentLoopToolCalls(
       params.buildCorrectionMessage
     ) {
       const guidance = await params.runtimeJudge.progress(judgeResults);
-      if (guidance) newSteering.push(params.buildCorrectionMessage(guidance));
+      if (guidance) nextTurnGuidance.push(params.buildCorrectionMessage(guidance));
     }
     metrics.prepNextTurnParallelMs += Date.now() - parallelStartMs;
   } finally {
@@ -802,7 +799,7 @@ export async function executeAgentLoopToolCalls(
 
   currentMessages.push(resultMsg);
 
-  return { pendingMessages: newSteering };
+  return { pendingMessages: nextTurnGuidance };
 }
 
 // ── best-of-n trigger telemetry (v0.10 W2) ──────────────────────────────────

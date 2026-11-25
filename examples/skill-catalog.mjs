@@ -71,8 +71,6 @@ const agent = new MossAgent({
   sessionStore: new InMemorySessionStore(),
   baseSystemPrompt: 'You are an embedded deploy agent.',
   domainPrompt: false,
-  enableSteering: false,
-  enableFollowUpGuard: false,
   // This is the whole integration: core owns the catalog text and the tool.
   skills: { manifests: () => [skill], budgetChars: 4_000 },
 });

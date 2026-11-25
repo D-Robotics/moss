@@ -20,12 +20,10 @@ import type {
 import type { ToolFilter } from '../tools/tool-filter.js';
 import type { ContextPruningSettings } from '../../context/pruning.js';
 import type { CompactionSettings } from '../../context/compaction.js';
-import type { FollowUpGuardConfig } from '../loop/follow-up-guard.js';
 import type { CompactHookRegistry } from '../loop/compact-hooks.js';
 import type { AgentHooks } from './agent-hooks.js';
 import type { HarnessAdapter, HarnessAdapterReceipt } from './harness-adapter.js';
 import type { ThinkingLevel } from '../../provider/pi-ai-types.js';
-import type { SteeringRule } from '../loop/steering.js';
 import type { AgentLoopExtensions } from '../loop/agent-loop-types.js';
 import type {
   ApprovedPreflightAssignment,
@@ -287,10 +285,6 @@ export interface MossAgentConfig
 
   enableThinkingStream?: boolean;
 
-  enableFollowUpGuard?: boolean;
-
-  followUpGuardConfig?: Partial<FollowUpGuardConfig>;
-
   compactHooks?: CompactHookRegistry;
 
   /** Fired when a spawned sub-agent finishes (host wiring, e.g. CLI
@@ -304,12 +298,6 @@ export interface MossAgentConfig
 
   /** Fired right before a spawned sub-agent starts. Failures are absorbed. */
   subagentStartHook?: (info: { sessionKey: string; goal: string }) => Promise<void>;
-
-  enableSteering?: boolean;
-
-  replaceDefaultSteeringRules?: boolean;
-
-  steeringRules?: SteeringRule[];
 
   completionGate?: AgentLoopExtensions['completionGate'];
   /**

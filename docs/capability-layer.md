@@ -62,7 +62,7 @@ done
 - **Unattributed acceptance verdicts can mask** (adversarial-review follow-up):
   a `task_acceptance` call that omits `task_id` — the tool schema allows it —
   is treated as applying to every task, so it can silence another task's
-  pending-FAIL repair nudge. Fix direction: back-fill the task id from the
+  pending-FAIL repair. Fix direction: back-fill the task id from the
   acceptance result text.
 - **Bench crash triage is limited by `*.log` gitignore** — A/B driver logs
   (full stdout/stderr per sample) stay on disk only, so historical crash

@@ -85,7 +85,6 @@ function declarationsFor(taskFlow) {
     sessionStore: new InMemorySessionStore(),
     model: 'prompt-tokens',
     workspaceDir: process.cwd(),
-    enableSteering: false,
     domainPrompt: false,
     includeAgentBehaviorPrompt: false,
     includeLanguagePolicyPrompt: false,

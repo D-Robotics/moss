@@ -90,8 +90,6 @@ function createAgent(run, options = {}) {
     sessionInboxDir: options.inboxDir ?? path.join(workspace, `inbox-${agents.length}`),
     baseSystemPrompt: 'Follow the user. Never invent observations.',
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     taskIntent: true,
     ...options,
   });

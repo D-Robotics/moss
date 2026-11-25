@@ -15,7 +15,7 @@ import {
   createInlineThinkingRouter,
   splitThinkingTagsFromAssistantText,
 } from '../llm/inline-thinking-stream.js';
-import { shouldSuppressReasoningForToolFollowUpRound } from './follow-up-guard.js';
+import { shouldSuppressReasoningForToolFollowUpRound } from '../../provider/reasoning-policy.js';
 import { normalizeToolCallInput } from './agent-loop-tool-helpers.js';
 import {
   classifyLlmError,

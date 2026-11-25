@@ -128,8 +128,6 @@ function createAgent(workspace, store, options = {}) {
     maxTokens: 1024,
     baseSystemPrompt: 'Follow the authenticated current user and use source evidence.',
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     ...(options.reasoning ? { reasoning: options.reasoning } : {}),
     ...(options.hooks ? { hooks: options.hooks } : {}),
   });
@@ -1809,7 +1807,6 @@ async function testVersionedDrafts(workspace) {
       contextTokens: 32_000,
       maxTokens: 1024,
       taskIntent: true,
-      enableFollowUpGuard: false,
       llmProvider: {
         id: 'draft-fixture',
         displayName: 'Draft fixture',

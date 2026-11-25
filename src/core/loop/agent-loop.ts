@@ -28,7 +28,6 @@ import {
 import { bumpAgentLoopRunEpoch, guardMiniAgentStreamPush } from './agent-loop-push-guard.js';
 import { PendingToolAbortStore } from './pending-tool-aborts.js';
 import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
-import { readEnvFlag } from '../../utils/env-compat.js';
 import {
   assessPromptCacheEligibility,
   isPromptPrefixDebugEnabled,
@@ -37,7 +36,6 @@ import { hashSystemPromptForTelemetry } from '../../prompts/system-prompt-teleme
 import { createToolLoopGuardState } from '../tools/tool-loop-guard.js';
 import type { AgentLoopHardCaps, AgentLoopParams } from './agent-loop-types.js';
 import { createInitialLoopState, resetIterationState } from './agent-loop-state.js';
-import type { SteeringContext } from './steering.js';
 import {
   prepareProjectionWire,
   prepareTurnContext,
@@ -50,9 +48,7 @@ import {
   buildBackgroundCompletionSystemText,
   ensureBackgroundCompletionTracker,
 } from './background-completion.js';
-import { collectNudgeInjections } from './nudges/registry.js';
 import { isNudgeDisabled } from './nudges/disable.js';
-import { selectNudgeUserText } from '../session/internal-transcript.js';
 import { resolveModelOutputBudget } from './output-limit.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
@@ -193,7 +189,6 @@ export function runAgentLoop(
       systemPromptMeta,
       platform,
       hardCaps,
-      steeringEngine,
     } = params;
 
     let projectionOverflowRetries = 0;
@@ -273,8 +268,6 @@ export function runAgentLoop(
       }
     };
 
-    const isQuiet = platform?.quiet ?? readEnvFlag('MOSS_QUIET');
-
     let activeSystemPrompt = systemPrompt;
     let activeSystemPromptParts = systemPromptParts;
     const refreshActiveSystemPrompt = (): void => {
@@ -305,45 +298,6 @@ export function runAgentLoop(
         ? state.outputTokenBudget
         : (maxOutputTokensParam ?? modelDef.maxTokens ?? 8192);
 
-    const evaluateSteering = (): Message[] => {
-      if (!steeringEngine) return [];
-      const maxOut = activeOutputTokens();
-      const effCtx = getEffectiveContextWindowTokens(contextTokens, maxOut);
-      const charsPerUnit = resolveContextCharsPerTokenUnit();
-      const steerCtx: SteeringContext = {
-        messages: currentMessages as unknown as import('../llm/llm-provider.js').LLMMessage[],
-        turn: state.turns,
-        consecutiveToolErrors: state.toolExecutionMetrics.consecutiveToolErrors,
-        totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
-        contextUsageRatio:
-          effCtx > 0
-            ? (() => {
-                const estimated = estimatePromptUnitsForContextWindow({
-                  messages: currentMessages,
-                  systemPrompt: activeSystemPrompt,
-                  charsPerTokenUnit: charsPerUnit,
-                  effectiveContextWindowTokens: effCtx,
-                  includeThinking: shouldIncludeThinkingInBudget(currentMessages, modelDef),
-                });
-
-                const floor =
-                  state.lastReportedPromptTokens > 0
-                    ? Math.max(estimated, state.lastReportedPromptTokens)
-                    : estimated;
-                return floor / effCtx;
-              })()
-            : 0,
-        sessionKey,
-      };
-      const result = steeringEngine.evaluate(steerCtx);
-      if (!result.triggered) return [];
-      return result.guidances.map((g) => ({
-        role: 'user' as const,
-        content: [{ type: 'text' as const, text: g }],
-        timestamp: Date.now(),
-      }));
-    };
-
     try {
       // Grok TaskCompletionReminder parity: ensure lifecycle events queue
       // model-visible completions for background exec (coding UX).
@@ -355,45 +309,12 @@ export function runAgentLoop(
       }
 
       const charsPerUnit = resolveContextCharsPerTokenUnit();
-      // Do not evaluate steering before the first turn. At run start the model
-      // has done no work yet, so any steering guidance (e.g. "context is X%
-      // full, be concise") would fire on baseline system-prompt size and force
-      // an extra turn before the model even answers — the mirror image of the
-      // post-end_turn steering we removed in processLlmResponse. Steering is
-      // evaluated on the tool-execution path, where in-progress patterns
-      // (consecutive errors, tool loops, repeated searches) are detectable.
       state.pendingMessages = [];
 
       const injectBackgroundCompletions = (): Message | null => {
         const text = buildBackgroundCompletionSystemText();
         if (!text) return null;
         return buildCorrectionMessage(text);
-      };
-
-      const lastUserTextForNudge = (): string => {
-        const newestFirst: string[] = [];
-        for (let i = currentMessages.length - 1; i >= 0; i--) {
-          const m = currentMessages[i];
-          if (!m || m.role !== 'user') continue;
-          if (typeof m.content === 'string') {
-            newestFirst.push(m.content);
-            continue;
-          }
-          if (Array.isArray(m.content)) {
-            const text = m.content
-              .filter(
-                (b): b is { type: 'text'; text: string } =>
-                  !!b &&
-                  typeof b === 'object' &&
-                  (b as { type?: string }).type === 'text' &&
-                  typeof (b as { text?: string }).text === 'string'
-              )
-              .map((b) => b.text)
-              .join('\n');
-            newestFirst.push(text);
-          }
-        }
-        return selectNudgeUserText(newestFirst);
       };
 
       outerLoop: while (true) {
@@ -405,8 +326,6 @@ export function runAgentLoop(
           // the model sees exit codes / output without polling exec_logs.
           const bgDone = injectBackgroundCompletions();
           if (bgDone) state.pendingMessages.push(bgDone);
-
-          const nudgeInsertionIndex = state.pendingMessages.length;
 
           // v0.10 W2: verification-gated best-of-n escalation. Two consecutive
           // failures of the SAME verification command = the loop is stuck in a
@@ -488,22 +407,6 @@ export function runAgentLoop(
           // reminders share one snapshot; tool execution still resolves live.
           await params.taskIntentTurn?.prepare();
           const toolsForTurn = [...resolveToolsForRun()];
-          state.pendingMessages.splice(
-            nudgeInsertionIndex,
-            0,
-            ...collectNudgeInjections({
-              state,
-              currentMessages,
-              lastUserText: lastUserTextForNudge,
-              buildCorrectionMessage,
-              taskPhaseNudges:
-                params.taskPhaseNudges && (params.toolStartGuard?.allowsPriorRecovery() ?? true),
-              todoWriteAvailable: toolsForTurn.some((tool) => tool.name === 'todo_write'),
-              userQuestionsAvailable: toolsForTurn.some(
-                (tool) => tool.name === 'ask_user_question'
-              ),
-            })
-          );
 
           state.turns++;
 
@@ -709,7 +612,6 @@ export function runAgentLoop(
               maxTurns,
               maxOutputContinuations: effectiveCaps.maxOutputContinuations,
               abortSignal,
-              isQuiet,
               sessionKey,
               currentMessages,
               assistantBuffer: turnAssistantBuffer,
@@ -738,7 +640,6 @@ export function runAgentLoop(
               settleTextDraft: textDraft?.settle,
               toolAbortSignalFor: params.toolAbortSignalFor,
               enrichToolContext: params.enrichToolContext,
-              evaluateSteering,
               appendMessage,
               push: (e) => stream.push(e),
               buildCorrectionMessage,

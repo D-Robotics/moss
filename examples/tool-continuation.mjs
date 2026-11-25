@@ -65,8 +65,6 @@ function makeAgent() {
     sessionStore: new JsonlSessionStore({ dir: directory }),
     baseSystemPrompt: 'Use only the supplied tools.',
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
   });
   agent.tools.register({
     name: 'record_value',

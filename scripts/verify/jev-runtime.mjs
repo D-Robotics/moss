@@ -191,8 +191,6 @@ try {
       },
     },
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
     onCompletionGateBlocked(hold) {
       holds.push(hold);
     },

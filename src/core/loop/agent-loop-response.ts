@@ -8,13 +8,10 @@ import type { ToolLoopGuardState } from '../tools/tool-loop-guard.js';
 import type { LoopControlSignal } from './agent-loop-context-prep.js';
 import type { AgentLoopExtensions } from './agent-loop-types.js';
 import {
-  injectToolCallFromPlanText,
   normalizeAssistantToolCalls,
   isThinkingOnlyAssistantTurn,
   buildVisibleAssistantText,
-  shouldNudgeMissingToolInvocation,
 } from './agent-loop-assistant-turn.js';
-import { buildNamedWebToolMatcher } from '../../prompts/plan-detection.js';
 import { stripThinkingTagsKeepVisible } from '../llm/inline-thinking-stream.js';
 import {
   THINKING_ONLY_RETRY_BUDGET,
@@ -90,7 +87,6 @@ export interface ProcessLlmResponseParams {
   maxTurns: number | null;
   maxOutputContinuations: number;
   abortSignal: AbortSignal;
-  isQuiet: boolean;
   sessionKey: string;
   currentMessages: Message[];
 
@@ -133,7 +129,6 @@ export interface ProcessLlmResponseParams {
   settleTextDraft?: (accepted: boolean) => void;
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
-  evaluateSteering: () => Message[];
   appendMessage: (sessionKey: string, msg: Message) => Promise<void>;
   push: (event: MiniAgentEvent) => void;
   buildCorrectionMessage: (systemText: string) => Message;
@@ -159,7 +154,6 @@ export async function processLlmResponse(
     maxTurns,
     maxOutputContinuations,
     abortSignal,
-    isQuiet,
     sessionKey,
     currentMessages,
     assistantBuffer,
@@ -179,7 +173,6 @@ export async function processLlmResponse(
     delayedVisibleDeltas,
     toolAbortSignalFor,
     enrichToolContext,
-    evaluateSteering,
     appendMessage,
     push,
     buildCorrectionMessage,
@@ -222,16 +215,6 @@ export async function processLlmResponse(
     pushTurnEnd();
     return { control: 'continue' };
   }
-  if (!params.taskIntentTurn)
-    injectToolCallFromPlanText({
-      toolCalls,
-      assistantContent,
-      turnTextParts,
-      messageThinkingChunks,
-      toolsForRun: toolsForAssistantTurn,
-      sessionKey,
-      logInfo: !isQuiet ? undefined : undefined,
-    });
 
   if (toolCalls.length > 0) {
     normalizeAssistantToolCalls({
@@ -493,29 +476,6 @@ export async function processLlmResponse(
     return { control: 'continue' };
   }
 
-  const toolsForNudge = resolveToolsForRun();
-  const namedWebToolRe = buildNamedWebToolMatcher(toolsForNudge.map((x) => x.name));
-  const shouldNudge =
-    !intentResponse?.hold &&
-    !state.hasMoreToolCalls &&
-    shouldNudgeMissingToolInvocation({
-      finalText: state.finalText,
-      messageThinkingChunks,
-      assistantContent,
-      namedWebToolRe,
-    });
-
-  // Steering is evaluated inside the tool-execution path (see
-  // executeAgentLoopToolCalls), where the guidance is meaningful — the model
-  // is still working and the rules detect in-progress patterns (consecutive
-  // tool errors, extended tool loops, repeated web searches). Evaluating it
-  // again here, after the model has already ended its turn with no tool
-  // calls, only produced a spurious extra turn (the model acknowledging the
-  // guidance) on simple single-turn answers. So we no longer evaluate
-  // steering on the end_turn path; `decidePostLlmAction` no longer takes a
-  // hasSteeringMessages signal, and the completion branches above inject
-  // correction messages directly when the model failed to answer.
-
   const postLlmAction = decidePostLlmAction({
     hasThinkingOnly,
     toolCallCount: toolCalls.length,
@@ -526,11 +486,9 @@ export async function processLlmResponse(
     truncatedToolCall,
     outputContinuationCount: state.outputContinuationCount,
     maxOutputContinuations,
-    missingToolNudgeAttempts: state.missingToolNudgeAttempts,
     finalText: state.finalText,
     maxTurns,
     turns: state.turns,
-    shouldNudge,
     abortAborted: abortSignal.aborted,
     provider: params.provider,
     modelId: params.modelId,
@@ -605,16 +563,6 @@ export async function processLlmResponse(
       return { control: 'break' };
     }
 
-    case 'nudge':
-      state.missingToolNudgeAttempts += 1;
-      if (postLlmAction.deltaText) {
-        push({ type: 'message_delta', delta: postLlmAction.deltaText });
-      }
-      state.pendingMessages = [buildCorrectionMessage(postLlmAction.systemText)];
-      pushTurnEnd();
-      state.lastTurnEndMs = Date.now();
-      return { control: 'continue' };
-
     case 'empty_retry':
       // Empty response is a "didn't answer" failure. Inject a correction that
       // asks for an actual answer — not a steering message. Steering guidance
@@ -634,16 +582,13 @@ export async function processLlmResponse(
     case 'empty_complete':
       throw new Error(EMPTY_MODEL_RESPONSE);
 
-    case 'steering_or_complete':
+    case 'complete':
       state.carriedAssistantText = '';
       // The model emitted end_turn with a visible answer and no tool calls.
       // That is the canonical "task complete" signal — the loop must stop
-      // here. Injecting a steering message at this point forces a second
-      // LLM turn whose only content is the model acknowledging the guidance
-      // ("Understood, I'll be concise"), which wastes a round-trip on every
-      // single-turn answer. Steering belongs mid-task (the tool_execute path
-      // and the retry branches below, where the model is still working); once
-      // the model has produced a final answer, respect the end_turn and stop.
+      // here. Injecting guidance at this point forces a second LLM turn whose
+      // only content is the model acknowledging it ("Understood, I'll be
+      // concise"), which wastes a round-trip on every single-turn answer.
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
       state.pendingMessages = [];
@@ -738,7 +683,6 @@ export async function processLlmResponse(
     toolLoopGuard,
     maxToolCalls,
     metrics: state.toolExecutionMetrics,
-    evaluateSteering,
     appendMessage,
     push,
     pendingToolAborts,

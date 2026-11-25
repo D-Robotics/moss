@@ -58,8 +58,6 @@ try {
     workspaceDir,
     baseSystemPrompt: 'Perform the provided local editing sequence.',
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
   });
   registerBuiltinTools(agent);
   try {
@@ -118,8 +116,6 @@ try {
     sessionStore: new InMemorySessionStore(),
     workspaceDir,
     domainPrompt: false,
-    enableSteering: false,
-    enableFollowUpGuard: false,
   });
   const aliasSchema = {
     type: 'object',

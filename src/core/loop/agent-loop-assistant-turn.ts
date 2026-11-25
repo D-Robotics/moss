@@ -1,7 +1,5 @@
 import type { ContentBlock, Message } from '../session/session-jsonl.js';
 import type { Tool } from '../tools/tool-types.js';
-import { randomUUID } from 'node:crypto';
-import { extractToolInvocationFromPlanText } from '../tools/extract-tool-invocation.js';
 import { splitThinkingTagsFromAssistantText } from '../llm/inline-thinking-stream.js';
 import { normalizeToolCallInput, syncAssistantToolUseInput } from './agent-loop-tool-helpers.js';
 
@@ -77,84 +75,11 @@ export function buildVisibleAssistantText(params: {
   return params.trim === false ? visible : visible.trim();
 }
 
-/**
- * Some reasoning models mention "I will call tool X for URL Y" in visible text
- * or thinking, but never emit a tool_use. These predicates decide whether the
- * loop should add one corrective model turn.
- */
-export function shouldNudgeMissingToolInvocationFromPlan(
-  visibleAssistantText: string,
-  namedWebToolRe: RegExp
-): boolean {
-  const t = visibleAssistantText.trim();
-  if (t.length < 30) return false;
-  if (!/https?:\/\//i.test(t)) return false;
-  if (!namedWebToolRe.test(t)) return false;
-  const firstPersonIntent = /(?:我(?:来|要|去|将|先)|让我).{0,20}调用/i.test(t);
-  return firstPersonIntent;
-}
-
-export function shouldNudgeMissingToolInvocationFromThinking(
-  thinkingText: string,
-  namedWebToolRe: RegExp
-): boolean {
-  const t = thinkingText.trim();
-  if (t.length < 30) return false;
-  if (!/https?:\/\//i.test(t)) return false;
-  if (!namedWebToolRe.test(t)) return false;
-  const planIntent =
-    /(?:我(?:来|要|去|将|先)|让我|然后|接下来|紧接(?:下来|着)|最后|下一步|下面|首先|随后).{0,20}调用/i.test(
-      t
-    );
-  return planIntent;
-}
-
 export type AgentLoopToolCallDraft = {
   id: string;
   name: string;
   input: Record<string, unknown>;
 };
-
-export function injectToolCallFromPlanText(params: {
-  toolCalls: AgentLoopToolCallDraft[];
-  assistantContent: ContentBlock[];
-  turnTextParts: string[];
-  messageThinkingChunks: string[];
-  toolsForRun: Tool[];
-  sessionKey: string;
-  logInfo?: (message: string, meta?: Record<string, unknown>) => void;
-}): void {
-  if (params.toolCalls.length > 0) return;
-  const visibleForExtract = params.turnTextParts.join('').trim();
-  const thinkingForExtract = extractThinkingTextFromMessage(
-    params.messageThinkingChunks,
-    params.assistantContent
-  );
-  const planText = [visibleForExtract, thinkingForExtract].filter(Boolean).join('\n\n');
-  if (!planText) return;
-
-  const extracted = extractToolInvocationFromPlanText(planText, params.toolsForRun);
-  if (!extracted) return;
-
-  const injectedId = `host_${randomUUID()}`;
-  const injectedInput = normalizeToolCallInput(
-    { name: extracted.name, input: extracted.input },
-    params.toolsForRun,
-    { sessionKey: params.sessionKey }
-  );
-  params.assistantContent.push({
-    type: 'tool_use',
-    id: injectedId,
-    name: extracted.name,
-    input: injectedInput,
-  });
-  params.toolCalls.push({ id: injectedId, name: extracted.name, input: injectedInput });
-  params.logInfo?.('host tool invocation injected from plan text', {
-    tool: extracted.name,
-    required: extracted.satisfiedRequired,
-    sessionKey: params.sessionKey,
-  });
-}
 
 export function normalizeAssistantToolCalls(params: {
   toolCalls: AgentLoopToolCallDraft[];
@@ -168,24 +93,4 @@ export function normalizeAssistantToolCalls(params: {
     });
     syncAssistantToolUseInput(params.assistantContent, call);
   }
-}
-
-export function shouldNudgeMissingToolInvocation(params: {
-  finalText: string;
-  messageThinkingChunks: string[];
-  assistantContent: ContentBlock[];
-  namedWebToolRe: RegExp;
-}): boolean {
-  const visibleHits =
-    !!params.finalText.trim() &&
-    shouldNudgeMissingToolInvocationFromPlan(params.finalText, params.namedWebToolRe);
-  if (visibleHits) return true;
-  const thinkingPlanText = extractThinkingTextFromMessage(
-    params.messageThinkingChunks,
-    params.assistantContent
-  );
-  return (
-    !!thinkingPlanText &&
-    shouldNudgeMissingToolInvocationFromThinking(thinkingPlanText, params.namedWebToolRe)
-  );
 }

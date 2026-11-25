@@ -43,8 +43,6 @@ const agent = new MossAgent({
   sessionStore: new InMemorySessionStore(),
   baseSystemPrompt: 'You are a REPL assistant.',
   domainPrompt: false,
-  enableSteering: false,
-  enableFollowUpGuard: false,
 });
 
 const SESSION = 'repl-demo';

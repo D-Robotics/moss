@@ -38,21 +38,4 @@ export {
   lastMessageNeedsToolFollowUp,
   hasToolResultAfterLastAssistant,
   shouldSuppressReasoningForToolFollowUpRound,
-  detectUnexecutedToolIntents,
-  extractThinkingTagBodies,
-  DEFAULT_FOLLOW_UP_GUARD_CONFIG,
-} from './follow-up-guard.js';
-export type {
-  FollowUpGuardConfig,
-  FollowUpPattern,
-  TextActionFollowUp,
-} from './follow-up-guard.js';
-export {
-  SteeringEngine,
-  DEFAULT_STEERING_RULES,
-  BUILTIN_ERROR_RECOVERY_RULE,
-  BUILTIN_WEB_SEARCH_VARIATION_RULE,
-  BUILTIN_TOOL_LOOP_RULE,
-  BUILTIN_CONTEXT_PRESSURE_RULE,
-} from './steering.js';
-export type { SteeringRule, SteeringContext, SteeringResult } from './steering.js';
+} from '../../provider/reasoning-policy.js';

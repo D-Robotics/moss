@@ -105,20 +105,7 @@ export {
   lastMessageNeedsToolFollowUp,
   hasToolResultAfterLastAssistant,
   shouldSuppressReasoningForToolFollowUpRound,
-  detectUnexecutedToolIntents,
-  extractThinkingTagBodies,
-  DEFAULT_FOLLOW_UP_GUARD_CONFIG,
 } from './loop/index.js';
-export type { FollowUpGuardConfig, FollowUpPattern, TextActionFollowUp } from './loop/index.js';
-export {
-  SteeringEngine,
-  DEFAULT_STEERING_RULES,
-  BUILTIN_ERROR_RECOVERY_RULE,
-  BUILTIN_WEB_SEARCH_VARIATION_RULE,
-  BUILTIN_TOOL_LOOP_RULE,
-  BUILTIN_CONTEXT_PRESSURE_RULE,
-} from './loop/index.js';
-export type { SteeringRule, SteeringContext, SteeringResult } from './loop/index.js';
 
 export { InMemorySessionStore } from './session/index.js';
 export type { SessionStore, SessionMeta, SessionDeliverySnapshot } from './session/index.js';
@@ -221,8 +208,6 @@ export {
   parseUrlsFromOpenUrlToolResult,
   maybeSuppressRedundantWebFetchAfterOpenUrl,
 } from './tools/index.js';
-export { extractToolInvocationFromPlanText } from './tools/index.js';
-export type { ExtractedToolInvocation } from './tools/index.js';
 
 export { ErrorCode } from '../errors.js';
 export type { MossErrorOutcome } from '../errors.js';
