@@ -33,6 +33,17 @@ ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\
 HOLD = threading.Event()
 
 SSE_HEAD = 'data: {"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"Streaming a long answer."},"finish_reason":null}]}\n\n'
+def sse_text(value):
+    chunk = {
+        "id": "x",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "m",
+        "choices": [{"index": 0, "delta": {"role": "assistant", "content": value}, "finish_reason": None}],
+    }
+    return f"data: {json.dumps(chunk)}\n\n"
+
+
 SSE_DONE = (
     'data: {"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2}}\n\n'
     "data: [DONE]\n\n"
@@ -75,14 +86,23 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(raw)
         except ValueError:
             body = {}
+        prompt = last_user(body.get("messages") or [])
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Content-Length", "0")
+        # Close-delimited: a body sent after a `Content-Length: 0` header is a
+        # protocol error to the client, and every request then reads as a
+        # provider outage.
+        self.send_header("Connection", "close")
         self.end_headers()
-        if "holdstream" in last_user(body.get("messages") or []):
+        if "holdstream" in prompt:
             self.wfile.write(SSE_HEAD.encode())
             self.wfile.flush()
             HOLD.wait(30)
+        else:
+            # The answer names the prompt, so the probe can tell which queued
+            # line really ran (the queued preview rows carry no answer).
+            self.wfile.write(sse_text(f"Answer to: {prompt}").encode())
+            self.wfile.flush()
         self.wfile.write(SSE_DONE.encode())
         self.wfile.flush()
         self.close_connection = True
@@ -146,13 +166,14 @@ def main():
     def text():
         return ANSI.sub("", raw.decode("utf-8", "replace"))
 
-    def wait_for(needle, timeout):
+    def wait_for(needle, timeout, since=0):
+        """Wait for `needle` in the stream written after offset `since`."""
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if needle in text():
+            if needle in ANSI.sub("", raw[since:].decode("utf-8", "replace")):
                 return True
             pump(0.1)
-        return needle in text()
+        return needle in ANSI.sub("", raw[since:].decode("utf-8", "replace"))
 
     def send(value):
         os.write(master, value.encode())
@@ -184,17 +205,27 @@ def main():
         if not wait_for("Alt+↑ edits the newest", 10):
             raise AssertionError("the recall hint is missing")
         checks += 1
+        before_release = len(raw)
         release()
-        # Both queued lines run as prompts once the held stream ends.
-        if not wait_for("❯ second task", 30):
+        # Only the stream after the release counts: the queued preview rows
+        # already carried both lines before it, so matching the whole stream
+        # would pass even if the queue never drained.
+        if not wait_for("Streaming a long answer.", 30, since=before_release):
+            raise AssertionError("the held run did not finish with its answer")
+        checks += 1
+        if not wait_for("Answer to: second task", 30, since=before_release):
             raise AssertionError("the first queued line did not run after the run")
         checks += 1
-        if not wait_for("❯ third", 30):
+        if not wait_for("Answer to: third", 30, since=before_release):
             raise AssertionError("the second queued line did not run")
         checks += 1
         print(json.dumps({"ok": True, "checks": checks}))
     except AssertionError as error:
         tail = re.sub(r"\s+", " ", text())[-400:]
+        # MOSS_PROBE_DUMP=<path> keeps the whole stripped stream for debugging.
+        if os.environ.get("MOSS_PROBE_DUMP"):
+            with open(os.environ["MOSS_PROBE_DUMP"], "w") as handle:
+                handle.write(raw.decode("utf-8", "replace"))
         print(json.dumps({"ok": False, "error": f"{error}; tail: {tail}"}))
         sys.exit(1)
     finally:
