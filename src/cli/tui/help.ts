@@ -36,8 +36,9 @@ export const HELP_PREFIXES: ReadonlyArray<readonly [string, string]> = [
 ];
 
 /**
- * The shortcut rows: the non-Ctrl keys from HELP_KEYS, with the Ctrl rows generated
- * from the active registry (keymap.ts) in the position the Ctrl group always had.
+ * The shortcut rows: the keys no registry owns, with the registry rows
+ * (keymap.ts: every Ctrl letter, Alt+↑, and whatever the user rebound)
+ * generated in the position the Ctrl group always had.
  */
 export function helpKeyRows(
   bindings: readonly KeyBinding[]

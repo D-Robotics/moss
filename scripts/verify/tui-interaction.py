@@ -5,7 +5,12 @@ Drives `dist/cli.js` through a pty against a local OpenAI-compatible stub and
 matches the ANSI-stripped output stream. It proves the wiring the pure
 projection checks cannot: that `/queue <text>` typed during a run really
 lands in the queue, that the queued rows are painted, and that the queue
-drains once the run ends.
+drains once the run ends; that a key the user put in keybindings.json (Alt+R)
+reaches the command through the same registry, and that `/hotkeys` paints the
+key list with its problems.
+
+The PTY is not a terminal emulator: nothing answers the kitty keyboard query,
+so every key here is the legacy byte sequence a plain xterm would send.
 
 Prints one JSON line: {"ok": true, "checks": N} or {"ok": false, "error": "..."}.
 Exit 0 only when every check passed.
@@ -127,6 +132,10 @@ def main():
         },
         open(config, "w"),
     )
+    # A second key for history.search (the probe presses Alt+R) and one the
+    # composer keeps, so /hotkeys has a problem to report.
+    json.dump({"history.search": ["ctrl+r", "alt+r"], "draft.stash": "enter"},
+              open(os.path.join(config_dir, "keybindings.json"), "w"))
     env = {
         "PATH": os.environ["PATH"],
         "HOME": home,
@@ -175,6 +184,14 @@ def main():
             pump(0.1)
         return needle in ANSI.sub("", raw[since:].decode("utf-8", "replace"))
 
+    def wait_match(pattern, timeout):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if re.search(pattern, text()):
+                return True
+            pump(0.1)
+        return re.search(pattern, text()) is not None
+
     def send(value):
         os.write(master, value.encode())
 
@@ -219,6 +236,31 @@ def main():
         if not wait_for("Answer to: third", 30, since=before_release):
             raise AssertionError("the second queued line did not run")
         checks += 1
+        # The row clips at the terminal width, so it leads with the pointer.
+        if not wait_for("1 keybinding problem — /hotkeys", 10):
+            raise AssertionError("the keybinding notice never reached the screen")
+        checks += 1
+        # Alt+R is bound to history.search only by keybindings.json above.
+        send("\x1br")
+        if not wait_for("⌕", 10):
+            raise AssertionError("Alt+R (a user binding) did not open the prompt search")
+        checks += 1
+        send("\x1b")
+        time.sleep(0.4)
+        send("/hotkeys\r")
+        if not wait_for("Keys · Esc to close", 10):
+            raise AssertionError("/hotkeys did not open the key list")
+        checks += 1
+        if not wait_match(r"Ctrl\+R / Alt\+R\s+search your earlier prompts", 10):
+            raise AssertionError("/hotkeys does not list both keys of history.search")
+        checks += 1
+        if not wait_match(r"Alt\+↑\s+edit the newest queued message", 10):
+            raise AssertionError("/hotkeys does not list the Alt+↑ default")
+        checks += 1
+        if not wait_match(r"problems\s+keybindings\.json: \"enter\" for draft\.stash is a key the composer already answers", 10):
+            raise AssertionError("/hotkeys does not show the keybinding problem")
+        checks += 1
+        send("\x1b")
         print(json.dumps({"ok": True, "checks": checks}))
     except AssertionError as error:
         tail = re.sub(r"\s+", " ", text())[-400:]

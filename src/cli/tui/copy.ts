@@ -284,6 +284,16 @@ export const ZH: Readonly<Record<string, string>> = {
   'print tasks · evidence': '打印任务 · 证据',
   'print deployments · failures': '打印部署 · 失败',
   'this list': '本列表',
+  'keys the composer keeps': '编辑区与滚动固定占用的键',
+  'changed from the defaults': '已从默认键位改动',
+  problems: '问题',
+  'rebind: ~/.config/moss/keybindings.json holds {"command": "key"}; a command may take a list of keys. Interrupt and quit stay put.':
+    '重绑：在 ~/.config/moss/keybindings.json 写 {"命令": "键"}，一个命令可以给一组键；中断与退出不可重绑。',
+  '  Keys · Esc to close': '  快捷键 · Esc 关闭',
+  '{count} keybinding problem{s} — /hotkeys · {notice}':
+    '{count} 个键位配置问题 — /hotkeys · {notice}',
+  'show every shortcut, the keys the composer keeps, and keybinding problems':
+    '显示全部快捷键、编辑区固定占用的键与键位配置问题',
 
   // ── catalog command descriptions (interactive-commands.ts) ─────────────
   'view model, workspace, and tool state': '查看模型、工作区与工具状态',
@@ -323,6 +333,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'delete the previous word': '删除上一个词',
   'paste deleted text': '粘贴刚删除的文字',
   'detailed transcript (full output, reasoning)': '详细记录（完整输出与思考）',
+  'edit the newest queued message': '编辑最新一条排队消息',
   'NO_COLOR is set — the theme stays mono': '已设置 NO_COLOR — 主题保持单色',
   'current theme: {name}': '当前主题：{name}',
   '/theme <name> switches it for this session': '/theme <name> 只在本会话内切换',

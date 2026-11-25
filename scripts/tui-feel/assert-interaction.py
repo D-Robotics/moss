@@ -21,6 +21,7 @@ Exit 0 when every check passes; exit 1 with a per-check report otherwise.
 Skips with exit 0 when pyte is missing (same policy as run.mjs).
 """
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -213,12 +214,117 @@ def queue_scenario():
         check("queue: idle, nothing is left queued", "queued" not in screen_text(s))
 
 
+# ── keys ───────────────────────────────────────────────────────────────────
+
+HISTORY_SEARCH_OPEN = "Enter to use"
+
+
+def scroll_overlay_to_end(session, presses=30):
+    for _ in range(presses):
+        session.key("down")
+    session.pump(0.5)
+
+
+def keys_scenario():
+    # The defaults: every registry key is on the list, and there is no problem.
+    with Session(cols=100, rows=30) as s:
+        s.wait_for_prompt()
+        type_line(s, "/hotkeys", settle=0.8)
+        screen = screen_text(s)
+        check("keys: /hotkeys opens its own list", "Keys · Esc to close" in screen)
+        check(
+            "keys: the defaults are listed with their labels",
+            re.search(r"Ctrl\+R\s+search your earlier prompts", screen) is not None,
+        )
+        check(
+            "keys: Alt+↑ is listed as a registry key",
+            re.search(r"Alt\+↑\s+edit the newest queued message", screen) is not None,
+        )
+        check("keys: no problems section on a clean config", "problems" not in screen)
+        scroll_overlay_to_end(s)
+        bottom = screen_text(s)
+        check(
+            "keys: the keys the composer keeps are listed",
+            "keys the composer keeps" in bottom and "Shift+Tab" in bottom,
+            bottom[-300:],
+        )
+        check("keys: it says where to rebind", "keybindings.json" in bottom, bottom[-300:])
+        check("keys: nothing is marked as changed", "changed from the defaults" not in bottom)
+        s.key("esc")
+        s.pump(0.4)
+        check("keys: Esc closes the list", "Keys · Esc to close" not in screen_text(s))
+
+    # A keybindings.json with a second key for one command and one bad line.
+    with Session(
+        cols=100,
+        rows=30,
+        keybindings={"history.search": ["ctrl+r", "alt+r"], "draft.stash": "enter"},
+    ) as s:
+        s.wait_for_prompt()
+        # At 100 columns the row clips after the detail, so look for its head.
+        shown = s.wait_for(
+            lambda: "1 keybinding problem — /hotkeys · keybindings.json" in screen_text(s), 10
+        )
+        check("keys: a bad binding is on screen from the start", shown)
+        check("keys: the notice points at /hotkeys", "/hotkeys" in screen_text(s))
+        type_line(s, "/hotkeys", settle=0.8)
+        screen = screen_text(s)
+        check(
+            "keys: the problems come first, on the first screen",
+            "problems" in screen and screen.index("problems") < screen.index("shortcuts"),
+            screen[:400],
+        )
+        check(
+            "keys: both keys of a command are listed",
+            re.search(r"Ctrl\+R / Alt\+R\s+search your earlier prompts", screen) is not None,
+            screen,
+        )
+        scroll_overlay_to_end(s)
+        check(
+            "keys: what moved is listed",
+            "history.search  Ctrl+R → Ctrl+R / Alt+R" in screen_text(s),
+            screen_text(s),
+        )
+        s.key("esc")
+        s.pump(0.4)
+        s.send("\x1br")
+        s.pump(0.8)
+        check("keys: a key the user chose opens its command", HISTORY_SEARCH_OPEN in screen_text(s))
+        s.key("esc")
+        s.pump(0.4)
+        press(s, "ctrl+r")
+        s.pump(0.8)
+        check(
+            "keys: the default key still answers beside the new one",
+            HISTORY_SEARCH_OPEN in screen_text(s),
+        )
+        s.key("esc")
+        s.pump(0.4)
+        # A shifted letter must stay composer text: a lookup that treated
+        # `shift+r` as a key would make `RDK X5` untypable.
+        s.send("RDK X5")
+        s.pump(0.6)
+        typed = composer_text(s)
+        check("keys: a shifted letter is still composer text", typed == f"{PROMPT_GLYPH} RDK X5", typed)
+        check("keys: nothing opened while typing", HISTORY_SEARCH_OPEN not in screen_text(s))
+
+    # A moved key: the old one stops answering, the new one starts.
+    with Session(cols=100, rows=30, keybindings={"history.search": "alt+r"}) as s:
+        s.wait_for_prompt()
+        press(s, "ctrl+r")
+        s.pump(1.2)
+        check("keys: a moved key no longer answers", HISTORY_SEARCH_OPEN not in screen_text(s))
+        s.send("\x1br")
+        s.pump(0.8)
+        check("keys: the key it moved to answers", HISTORY_SEARCH_OPEN in screen_text(s))
+
+
 # ── entry ──────────────────────────────────────────────────────────────────
 
 SCENARIOS = {
     "queue": queue_scenario,
     "search": None,
-    "keys": None,
+    "keys": keys_scenario,
     "copy": None,
 }
 

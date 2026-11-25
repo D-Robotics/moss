@@ -266,7 +266,7 @@ import {
   type ComposerRun,
   type ComposerState,
 } from './composer.js';
-import { commandForKey, loadKeybindings } from './keymap.js';
+import { commandForKey, keyEventSpec, loadKeybindings, type ShellCommand } from './keymap.js';
 import {
   movePaletteSelection,
   PALETTE_MAX_ROWS,
@@ -316,6 +316,7 @@ import {
   questionDialogFromPrompt,
   commandBlockTitle,
   buildHelpOverlayLines,
+  buildHotkeyLines,
   formatSteered,
   sliceHelpOverlay,
   relativeAge,
@@ -581,7 +582,7 @@ export function TuiAppRoot({
     { choices: ModelChoiceList; cursor: number } | undefined
   >(undefined);
   const [helpOverlay, setHelpOverlay] = useState<
-    { lines: string[]; all: boolean; offset: number } | undefined
+    { lines: string[]; all: boolean; offset: number; title?: string } | undefined
   >(undefined);
   /** ctrl+o: detailed transcript (full tool output + reasoning). */
   const [verbose, setVerbose] = useState(false);
@@ -606,12 +607,11 @@ export function TuiAppRoot({
     }
     return loadKeybindings(text);
   }, [options.cliRuntime?.configDir]);
-  useEffect(() => {
-    const [first, ...rest] = keymap.warnings;
-    if (first) {
-      setStatusLine(rest.length > 0 ? `${first} (+${rest.length} more)` : first);
-    }
-  }, [keymap]);
+  // A keybinding problem stays on screen until the file is fixed. It used to
+  // go through the status row, which boot and every finished run clear, so
+  // the warning was never seen (caught by the tui-interaction PTY probe).
+  const keymapNotice = keymap.warnings[0];
+  const keymapProblems = keymap.warnings.length;
   const [viewport, setViewport] = useState(createViewport);
   const projectionCacheRef = useRef(createProjectionCache());
   const viewportLinesRef = useRef(0);
@@ -2378,6 +2378,15 @@ export function TuiAppRoot({
         });
         return;
       }
+      if (text === '/hotkeys') {
+        setHelpOverlay({
+          lines: buildHotkeyLines(keymap.bindings, keymap.warnings),
+          all: true,
+          offset: 0,
+          title: tui('  Keys · Esc to close'),
+        });
+        return;
+      }
       if (text === '/usage') {
         printBlock(
           tui('Usage'),
@@ -3401,6 +3410,173 @@ export function TuiAppRoot({
       exit();
       return;
     }
+    // Every registry command runs from here, so a command reaches the same
+    // code whether it sits on a Ctrl letter (the block below) or on a key the
+    // user chose (`Alt+↑`, `F3`, …). Returns whether the key was consumed.
+    const runShellCommand = (command: ShellCommand | undefined, letter: string): boolean => {
+      if (command === 'edit.attachClipboard') {
+        // Ctrl+V: the clipboard is read here (async) and an image is staged under
+        // .moss/runtime/attachments; the composer gets an @path the model opens
+        // with read_image. Text is inserted as-is.
+        void captureClipboardAttachment({ workspaceDir: options.workspaceDir }).then((capture) => {
+          if (capture.kind === 'image') {
+            setComposer((current) =>
+              composerInsert(current, `${formatAttachmentMention(capture.relPath)} `)
+            );
+            setStatusLine(
+              tui('attached {name} ({size}) — ask moss to read_image it', {
+                name: path.basename(capture.relPath),
+                size: `${Math.max(1, Math.round(capture.bytes / 1024))} KB`,
+              })
+            );
+          } else if (capture.kind === 'text') {
+            setComposer((current) => composerInsert(current, capture.text));
+            setStatusLine(tui('pasted clipboard text'));
+          } else {
+            setStatusLine(capture.reason);
+          }
+        });
+        return true;
+      }
+      if (command === 'caret.lineStart') {
+        setComposer((current) => composerMove(current, 'line-start'));
+        return true;
+      }
+      if (command === 'caret.lineEnd') {
+        // Readline muscle memory (and the reference CLI): end of line. The
+        // evidence panel moved to Ctrl+V so this key could be an editor key.
+        setComposer((current) => composerMove(current, 'line-end'));
+        return true;
+      }
+      if (command === 'edit.yank') {
+        // Yank the last killed text back (readline's kill ring, depth 1).
+        if (killRef.current) {
+          const killed = killRef.current;
+          setComposer((current) => composerInsert(current, killed));
+          setStatusLine(undefined);
+        } else {
+          setStatusLine(
+            tui('nothing to paste — Ctrl+U / Ctrl+K / Ctrl+W delete into the kill ring')
+          );
+        }
+        return true;
+      }
+      if (command === 'history.search') {
+        // A2.22: readline/reference muscle memory — search earlier prompts.
+        setHistorySearch({ query: '', cursor: 0 });
+        return true;
+      }
+      if (command === 'queue.recall') {
+        // Takes the newest queued line back even mid-draft (the draft stays
+        // below it). With nothing queued, or while walking prompt history, the
+        // key stays an arrow and falls through.
+        const walking = historyCursorRef.current.index !== undefined;
+        if (walking || queueRef.current.length === 0) return false;
+        const recalled = recallQueuedInput(queueRef.current, input);
+        setQueueRevision((n) => n + 1);
+        if (recalled !== undefined) setInput(recalled);
+        return true;
+      }
+      if (letter === 'x') {
+        chordRef.current = 'x';
+        return true;
+      }
+      if (command === 'editor.external') {
+        const editor = process.env.VISUAL || process.env.EDITOR;
+        if (!editor) {
+          setStatusLine(tui('set $EDITOR to edit the draft externally'));
+          return true;
+        }
+        const file = path.join(os.tmpdir(), `moss-draft-${process.pid}.txt`);
+        const draft = input;
+        fs.writeFileSync(file, draft);
+        void suspendTerminal(async () => {
+          await new Promise<void>((resolve) => {
+            // EDITOR may carry arguments; the editor opens on the caret's line.
+            const { bin, args: editorArgs } = splitEditorCommand(editor);
+            const line = caretLine(composer.value, composer.caret);
+            const child = spawnProcess(
+              bin,
+              [...editorArgs, ...externalEditorArgs(bin, file, line)],
+              { stdio: 'inherit' }
+            );
+            child.on('exit', () => resolve());
+            child.on('error', () => resolve());
+          });
+          try {
+            const next = fs.readFileSync(file, 'utf8').replace(/\n$/, '');
+            tokensRef.current = [];
+            setComposer(composerSetValue(next));
+          } catch {
+            setStatusLine(tui('could not read the edited draft'));
+          }
+        });
+        return true;
+      }
+      if (letter === 's' && chordRef.current === 'x') {
+        chordRef.current = '';
+        if (abortRef.current && queueRef.current.length > 0) abortRef.current.abort();
+        return true;
+      }
+      chordRef.current = '';
+      if (command === 'draft.stash') {
+        // A2.24: stash the prompt when something urgent arrives; a second
+        // Ctrl+S SWAPS — the new draft goes into the stash and the parked
+        // one comes back (neither is ever lost).
+        if (input.length > 0) {
+          const restore = stashRef.current;
+          stashRef.current = input;
+          setInput(restore ?? '');
+          setStatusLine(
+            tui(
+              restore !== undefined
+                ? 'swapped — Ctrl+S again to swap back'
+                : 'prompt stashed — Ctrl+S brings it back'
+            )
+          );
+        } else if (stashRef.current !== undefined) {
+          const stashed = stashRef.current;
+          stashRef.current = undefined;
+          setInput(stashed);
+          setStatusLine(undefined);
+        } else {
+          setStatusLine(tui('nothing to stash — the composer is empty'));
+        }
+        return true;
+      }
+      if (
+        command === 'edit.killWordBack' ||
+        command === 'edit.killLineStart' ||
+        command === 'edit.killLineEnd'
+      ) {
+        const unit =
+          command === 'edit.killLineStart'
+            ? 'line-start'
+            : command === 'edit.killLineEnd'
+              ? 'line-end'
+              : 'word-backward';
+        const { doc, killed } = killText({ state: composer, tokens: tokensRef.current }, unit);
+        if (killed) {
+          killRef.current = killed;
+          tokensRef.current = doc.tokens;
+          setComposer(doc.state);
+          const shown = killed.length > 24 ? `${killed.length} chars` : `"${killed.trim()}"`;
+          setStatusLine(tui('deleted {what} — Ctrl+Y to paste back', { what: shown }));
+        }
+        return true;
+      }
+      if (command === 'view.toggleVerbose') {
+        // Inline: only later rows pick up the new detail. Remounting <Static>
+        // reprinted the whole transcript into scrollback.
+        setVerbose((current) => !current);
+        return true;
+      }
+      if (command === 'composer.clear') {
+        setInput('');
+        setStatusLine(undefined);
+      }
+      return true;
+    };
     if (key.tab && key.shift) {
       if (approval) {
         setStatusLine(tui('finish the pending approval before changing interaction mode'));
@@ -3742,6 +3918,15 @@ export function TuiAppRoot({
       }
     }
 
+    // A bound key outside the Ctrl-letter block (Alt+↑ by default; anything the
+    // user rebound) is read from the same registry, before the arrows, Esc and
+    // Enter claim the key. Composer text never resolves to a command.
+    if (!approval) {
+      const spec = keyEventSpec(key, chunk);
+      const bound =
+        spec && !/^ctrl\+[a-z]$/.test(spec) ? commandForKey(keymap.bindings, spec) : undefined;
+      if (bound && runShellCommand(bound, '')) return;
+    }
     if (key.return) {
       // Shift/Alt+Enter inserts a newline; a trailing backslash is the classic
       // fallback for terminals that cannot report Shift+Enter.
@@ -3819,15 +4004,9 @@ export function TuiAppRoot({
       // A history walk keeps using Up/Down even when the recalled prompt is
       // multi-line. Otherwise the first multi-line entry traps the arrows.
       const walking = historyCursorRef.current.index !== undefined;
-      // Alt+↑ recalls the newest queued line even mid-draft (the draft stays
-      // below it); plain ↑ needs an empty composer so history recall and
-      // multi-line navigation keep their keys.
-      if (key.upArrow && key.meta && queueRef.current.length > 0 && !walking) {
-        const recalled = recallQueuedInput(queueRef.current, input);
-        setQueueRevision((n) => n + 1);
-        if (recalled !== undefined) setInput(recalled);
-        return;
-      }
+      // Alt+↑ (the registry's `queue.recall`) was answered above; plain ↑
+      // needs an empty composer so history recall and multi-line navigation
+      // keep their keys.
       if (!walking && input.includes('\n')) {
         setComposer((current) =>
           composerMove(current, key.upArrow ? 'up' : 'down', Math.max(4, columns - 2))
@@ -3892,157 +4071,7 @@ export function TuiAppRoot({
       const letter = code >= 1 && code <= 26 ? String.fromCharCode(code + 96) : chunk.toLowerCase();
       // The registry (keymap.ts) owns every action key; `x` is the chord prefix
       // (Ctrl+X Ctrl+S) and stays a plain letter.
-      const command = commandForKey(keymap.bindings, `ctrl+${letter}`);
-      if (command === 'edit.attachClipboard') {
-        // Ctrl+V: the clipboard is read here (async) and an image is staged under
-        // .moss/runtime/attachments; the composer gets an @path the model opens
-        // with read_image. Text is inserted as-is.
-        void captureClipboardAttachment({ workspaceDir: options.workspaceDir }).then((capture) => {
-          if (capture.kind === 'image') {
-            setComposer((current) =>
-              composerInsert(current, `${formatAttachmentMention(capture.relPath)} `)
-            );
-            setStatusLine(
-              tui('attached {name} ({size}) — ask moss to read_image it', {
-                name: path.basename(capture.relPath),
-                size: `${Math.max(1, Math.round(capture.bytes / 1024))} KB`,
-              })
-            );
-          } else if (capture.kind === 'text') {
-            setComposer((current) => composerInsert(current, capture.text));
-            setStatusLine(tui('pasted clipboard text'));
-          } else {
-            setStatusLine(capture.reason);
-          }
-        });
-        return;
-      }
-      if (command === 'caret.lineStart') {
-        setComposer((current) => composerMove(current, 'line-start'));
-        return;
-      }
-      if (command === 'caret.lineEnd') {
-        // Readline muscle memory (and the reference CLI): end of line. The
-        // evidence panel moved to Ctrl+V so this key could be an editor key.
-        setComposer((current) => composerMove(current, 'line-end'));
-        return;
-      }
-      if (command === 'edit.yank') {
-        // Yank the last killed text back (readline's kill ring, depth 1).
-        if (killRef.current) {
-          const killed = killRef.current;
-          setComposer((current) => composerInsert(current, killed));
-          setStatusLine(undefined);
-        } else {
-          setStatusLine(
-            tui('nothing to paste — Ctrl+U / Ctrl+K / Ctrl+W delete into the kill ring')
-          );
-        }
-        return;
-      }
-      if (command === 'history.search') {
-        // A2.22: readline/reference muscle memory — search earlier prompts.
-        setHistorySearch({ query: '', cursor: 0 });
-        return;
-      }
-      if (letter === 'x') {
-        chordRef.current = 'x';
-        return;
-      }
-      if (command === 'editor.external') {
-        const editor = process.env.VISUAL || process.env.EDITOR;
-        if (!editor) {
-          setStatusLine(tui('set $EDITOR to edit the draft externally'));
-          return;
-        }
-        const file = path.join(os.tmpdir(), `moss-draft-${process.pid}.txt`);
-        const draft = input;
-        fs.writeFileSync(file, draft);
-        void suspendTerminal(async () => {
-          await new Promise<void>((resolve) => {
-            // EDITOR may carry arguments; the editor opens on the caret's line.
-            const { bin, args: editorArgs } = splitEditorCommand(editor);
-            const line = caretLine(composer.value, composer.caret);
-            const child = spawnProcess(
-              bin,
-              [...editorArgs, ...externalEditorArgs(bin, file, line)],
-              { stdio: 'inherit' }
-            );
-            child.on('exit', () => resolve());
-            child.on('error', () => resolve());
-          });
-          try {
-            const next = fs.readFileSync(file, 'utf8').replace(/\n$/, '');
-            tokensRef.current = [];
-            setComposer(composerSetValue(next));
-          } catch {
-            setStatusLine(tui('could not read the edited draft'));
-          }
-        });
-        return;
-      }
-      if (letter === 's' && chordRef.current === 'x') {
-        chordRef.current = '';
-        if (abortRef.current && queueRef.current.length > 0) abortRef.current.abort();
-        return;
-      }
-      chordRef.current = '';
-      if (command === 'draft.stash') {
-        // A2.24: stash the prompt when something urgent arrives; a second
-        // Ctrl+S SWAPS — the new draft goes into the stash and the parked
-        // one comes back (neither is ever lost).
-        if (input.length > 0) {
-          const restore = stashRef.current;
-          stashRef.current = input;
-          setInput(restore ?? '');
-          setStatusLine(
-            tui(
-              restore !== undefined
-                ? 'swapped — Ctrl+S again to swap back'
-                : 'prompt stashed — Ctrl+S brings it back'
-            )
-          );
-        } else if (stashRef.current !== undefined) {
-          const stashed = stashRef.current;
-          stashRef.current = undefined;
-          setInput(stashed);
-          setStatusLine(undefined);
-        } else {
-          setStatusLine(tui('nothing to stash — the composer is empty'));
-        }
-        return;
-      }
-      if (
-        command === 'edit.killWordBack' ||
-        command === 'edit.killLineStart' ||
-        command === 'edit.killLineEnd'
-      ) {
-        const unit =
-          command === 'edit.killLineStart'
-            ? 'line-start'
-            : command === 'edit.killLineEnd'
-              ? 'line-end'
-              : 'word-backward';
-        const { doc, killed } = killText({ state: composer, tokens: tokensRef.current }, unit);
-        if (killed) {
-          killRef.current = killed;
-          tokensRef.current = doc.tokens;
-          setComposer(doc.state);
-          const shown = killed.length > 24 ? `${killed.length} chars` : `"${killed.trim()}"`;
-          setStatusLine(tui('deleted {what} — Ctrl+Y to paste back', { what: shown }));
-        }
-        return;
-      }
-      if (command === 'view.toggleVerbose') {
-        // Inline: only later rows pick up the new detail. Remounting <Static>
-        // reprinted the whole transcript into scrollback.
-        setVerbose((current) => !current);
-        return;
-      }
-      if (command === 'composer.clear') {
-        setInput('');
-        setStatusLine(undefined);
-      }
+      runShellCommand(commandForKey(keymap.bindings, `ctrl+${letter}`), letter);
       return;
     }
     // NB: key.shift must NOT be in this guard — ink reports shift=true for
@@ -4377,9 +4406,10 @@ export function TuiAppRoot({
           line(rule(columns)),
           line(
             clip(
-              helpOverlay.all
-                ? tui('  Help · full reference · Esc to close')
-                : tui('  Help · Esc or Enter to close'),
+              helpOverlay.title ??
+                (helpOverlay.all
+                  ? tui('  Help · full reference · Esc to close')
+                  : tui('  Help · Esc or Enter to close')),
               columns
             ),
             { dim: true }
@@ -4410,6 +4440,23 @@ export function TuiAppRoot({
       : []),
     ...(!approval && !helpOverlay && statusLine
       ? [line(clip(statusLine, columns), { dim: true })]
+      : []),
+    ...(keymapNotice && !approval && !helpOverlay
+      ? [
+          // The pointer leads, so a narrow terminal clips the detail, not the
+          // way to see all of it.
+          line(
+            clip(
+              tui('{count} keybinding problem{s} — /hotkeys · {notice}', {
+                count: keymapProblems,
+                s: keymapProblems > 1 ? 's' : '',
+                notice: keymapNotice,
+              }),
+              columns
+            ),
+            { color: TONE.warn }
+          ),
+        ]
       : []),
     ...(!approval && !helpOverlay && contextPct >= CONTEXT_WARN_PCT
       ? [

@@ -303,6 +303,13 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
+        command: '/hotkeys',
+        description: 'show every shortcut, the keys the composer keeps, and keybinding problems',
+        // Keybindings belong to the TUI shell; the readline REPL has none.
+        surfaces: ['tui'],
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/queue',
         args: '[<follow-up> | pause|resume|drop|clear]',
         description: 'queue a follow-up for after the run, or inspect and control the input queue',

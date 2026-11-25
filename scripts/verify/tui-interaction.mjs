@@ -167,6 +167,12 @@ try {
     '… +{count} more queued — /queue to list',
     'Alt+↑ edits the newest · ↑ when the composer is empty',
     'queue a follow-up for after the run, or inspect and control the input queue',
+    'keys the composer keeps',
+    'changed from the defaults',
+    'problems',
+    '  Keys · Esc to close',
+    'edit the newest queued message',
+    'show every shortcut, the keys the composer keeps, and keybinding problems',
   ]) {
     const value = copy.ZH[key];
     assert.ok(value && value.length > 0, `${key} has a zh string`);
@@ -176,5 +182,158 @@ try {
   copy.setTuiLocale(false);
 }
 ok('the queue chrome and the catalog row read in Chinese too');
+
+// ── keymap ─────────────────────────────────────────────────────────────────
+
+const keymap = await load('dist/cli/tui/keymap.js');
+const helpers = await load('dist/cli/tui/app-helpers.js');
+
+assert.equal(keymap.parseKeySpec('Alt+Up'), 'alt+up');
+assert.equal(keymap.parseKeySpec(' Shift + CTRL + f '), 'ctrl+shift+f');
+assert.equal(keymap.parseKeySpec('ctrl+Return'), 'ctrl+enter', 'return is an accepted spelling');
+assert.equal(keymap.parseKeySpec('PageDown'), 'pagedown');
+assert.equal(keymap.parseKeySpec('ctrl+enter'), 'ctrl+enter');
+assert.equal(keymap.parseKeySpec('alt+8'), 'alt+8');
+for (const bad of [
+  'r',
+  'shift+r',
+  'enter',
+  'Return',
+  'tab',
+  'escape',
+  'ctrl+ctrl+f',
+  'hyper+f',
+  'ctrl+foo',
+  'f3',
+  '',
+  'ctrl+',
+]) {
+  assert.equal(keymap.parseKeySpec(bad), undefined, `"${bad}" is not a key the shell can bind`);
+}
+ok('a key is ctrl/alt/shift + a letter, a digit or a named key; typing keys alone are refused');
+
+// A bare arrow is a well-formed key, but the viewport owns it: the defaults
+// never claim it and keybindings.json cannot hand it to a command.
+assert.equal(keymap.parseKeySpec('up'), 'up');
+
+assert.equal(keymap.keyEventSpec({ shift: true }, 'R'), undefined, 'a shifted letter is text');
+assert.equal(keymap.keyEventSpec({}, 'r'), undefined, 'a letter is text');
+assert.equal(keymap.keyEventSpec({ upArrow: true, meta: true }, ''), 'alt+up');
+assert.equal(keymap.keyEventSpec({ upArrow: true, shift: true }, ''), 'shift+up');
+// Shift+Tab changes the interaction mode before the registry is read, and a
+// tab with no ctrl/alt is not a bindable key at all.
+assert.equal(keymap.keyEventSpec({ tab: true, shift: true }, ''), undefined);
+assert.equal(keymap.keyEventSpec({ return: true, ctrl: true }, ''), 'ctrl+enter');
+assert.equal(keymap.keyEventSpec({ ctrl: true }, 'f'), 'ctrl+f');
+assert.equal(keymap.keyEventSpec({ pageUp: true }, ''), 'pageup');
+ok('an ink key event becomes the same canonical key, or nothing when it is text');
+
+const defaults = keymap.loadKeybindings(undefined);
+assert.deepEqual(defaults.warnings, []);
+assert.equal(keymap.commandForKey(defaults.bindings, 'alt+up'), 'queue.recall');
+const defaultKeys = defaults.bindings.flatMap((entry) => entry.keys);
+assert.equal(new Set(defaultKeys).size, defaultKeys.length, 'no two defaults share a key');
+for (const reserved of keymap.RESERVED_KEYS) {
+  assert.equal(
+    keymap.commandForKey(defaults.bindings, reserved),
+    undefined,
+    `the defaults never claim ${reserved}`
+  );
+}
+ok('the defaults leave every composer key alone');
+
+const custom = keymap.loadKeybindings(
+  JSON.stringify({
+    'history.search': ['ctrl+t', 'alt+r'],
+    'composer.clear': 'alt+8',
+    'draft.stash': 'enter',
+    'edit.killLineEnd': 'up',
+    'editor.external': 'shift+pageup',
+    'view.toggleVerbose': ['ctrl+o', 'x'],
+    'run.interrupt': 'ctrl+x',
+    'nope.nope': 'ctrl+x',
+    'caret.lineStart': 'ctrl+e',
+  })
+);
+assert.deepEqual(custom.bindings.find((entry) => entry.command === 'history.search').keys, [
+  'ctrl+t',
+  'alt+r',
+]);
+assert.equal(keymap.commandForKey(custom.bindings, 'alt+r'), 'history.search');
+assert.equal(keymap.commandForKey(custom.bindings, 'alt+8'), 'composer.clear');
+assert.equal(keymap.commandForKey(custom.bindings, 'ctrl+l'), undefined, 'composer.clear moved');
+assert.equal(keymap.commandForKey(custom.bindings, 'ctrl+o'), 'view.toggleVerbose');
+assert.equal(keymap.commandForKey(custom.bindings, 'ctrl+s'), 'draft.stash');
+assert.equal(keymap.commandForKey(custom.bindings, 'up'), undefined, 'the viewport keeps ↑');
+assert.equal(
+  keymap.commandForKey(custom.bindings, 'shift+pageup'),
+  undefined,
+  'and PgUp with any modifier'
+);
+assert.equal(keymap.commandForKey(custom.bindings, 'ctrl+g'), 'editor.external');
+assert.equal(keymap.commandForKey(custom.bindings, 'ctrl+k'), 'edit.killLineEnd');
+assert.equal(keymap.commandForKey(custom.bindings, 'ctrl+c'), 'run.interrupt');
+assert.equal(keymap.commandForKey(custom.bindings, 'ctrl+e'), 'caret.lineStart');
+assert.equal(keymap.commandForKey(custom.bindings, 'ctrl+a'), undefined);
+assert.ok(!custom.bindings.some((entry) => entry.command === 'caret.lineEnd'));
+for (const fragment of [
+  'unknown command "nope.nope"',
+  'run.interrupt cannot be rebound',
+  'is a key the composer already answers',
+  'is not a key this shell reads',
+  'bound to both caret.lineStart and caret.lineEnd',
+  'caret.lineEnd has no key left',
+]) {
+  assert.ok(
+    custom.warnings.some((warning) => warning.includes(fragment)),
+    `says: ${fragment}`
+  );
+}
+ok('keybindings.json takes a key or a list, and every problem becomes a warning');
+
+const legacy = keymap.loadKeybindings('{"history.search": "ctrl+t"}');
+assert.deepEqual(legacy.bindings.find((entry) => entry.command === 'history.search').keys, [
+  'ctrl+t',
+]);
+ok('a keybindings.json written for the old single-key form still applies');
+
+const rows = keymap.shortcutRows(defaults.bindings);
+assert.equal(rows.find((row) => row.label === 'edit the newest queued message').keys, 'Alt+↑');
+assert.equal(rows.find((row) => row.label === 'search your earlier prompts').keys, 'Ctrl+R');
+const customRows = keymap.shortcutRows(custom.bindings);
+assert.equal(customRows.find((row) => row.label === 'search your earlier prompts').keys, 'Ctrl+T');
+ok('help prints the first key of each command');
+
+const hot = helpers.buildHotkeyLines(defaults.bindings, defaults.warnings);
+assert.match(hot[0], /shortcuts/);
+assert.match(
+  hot.find((row) => row.includes('caret to line start')),
+  /^ {2}Ctrl\+A\s+caret/
+);
+assert.match(
+  hot.find((row) => row.includes('insert a new line')),
+  /^ {2}Shift\+Enter \/ Ctrl\+J\s+insert a new line$/
+);
+assert.ok(
+  hot.some((row) => row.includes('keybindings.json')),
+  'it says where to rebind'
+);
+assert.ok(!hot.includes('problems'), 'no problems section without problems');
+const hotCustom = helpers.buildHotkeyLines(custom.bindings, custom.warnings);
+assert.ok(
+  hotCustom.some((row) => row.startsWith('  history.search  Ctrl+R → Ctrl+T / Alt+R')),
+  'it shows what moved'
+);
+assert.equal(hotCustom[0], 'problems', 'the problems come first, inside the first screen');
+assert.ok(hotCustom.some((row) => row.includes('caret.lineEnd has no key left')));
+ok('/hotkeys lists every key, what moved, and every problem');
+
+const hotkeysRow = catalog.INTERACTIVE_COMMAND_SECTIONS.flatMap((section) => section.rows).find(
+  (row) => row.command === '/hotkeys'
+);
+assert.equal(hotkeysRow.hidden, undefined, '/hotkeys is in the everyday menu');
+assert.deepEqual([...hotkeysRow.surfaces], ['tui']);
+assert.equal(hotkeysRow.availableDuringRun, 'immediate');
+ok('the catalog advertises /hotkeys on the TUI surface, mid-run');
 
 console.log(`[tui-interaction] ${String(checks)} checks passed`);

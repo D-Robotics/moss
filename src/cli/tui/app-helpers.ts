@@ -30,7 +30,7 @@ import type { CliRuntimeStatus } from '../onboarding.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { isTuiZh, tui } from './copy.js';
 import { paintColor, TONE } from './theme.js';
-import { DEFAULT_KEYBINDINGS, type KeyBinding } from './keymap.js';
+import { DEFAULT_KEYBINDINGS, formatKeySpec, type KeyBinding } from './keymap.js';
 import {
   helpKeyRows,
   HELP_PREFIXES,
@@ -399,7 +399,7 @@ export function buildHelpOverlayLines(
 ): string[] {
   if (!all) {
     const commonBindings = bindings.filter((binding) =>
-      ['history.search', 'view.toggleVerbose'].includes(binding.command)
+      ['history.search', 'view.toggleVerbose', 'view.search'].includes(binding.command)
     );
     const commonKeys = helpKeyRows(commonBindings).filter(
       ([keys]) =>
@@ -438,6 +438,46 @@ export function buildHelpOverlayLines(
 /** Leave room for the help heading, status, composer and transcript viewport. */
 export function helpOverlayWindow(rowCount: number): number {
   return Math.max(1, rowCount - 12);
+}
+
+/**
+ * `/hotkeys`: every registry command with all of its keys, the keys the
+ * composer keeps for itself, and every problem found in keybindings.json. The
+ * rows come from the same table the key handler reads, so the screen cannot
+ * show a key the shell does not answer.
+ */
+export function buildHotkeyLines(
+  bindings: readonly KeyBinding[],
+  warnings: readonly string[]
+): string[] {
+  const spell = (keys: readonly string[]): string => keys.map(formatKeySpec).join(' / ');
+  const width = Math.max(
+    16,
+    ...bindings.map((entry) => spell(entry.keys).length),
+    ...helpKeyRows([]).map(([keys]) => keys.length)
+  );
+  const rebound = bindings.flatMap((entry) => {
+    const defaults = DEFAULT_KEYBINDINGS.find((candidate) => candidate.command === entry.command);
+    return defaults && spell(defaults.keys) !== spell(entry.keys)
+      ? [`  ${entry.command}  ${tui(spell(defaults.keys))} → ${tui(spell(entry.keys))}`]
+      : [];
+  });
+  // Problems come first: they are why the user would open this list.
+  return [
+    ...(warnings.length > 0
+      ? [tui('problems'), ...warnings.map((problem) => `  ${problem}`), '']
+      : []),
+    tui('shortcuts'),
+    ...bindings.map((entry) => `  ${tui(spell(entry.keys)).padEnd(width + 2)} ${tui(entry.label)}`),
+    '',
+    tui('keys the composer keeps'),
+    ...helpKeyRows([]).map(([keys, what]) => `  ${tui(keys).padEnd(width + 2)} ${tui(what)}`),
+    ...(rebound.length > 0 ? ['', tui('changed from the defaults'), ...rebound] : []),
+    '',
+    tui(
+      'rebind: ~/.config/moss/keybindings.json holds {"command": "key"}; a command may take a list of keys. Interrupt and quit stay put.'
+    ),
+  ];
 }
 
 /** Slice the help list and tell the user it scrolls, instead of asking them to resize. */
