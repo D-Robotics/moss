@@ -21,9 +21,18 @@ decision must follow host-specific rules. The synchronous callback receives a
 copy of the parsed `TurnDecision` with any runtime-bound fields filled in. Return
 without a value to continue to the SDK's commit checks. Throw an error with
 model-facing repair guidance to reject the decision and every business call in
-the response. The input stays pending, and the existing bounded decision retry
-gives the model a chance to submit a corrected declaration. Use a short error
+the response. The input stays pending while the same run repairs the declaration
+internally. Protocol failures do not pause the task or ask the user to retry;
+the ordinary run budget and cancellation still bound this work. Use a short error
 message suitable for the model with sensitive details omitted.
+
+In versioned sessions, the runtime owns the captured revision, sequence and input
+IDs. It also binds exact repeated input citations to the latest identical input
+without removing journal entries. A missing goal quote can be filled only when
+the proposed goal is the complete, exact pending input. Reply-only declarations
+with a non-empty answer discard redundant plans and never authorize business
+tools. Other missing authorizations and ambiguous citations still require model
+repair before an action can start.
 
 `getTaskIntent` returns the committed state plus the current pending-input barrier. `getTaskIntentReceipt` distinguishes semantic commit from canonical message delivery. Input IDs are session-scoped and must never be reused for different text. After the inbox payload limit, processed inputs retain compact hash/receipt tombstones so retries remain idempotent; these small identity records grow with the session.
 

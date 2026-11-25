@@ -200,7 +200,7 @@ export async function processLlmResponse(
     toolCalls,
     isOutputLimitStopReason(streamStopReason)
   );
-  if (intentResponse?.retry || intentResponse?.halt) {
+  if (intentResponse?.retry) {
     const assistant: Message = {
       role: 'assistant',
       content: assistantContent,
@@ -217,19 +217,10 @@ export async function processLlmResponse(
       await appendMessage(sessionKey, results);
       currentMessages.push(results);
     }
-    state.pendingMessages = intentResponse.retry
-      ? [buildCorrectionMessage(intentResponse.retry)]
-      : [];
-    state.hasMoreToolCalls = Boolean(intentResponse.retry);
-    if (intentResponse.halt) {
-      state.taskIntentHalted = true;
-      state.finalText = intentResponse.halt;
-    }
+    state.pendingMessages = [buildCorrectionMessage(intentResponse.retry)];
+    state.hasMoreToolCalls = true;
     pushTurnEnd();
-    if (intentResponse.halt) {
-      push({ type: 'turn_transition', turn: state.turns, reason: 'task_intent_hold' });
-    }
-    return { control: intentResponse.halt ? 'break' : 'continue' };
+    return { control: 'continue' };
   }
   if (!params.taskIntentTurn)
     injectToolCallFromPlanText({

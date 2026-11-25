@@ -24,7 +24,6 @@ type Call = { id: string; name: string; input: Record<string, unknown> };
 export interface TaskIntentResponse {
   results: ContentBlock[];
   retry?: string;
-  halt?: string;
   hold?: boolean;
   answer?: string;
 }
@@ -252,13 +251,27 @@ export class TaskIntentTurn {
 
   private parseDecision(input: Record<string, unknown>, batch: TaskIntentBatch) {
     if (!this.correctionTargets) return parseTurnDecision(input);
+    // A reply-only decision cannot authorize its redundant plan. Keep the reply, not the plan.
+    const replyOnly =
+      ['answer', 'clarify', 'cancel'].includes(String(input.disposition)) &&
+      typeof input.answer === 'string' &&
+      input.answer.trim() &&
+      input.answer.length <= 32_000;
     const changes: unknown = Array.isArray(input.changes)
       ? (input.changes as unknown[]).map((item, index) => {
           if (!item || typeof item !== 'object') return item;
           const change = item as Record<string, unknown>;
-          const { quote, messageId } = change;
-          if (messageId !== undefined || typeof quote !== 'string' || !quote.trim()) return change;
-          return { ...change, messageId: this.quotedInputId(quote, batch, `changes[${index}]`) };
+          const { messageId } = change;
+          const quote =
+            change.quote ??
+            (change.field === 'goal' &&
+            change.operation === 'set' &&
+            batch.inputs.some((entry) => entry.prompt === change.value)
+              ? change.value
+              : undefined);
+          const cited = { ...change, ...(quote !== undefined ? { quote } : {}) };
+          if (messageId !== undefined || typeof quote !== 'string' || !quote.trim()) return cited;
+          return { ...cited, messageId: this.quotedInputId(quote, batch, `changes[${index}]`) };
         })
       : input.changes;
     const corrections: unknown = Array.isArray(input.contextCorrections)
@@ -293,11 +306,12 @@ export class TaskIntentTurn {
       : input.contextCorrections;
     return parseTurnDecision({
       ...input,
-      baseRevision: input.baseRevision ?? batch.snapshot.revision,
-      inputSeq: input.inputSeq ?? batch.snapshot.inputSeq,
-      messageIds: input.messageIds ?? batch.inputs.map(({ id }) => id),
+      baseRevision: batch.snapshot.revision,
+      inputSeq: batch.snapshot.inputSeq,
+      messageIds: batch.inputs.map(({ id }) => id),
       changes: changes ?? [],
-      plan: input.plan ?? [],
+      plan: replyOnly ? [] : (input.plan ?? []),
+      ...(replyOnly ? { planDependsOn: [] } : {}),
       contextCorrections: corrections,
     });
   }
@@ -428,15 +442,10 @@ export class TaskIntentTurn {
         content: `Not executed: ${superseded ? 'superseded by user input' : 'task decision not committed'}. ${message}`,
       }));
       calls.length = 0;
-      if (superseded || this.attempts++ < 1) {
-        return {
-          results,
-          retry: `[Runtime] ${message}. No business action executed. Submit one corrected turn_decision. For clarify, put the question in answer and use plan: []; only execute accepts a non-empty plan. Use an empty changes array unless amending task fields. Each change requires value and an exact author quote; use the authorizing pending messageId when matching inputs differ. Never invent a quote or repeat an obsolete plan.`,
-        };
-      }
+      this.attempts++;
       return {
         results,
-        halt: 'The latest user input could not be applied reliably. Execution is paused; no new business actions were started.',
+        retry: `[Runtime] ${message}. No business action executed. Repair this internally and continue the original user request; do not ask the user to retry or describe this protocol error. Submit one corrected turn_decision. For clarify, put a specific question about genuinely missing user information in answer and use plan: []; only execute accepts a non-empty plan. Use an empty changes array unless amending task fields. Each change requires value and an exact author quote; use the authorizing pending messageId when matching inputs differ. Never invent a quote or repeat an obsolete plan.`,
       };
     }
   }

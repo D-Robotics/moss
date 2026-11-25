@@ -45,7 +45,7 @@ await turn.prepare();
 const calls = call({
   disposition: 'clarify',
   plan: ['Ask about features'],
-  changes: [{ field: 'goal', operation: 'set', value: request }],
+  changes: [{ field: 'constraints', operation: 'add', value: 'no_network' }],
 });
 calls.push({ id: 'business', name: 'device_probe', input: {} });
 const rejected = await turn.process(calls, false);
@@ -55,12 +55,38 @@ assert.match(rejected.retry, /clarify/);
 assert.equal(calls.length, 0, 'invalid decisions must suppress the entire business batch');
 assert.throws(() => first.coordinator.assertCurrent());
 const failedRepair = await turn.process(
-  call(execute([{ field: 'goal', operation: 'set', value: request }])),
+  call(execute([{ field: 'constraints', operation: 'add', value: 'no_network' }])),
   false
 );
-assert.ok(failedRepair.halt, 'keep one bounded repair');
+assert.ok(failedRepair.retry, 'protocol errors recover inside the current run');
+assert.equal(failedRepair.halt, undefined, 'do not pause after two invalid decisions');
 assert.equal(first.coordinator.receipt('first').status, 'pending');
 console.log('PASS malformed clarification reports plan and citation errors; no actions escape');
+
+const normalized = fixture();
+normalized.coordinator.admit({ id: 'normalize', text: request });
+turn = normalized.turn();
+await turn.prepare();
+const normalizedReply = await turn.process(
+  call({
+    disposition: 'clarify',
+    answer: '你希望它具备哪些功能？',
+    plan: ['Ask about features'],
+    baseRevision: 999,
+    inputSeq: 999,
+    messageIds: ['model-invented-id'],
+    changes: [{ field: 'goal', operation: 'set', value: request }],
+  }),
+  false
+);
+assert.equal(normalizedReply.retry, undefined);
+assert.equal(normalizedReply.answer, '你希望它具备哪些功能？');
+assert.deepEqual(normalized.coordinator.read().plan, []);
+assert.equal(normalized.coordinator.read().state.sources.goal.at(-1).messageId, 'normalize');
+assert.throws(() => normalized.coordinator.assertCurrent());
+console.log(
+  'PASS host metadata, redundant hold plans and exact whole-goal quotes normalize without a model retry'
+);
 
 // Restore the unchanged journal, then receive a second message with a distinct identity.
 const restarted = fixture(JSON.parse(JSON.stringify(first.inbox.toEntries())));
