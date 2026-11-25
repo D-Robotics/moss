@@ -197,6 +197,10 @@ class Session:
             # Layout probes measure the TUI, not the first-launch folder prompt.
             "MOSS_TRUST_WORKSPACE": "1",
             "MOSS_CONFIG_FILE": cfg,
+            # The config directory is this one on every host. Without it a Linux
+            # host that exports XDG_CONFIG_HOME sends the CLI to the developer's
+            # own config directory, where keybindings.json is not the scenario's.
+            "MOSS_CONFIG_DIR": cfg_dir,
             "MOSS_TUI_RENDERER": self.renderer,
             **self.extra_env,
         }
