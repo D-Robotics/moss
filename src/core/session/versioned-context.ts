@@ -615,12 +615,20 @@ export class VersionedContextPipeline {
         stages.push('S3');
       }
     }
-    if (!selected.legal && lastEvidence && lastEvidence.ordinal > currentTurnOrdinal) {
-      // Prefer exact recent evidence. If the latest batch itself exceeds the
-      // model window, project cited excerpts while keeping the archive intact.
+    if (
+      (input.force || !selected.legal) &&
+      lastEvidence &&
+      lastEvidence.ordinal > currentTurnOrdinal
+    ) {
+      // A provider can reject a request that the estimator considers legal.
+      // Try a smaller projection, preserving the newest receipt before excerpting it.
+      const previous = selected;
       for (const preserveFrom of [lastEvidence.ordinal, lastEvidence.ordinal + 1]) {
         const edited = fit(complete(editableView(sources, preserveFrom)));
-        if (edited.legal) {
+        if (
+          edited.legal &&
+          (!selected.legal || (!pressureCheckpoint && edited.tokens < selected.tokens))
+        ) {
           selected = edited;
         } else if (
           pressureCheckpoint &&
@@ -628,13 +636,13 @@ export class VersionedContextPipeline {
         ) {
           const { checkpoint, stage } = pressureCheckpoint;
           const projection = projected(checkpoint, preserveFrom);
-          if (projection.legal) {
+          if (projection.legal && (!selected.legal || projection.tokens < selected.tokens)) {
             selected = projection;
             submittedSources = retainedIds(checkpoint, projection.evidence, projection.historical);
-            stages.push(stage);
+            if (!stages.includes(stage)) stages.push(stage);
           }
         }
-        if (selected.legal) {
+        if (selected !== previous) {
           if (!stages.includes('S2')) stages.unshift('S2');
           break;
         }

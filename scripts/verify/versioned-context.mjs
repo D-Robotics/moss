@@ -793,6 +793,11 @@ async function testActiveToolPressure(workspace) {
     assert.ok(archived);
     const full = await pipeline.prepare({ ...input, window: 40_000 });
     assert(full.messages.some((message) => message.content[0]?.content === original));
+    const recovered = await pipeline.prepare({ ...input, window: 40_000, force: true });
+    assert(recovered.stages.includes('S2'));
+    assert(recovered.messages.some((message) => message.content[0]?.content === latest));
+    assert.match(JSON.stringify(recovered.messages), /Board model is RDK X5/);
+    assert.doesNotMatch(JSON.stringify(recovered.messages), /RAW_ARCHIVE_ONLY/);
     const projected = await pipeline.prepare(input);
     assert(projected.stages.includes('S2'));
     assert(projected.messages.some((message) => message.content === user));
@@ -839,10 +844,77 @@ async function testActiveToolPressure(workspace) {
     assert.doesNotMatch(JSON.stringify(bounded.messages), /MIDDLE_ARCHIVE_ONLY/);
     assert(bounded.sourceIds.includes(source.id));
     assert.deepEqual(await store.sourceMessages(session), latestSources);
+
+    const cached = 'active-tool-pressure-with-checkpoint';
+    await add(store, cached, 'user', 'Check the previous fixture.');
+    await add(store, cached, 'assistant', 'Previous inspection observation. '.repeat(1200));
+    await add(store, cached, 'user', user);
+    const cachedInput = {
+      ...input,
+      sessionKey: cached,
+      window: 40_000,
+      summarize: async () => '[]',
+    };
+    const checkpoint = await pipeline.prepare({ ...cachedInput, force: true });
+    assert(checkpoint.stages.includes('S5'));
+    for (const [id, name, content] of [
+      ['diagnostics', 'device_diagnose', original],
+      ['inference', 'device_exec', latest],
+    ]) {
+      await add(store, cached, 'assistant', [toolCall(name, id)]);
+      await add(
+        store,
+        cached,
+        'user',
+        [{ type: 'tool_result', tool_use_id: id, name, content }],
+        'tool'
+      );
+    }
+    const normal = await pipeline.prepare(cachedInput);
+    assert(normal.stages.includes('S4'));
+    assert.match(JSON.stringify(normal.messages), /RAW_ARCHIVE_ONLY/);
+    const forced = await pipeline.prepare({ ...cachedInput, force: true });
+    assert(forced.stages.includes('S4') && forced.stages.includes('S2'));
+    assert.doesNotMatch(JSON.stringify(forced.messages), /RAW_ARCHIVE_ONLY/);
+    assert(forced.messages.some((message) => message.content[0]?.content === latest));
+    assert.match(JSON.stringify(await store.sourceMessages(cached)), /RAW_ARCHIVE_ONLY/);
   });
   console.log(
-    'PASS active tool pressure keeps recent receipts when possible and cites oversized archived results'
+    'PASS active tool pressure keeps recent receipts and shortens rejected projections with or without a checkpoint'
   );
+}
+
+async function testRepeatedOverflow(workspace) {
+  let toolStarts = 0;
+  await usingAgent(
+    workspace,
+    async ({ agent, modelRequests }) => {
+      agent.tools.register({
+        name: 'test_read_receipt',
+        description: 'Read a local fixture without changing it',
+        inputSchema: { type: 'object', properties: {} },
+        metadata: { sideEffectClass: 'readonly' },
+        async execute() {
+          toolStarts++;
+          return 'Observed result=42.';
+        },
+      });
+      const reply = await agent.chat('repeated-overflow', 'Inspect and report the fixture.');
+      assert.equal(reply.response, 'Observed result=42.');
+      assert.equal(modelRequests.length, 4);
+      assert.equal(toolStarts, 1);
+    },
+    {
+      taskIntent: false,
+      onMain(request, count) {
+        if (count === 1 || count === 3) throw new Error('context_length_exceeded');
+        if (count === 2) return response(toolCall('test_read_receipt'));
+        assert.match(JSON.stringify(request.messages), /Observed result=42/);
+        return response(text('Observed result=42.'));
+      },
+    }
+  );
+  console.log('PASS distinct generations recover independently without replaying tools');
 }
 
 async function testConcurrentSummary(workspace) {
@@ -1886,6 +1958,7 @@ try {
     ['progressive', testProgressiveStages],
     ['pressure-continuation', testPressureContinuation],
     ['active-tool-pressure', testActiveToolPressure],
+    ['repeat-overflow', testRepeatedOverflow],
     ['checkpoint', testConcurrentSummary],
     ['source-validation', testSummarySourceValidation],
     ['approval', testApproval],
