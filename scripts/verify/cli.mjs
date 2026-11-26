@@ -102,6 +102,7 @@ import { stage as loopFollowStage } from './stages/loop-follow.mjs';
 import { stage as loopCheckTimeoutStage } from './stages/loop-check-timeout.mjs';
 import { stage as taskObservationStage } from './stages/task-observation.mjs';
 import { stage as taskIntentStage } from './stages/task-intent.mjs';
+import { stage as providerToolChoiceStage } from './stages/provider-tool-choice.mjs';
 import { stage as versionedContextStage } from './stages/versioned-context.mjs';
 import { stage as editRecoveryStage } from './stages/edit-recovery.mjs';
 import { stage as loopHealthStage } from './stages/loop-health.mjs';
@@ -220,6 +221,7 @@ const STAGES = new Map(
     loopCheckTimeoutStage,
     taskObservationStage,
     taskIntentStage,
+    providerToolChoiceStage,
     versionedContextStage,
     editRecoveryStage,
     loopGuardDefaultsStage,
@@ -310,6 +312,7 @@ const FAST_GATE = [
   'image-budget',
   'task-ledger-reveal',
   'task-intent',
+  'provider-tool-choice',
   'goal-runs',
   'acceptance-blocked',
   'goal-resume-args',

@@ -52,13 +52,18 @@ function mapPiUsage(evtUsage: { input?: number; output?: number } | undefined):
 class PiAiProviderRuntimeError extends Error {
   readonly surface: import('./error-classify.js').ProviderErrorSurface;
 
+  /** HTTP status the transport reported on the error event, when it did. */
+  readonly status?: number;
+
   constructor(params: {
     message: string;
     surface: import('./error-classify.js').ProviderErrorSurface;
+    status?: number;
   }) {
     super(params.message || params.surface.userMessage || 'Provider runtime error');
     this.name = 'PiAiProviderRuntimeError';
     this.surface = params.surface;
+    if (params.status !== undefined) this.status = params.status;
   }
 }
 
@@ -207,6 +212,7 @@ export function processEvent(
       throw new PiAiProviderRuntimeError({
         message: rawErrorMessage,
         surface,
+        ...(typeof errPayload?.status === 'number' ? { status: errPayload.status } : {}),
       });
     }
     if (errPayload?.content && Array.isArray(errPayload.content)) {

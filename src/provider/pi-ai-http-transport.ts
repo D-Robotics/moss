@@ -619,17 +619,9 @@ async function* streamOpenAiChat(
       response = await send(stream);
       errorText = response.ok ? '' : await response.text();
     }
-    if (
-      options?.allowToolChoiceFallback &&
-      baseBody.tool_choice === 'required' &&
-      (response.status === 400 || response.status === 422) &&
-      /tool[ _]?choice/i.test(errorText)
-    ) {
-      // Some compatible gateways only implement the default automatic mode.
-      delete baseBody.tool_choice;
-      response = await send(stream);
-      errorText = response.ok ? '' : await response.text();
-    }
+    // A tool_choice rejection is retried by PiAiLLMProvider, the boundary both
+    // the bundled transport and host-injected stream functions share. Keeping a
+    // second copy here would resend an already-retried request.
     return { response, errorText };
   };
   // MiniMax applies the JSON schema on its buffered response path.
