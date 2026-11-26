@@ -580,6 +580,8 @@ export function runAgentLoop(
               continue;
             }
 
+            // A completed generation no longer consumes the next generation’s recovery attempt.
+            projectionOverflowRetries = 0;
             turnToolCalls = llmResult.toolCalls;
 
             const responseResult = await processLlmResponse({
