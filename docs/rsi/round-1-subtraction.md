@@ -1,5 +1,12 @@
 # Round 1 — subtraction
 
+> **Status, 2026-11-26.** The candidate list below was deleted in 0.38. See `CHANGELOG.md`, "The
+> model decides; the harness stops second-guessing it". Seven ids remain and still honour the
+> switch: `reasoning-only`, `output-continuation`, `empty-response`, `truncated-tool-json`,
+> `background-completion`, `background-lifecycle-gate`, `acceptance-gate` (measured from
+> `NUDGE_IDS`). Each one keys off a provider fact, not a pattern in the model's text. The ablation
+> commands further down name ids that no longer exist.
+
 First self-evolution round: measure what happens when loop nudges are removed. This change adds the switch and the candidate list. It does not delete any nudge. With `MOSS_DISABLE_NUDGES` unset, empty, or whitespace, behavior matches the previous build.
 
 Ids are case-sensitive. Unknown ids do nothing. A disabled nudge is not injected and does not advance its once-per-run counter (red-wave resets included).

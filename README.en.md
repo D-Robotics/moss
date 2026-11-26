@@ -159,7 +159,7 @@ The first screen shows the last run (status / age / goal) and a next step — a 
 
 ## Capabilities
 
-**Write code.** The agent loop handles turns, compaction, nudges and loop guards; **52 built-in
+**Write code.** The agent loop handles turns, compaction and loop guards; **52 built-in
 tools** cover read/write/patch/search, processes and background jobs, web fetch/search, type and
 lint diagnostics, test running, sub-agents and task contracts. Write tools go through approvals;
 sessions can be saved / searched / exported / forked. One screen for what this install can do:
