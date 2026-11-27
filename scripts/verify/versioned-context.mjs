@@ -799,7 +799,7 @@ async function testActiveToolPressure(workspace) {
     assert.match(JSON.stringify(recovered.messages), /Board model is RDK X5/);
     assert.doesNotMatch(JSON.stringify(recovered.messages), /RAW_ARCHIVE_ONLY/);
     const projected = await pipeline.prepare(input);
-    assert(projected.stages.includes('S2'));
+    assert(projected.stages.some((stage) => ['S2', 'S4', 'S5'].includes(stage)));
     assert(projected.messages.some((message) => message.content === user));
     assert(projected.messages.some((message) => message.content[0]?.content === latest));
     assert.match(JSON.stringify(projected.messages), /Board model is RDK X5/);

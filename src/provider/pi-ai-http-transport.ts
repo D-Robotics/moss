@@ -21,7 +21,7 @@ import { buildApiV1Url } from './api-v1-url.js';
 import { providerRejectsImageInput } from './image-capability.js';
 import { fetchWithConnectionContext } from './connection-error.js';
 import { providerStopSignal } from './output-limit.js';
-import { ErrorCode, errorMessage, MossError } from '../errors.js';
+import { ErrorCode, errorMessage, MossError, safeProviderErrorIdentity } from '../errors.js';
 
 /**
  * Gateway `model` ids are copied into tool results, the terminal, and session
@@ -95,8 +95,10 @@ function extractSupportedModelsList(text: string): string {
 export function providerError(provider: string, status: number, text: string): MossError {
   const compact = text.replace(/\s+/g, ' ').trim();
   let detail = compact;
+  let identity = {};
   try {
     const parsed = JSON.parse(compact);
+    identity = safeProviderErrorIdentity(parsed?.error ?? parsed);
     const msg = parsed?.error?.message ?? parsed?.message;
     if (typeof msg === 'string' && msg.trim()) detail = msg.trim();
   } catch {
@@ -130,6 +132,7 @@ export function providerError(provider: string, status: number, text: string): M
     message: `${provider} provider returned HTTP ${status}: ${detail || '(empty response body)'}${hint}${supportedModelsSuffix}`,
     recoverable: status === 429 || status >= 500,
     context: { provider, status },
+    ...identity,
   });
 }
 

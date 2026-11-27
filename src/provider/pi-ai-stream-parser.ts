@@ -1,3 +1,4 @@
+import { ErrorCode, MossError, safeProviderErrorIdentity } from '../errors.js';
 import type { LLMResponse, LLMStreamEvent, LLMContentBlock } from '../core/llm/llm-provider.js';
 import { providerLogger } from './redacted-log.js';
 import { classifyProviderError } from './error-classify.js';
@@ -192,9 +193,11 @@ export function processEvent(
     });
     const overflowProbe = [errPayload?.code, errPayload?.errorMessage].filter(Boolean).join(' ');
     if (overflowProbe && isContextOverflowError(overflowProbe)) {
-      throw new Error(
-        String(errPayload?.errorMessage || errPayload?.code || 'context_length_exceeded')
-      );
+      throw new MossError({
+        code: ErrorCode.PROVIDER_CONTEXT_OVERFLOW,
+        message: String(errPayload?.errorMessage || errPayload?.code || 'context_length_exceeded'),
+        ...safeProviderErrorIdentity(errPayload),
+      });
     }
     const runtimeErrorSignal = hasProviderRuntimeErrorSignal(errPayload);
     if (runtimeErrorSignal) {

@@ -392,7 +392,8 @@ function matchToolUnsupported(text: string): boolean {
 
 function matchContextLengthExceeded(text: string, code?: string): boolean {
   const normalized = (code ?? '').toLowerCase();
-  if (normalized === 'context_length_exceeded') return true;
+  if (normalized === 'context_length_exceeded' || normalized === 'provider_context_overflow')
+    return true;
   if (
     (normalized === 'invalid_request_error' || normalized === 'bad_request') &&
     /context (?:length|window|size|limit)|exceeds? .*context|上下文|窗口|超限|过长/i.test(text)
@@ -693,6 +694,10 @@ function classifyProviderErrorNow(input: ProviderErrorInput): ProviderErrorSurfa
   // Ordered before model-not-found on purpose: the transport appends
   // "this model name is not available on the gateway" to any 400 body, so an
   // image-unsupported body would otherwise be classified as a missing model.
+  // Retrying the same overflowing prompt overflows again. No retry action.
+  if (matchContextLengthExceeded(raw, code)) {
+    return hit('context_length_exceeded', 'overflow', [NEW_SESSION, SWITCH], false);
+  }
   if (matchModelNotFound(raw, code)) {
     const localish = inferLocalInferenceStack({
       provider: provider ?? input.provider,
@@ -704,10 +709,6 @@ function classifyProviderErrorNow(input: ProviderErrorInput): ProviderErrorSurfa
     return hit('model_not_found', id, SETTINGS_SWITCH, false, 'body');
   }
   if (status === 404) return hit('network', 'path404', SETTINGS_RETRY, false, 'body');
-  // Retrying the same overflowing prompt overflows again. No retry action.
-  if (matchContextLengthExceeded(raw, code)) {
-    return hit('context_length_exceeded', 'overflow', [NEW_SESSION, SWITCH], false);
-  }
   if (isServerErrorFailure(raw, status) || isPrematureStreamClose(raw)) {
     return hit('service_unavailable', 'upstream', RETRY_SWITCH, true);
   }

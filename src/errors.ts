@@ -47,7 +47,31 @@ export enum ErrorCode {
   UNKNOWN = 'UNKNOWN',
 }
 
-export interface MossErrorDetails {
+/** Safe provider identity only; raw payloads and causes never cross the host seam. */
+export interface ProviderErrorIdentity {
+  source?: 'gateway' | 'upstream' | 'provider' | 'runtime';
+  providerCode?: string;
+}
+
+export function safeProviderErrorIdentity(value: unknown): ProviderErrorIdentity {
+  if (!value || typeof value !== 'object') return {};
+  const record = value as Record<string, unknown>;
+  const code = record.providerCode ?? record.code;
+  const source = record.source;
+  return {
+    ...(typeof code === 'string' && /^[a-zA-Z][a-zA-Z0-9_]{0,95}$/.test(code)
+      ? { providerCode: code }
+      : {}),
+    ...(source === 'gateway' ||
+    source === 'upstream' ||
+    source === 'provider' ||
+    source === 'runtime'
+      ? { source }
+      : {}),
+  };
+}
+
+export interface MossErrorDetails extends ProviderErrorIdentity {
   code: ErrorCode;
 
   message: string;
@@ -66,7 +90,7 @@ export interface MossErrorDetails {
  *
  * @public
  */
-export interface MossErrorOutcome {
+export interface MossErrorOutcome extends ProviderErrorIdentity {
   code: ErrorCode;
   message: string;
   hint?: string;
@@ -74,6 +98,8 @@ export interface MossErrorOutcome {
 }
 
 export class MossError extends Error {
+  readonly source?: ProviderErrorIdentity['source'];
+  readonly providerCode?: string;
   readonly code: ErrorCode;
   readonly hint?: string;
   readonly recoverable: boolean;
@@ -84,6 +110,12 @@ export class MossError extends Error {
     super(details.message);
     this.name = 'MossError';
     this.code = details.code;
+    const identity = safeProviderErrorIdentity({
+      source: details.source,
+      providerCode: details.providerCode,
+    });
+    this.source = identity.source;
+    this.providerCode = identity.providerCode;
     this.hint = details.hint;
     this.recoverable = details.recoverable ?? false;
     this.context = details.context;
@@ -94,6 +126,7 @@ export class MossError extends Error {
     return {
       name: this.name,
       code: this.code,
+      ...safeProviderErrorIdentity({ source: this.source, providerCode: this.providerCode }),
       message: this.message,
       hint: this.hint,
       recoverable: this.recoverable,
@@ -110,6 +143,7 @@ export function mossErrorFromOutcome(outcome: MossErrorOutcome): MossError {
 export function mossErrorToOutcome(error: MossError): MossErrorOutcome {
   return {
     code: error.code,
+    ...safeProviderErrorIdentity({ source: error.source, providerCode: error.providerCode }),
     message: error.message,
     ...(error.hint ? { hint: error.hint } : {}),
     recoverable: error.recoverable,
