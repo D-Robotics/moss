@@ -38,7 +38,9 @@ function throwUserFacingProviderError(err: unknown): never {
     : err instanceof Error
       ? err.message
       : String(err);
-  const identity = safeProviderErrorIdentity(err);
+  const identity = safeProviderErrorIdentity(
+    moss ? { source: moss.source, providerCode: moss.providerCode } : err
+  );
   const surface = classifyProviderError({
     code: moss?.code === ErrorCode.PROVIDER_CONTEXT_OVERFLOW ? moss.code : identity.providerCode,
     errorMessage: message,

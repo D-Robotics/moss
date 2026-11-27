@@ -76,3 +76,28 @@ assert.throws(
     return true;
   }
 );
+
+const textOnly = new PiAiLLMProvider({
+  apiKey: 'offline',
+  model: { id: 'offline', provider: 'custom', api: 'openai-completions' },
+  streamFn: async function* () {
+    yield { type: 'error', error: { errorMessage: 'context_length_exceeded' } };
+  },
+});
+await assert.rejects(
+  textOnly.stream(
+    {
+      model: 'offline',
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'synthetic' }],
+      maxTokens: 128,
+    },
+    () => {}
+  ),
+  (error) => {
+    assert.equal(error.code, 'PROVIDER_CONTEXT_OVERFLOW');
+    assert.equal(error.providerCode, undefined);
+    assert.equal(error.source, undefined);
+    return true;
+  }
+);

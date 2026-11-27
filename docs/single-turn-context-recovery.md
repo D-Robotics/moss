@@ -45,3 +45,9 @@ Studio 隔离桌面反馈：容量失败被本地化后失去可分类 code。�
 `MossErrorDetails` / `MossError` / `MossErrorOutcome` 增加可选 `source`（仅 gateway/upstream/provider/runtime）和 `providerCode`（最多96字符的字母数字下划线标识）。HTTP JSON error、注入 streamFn 抛错和容量 error event 的安全身份经 provider 包装和 JSON outcome 重建保留。原始 code 放 providerCode，Moss code 仍是 SDK 枚举。cause/context/stack/任意响应内容不进入 outcome。安全 source 仅作错误来源诊断，不授予权限。
 
 `scripts/verify/provider-error-identity.mjs` 在未修改 main 产物上红于容量 code；修复后验证 complete/stream、JSON outcome 重建和错误事件。single-turn-recovery 的持续拒绝路径同时断言最终抛出的 code/source/providerCode。此补充仍不声称 Studio 已 bump 或桌面联调通过。
+
+## Studio 第三方 HTTP 边界复核
+
+Studio 的真实 buildStreamFn 使用 @earendil-works/pi-ai@0.79.0。该依赖 openai-completions 的 catch 仅将原始 error.message 放入 assistant.errorMessage，再发送 error event；实测 event 已没有 JSON error.code/source。因此“typed provider 通过”不能替代此宿主 HTTP 边界验收，SDK 不能从丢失的字段还原原始身份。应由该 transport 的维护者在进入 Moss 前保留白名单字段，不从自然语言推断原始 code/source。
+
+补充内置 HTTP transport 回归：请求真正经过 serializer 与本地 HTTP 端点，响应仅 JSON error.code=context_length_exceeded、message=Synthetic provider context limit.，不在文案携带容量标记，仍应正确分类并保留原始身份。Moss 不再把自身规范化 code 冒充缺失的 providerCode；原始身份缺失时字段保持缺失。

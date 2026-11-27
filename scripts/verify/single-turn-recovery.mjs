@@ -181,8 +181,8 @@ for (const persistent of [false, true]) {
       res.end(
         JSON.stringify({
           error: {
-            message: 'context_length_exceeded',
-            code: 'gateway_auto_context_overflow',
+            message: 'Synthetic provider context limit.',
+            code: 'context_length_exceeded',
             source: 'gateway',
           },
         })
@@ -268,7 +268,7 @@ for (const persistent of [false, true]) {
         (error) => {
           assert.equal(error.code, 'PROVIDER_CONTEXT_OVERFLOW');
           assert.equal(error.source, 'gateway');
-          assert.equal(error.providerCode, 'gateway_auto_context_overflow');
+          assert.equal(error.providerCode, 'context_length_exceeded');
           return true;
         }
       );
