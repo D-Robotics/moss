@@ -491,7 +491,12 @@ export class VersionedContextPipeline {
         ...historical.map(({ sourceId }) => sourceId),
         ...checkpoint.entries.flatMap((entry) => entry.sourceIds),
         ...sources
-          .filter((row) => row.ordinal > checkpoint.throughOrdinal || trustedUser(row))
+          .filter(
+            (row) =>
+              row.ordinal > checkpoint.throughOrdinal ||
+              trustedUser(row) ||
+              row.origin === 'runtime'
+          )
           .map(({ id }) => id),
       ]),
     ];
@@ -512,8 +517,23 @@ export class VersionedContextPipeline {
       !candidate && snapshot.revision > 0
         ? this.store.earlierCheckpointBoundary(input.sessionKey, snapshot.revision, input.policyKey)
         : undefined;
+    // Retire only closed rounds before the newest assistant/tool exchange.
+    // Keeping that exchange intact also preserves provider reasoning/signatures.
+    let pressureStart = activeStart;
+    if (
+      input.force ||
+      (!selected.legal &&
+        (!lastEvidence || !fit(complete(editableView(sources, lastEvidence.ordinal))).legal))
+    ) {
+      for (let index = sources.length - 1; index > activeStart; index--) {
+        if (sources[index]!.message.role === 'assistant') {
+          pressureStart = index;
+          break;
+        }
+      }
+    }
     const boundary = Math.max(
-      closureBoundary(sources, activeStart),
+      closureBoundary(sources, pressureStart),
       Math.min(retired ?? 0, snapshot.messages.at(-1)?.ordinal ?? 0)
     );
     const isCompatible =
@@ -527,7 +547,10 @@ export class VersionedContextPipeline {
       preserveToolResultsFrom = currentTurnOrdinal
     ) => {
       const tail = editableView(
-        sources.filter((row) => row.ordinal > checkpoint.throughOrdinal || trustedUser(row)),
+        sources.filter(
+          (row) =>
+            row.ordinal > checkpoint.throughOrdinal || trustedUser(row) || row.origin === 'runtime'
+        ),
         preserveToolResultsFrom
       );
       const evidence =
@@ -578,7 +601,10 @@ export class VersionedContextPipeline {
         stages.push('S4');
       }
     }
-    if (boundary && (!selected.legal || (input.force && !stages.includes('S4')))) {
+    if (
+      boundary &&
+      (!selected.legal || (input.force && (!isCompatible || boundary > candidate.throughOrdinal)))
+    ) {
       try {
         const checkpoint = await this.prepareSummary(input, snapshot, sources, boundary, policy);
         pressureCheckpoint = { checkpoint, stage: 'S5' };
