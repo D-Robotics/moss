@@ -1,3 +1,4 @@
+import { ErrorCode, isMossError } from '../errors.js';
 import {
   describeError,
   isAbortFailure,
@@ -70,6 +71,9 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
     return { ...original, retryable: false, message: error.message };
   }
   const message = describeError(error);
+  if (isMossError(error) && error.code === ErrorCode.PROVIDER_CONTEXT_OVERFLOW) {
+    return { category: 'context_overflow', retryable: false, message };
+  }
 
   // Avoid relying on provider message text: first-chunk timeout guidance can
   // mention API keys and otherwise look like a non-retryable auth failure.

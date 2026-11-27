@@ -1,6 +1,6 @@
 import type { EventStream } from '../../provider/pi-ai-types.js';
 import { getRootLogger } from '../../logger.js';
-import { errorMessage } from '../../errors.js';
+import { errorMessage, ErrorCode } from '../../errors.js';
 import { toMossErrorOutcome } from './agent-error-outcome.js';
 
 const log = getRootLogger().child('agent:loop');
@@ -700,7 +700,8 @@ export function runAgentLoop(
             if (
               params.prepareContextProjection &&
               !abortSignal.aborted &&
-              isContextOverflowError(describeError(turnErr)) &&
+              (toMossErrorOutcome(turnErr).code === ErrorCode.PROVIDER_CONTEXT_OVERFLOW ||
+                isContextOverflowError(describeError(turnErr))) &&
               projectionOverflowRetries < 1
             ) {
               projectionOverflowRetries++;

@@ -180,7 +180,11 @@ for (const persistent of [false, true]) {
       res.writeHead(400);
       res.end(
         JSON.stringify({
-          error: { message: 'context_length_exceeded', code: 'context_length_exceeded' },
+          error: {
+            message: 'context_length_exceeded',
+            code: 'gateway_auto_context_overflow',
+            source: 'gateway',
+          },
         })
       );
       return;
@@ -259,7 +263,15 @@ for (const persistent of [false, true]) {
   });
   try {
     if (persistent)
-      await assert.rejects(agent.chat('fixture', 'Summarize this project; no memory writes.'));
+      await assert.rejects(
+        agent.chat('fixture', 'Summarize this project; no memory writes.'),
+        (error) => {
+          assert.equal(error.code, 'PROVIDER_CONTEXT_OVERFLOW');
+          assert.equal(error.source, 'gateway');
+          assert.equal(error.providerCode, 'gateway_auto_context_overflow');
+          return true;
+        }
+      );
     else {
       const reply = await agent.chat('fixture', 'Summarize this project; no memory writes.');
       assert.match(reply.response, /Four files inspected/);
@@ -277,3 +289,5 @@ for (const persistent of [false, true]) {
 console.log(
   'PASS real HTTP serialization and agent loop recover once or fail after a second rejection'
 );
+
+await import('./provider-error-identity.mjs');

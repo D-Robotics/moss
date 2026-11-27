@@ -37,3 +37,11 @@ npm run verify
 - single-turn-recovery、versioned-context、reasoning-follow-up 通过（退出 0）。
 - 完整 verify 未全绿：最后完整运行 56.8s，startup-timing 的无代理启动/已配置 provider 启动两项断言发现 undici 提前加载。隔离的未修改 main `4f863819` 重新 build 后执行 `node scripts/verify/startup-timing.mjs` 同样 2/6 失败。此基线问题未扩展修复。
 - 初次完整验证 capabilities/task-fail-reasons 失败，单独复验分别 15/15、9 项通过；后续完整运行这两项通过。一次验证与构建误并发导致 dist 缺失，该结果作废，已串行重跑。
+
+## 补充：容量错误身份保留
+
+Studio 隔离桌面反馈：容量失败被本地化后失去可分类 code。补充修复将容量错误规范为 `PROVIDER_CONTEXT_OVERFLOW`，`classifyProviderError` 可直接识别该 code；恢复判断也可识别经过重试包装的类型化错误，不依赖展示文案。
+
+`MossErrorDetails` / `MossError` / `MossErrorOutcome` 增加可选 `source`（仅 gateway/upstream/provider/runtime）和 `providerCode`（最多96字符的字母数字下划线标识）。HTTP JSON error、注入 streamFn 抛错和容量 error event 的安全身份经 provider 包装和 JSON outcome 重建保留。原始 code 放 providerCode，Moss code 仍是 SDK 枚举。cause/context/stack/任意响应内容不进入 outcome。安全 source 仅作错误来源诊断，不授予权限。
+
+`scripts/verify/provider-error-identity.mjs` 在未修改 main 产物上红于容量 code；修复后验证 complete/stream、JSON outcome 重建和错误事件。single-turn-recovery 的持续拒绝路径同时断言最终抛出的 code/source/providerCode。此补充仍不声称 Studio 已 bump 或桌面联调通过。

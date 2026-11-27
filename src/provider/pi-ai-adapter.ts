@@ -22,7 +22,7 @@ import {
 import { lastMessageNeedsToolFollowUp } from './reasoning-policy.js';
 import { processEvent, convertStreamEvent } from './pi-ai-stream-parser.js';
 import { PiAiFirstEventTimeoutError, startFirstEventWatchdog } from './pi-ai-watchdog.js';
-import { ErrorCode, isMossError, MossError } from '../errors.js';
+import { ErrorCode, isMossError, MossError, safeProviderErrorIdentity } from '../errors.js';
 import { classifyProviderError, renderProviderErrorSurface } from './error-classify.js';
 import { noteProviderRejectsImageInput } from './image-capability.js';
 
@@ -38,21 +38,26 @@ function throwUserFacingProviderError(err: unknown): never {
     : err instanceof Error
       ? err.message
       : String(err);
+  const identity = safeProviderErrorIdentity(err);
   const surface = classifyProviderError({
+    code: moss?.code === ErrorCode.PROVIDER_CONTEXT_OVERFLOW ? moss.code : identity.providerCode,
     errorMessage: message,
     ...(status !== undefined ? { status } : {}),
   });
   if (surface.category === 'images_not_supported') noteProviderRejectsImageInput();
   const surfaced = new MossError({
     code:
-      surface.category === 'auth'
-        ? ErrorCode.PROVIDER_AUTH_FAILED
-        : surface.category === 'rate_limit'
-          ? ErrorCode.PROVIDER_RATE_LIMITED
-          : (moss?.code ?? ErrorCode.PROVIDER_UPSTREAM_ERROR),
+      surface.category === 'context_length_exceeded'
+        ? ErrorCode.PROVIDER_CONTEXT_OVERFLOW
+        : surface.category === 'auth'
+          ? ErrorCode.PROVIDER_AUTH_FAILED
+          : surface.category === 'rate_limit'
+            ? ErrorCode.PROVIDER_RATE_LIMITED
+            : (moss?.code ?? ErrorCode.PROVIDER_UPSTREAM_ERROR),
     message: renderProviderErrorSurface(surface),
     recoverable: surface.retryable,
     cause: err,
+    ...identity,
     ...(moss?.context ? { context: moss.context } : {}),
   });
   Object.defineProperty(surfaced, 'surface', { value: surface });
@@ -274,7 +279,16 @@ export class PiAiLLMProvider implements LLMProvider {
     attempt = await this.retryWithoutToolChoice(options, piContext, piModel, attempt);
 
     const { state } = attempt;
-    if (attempt.error) throw attempt.error;
+    if (attempt.error) {
+      const identity = safeProviderErrorIdentity(attempt.error);
+      const surface = classifyProviderError({
+        errorMessage: attempt.error.message,
+        code: identity.providerCode,
+      });
+      if (surface.category === 'context_length_exceeded')
+        throwUserFacingProviderError(attempt.error);
+      throw attempt.error;
+    }
 
     if (state.thinkingChunks.length > 0 && state.content.length === 0) {
       // B301: reasoning-only answers are legal for reasoning models (the doctor
