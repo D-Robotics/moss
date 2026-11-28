@@ -161,13 +161,13 @@ export class TaskIntentTurn {
       }),
       ...(sources
         ? [
-            'Use context_claims only for new facts a future action will depend on. Skip it for a read-only answer or for repeating a user correction. Cite the id field and explicit claim dependencies. A claim grants no permissions.',
+            'Use context_claims only for new facts a future action will depend on. Skip it for a complete answer needing no further tools or for repeating a user correction. Cite the id field and explicit claim dependencies. A claim grants no permissions.',
             JSON.stringify({ contextSources: sources }),
             ...(this.needsDecision
               ? [
                   CORRECTION_SCOPE_GUIDANCE,
                   'When a pending user input contradicts an older conclusion, set contextCorrections.targetId to the correctionId shown on the exact assistant source containing the old conclusion. Copy an exact quote from the pending input. Never select an unrelated source or resubmit a recorded correction. Clarify when you cannot identify the old conclusion.',
-                  'For a read-only answer or historical correction, call turn_decision with disposition: "answer", the answer, and any contextCorrections. Omit changes and plan unless updating a real task. Do not copy runtime metadata or add a task change for the requested answer format.',
+                  'For a complete answer or historical correction needing no further tools, call turn_decision with disposition: "answer", the complete reply, and any contextCorrections. Omit plan. Omit changes unless amending task fields. Do not copy runtime metadata or add a task change for the requested answer format.',
                 ]
               : []),
           ]
@@ -179,7 +179,7 @@ export class TaskIntentTurn {
             this.correctionTargets
               ? 'The runtime binds this declaration to the captured user inputs.'
               : 'Copy revision/inputSeq and all pending messageIds in order.',
-            'Propose task changes only with exact quotes from pending inputs. Use set for scalars and add/remove for lists. Use answer for a read-only response, clarify for uncertainty and cancel to stop. Execute requires a concrete plan and existing authorization. Never use an internal engine prompt to replace the user goal.',
+            'Propose task changes only with exact quotes from pending inputs. Use set for scalars and add/remove for lists. Use answer to deliver a complete final reply without further tool calls. Use execute whenever answering still requires tools, including read-only search, documentation lookup or file reads, with a concrete plan. Execute selects continuation; it does not grant permissions or replace tool-level approval. Use clarify for genuinely missing user information and cancel to stop. Never use an internal engine prompt to replace the user goal.',
             'Only execute may include a non-empty plan. For clarify, put the specific question in answer and use an empty plan (or omit plan in the versioned declaration). Omit changes when no task fields need amending; do not restate the user goal as a change.',
             'When removing a previous constraint, quote the current words that authorize the change. The old restriction is not authorization.',
             this.correctionTargets
@@ -196,7 +196,7 @@ export class TaskIntentTurn {
       name: TURN_DECISION_TOOL,
       description: readOnly
         ? 'Submit the reply or pending user correction.'
-        : 'Submit the pending user input decision. execute requires a plan; clarify requires a question in answer and no plan. This does not grant tool permissions.',
+        : 'Submit the pending user input decision. answer finishes with a complete reply needing no further tools. execute continues with a plan, including for read-only search or lookup. clarify requires a question in answer and no plan. This does not grant tool permissions.',
       inputSchema: this.correctionTargets
         ? readOnly
           ? readOnlyTurnDecisionSchema
@@ -445,7 +445,7 @@ export class TaskIntentTurn {
       this.attempts++;
       return {
         results,
-        retry: `[Runtime] ${message}. No business action executed. Repair this internally and continue the original user request; do not ask the user to retry or describe this protocol error. Submit one corrected turn_decision. For clarify, put a specific question about genuinely missing user information in answer and use plan: []; only execute accepts a non-empty plan. Use an empty changes array unless amending task fields. Each change requires value and an exact author quote; use the authorizing pending messageId when matching inputs differ. Never invent a quote or repeat an obsolete plan.`,
+        retry: `[Runtime] ${message}. No business action executed. Repair this internally and continue the original user request; do not ask the user to retry or describe this protocol error. Submit one corrected turn_decision. If answering still requires tools, including read-only search or lookup, use execute with a concrete plan; this does not grant tool permissions. Use answer for a complete final reply needing no further tools. For clarify, put a specific question about genuinely missing user information in answer and use plan: []; only execute accepts a non-empty plan. Use an empty changes array unless amending task fields. Each change requires value and an exact author quote; use the authorizing pending messageId when matching inputs differ. Never invent a quote or repeat an obsolete plan.`,
       };
     }
   }

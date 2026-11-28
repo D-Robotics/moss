@@ -27,6 +27,7 @@ import { lastMessageNeedsToolFollowUp } from '../../provider/reasoning-policy.js
 import { hasAssistantThinkingHistory } from './agent-loop-assistant-turn.js';
 import { convertMessagesToPi } from '../tools/message-convert.js';
 import { compactToolSchema } from '../tools/tiny-window-tools.js';
+import { TURN_DECISION_TOOL } from '../session/task-intent-state.js';
 import {
   checkPromptPrefixStable,
   checkToolOrderConsistency,
@@ -135,7 +136,12 @@ export function buildProviderToolDeclarations(
     return {
       name: tool.name,
       description: toolDescriptionForModel(tool, lean),
-      parameters: compactSchemaNode(pruned) as Record<string, unknown>,
+      // Decision field guidance defines whether the run continues or ends. It is
+      // protocol, not optional tool prose, even in a small context window.
+      parameters:
+        tool.name === TURN_DECISION_TOOL
+          ? schema
+          : (compactSchemaNode(pruned) as Record<string, unknown>),
     };
   });
 }

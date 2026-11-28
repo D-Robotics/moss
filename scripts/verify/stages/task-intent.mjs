@@ -8,6 +8,7 @@ export const stage = {
     'User corrections update durable state and fence old plans without a second classifier',
   async run(context) {
     for (const script of [
+      'task-intent-readonly-tools.mjs',
       'task-intent-decision-repair.mjs',
       'task-intent-revisions.mjs',
       'task-intent-store.mjs',
