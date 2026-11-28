@@ -14,7 +14,15 @@ await agent.chat(sessionKey, enginePrompt, { userInput: false, taskId });
 agent.steer(sessionKey, correction, { id: stableCorrectionId, taskId });
 ```
 
-The model proposes field-level changes and a plan through `turn_decision` in its normal response. Runtime checks input identity, exact source quotations, schema and the captured revision before committing. Unmentioned fields survive. This validates protocol and provenance, not the semantic correctness of an interpretation. Ambiguous input should produce `clarify`, and capability questions should produce `answer`, with no business calls.
+The model proposes field-level changes and a plan through `turn_decision` in its normal response. Runtime checks input identity, exact source quotations, schema and the captured revision before committing. Unmentioned fields survive. This validates protocol and provenance, not the semantic correctness of an interpretation. Missing user information should produce `clarify`.
+
+`answer` finishes the turn with a complete reply that needs no further tools.
+`execute` continues the turn with a concrete plan whenever tools are still needed,
+including read-only searches, documentation lookups and file reads. This selects
+continuation and does not grant permissions or bypass tool approval. A promise to
+look something up is not a complete `answer`. Decision schema descriptions are
+preserved in provider requests, including small context windows and protocol
+repair requests, so models receive these distinctions.
 
 Hosts can set `MossAgentConfig.validateTaskIntentDecision` when a proposed
 decision must follow host-specific rules. The synchronous callback receives a

@@ -292,13 +292,13 @@ export const turnDecisionSchema = {
       type: 'string',
       enum: ['answer', 'execute', 'clarify', 'cancel'],
       description:
-        'execute authorizes a concrete plan; answer, clarify and cancel do not execute a plan.',
+        'answer finishes with a complete reply needing no further tools. execute continues with tools, including read-only search or lookup, and requires a concrete plan; it does not grant tool permissions. clarify asks for missing user information; cancel stops.',
     },
     plan: {
       type: 'array',
       items: { type: 'string' },
       description:
-        'A non-empty plan is allowed only for execute. For answer, clarify and cancel use an empty array.',
+        'Required and non-empty for execute, including read-only search or lookup. For answer, clarify and cancel use an empty array.',
     },
     planDependsOn: { type: 'array', items: { type: 'string' } },
   },
@@ -335,8 +335,7 @@ export const versionedTurnDecisionSchema = {
     },
     changes: {
       ...turnDecisionSchema.properties.changes,
-      description:
-        'Omit for a read-only answer or historical correction. Only include actual task amendments.',
+      description: 'Omit unless amending task fields, including when executing a read-only lookup.',
       items: {
         ...turnDecisionSchema.properties.changes.items,
         properties: {
@@ -357,12 +356,13 @@ export const versionedTurnDecisionSchema = {
     plan: {
       ...turnDecisionSchema.properties.plan,
       description:
-        'Required and non-empty for execute. For answer, clarify and cancel omit plan or use an empty array; put the reply in answer.',
+        'Required and non-empty for execute, including read-only search or lookup. For answer, clarify and cancel omit plan or use an empty array; put the reply in answer.',
     },
     planDependsOn: turnDecisionSchema.properties.planDependsOn,
     answer: {
       type: 'string',
-      description: 'For answer, clarify and cancel, include the complete user-facing reply here.',
+      description:
+        'For answer, include the complete final reply, not a promise to search or act later. If tools are still needed, choose execute with a plan. For clarify or cancel, include the user-facing question or reply.',
     },
   },
   required: ['disposition'],
